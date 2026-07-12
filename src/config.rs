@@ -53,6 +53,53 @@ pub struct WflConfig {
     /// server sheds new requests with a 503 instead of growing memory without
     /// bound. Default 256; must be at least 1.
     pub web_server_request_queue_bound: usize,
+    /// Maximum HTTP response body size in bytes. A handler that tries to send a
+    /// larger body is refused with a 500 rather than streaming an unbounded
+    /// payload. Feeds `ExecutionBudget`. Default 64 MiB.
+    pub web_server_max_response_size: usize,
+    /// Maximum seconds the transport waits for a handler to answer an accepted
+    /// HTTP request before shedding it with 504 and releasing its in-flight
+    /// slot. `0` disables the timeout. Feeds `ExecutionBudget`. Default 300.
+    pub web_server_response_timeout_seconds: u64,
+    // --- Shared ExecutionBudget limits (see src/exec/budget.rs) ---
+    /// Hard ceiling on charged interpreter operations. `None`/`0` = unlimited
+    /// (the default, matching historic behavior). Feeds `ExecutionBudget`.
+    pub max_operations: Option<u64>,
+    /// Maximum WFL call/recursion depth before a clean error replaces a native
+    /// stack overflow. Feeds `ExecutionBudget`. Default 1000.
+    pub max_call_depth: usize,
+    /// Maximum nested `load module` / `include` depth. Feeds `ExecutionBudget`.
+    /// Default 64.
+    pub max_import_depth: usize,
+    /// Maximum `execute file` nesting depth. Kept small because each level
+    /// re-enters the whole interpreter recursively. Feeds `ExecutionBudget`.
+    /// Default 4.
+    pub max_execute_file_depth: usize,
+    /// Maximum pattern-VM transitions (instructions) per match operation (ReDoS
+    /// guard). Feeds `ExecutionBudget`. Default 5000000.
+    pub max_pattern_steps: usize,
+    /// Maximum simultaneously-active pattern-VM states per match attempt. Feeds
+    /// `ExecutionBudget`. Default 10000.
+    pub max_pattern_states: usize,
+    /// Maximum WFL source-file size in bytes. Feeds `ExecutionBudget`.
+    /// Default 64 MiB.
+    pub max_source_size: usize,
+    /// Maximum queued frames/events per WebSocket channel before shedding.
+    /// Feeds `ExecutionBudget`. Default 1024; must be at least 1.
+    pub web_socket_queue_bound: usize,
+    /// Maximum simultaneous live WebSocket connections. Feeds `ExecutionBudget`.
+    /// Default 1024; must be at least 1.
+    pub web_socket_max_connections: usize,
+    /// Maximum size in bytes of a single WebSocket text message (inbound or
+    /// outbound); larger frames are dropped rather than queued. Feeds
+    /// `ExecutionBudget`. Default 1 MiB; must be at least 1.
+    pub web_socket_max_message_size: usize,
+    /// Global ceiling in bytes on WebSocket payloads queued across every
+    /// connection's inbound event and outbound frame channels; reservations are
+    /// released as frames are consumed or shed, so a slow/absent consumer cannot
+    /// buffer without bound. Feeds `ExecutionBudget`. Default 16 MiB; must be at
+    /// least 1.
+    pub web_socket_max_queued_bytes: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +183,25 @@ impl Default for WflConfig {
             // Bound the accept queue so a flood sheds with 503 rather than
             // growing memory without bound. Aligns with the Phase 1 in-flight cap.
             web_server_request_queue_bound: 256,
+            // 64 MiB default response body limit (DoS protection).
+            web_server_max_response_size: 64 * 1024 * 1024,
+            // Free an accepted request's in-flight slot if its handler does not
+            // answer within 5 minutes (far longer than any serial handler needs).
+            web_server_response_timeout_seconds: 300,
+            // Shared ExecutionBudget limits (see src/exec/budget.rs). Defaults
+            // are chosen so existing programs never trip them while runaway
+            // behavior gets a clean error instead of a crash or OOM.
+            max_operations: None,
+            max_call_depth: 1_000,
+            max_import_depth: 64,
+            max_execute_file_depth: 4,
+            max_pattern_steps: 5_000_000,
+            max_pattern_states: 10_000,
+            max_source_size: 64 * 1024 * 1024,
+            web_socket_queue_bound: 1_024,
+            web_socket_max_connections: 1_024,
+            web_socket_max_message_size: 1_048_576,
+            web_socket_max_queued_bytes: 16 * 1_048_576,
         }
     }
 }
@@ -178,6 +244,22 @@ impl LogLevel {
             LogLevel::Info => log::LevelFilter::Info,
             LogLevel::Warn => log::LevelFilter::Warn,
             LogLevel::Error => log::LevelFilter::Error,
+        }
+    }
+}
+
+/// Parse a positive-integer `.wflcfg` value into `field`. Rejects zero and
+/// non-numeric input with a warning, leaving `field` at its previous value.
+/// Shared by the `ExecutionBudget` limit keys, which all require `>= 1`.
+fn set_positive_usize(field: &mut usize, key: &str, value: &str, file: &Path) {
+    match value.parse::<usize>() {
+        Ok(0) | Err(_) => log::warn!(
+            "Invalid {key} '{value}' in {}: expected a positive integer",
+            file.display()
+        ),
+        Ok(parsed) => {
+            *field = parsed;
+            log::debug!("Loaded {key}: {parsed} from {}", file.display());
         }
     }
 }
@@ -701,6 +783,105 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         );
                     }
                 }
+                "web_server_max_response_size" => match value.parse::<usize>() {
+                    Ok(0) | Err(_) => log::warn!(
+                        "Invalid web_server_max_response_size '{}' in {}: expected a positive integer",
+                        value,
+                        file.display()
+                    ),
+                    Ok(size) => {
+                        config.web_server_max_response_size = size;
+                        log::debug!(
+                            "Loaded web_server_max_response_size: {size} from {}",
+                            file.display()
+                        );
+                    }
+                },
+                "web_server_response_timeout_seconds" => match value.parse::<u64>() {
+                    Ok(secs) => {
+                        // 0 disables the timeout (the documented sentinel).
+                        config.web_server_response_timeout_seconds = secs;
+                        log::debug!(
+                            "Loaded web_server_response_timeout_seconds: {secs} from {}",
+                            file.display()
+                        );
+                    }
+                    Err(_) => log::warn!(
+                        "Invalid web_server_response_timeout_seconds '{}' in {}: expected a non-negative integer",
+                        value,
+                        file.display()
+                    ),
+                },
+                "max_operations" => match value.parse::<u64>() {
+                    Ok(n) => {
+                        // 0 means "no operation ceiling" (the default).
+                        config.max_operations = if n == 0 { None } else { Some(n) };
+                        log::debug!(
+                            "Loaded max_operations: {:?} from {}",
+                            config.max_operations,
+                            file.display()
+                        );
+                    }
+                    Err(_) => log::warn!(
+                        "Invalid max_operations '{}' in {}: expected a non-negative integer",
+                        value,
+                        file.display()
+                    ),
+                },
+                "max_call_depth" => {
+                    set_positive_usize(&mut config.max_call_depth, "max_call_depth", value, file)
+                }
+                "max_import_depth" => set_positive_usize(
+                    &mut config.max_import_depth,
+                    "max_import_depth",
+                    value,
+                    file,
+                ),
+                "max_execute_file_depth" => set_positive_usize(
+                    &mut config.max_execute_file_depth,
+                    "max_execute_file_depth",
+                    value,
+                    file,
+                ),
+                "max_pattern_steps" => set_positive_usize(
+                    &mut config.max_pattern_steps,
+                    "max_pattern_steps",
+                    value,
+                    file,
+                ),
+                "max_pattern_states" => set_positive_usize(
+                    &mut config.max_pattern_states,
+                    "max_pattern_states",
+                    value,
+                    file,
+                ),
+                "max_source_size" => {
+                    set_positive_usize(&mut config.max_source_size, "max_source_size", value, file)
+                }
+                "web_socket_queue_bound" => set_positive_usize(
+                    &mut config.web_socket_queue_bound,
+                    "web_socket_queue_bound",
+                    value,
+                    file,
+                ),
+                "web_socket_max_connections" => set_positive_usize(
+                    &mut config.web_socket_max_connections,
+                    "web_socket_max_connections",
+                    value,
+                    file,
+                ),
+                "web_socket_max_message_size" => set_positive_usize(
+                    &mut config.web_socket_max_message_size,
+                    "web_socket_max_message_size",
+                    value,
+                    file,
+                ),
+                "web_socket_max_queued_bytes" => set_positive_usize(
+                    &mut config.web_socket_max_queued_bytes,
+                    "web_socket_max_queued_bytes",
+                    value,
+                    file,
+                ),
                 _ => {
                     log::warn!("Unknown configuration key: {} in {}", key, file.display());
                 }

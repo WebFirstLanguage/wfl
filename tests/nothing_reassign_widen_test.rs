@@ -45,7 +45,9 @@ fn assert_type_error_contains(code: &str, needle: &str) {
     let mut type_checker = TypeChecker::new();
     let result = type_checker.check_types(&program);
 
-    let errors = result.expect_err("Expected at least one type error");
+    let errors = result
+        .expect_err("Expected at least one type error")
+        .into_diagnostics();
     assert!(
         errors.iter().any(|e| e.message.contains(needle)),
         "Expected a type error containing {needle:?}, got: {errors:?}"

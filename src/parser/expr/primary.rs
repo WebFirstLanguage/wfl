@@ -20,6 +20,10 @@ pub(crate) trait PrimaryExprParser<'a> {
 
 impl<'a> PrimaryExprParser<'a> for Parser<'a> {
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
+        // Strided run-budget checkpoint. Every operand (list element, operator-
+        // chain term, call argument) routes through here, so this bounds a single
+        // huge expression that the statement-boundary checkpoint would miss.
+        self.charge_parse_step()?;
         if let Some(token) = self.cursor.peek() {
             let result = match &token.token {
                 Token::LeftBracket => {

@@ -1,14 +1,14 @@
 use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::StaticAnalyzer;
-use crate::config::WflConfig;
 use crate::diagnostics::DiagnosticReporter;
+use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
-use crate::lexer::{lex_wfl_with_positions, token::TokenWithPosition};
+use crate::lexer::{lex_wfl_with_positions_checked, token::TokenWithPosition};
 use crate::parser::{
     Parser,
     ast::{Program, Statement},
 };
-use crate::typechecker::TypeChecker;
+use crate::typechecker::{TypeCheckError, TypeChecker};
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
@@ -38,8 +38,22 @@ impl Default for ReplState {
 
 impl ReplState {
     pub fn new() -> Self {
-        let config = WflConfig::default();
-        let interpreter = Interpreter::with_timeout(config.timeout_seconds);
+        // Honor the user's `.wflcfg` (e.g. a smaller `max_source_size` or
+        // `timeout_seconds`) rather than hard-coding defaults. Fall back to the
+        // defaults if the current directory can't be determined.
+        let config = std::sync::Arc::new(
+            std::env::current_dir()
+                .map(|dir| crate::config::load_config_with_global(&dir))
+                .unwrap_or_default(),
+        );
+        // One interpreter serves the whole session, but each command gets its
+        // own fresh budget (see `reset_command_budget`), so the wall-clock
+        // deadline is *per command* — a runaway command still times out, while a
+        // long-idle session is never penalized on its next command. The initial
+        // budget is replaced before the first command runs.
+        let budget = std::sync::Arc::new(ExecutionBudget::from_config(&config));
+        let interpreter =
+            Interpreter::with_config_and_budget(std::sync::Arc::clone(&config), budget);
 
         ReplState {
             interpreter,
@@ -47,6 +61,16 @@ impl ReplState {
             in_multiline: false,
             history: Vec::new(),
         }
+    }
+
+    /// Give the next command a fresh budget (new wall-clock deadline, cleared
+    /// operation/cancellation counters) while preserving the session's
+    /// environment. Returns a handle to the new budget so the caller can request
+    /// cooperative cancellation (Ctrl-C) during execution.
+    pub fn reset_command_budget(&mut self) -> std::sync::Arc<ExecutionBudget> {
+        let budget = std::sync::Arc::new(ExecutionBudget::from_config(self.interpreter.config()));
+        self.interpreter.set_budget(std::sync::Arc::clone(&budget));
+        budget
     }
 
     pub async fn process_line(&mut self, line: &str) -> Result<Option<String>, String> {
@@ -59,13 +83,40 @@ impl ReplState {
             }
         }
 
-        if !self.input_buffer.is_empty() {
+        // Enforce the source-size ceiling on the *prospective* buffer length —
+        // computed with `checked_add` — BEFORE appending, so a single pasted line
+        // above the cap is never copied into the buffer at all (nor re-cloned and
+        // re-tokenized on every following line). Only mutate the buffer once the
+        // new size is known to fit.
+        let newline = usize::from(!self.input_buffer.is_empty());
+        let prospective = self
+            .input_buffer
+            .len()
+            .checked_add(newline)
+            .and_then(|n| n.checked_add(line.len()));
+        let within_cap = matches!(
+            prospective.map(|len| self.interpreter.budget().check_source_bytes(len)),
+            Some(Ok(())),
+        );
+        if !within_cap {
+            self.input_buffer.clear();
+            self.in_multiline = false;
+            let max = self.interpreter.budget().max_source_bytes();
+            return Err(format!(
+                "Source too large: exceeds the configured limit ({max} bytes)"
+            ));
+        }
+
+        if newline == 1 {
             self.input_buffer.push('\n');
         }
         self.input_buffer.push_str(line);
 
         let input = self.input_buffer.clone();
-        let tokens = lex_wfl_with_positions(&input);
+        // Lex under the command's scoped budget: a Ctrl-C cancellation (or a
+        // deadline breach) mid-paste surfaces as a typed error instead of a
+        // truncated stream that multiline detection would misread as incomplete.
+        let tokens = lex_wfl_with_positions_checked(&input).map_err(|e| e.message())?;
 
         if self.is_input_incomplete(&tokens) {
             self.in_multiline = true;
@@ -132,7 +183,13 @@ impl ReplState {
     }
 
     async fn process_complete_input(&mut self, input: &str) -> Result<Option<String>, String> {
-        let tokens = lex_wfl_with_positions(input);
+        // Apply the same source-size ceiling the CLI uses, so pasting an
+        // oversized blob into the REPL is refused before it is lexed/parsed.
+        if let Err(exceeded) = self.interpreter.budget().check_source_bytes(input.len()) {
+            return Err(exceeded.message());
+        }
+
+        let tokens = lex_wfl_with_positions_checked(input).map_err(|e| e.message())?;
 
         let mut parser = Parser::new(&tokens);
         let program = match parser.parse() {
@@ -200,7 +257,16 @@ impl ReplState {
         }
 
         let mut type_checker = TypeChecker::new();
-        if let Err(errors) = type_checker.check_types(&program) {
+        if let Err(failure) = type_checker.check_types(&program) {
+            // A shared-budget breach (deadline/cancellation/resource) is fatal
+            // for this command and must not be rendered as an ordinary type
+            // diagnostic that the REPL might otherwise shrug off.
+            let errors = match failure {
+                TypeCheckError::Budget(exceeded) => {
+                    return Ok(Some(format!("Error: {}", exceeded.message())));
+                }
+                TypeCheckError::Types(errors) => errors,
+            };
             let mut error_messages = Vec::new();
             for error in &errors {
                 let diagnostic = reporter.convert_type_error(file_id, error);
@@ -353,7 +419,38 @@ pub async fn run_repl() -> RustylineResult<()> {
             Ok(line) => {
                 rl.add_history_entry(&line)?;
 
-                match repl_state.process_line(&line).await {
+                // Fresh per-command budget (new deadline), and a handle so Ctrl-C
+                // *during execution* cancels cooperatively. Ctrl-C while waiting
+                // for input is still handled by rustyline (below).
+                let budget = repl_state.reset_command_budget();
+                let outcome = {
+                    // Scope the command's budget as the TASK-local current budget
+                    // for the WHOLE pipeline — lexing, parsing, analysis, type
+                    // checking, and interpretation all run inside `process_line`,
+                    // so each front-end phase sees `ExecutionBudget::current()`.
+                    // Task-local (not a thread-local guard held across `.await`)
+                    // so an interleaved task can never observe this command's
+                    // budget or restore stale state; `budget` itself is retained
+                    // so the Ctrl-C arm can still cancel it cooperatively.
+                    let fut = ExecutionBudget::scope(
+                        std::sync::Arc::clone(&budget),
+                        repl_state.process_line(&line),
+                    );
+                    tokio::pin!(fut);
+                    let mut cancelled = false;
+                    loop {
+                        tokio::select! {
+                            r = &mut fut => break r,
+                            _ = tokio::signal::ctrl_c(), if !cancelled => {
+                                budget.cancel();
+                                cancelled = true;
+                                println!("^C — cancelling current command…");
+                            }
+                        }
+                    }
+                };
+
+                match outcome {
                     Ok(Some(output)) => println!("{output}"),
                     Ok(None) => {} // No output needed
                     Err(error) => println!("Error: {error}"),
@@ -387,6 +484,23 @@ mod tests {
         let result = repl.handle_repl_command(".clear");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CommandResult::ClearedScreen);
+    }
+
+    #[test]
+    fn repl_resets_a_bounded_budget_per_command() {
+        let mut repl = ReplState::new();
+        let first = repl.reset_command_budget();
+        // Each command runs under a wall-clock deadline (per-command), not the
+        // old disabled-deadline session budget.
+        assert!(
+            first.limits().max_duration.is_some(),
+            "per-command budget must carry a deadline"
+        );
+        let second = repl.reset_command_budget();
+        assert!(
+            !std::sync::Arc::ptr_eq(&first, &second),
+            "each command must get a fresh budget instance"
+        );
     }
 
     #[test]

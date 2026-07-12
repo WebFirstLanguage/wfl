@@ -10,12 +10,12 @@ use wfl::config;
 use wfl::debug_report;
 use wfl::diagnostics::{DiagnosticReporter, Severity};
 use wfl::fixer::{CodeFixer, FixerOutputMode};
-use wfl::lexer::lex_wfl_with_positions;
+use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::linter::Linter;
 use wfl::parser::Parser;
 use wfl::repl;
 use wfl::transpiler::{TranspilerConfig, TranspilerTarget};
-use wfl::typechecker::TypeChecker;
+use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
@@ -100,8 +100,75 @@ fn parse_create_project_args(args: &[String]) -> Option<String> {
     }
 }
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+/// Stack size for the thread that runs the interpreter.
+///
+fn build_runtime() -> io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+}
+
+fn main() -> io::Result<()> {
+    // Trivial, non-interpreting invocations (`--help`, `--version`) never
+    // recurse, so run them on the ordinary stack — don't make printing help
+    // depend on reserving a large stack (which can fail under a tight
+    // address-space limit or on a 32-bit target).
+    let arg1 = std::env::args().nth(1);
+    let trivial = matches!(
+        arg1.as_deref(),
+        Some("--help" | "-h" | "--version" | "-v" | "-V")
+    );
+    if trivial {
+        return build_runtime()?.block_on(run());
+    }
+
+    // Otherwise run on a dedicated large-stack thread (the shared
+    // `wfl::run_with_interpreter_stack` helper, also intended for library
+    // embedders) so the shared budget's `max_call_depth` turns runaway recursion
+    // into a clean, catchable error instead of a native stack overflow. If that
+    // reservation fails (tight RLIMIT_AS / 32-bit), fall back to the default
+    // stack rather than refusing to start — shallow programs and non-interpreting
+    // commands still work.
+    match wfl::run_with_interpreter_stack(|| build_runtime()?.block_on(run())) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!(
+                "warning: could not reserve a large interpreter stack ({e}); \
+                 using the default stack (deep recursion may hit the OS limit \
+                 before max_call_depth)"
+            );
+            build_runtime()?.block_on(run())
+        }
+    }
+}
+
+/// Read a WFL source file under the shared source-size ceiling. Reads at most
+/// `max_source_size + 1` bytes so an oversized file is refused (exit code 2)
+/// without ever allocating the whole thing — even when the file's metadata is
+/// unavailable, stale, or reports `0` (special files).
+fn read_source_bounded(
+    path: &str,
+    budget: &wfl::exec::budget::ExecutionBudget,
+) -> io::Result<String> {
+    use std::io::Read;
+    let max = budget.max_source_bytes();
+    let read_cap = (max as u64).saturating_add(1);
+    let file = fs::File::open(path)?;
+    let mut buf = Vec::new();
+    file.take(read_cap).read_to_end(&mut buf)?;
+    if let Err(exceeded) = budget.check_source_bytes(buf.len()) {
+        eprintln!("Error: {}", exceeded.message());
+        process::exit(2);
+    }
+    String::from_utf8(buf).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("source file '{path}' is not valid UTF-8"),
+        )
+    })
+}
+
+async fn run() -> io::Result<()> {
     // Initialize dhat profiler if enabled
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
@@ -736,13 +803,49 @@ async fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let input = fs::read_to_string(&file_path)?;
     let script_dir = Path::new(&file_path).parent().unwrap_or(Path::new("."));
     let config = config::load_config(script_dir);
 
+    // Build the ONE execution budget for this run up front, from the same
+    // (timeout-capped) config the interpreter will use, so a single budget
+    // governs the pre-parse source check, lexing/parsing/analysis, and
+    // interpretation — its deadline clock starts here and covers the whole run.
+    let mut run_config = config.clone();
+    run_config.timeout_seconds = run_config.timeout_seconds.min(300);
+    let run_config = std::sync::Arc::new(run_config);
+    let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::from_config(&run_config));
+
+    // Install the run budget as the current-thread budget for the ENTIRE run, so
+    // every front-end phase — lexing, parsing, analysis, type checking — and the
+    // dump/`--analyze` modes consult *one* budget and honor its deadline and
+    // cooperative cancellation, not just the interpreter. The parser and the
+    // analyzer/type-checker read it via `ExecutionBudget::current()` at their
+    // top-level checkpoints; the interpreter re-enters the same budget when it
+    // runs. Held for the whole function (restored on drop).
+    let _run_budget_guard =
+        wfl::exec::budget::ExecutionBudget::enter(std::sync::Arc::clone(&budget));
+
+    // Read the source under the shared source-size ceiling: read at most
+    // `max_source_size + 1` bytes so an oversized file is refused without ever
+    // allocating the whole thing (this holds even if metadata is unavailable).
+    let input = read_source_bounded(&file_path, &budget)?;
+
+    // Lex under the shared run budget (installed above): a deadline /
+    // cancellation / operation-ceiling breach during tokenization surfaces as a
+    // fatal error and exits, instead of returning a silently truncated token
+    // stream that a later phase could parse, analyze, or execute as if it were
+    // the whole program. Used by every source-lexing mode below.
+    let lex_checked = |source: &str| match lex_wfl_with_positions_checked(source) {
+        Ok(tokens) => tokens,
+        Err(exceeded) => {
+            eprintln!("Error: {}", exceeded.message());
+            process::exit(2);
+        }
+    };
+
     // Handle lexer and AST dump flags
     if lex_dump || ast_dump {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
 
         // Function to write data to a file with appropriate error handling
         fn write_to_file(path: &str, content: &str) -> io::Result<()> {
@@ -853,7 +956,7 @@ async fn main() -> io::Result<()> {
 
     // Handle transpile mode
     if transpile_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 // Configure the transpiler
@@ -925,7 +1028,7 @@ async fn main() -> io::Result<()> {
     }
 
     if lint_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 let mut linter = Linter::new();
@@ -986,7 +1089,7 @@ async fn main() -> io::Result<()> {
             }
         }
     } else if analyze_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 let mut analyzer = Analyzer::new();
@@ -1032,7 +1135,7 @@ async fn main() -> io::Result<()> {
             }
         }
     } else if fix_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(_program) => {
                 let mut fixer = CodeFixer::new();
@@ -1079,7 +1182,7 @@ async fn main() -> io::Result<()> {
             }
         }
     } else {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
 
         // Initialize both regular and execution logging first so debug output goes to log
         let log_path = script_dir.join("wfl.log");
@@ -1122,52 +1225,65 @@ async fn main() -> io::Result<()> {
 
                 // Create TypeChecker with the same analyzer to share action parameters
                 let mut tc = TypeChecker::with_analyzer(analyzer);
-                if let Err(errors) = tc.check_types(&program) {
-                    // Filter out errors for action parameters
-                    let action_params = tc.get_action_parameters();
-                    let filtered_errors: Vec<_> = errors
-                        .into_iter()
-                        .filter(|e| {
-                            // Check if this is an undefined variable error for an action parameter
-                            if e.message.starts_with("Variable '")
-                                && e.message.ends_with("' is not defined")
-                            {
-                                let var_name = e
-                                    .message
-                                    .trim_start_matches("Variable '")
-                                    .trim_end_matches("' is not defined");
+                if let Err(failure) = tc.check_types(&program) {
+                    match failure {
+                        // A shared-budget breach during type checking is FATAL —
+                        // the type diagnostics below are otherwise treated as
+                        // non-fatal warnings, which would let an expired deadline
+                        // / cancellation / resource breach slip into execution.
+                        TypeCheckError::Budget(exceeded) => {
+                            eprintln!("Error: {}", exceeded.message());
+                            process::exit(2);
+                        }
+                        TypeCheckError::Types(errors) => {
+                            // Filter out errors for action parameters
+                            let action_params = tc.get_action_parameters();
+                            let filtered_errors: Vec<_> = errors
+                                .into_iter()
+                                .filter(|e| {
+                                    // Check if this is an undefined variable error for an action parameter
+                                    if e.message.starts_with("Variable '")
+                                        && e.message.ends_with("' is not defined")
+                                    {
+                                        let var_name = e
+                                            .message
+                                            .trim_start_matches("Variable '")
+                                            .trim_end_matches("' is not defined");
 
-                                // Skip this error if the variable is an action parameter
-                                if action_params.contains(var_name) {
-                                    return false;
+                                        // Skip this error if the variable is an action parameter
+                                        if action_params.contains(var_name) {
+                                            return false;
+                                        }
+                                    }
+
+                                    // Filter out "Symbol already defined" errors at line 0, column 0
+                                    // These are likely from imported files or standard library definitions
+                                    if e.message.starts_with("Symbol '")
+                                        && e.message.contains("' is already defined in this scope")
+                                        && e.line == 0
+                                        && e.column == 0
+                                    {
+                                        return false;
+                                    }
+
+                                    true
+                                })
+                                .collect();
+
+                            if !filtered_errors.is_empty() {
+                                eprintln!("Type checking warnings:");
+
+                                let mut reporter = DiagnosticReporter::new();
+                                let file_id = reporter.add_file(&file_path, &input);
+
+                                for error in &filtered_errors {
+                                    let diagnostic = reporter.convert_type_error(file_id, error);
+                                    if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic)
+                                    {
+                                        eprintln!("Error displaying diagnostic: {e}");
+                                        eprintln!("{error}"); // Fallback to simple error display
+                                    }
                                 }
-                            }
-
-                            // Filter out "Symbol already defined" errors at line 0, column 0
-                            // These are likely from imported files or standard library definitions
-                            if e.message.starts_with("Symbol '")
-                                && e.message.contains("' is already defined in this scope")
-                                && e.line == 0
-                                && e.column == 0
-                            {
-                                return false;
-                            }
-
-                            true
-                        })
-                        .collect();
-
-                    if !filtered_errors.is_empty() {
-                        eprintln!("Type checking warnings:");
-
-                        let mut reporter = DiagnosticReporter::new();
-                        let file_id = reporter.add_file(&file_path, &input);
-
-                        for error in &filtered_errors {
-                            let diagnostic = reporter.convert_type_error(file_id, error);
-                            if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                                eprintln!("Error displaying diagnostic: {e}");
-                                eprintln!("{error}"); // Fallback to simple error display
                             }
                         }
                     }
@@ -1180,18 +1296,17 @@ async fn main() -> io::Result<()> {
                 // Log execution start if execution logging is enabled
                 exec_trace!("Starting execution of script: {}", &file_path);
 
-                // Pass the full loaded configuration (not just the timeout) so that
-                // settings like `web_server_bind_address` from `.wflcfg` actually reach
-                // the interpreter. `config.clone()` is needed because `config` is read
-                // again later (e.g. `if config.logging_enabled`). See issue #466.
-                //
-                // Preserve the 300-second execution-timeout safety cap that the previous
-                // `Interpreter::with_timeout` path enforced, so this change only *adds*
-                // config propagation without altering timeout semantics. (The cap never
-                // affects web servers: `check_time` skips the timeout inside a main loop.)
-                let mut run_config = config.clone();
-                run_config.timeout_seconds = run_config.timeout_seconds.min(300);
-                let mut interpreter = Interpreter::with_config(std::sync::Arc::new(run_config));
+                // Reuse the single budget (and the timeout-capped `run_config`)
+                // built at the top of the run, so the source check and the
+                // interpreter share one deadline/operation/cancellation budget.
+                // `run_config` carries the full `.wflcfg` (e.g.
+                // `web_server_bind_address`) with the 300s timeout cap applied
+                // (see issue #466); the cap never affects web servers because
+                // `check_time` skips the deadline inside a main loop.
+                let mut interpreter = Interpreter::with_config_and_budget(
+                    std::sync::Arc::clone(&run_config),
+                    std::sync::Arc::clone(&budget),
+                );
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
                 interpreter.set_test_mode(test_mode); // Set test mode from CLI flag
                 interpreter.set_script_args(script_args); // Pass script arguments

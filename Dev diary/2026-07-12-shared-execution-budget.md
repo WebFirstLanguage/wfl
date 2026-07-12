@@ -1,0 +1,465 @@
+# Dev Diary — 2026-07-12: Shared ExecutionBudget
+
+## Context
+
+WFL enforced a dozen unrelated resource ceilings from a dozen unrelated places,
+and several audit-flagged resources had **no** ceiling at all:
+
+| Resource | Before |
+|---|---|
+| Wall-clock timeout | `Interpreter.max_duration` + `op_count` throttle (`check_time`) |
+| Interpreter operations | none (the op counter only throttled clock reads) |
+| Recursion depth | none in release (a `debug_assert!(< 10_000)` only) |
+| Import / include depth | circular-detection only; otherwise unbounded |
+| `execute file` depth | a lone `const MAX_EXECUTE_FILE_DEPTH = 4` |
+| Pattern transitions | a lone `const MAX_STEPS = 100_000` in the VM |
+| Pattern active states | none — the NFA state set could fan out unbounded |
+| Source-file size | none |
+| HTTP request body | `web_server_max_body_size` |
+| HTTP response body | none |
+| Pending HTTP requests | `web_server_request_queue_bound` |
+| WebSocket queues | none — `unbounded_channel` (flagged as a Phase 0 follow-up) |
+| WebSocket connections | none — the registry grew without bound |
+
+This entry replaces that scatter with **one** object,
+`exec::budget::ExecutionBudget`, that travels with a run through parsing,
+evaluation, pattern matching, web handling, and module loading, and owns every
+ceiling above.
+
+## What changed
+
+### New module `src/exec/budget.rs`
+
+- `BudgetLimits` — the immutable per-run ceilings. `BudgetLimits::from_config`
+  maps the existing `.wflcfg` keys (`timeout_seconds`,
+  `web_server_max_body_size`, `web_server_request_queue_bound`) plus the new
+  budget keys onto its fields, so nothing about the old knobs changed.
+- `ExecutionBudget` — the shared object. **`Send + Sync`**: every mutable field
+  is an atomic (`AtomicU64`/`AtomicUsize`/`AtomicBool`), so an
+  `Arc<ExecutionBudget>` clones into the multi-threaded web transport (warp
+  accept tasks, per-connection WebSocket tasks) without any `Rc`/`RefCell`
+  crossing a thread boundary. This does **not** violate the "no `Rc`→`Arc`
+  rewrite of the interpreter core" rule — the budget is a separate atomic-only
+  object, shared exactly like `Arc<WflConfig>` already is.
+- `BudgetExceeded` — a typed breach that each subsystem maps onto its own error
+  (`RuntimeError` in the interpreter, `PatternError` in the VM). The deadline
+  variant keeps the historic `"Execution exceeded timeout (Ns)"` wording and
+  `ErrorKind::Timeout` so existing timeout handling/tests still match; a new
+  `ErrorKind::ResourceLimit` covers the rest.
+- RAII guards (`RequestGuard`, `WsConnectionGuard`) release their atomic slot on
+  drop.
+
+### Interpreter (`src/interpreter/mod.rs`)
+
+- Removed the `op_count`/`started`/`max_duration` fields; added
+  `budget: Arc<ExecutionBudget>`. `check_time()` now calls
+  `budget.charge_operation(enforce_limits)` where `enforce_limits = !in_main_loop`
+  — preserving the rule that a `main loop` is exempt from the timeout, while
+  cooperative cancellation still applies. Clock reads stay throttled to one per
+  1024 operations inside the budget.
+- Recursion ceiling: `call_function` checks `budget.check_call_depth(stack_len)`
+  before pushing a frame.
+- Import ceiling: both `load module` and `include from` check
+  `budget.check_import_depth(loading_stack_len)` after the circular check.
+- `execute file` depth: `MAX_EXECUTE_FILE_DEPTH` const deleted; the guard is now
+  `budget.check_execute_file_depth(execute_depth)` (default still 4).
+- Response ceiling: `respond` checks `budget.check_response_bytes(len)` before
+  handing the body to the transport.
+- Request body + pending-request bounds now read from the budget
+  (`max_request_body_bytes`, `max_pending_requests`); values are identical to the
+  old config reads.
+- WebSocket bounding (the deferred Phase 0 follow-up): the per-connection
+  outbound channel and the per-server event channel became **bounded**
+  `mpsc::channel(ws_queue_bound)` with `try_send` + shed-on-`Full` logging; a new
+  connection acquires a `WsConnectionGuard` and is refused (close frame + log)
+  past `max_ws_connections`.
+
+### Pattern VM (`src/pattern/vm.rs`, `src/pattern/mod.rs`)
+
+- `PatternVM` holds an `Arc<ExecutionBudget>`. `MAX_STEPS` deleted; each match
+  attempt checks `step_count` against `budget.pattern_step_limit()` and — new —
+  the active-state set against `budget.pattern_state_limit()` (guards exponential
+  fan-out). Added `PatternError::StateLimitExceeded` and `Cancelled`.
+- `PatternVM::new()` uses a standalone budget with the historic ReDoS defaults
+  (steps 100_000), so stdlib pattern builtins keep their guard. New
+  `CompiledPattern::{matches,find,find_all}_with_budget` let the interpreter's
+  `matches`/`find` operators share the run budget (deadline/cancellation-aware);
+  nested lookaround VMs share the parent's budget.
+
+### Source size + a real recursion guard (`src/main.rs`)
+
+- After loading config, the CLI refuses an over-`max_source_size` file before
+  lexing.
+- **Large-stack thread.** WFL's async tree-walking interpreter costs on the
+  order of a *megabyte* of debug stack per WFL call (an 8 MiB stack overflows
+  near depth ~40). A `max_call_depth` guard is meaningless if the OS stack
+  overflows first, so `main` now runs the whole runtime on a dedicated thread
+  with a **1 GiB** stack (reserved virtually, committed lazily). With it, the
+  default ceiling of 1000 fires as a clean error well before the native limit in
+  both debug (~1460-frame floor) and release. Empirically: depth 999 completes,
+  depth ≥ 1000 returns *"Maximum call depth (1000) exceeded"* instead of
+  `SIGABRT`.
+
+### Config (`src/config.rs`)
+
+- Nine new keys with positive-integer validation (`max_operations` accepts `0` =
+  unlimited): `max_operations`, `max_call_depth`, `max_import_depth`,
+  `max_execute_file_depth`, `max_pattern_steps`, `max_pattern_states`,
+  `max_source_size`, `web_server_max_response_size`, `web_socket_queue_bound`,
+  `web_socket_max_connections`. A shared `set_positive_usize` helper keeps the
+  parse arms terse.
+
+## Backward compatibility
+
+- The three pre-existing knobs (timeout, request body, request queue) keep their
+  defaults and behavior exactly; the budget just sources their values.
+- The two potentially-breaking dimensions default to no new failures:
+  `max_operations` is off by default, and every new ceiling (recursion, import,
+  states, source/response bytes, WS) defaults generously enough that no existing
+  program or `TestPrograms/` case trips it — the recursion default (1000) is far
+  above any depth a program completed at under the old 8 MiB stack, and, thanks
+  to the large stack, programs can now recurse *deeper* than before while
+  runaway recursion becomes a clean error instead of a crash.
+
+## Tests
+
+- `src/exec/budget.rs`: 11 unit tests — operation ceiling, main-loop exemption,
+  cancellation-always-honored, deadline, `>=` depth vs `>` pattern semantics,
+  byte ceilings, RAII request/WS-connection guards, `from_config` mapping,
+  `Send + Sync` assertion.
+- `tests/execution_budget_test.rs`: config parsing of all new keys (defaults,
+  overrides, zero/garbage rejection, `max_operations = 0`), and end-to-end —
+  deep recursion is a clean *"Maximum call depth (1000)"* error and **not** a
+  stack overflow; a configured low ceiling is honored; an oversized source is
+  refused; a shallow program still runs.
+- Existing suites unchanged: full lib tests (incl. `test_timeout_forever_loop`),
+  `web_queue_bound_test`, `websocket_test`, `execute_file_test`, and the
+  `TestPrograms/` integration run all pass.
+
+## Review follow-ups (automated PR review)
+
+Addressed in the same PR after the first round of automated review:
+
+- **Budget spans `execute file`.** The nested interpreter now clones the
+  parent's `Arc<ExecutionBudget>` instead of building a fresh one, so the
+  deadline, operation ceiling, and cancellation cover the whole run — work can't
+  be split across executed files to evade them. Regression test:
+  `execute_file_shares_the_parent_operation_budget`.
+- **Nested source sizes are checked.** `load module`, `include from`, and
+  `execute file` enforce `max_source_size` via file metadata *before* reading,
+  matching the top-level guarantee (which now also checks metadata pre-read).
+  Regression test: `nested_execute_file_source_is_size_checked`.
+- **Catchable errors keep the call stack.** `budget_error` only force-clears the
+  call stack for the terminal deadline; a `ResourceLimit` (e.g. the recursion
+  ceiling) is catchable by `try`/`when`, so the stack is left for
+  `call_function` to unwind frame-by-frame — otherwise the depth counter
+  (`call_stack.len()`) would under-count after a caught recursion error.
+- **Pattern state cap fails fast.** The active-state ceiling is now checked after
+  each expansion inside the step loop, not only once the whole next generation is
+  built, so a runaway step can't allocate far past the cap.
+- Doc/comment accuracy fixes: `PatternVM::new` no longer references the removed
+  `MAX_STEPS`; the VM error-mapping comment no longer implies it samples the
+  deadline; the CLI comment says "same config", not "same budget instance"; and
+  the duplicate "Execution budget (resource limits)" doc heading was renamed so
+  the anchor stays unique.
+
+## Deep review round (maintainer P1/P2 + bot reviewers)
+
+A subsequent maintainer review raised five blocking findings and several P2s;
+all were addressed on this PR:
+
+- **P1-1 — recursion guard robust under catch.** Enforcement depth moved to a
+  dedicated RAII `call_depth` counter, decoupled from the diagnostic `call_stack`.
+  `budget_error` no longer mutates *any* interpreter state (every breach is
+  catchable), and `interpret()` resets per-run loop/depth state, so
+  catch-and-recurse stays bounded and an enclosing `count` loop survives a caught
+  recursion error. Test: `catching_a_recursion_limit_leaves_a_consistent_interpreter`.
+- **P1-2 — pattern transitions counted for real.** Charged per *instruction* in
+  `step()` (bounds epsilon-jump cycles) on one shared meter that nested
+  lookaround/lookbehind VMs charge into (no reset); breaches now *propagate* as
+  catchable `ResourceLimit` errors through the interpreter operators AND the
+  stdlib builtins (`pattern_matches/find/find_all/split`), which reach the run
+  budget via a thread-local. `max_pattern_steps` default raised to 5_000_000 for
+  per-instruction granularity.
+- **P1-3 — HTTP OOM/leak paths closed.** Request body enforced *while streaming*
+  (chunked-safe → 413); one **global** in-flight `RequestGuard` (shared across
+  listeners) held from body-read until response / disconnect / 504 timeout
+  (`web_server_response_timeout_seconds`, default 300); response cap checks the
+  borrowed length before duplicating.
+- **P1-4 — one budget per run.** `main.rs` builds a single budget up front and
+  threads it through the source check and the interpreter
+  (`with_config_and_budget` + `budget()` handle); `execute file` shares it.
+- **P1-5 — bounded source loader everywhere.** A bounded reader (≤ `max+1` bytes)
+  covers the CLI, `load module`, `include`, `execute file`, and the REPL, so
+  oversized sources are refused without allocation even when metadata lies.
+- **P2** — `ConfigChecker` now knows every budget key (so `--configFix` can't
+  strip them); WebSocket `close server` sends a guaranteed close frame even under
+  backpressure and logs full/closed outbound queues; the large stack is deferred
+  for `--help`/`--version` and falls back on reservation failure; the REPL uses a
+  no-deadline budget; MSRV recorded as 1.88 (`let`-chains).
+
+## Second deep review round (maintainer P1×8 + P2×7)
+
+A second maintainer review found the first round's mechanisms incomplete. All
+findings were addressed on this PR:
+
+- **Pattern meter is now per-match, not run-global.** The transition counter no
+  longer lives on the shared `ExecutionBudget` (two concurrent matches sharing one
+  `Arc` could reset each other's meter and grant unbounded quota). A new
+  `PatternMeter` owns the per-match transition and active-state counters and is
+  cloned only into nested lookaround/lookbehind VMs; it also **samples the
+  wall-clock deadline** on the transition stride (with the `main loop` exemption,
+  tracked via a `deadline_exempt` flag), surfacing a runaway synchronous match as
+  a catchable timeout. Active-state slots are reserved/released across the
+  current, next, and nested frontiers via one RAII `StateReservation`. The public
+  `PatternVM::find`/`find_all` API is restored (`Option`/`Vec`) with separate
+  `try_find`/`try_find_all` fallible entry points.
+- **HTTP request lifetime is fully bounded.** One deadline set at admission now
+  covers the body read *and* the handler response (a slow trickle upload sheds
+  with 408; a stuck handler with 504). A timed-out request's closed oneshot is
+  observed so the interpreter skips an abandoned request and prunes closed
+  `pending_responses` entries instead of running zombie work. `respond` takes the
+  sender into an RAII completion guard (500 on any early error) and rejects
+  composite/opaque bodies rather than materializing an unbounded `{:?}` string.
+  `read_body_capped` keeps its `max + 1` bound exact.
+- **WebSocket memory is bounded by bytes.** A per-message size cap
+  (`web_socket_max_message_size`) plus a global queued-byte permit
+  (`web_socket_max_queued_bytes`, RAII-released on send/consume/shed) bound both
+  the event queue and the outbound per-connection queues. `close server` signals
+  a per-server cancellation watch so each reader stops (releasing its connection
+  slot) even if the peer ignores the close handshake, with a bounded
+  close-handshake timeout.
+- **Recursion accounting spans `execute file`.** A child interpreter seeds its
+  base recursion depth from the parent's live depth (and `interpret()` resets to
+  that base), so nested execute files cannot each claim a fresh `max_call_depth`
+  allowance and multiply the native stack toward overflow.
+- **The front end consults the budget.** The run budget is installed as the
+  current-thread budget for the whole run, and the parser (per top-level
+  statement), the type checker (per top-level statement), and the analyzer (phase
+  boundary) poll it — so `--analyze`, the dump modes, and a slow parse honor the
+  deadline/cancellation instead of only measuring elapsed time.
+- **The REPL is bounded and cancellable.** It loads the applicable `.wflcfg`
+  (not defaults), enforces `max_source_size` immediately after each appended line
+  (before clone/lex/parse), gives each command a fresh per-command budget (a real
+  deadline, environment preserved), and wires Ctrl-C during execution to
+  `budget.cancel()`.
+- **Config-tool validation matches the loader.** Budget/web integer keys are
+  validated as non-negative `u64` with the loader's exact per-key minimums, the
+  `Execution Budget` category is included in the config wizard, and the two new
+  WebSocket byte keys are registered.
+
+### Automated-review follow-ups (round 2)
+
+Addressed after the round-2 bot review:
+
+- **`deadline_exempt` survives nested `execute file`.** The child shares the
+  parent's budget and its `interpret()` clears the shared exemption; the parent
+  now saves and restores `deadline_exempt` around the nested run, so a parent
+  still inside its own `main loop` doesn't start enforcing the wall-clock
+  deadline on pattern matches (and time out spuriously) after the child returns.
+- **Cooperative yield in the loop hot path.** `_execute_statement` yields to the
+  async runtime on a throttled stride (outside a `main loop`) so a tight
+  CPU-bound `count`/`while`/`repeat` loop returns control to the executor,
+  letting the REPL's Ctrl-C → `budget.cancel()` actually fire.
+- **Config checker minimums** now include `timeout_seconds` and
+  `web_server_max_body_size` (both `>= 1` in the loader), and the stale
+  `budget_error` doc that claimed the deadline force-clears the call stack was
+  corrected to match the no-mutation behavior.
+
+## Third deep review round (maintainer P1×10 + P2×6)
+
+A third maintainer review found the round-2 exemption/yield fixes only partial
+and raised further concurrency/lifecycle/peak-allocation gaps. Addressed on this
+PR (three commits):
+
+- **Main-loop exemption is now a shared depth counter + RAII guard.** Replaced
+  the interpreter `in_main_loop` bool and budget `deadline_exempt` bool with one
+  `main_loop_depth: AtomicUsize` and a `MainLoopGuard`. It restores on *every*
+  exit — normal, early return, a caught error unwinding through `?`, and nested
+  loops — so the exemption never leaks or clears an outer loop; an `execute file`
+  child sharing the budget inherits the parent's active exemption (the front-end
+  checkpoints are exemption-aware, so the nested parse no longer times out); and
+  the pattern meter reads the exemption **live** (no snapshot), so reusing one VM
+  across a main-loop boundary is correct. The cooperative yield now uses a
+  dedicated per-statement counter that advances even inside a `main loop`.
+- **WebSocket + HTTP lifecycle hardened.** Transport-level WS message/frame caps
+  (`Ws::max_message_size`/`max_frame_size`) before upgrade; connect events
+  fail-closed (unregister + close) so a live socket can't skip its connect
+  handler; per-message reservation on the *borrowed* length before cloning
+  (send + broadcast); `Drop` cleanup that aborts the accept task for both server
+  kinds; and the global HTTP admission guard now travels *inside* the queued
+  request so a queued body counts until dequeue/drop, not merely until the route
+  future ends.
+- **Budget scoped across the whole REPL/front-end pipeline**, a type-check budget
+  breach is fatal (not a warning), and more front-end checkpoints
+  (`Analyzer::analyze`, recursive `parse_statement`) keep nested parses/analysis
+  interruptible. The REPL source cap is checked on the prospective length before
+  `push_str`.
+
+### Deferred (with rationale)
+
+- **Task-local budget (interleaving two-budget case).** WFL runs exactly one
+  interpreter future per thread: the CLI runs one program; the web server
+  processes requests serially on a single interpreter via the event channel; the
+  REPL runs one command at a time. Two interpreter futures never interleave on
+  one thread (no `join!`/`spawn_local` of interpreter runs), and the thread-local
+  budget guard correctly save/restores for *nested* runs (`execute file`). The
+  interleaving hazard therefore does not occur in the current architecture; a
+  `tokio::task_local!` conversion is defense-in-depth that would require
+  restructuring every run entry point. Tracked as a follow-up.
+- **Collect pattern text once per top-level match.** Total pattern work is
+  already bounded by `max_pattern_steps` and the source-size cap; the per-`step`
+  `chars` re-collection is a real inefficiency but the fix threads `&[char]`
+  through the VM's position/step signatures — a delicate change to a
+  heavily-tested subsystem. Tracked as a follow-up.
+
+## Fourth review round (automated: recursive front-end coverage)
+
+The round-3 front-end checkpoints closed the *entry* gap but a bot reviewer
+correctly noted they were only partial: `Analyzer::analyze` polled the budget
+once at the phase boundary, and `TypeChecker::check_types` polled once per
+*top-level* statement — but both then recurse (`analyze_statement`,
+`check_statement_types`) into every nested block, loop, `try`, action, and
+container-method body without re-checking. A single deeply nested top-level
+statement could therefore run the analyzer or type checker to completion without
+honoring the run's deadline/cancellation/operation budget, unlike the parser
+whose checkpoint already lives inside the recursively-called `parse_statement`.
+
+Fixed by moving the poll into the recursive methods, mirroring the parser:
+
+- **Analyzer** — `analyze_statement` now polls the budget at its top. A new
+  `budget_exhausted` flag (reset per `analyze` run) records the breach once and
+  short-circuits every remaining node, so a large nested body yields a single
+  `SemanticError` rather than one per statement. The phase-boundary poll in
+  `analyze` is retained.
+- **Type checker** — `check_statement_types` now polls at its top, guarded by the
+  existing `budget_error` channel (reset per `check_types` run) as the
+  record-once / short-circuit latch. The top-level loop no longer charges
+  separately; it just stops iterating once `budget_error` is set — including a
+  breach surfaced deep inside a prior statement's nested body.
+
+Both polls stay exemption-aware (`charge_operation(!is_deadline_exempt())`), and
+because `max_operations` defaults to `None`, ordinary programs are unaffected —
+the extra per-statement charging only bites when a user opts into an operation
+cap, which is exactly the pathological-input protection the review asked for.
+
+Two library-level regression tests isolate the new behavior
+(`tests/execution_budget_test.rs`): a program whose single top-level `count` loop
+holds 64 nested statements is parsed *before* any budget is installed (so the
+parser's own checkpoint can't consume the cap), then run under `max_operations = 5`.
+`analyzer_polls_the_budget_inside_nested_bodies` asserts `analyze` returns the
+operation-budget breach (its entry poll alone charges only index 0, so the breach
+can only come from the nested traversal); `type_checker_polls_the_budget_inside_nested_bodies`
+uses `with_analyzer` to skip the analyzer pass, proving the breach comes from the
+recursive `check_statement_types` poll and lands on the `budget_error` channel.
+
+## Fifth review round (maintainer P1×5 + P2 — the two deferrals recalled)
+
+A fourth maintainer pass verified the round-3/round-4 fixes but did **not**
+accept the two documented deferrals and flagged three fixes as still partial.
+All seven items landed on this PR (one commit each):
+
+- **Type-check budget breach is now a fatal typed result, not a side channel.**
+  `check_types` returns `Result<(), TypeCheckError>` where `Budget` (fatal) is a
+  distinct variant from `Types` (ordinary diagnostics), so every caller must
+  distinguish them at the type level. The analyzer records its breach on a typed
+  `budget_error` latch that `check_types` propagates, closing the gap where an
+  analysis-phase breach was rendered as `TypeError`s and the budget channel
+  stayed empty. The `include from` caller now aborts on a budget breach instead
+  of printing it as a warning and executing the included program.
+- **Pattern input is collected once, with a checkpoint before preprocessing.**
+  `PatternVM::step` re-ran `text.chars().collect()` on every transition — O(text)
+  per step for unbounded runtime input (`max_source_size` bounds *source*, not
+  pattern subjects). The `Vec<char>` is now materialized once per runner and the
+  `&[char]` threaded through `step`; the budget is charged before that collection
+  so a cancelled/expired run aborts without materializing a large input.
+- **The HTTP admission slot spans the full request lifetime.** The guard used to
+  drop when `WaitForRequest` returned (reopening the gate at dequeue). It now
+  rides with the parked response (`PendingResponse`) and moves into the
+  `ResponseCompletion`, releasing only on respond / prune / shutdown.
+- **Every admitted WebSocket Connect gets a paired Disconnect.** The disconnect
+  event is delivered with a blocking `send().await` (was a lossy `try_send`), so
+  a momentarily-full queue can't drop the only per-connection cleanup event.
+- **The run budget is task-local, not thread-local.** `Interpreter` is a public,
+  `!Send` re-export, so an embedder can `join!`/`spawn_local` two runs on one
+  thread; a thread-local held across `.await` cross-contaminated them. A
+  `tokio::task_local!` scope (`ExecutionBudget::scope`) wraps each run and each
+  REPL command; the retained thread-local `enter` is only a synchronous fallback
+  for the single-future CLI front-end, always shadowed by an async scope.
+- **The lexer and recursive expression work are checkpointed.** The lexer polls
+  every 4096 tokens (cooperative early-stop); the parser polls at every
+  primary-expression parse (strided); `analyze_expression` and
+  `infer_expression_type` poll per node (latched) — so one huge expression is
+  interruptible, not just statement boundaries.
+- **The large interpreter stack is a public embedder helper.**
+  `wfl::run_with_interpreter_stack` (and `INTERPRETER_STACK_SIZE`) encapsulate the
+  1 GiB stack the CLI uses; the CLI now shares it, and `Interpreter` documents
+  that embedders must use it (or a low `max_call_depth`) so the depth limit fires
+  before a native stack overflow.
+
+## Sixth review round (issue #611)
+
+A final deep review found two P1 merge blockers in the fifth round's own
+remediation, plus three correctness/API residuals. All five are fixed here, each
+with a regression test.
+
+- **The lexer returns a typed fatal outcome, never a truncated success.** The
+  fifth round's strided lexer checkpoint `break`'d on a budget breach and
+  returned the tokens gathered so far — so `wfl --lex` wrote a partial dump and
+  exited 0, and a prefix that happened to end at a statement boundary could
+  parse and even execute. The loop body is now a private `lex_positions_core`
+  parameterised by a checkpoint closure: `lex_wfl_with_positions` supplies a
+  no-op (it can no longer truncate under any budget state — LSP/tooling/tests are
+  safe), and the new `lex_wfl_with_positions_checked` returns
+  `Result<_, BudgetExceeded>`. Every production execution caller (CLI run and
+  `--lex`, nested `execute file` / `include` / `load module`, and the REPL)
+  propagates it. At each stride the deadline and cancellation are checked
+  **directly** — not through `charge_operation`'s 1024-op sampling, which nested
+  inside the 4096-token stride could postpone them by millions of tokens — and
+  the operation ceiling is charged separately.
+- **A timed-out pending HTTP request no longer wedges admission.** The fifth
+  round parked the admission guard in the interpreter's `pending_responses` map,
+  where a closed entry was pruned only when a *later* dequeued request was
+  inserted. Once the cap filled with dequeued-but-unanswered requests, every
+  route task timed out but no new request could be admitted to trigger the
+  prune, so the slots stayed pinned forever. The guard now rides with the warp
+  transport future, which stays alive awaiting the response even after the
+  interpreter dequeues the request — so the slot is held through handling and
+  released when that future ends (respond, response timeout, or client
+  disconnect), independently of any future admission. The bounded request mpsc
+  still caps still-queued bodies. A live-server regression fills the cap with
+  unanswered requests, waits for the timeout, and proves admission reopens with
+  no new request first.
+- **An analyzer entry-time breach is recorded on the typed channel.** A breach at
+  `analyze`'s phase-boundary checkpoint rendered a `SemanticError` but left
+  `budget_error` unset, so `TypeChecker::new()`'s `take_budget_error()` saw
+  nothing and misclassified it as `TypeCheckError::Types`. The entry branch now
+  stores the typed breach before returning, matching `analyze_statement`. Tested
+  with an already-cancelled budget so the entry (not a statement) fires.
+- **Unicode lookbehind stays in character indices.** The refactored VM made
+  `MatchResult::end` a character index, but the full-slice lookbehind test still
+  compared it against `text_slice.len()` (bytes), inverting positive/negative
+  lookbehind the moment the window held a multibyte char. It now compares against
+  the slice's character length (`start_offset`). The public `CompiledPattern::find`
+  doc example, which sliced `&text[m.start..m.end]` with those character offsets,
+  is fixed to extract by chars. Positive and negative Unicode lookbehind tests
+  pin both directions over a 2-byte `é`.
+- **The default public interpreter path is stack-safe.** `Interpreter::new()` — the
+  zero-config path that promises nothing about its thread stack — capped
+  recursion at the config default of 1000, which only stays catchable on the
+  CLI's 1 GiB stack; on an ordinary stack a deep program aborted before the guard
+  could fire. `new()` now caps at the conservative `DEFAULT_EMBED_CALL_DEPTH`
+  (12, verified to fire cleanly below the debug overflow point on an 8 MiB stack),
+  while `with_config`/`with_config_and_budget` honor the configured depth so the
+  CLI still reaches 1000 on its large stack. An ordinary-stack embedding test
+  proves the default path returns a catchable call-depth error instead of
+  aborting.
+
+## Notes / Follow-ups
+
+- The outbound `reqwest` client still has no per-request timeout or in-flight
+  cap; that is a separate audit item (the budget's `max_pending_requests`
+  covers the *inbound* accepted-request queue).
+- The 1 GiB interpreter stack (now exposed via `run_with_interpreter_stack`) is a
+  pragmatic fix for the interpreter's async-recursion stack cost; the deeper fix
+  (trampolining the eval loop) is still out of scope here.

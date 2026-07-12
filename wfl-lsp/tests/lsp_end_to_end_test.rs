@@ -63,7 +63,8 @@ async fn test_lsp_with_basic_syntax_program() {
                 Ok(_) => {
                     println!("Type checking passed for basic syntax program");
                 }
-                Err(errors) => {
+                Err(failure) => {
+                    let errors = failure.into_diagnostics();
                     println!("Type checking errors (may be expected): {:?}", errors);
                     // Convert errors to diagnostics to test LSP diagnostic conversion
                     for error in &errors {
@@ -255,8 +256,8 @@ async fn test_lsp_with_multiple_test_programs() {
                             }
                         }
 
-                        if let Err(errors) = type_res {
-                            for error in &errors {
+                        if let Err(failure) = type_res {
+                            for error in &failure.into_diagnostics() {
                                 let _diag = diagnostic_reporter.convert_type_error(file_id, error);
                             }
                         }

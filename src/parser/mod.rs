@@ -17,11 +17,20 @@ use stmt::{
     StmtParser, TestingParser, VariableParser, WebParser,
 };
 
+/// Poll the run budget every this many primary-expression parses. The
+/// statement-boundary checkpoint does not cover one giant expression (a
+/// million-element list, a long flat operator chain), so this bounds the
+/// intra-statement token work too. A power of two so the stride test is a mask.
+const PARSE_CHECKPOINT_STRIDE: u64 = 2048;
+
 pub struct Parser<'a> {
     /// Cursor for efficient token navigation
     cursor: Cursor<'a>,
     /// Parse errors accumulated during parsing
     errors: Vec<ParseError>,
+    /// Count of primary-expression parses, for the strided budget checkpoint
+    /// (see [`Parser::charge_parse_step`]).
+    parse_steps: u64,
 }
 
 impl<'a> Parser<'a> {
@@ -29,6 +38,7 @@ impl<'a> Parser<'a> {
         Parser {
             cursor: Cursor::new(tokens),
             errors: Vec::with_capacity(4),
+            parse_steps: 0,
         }
     }
 
@@ -41,12 +51,50 @@ impl<'a> Parser<'a> {
         self.cursor.bump()
     }
 
+    /// Strided run-budget checkpoint for expression parsing. Called at every
+    /// primary-expression parse; every [`PARSE_CHECKPOINT_STRIDE`] calls it
+    /// consults the run budget (exemption-aware) so a single huge expression is
+    /// interruptible on a deadline / cancellation / operation breach, not just at
+    /// statement boundaries. Returns the breach as a `ParseError` to abort the
+    /// parse; a no-op (returns `Ok`) when no run budget is installed.
+    #[inline]
+    fn charge_parse_step(&mut self) -> Result<(), ParseError> {
+        self.parse_steps = self.parse_steps.wrapping_add(1);
+        if self.parse_steps & (PARSE_CHECKPOINT_STRIDE - 1) == 0
+            && let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+            && let Some(token) = self.cursor.peek()
+        {
+            // Anchor the breach to the current token. At EOF (no token) there is
+            // nothing left to parse, so the downstream analyzer/type-checker
+            // checkpoint surfaces the breach instead.
+            return Err(ParseError::from_token(exceeded.message(), token));
+        }
+        Ok(())
+    }
+
     pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
         let mut program = Program::new();
         program.statements.reserve(self.cursor.remaining() / 5);
 
         while self.cursor.peek().is_some() {
             let start_pos = self.cursor.pos();
+
+            // Front-end budget checkpoint: consult the shared run budget (if a run
+            // installed one on this thread) once per top-level statement, so the
+            // wall-clock deadline and cooperative cancellation are honored *during*
+            // parsing — not merely measured for later interpretation — and a
+            // pathological or oversized parse can be aborted cleanly.
+            if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+                && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+                && let Some(token) = self.cursor.peek()
+            {
+                // `peek()` is `Some` here (the loop condition), so a position is
+                // always available for the diagnostic.
+                self.errors
+                    .push(ParseError::from_token(exceeded.message(), token));
+                break;
+            }
 
             // Skip any leading Eol tokens
             if let Some(token) = self.cursor.peek()
@@ -405,6 +453,20 @@ impl<'a> Parser<'a> {
 // Implementation of StmtParser trait
 impl<'a> StmtParser<'a> for Parser<'a> {
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        // Recursive front-end checkpoint: `parse_statement` is called for *every*
+        // statement, including deeply nested block bodies the top-level `parse`
+        // loop never revisits, so consulting the run budget here keeps a large
+        // nested parse interruptible (deadline/cancellation, exemption-aware).
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+            && self.cursor.peek().is_some()
+        {
+            let err = ParseError::from_token(exceeded.message(), self.cursor.peek().unwrap());
+            // Advance one token so the top-level `parse` loop's no-progress
+            // invariant holds even when the breach fires on the first statement.
+            self.bump_sync();
+            return Err(err);
+        }
         if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),

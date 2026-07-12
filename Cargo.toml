@@ -2,6 +2,10 @@
 name = "wfl"
 version = "26.7.35"
 edition = "2024"
+# Minimum supported Rust version. The codebase uses `if let … && …` let-chains
+# (stabilized in Rust 1.88) throughout, so 1.88 is the true floor — recorded
+# here so `cargo` fails fast on older toolchains instead of deep in a build.
+rust-version = "1.88"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"
 authors = ["Logbie LLC <info@logbie.com>"]

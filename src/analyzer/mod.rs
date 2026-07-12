@@ -228,6 +228,13 @@ pub struct Analyzer {
     /// count loops reusing the same variable name are reported as errors,
     /// while shadowing an ordinary outer variable is allowed.
     active_loop_variables: Vec<String>,
+    /// The shared-budget breach hit mid-traversal, if any. Its presence latches
+    /// the recursive `analyze_statement` checkpoint (record once, then
+    /// short-circuit every remaining node instead of pushing a duplicate error
+    /// per nested statement) and lets callers recover the *typed* breach — a
+    /// budget failure is fatal and must never be mistaken for an ordinary
+    /// semantic diagnostic. Reset per `analyze` run.
+    budget_error: Option<crate::exec::budget::BudgetExceeded>,
 }
 
 impl Default for Analyzer {
@@ -432,6 +439,7 @@ impl Analyzer {
             has_includes: false,
             try_depth: 0,
             active_loop_variables: Vec::new(),
+            budget_error: None,
         }
     }
 
@@ -481,6 +489,31 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        // Reset the per-run budget breach so a reused analyzer never carries a
+        // stale one from a previous program (matches the direct assignment of
+        // `has_includes` below).
+        self.budget_error = None;
+
+        // Front-end budget checkpoint at the analysis phase boundary. `analyze`
+        // backs the type checker and every `load module` / `include` /
+        // `execute file`, so consulting the run budget here (deadline/
+        // cancellation, exemption-aware) keeps those nested pipelines cooperative
+        // rather than only the top-level interpret.
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            // Record the typed breach on the fatal channel BEFORE returning, so a
+            // caller that consults `take_budget_error()` (e.g. `TypeChecker::new()`
+            // entering with an already-exhausted/cancelled budget) sees an
+            // entry-time breach as the fatal `Budget` variant rather than
+            // misclassifying its rendered `SemanticError` as ordinary type errors.
+            // `analyze_statement` sets this on the recursive path; the phase
+            // boundary must too.
+            let rendered = SemanticError::new(exceeded.message(), 0, 0);
+            self.budget_error = Some(exceeded);
+            return Err(vec![rendered]);
+        }
+
         // Detect include statements up front. Includes are resolved at runtime
         // and can expose actions/variables the analyzer never sees, so their
         // presence relaxes undefined-action reporting (see `has_includes`).
@@ -514,6 +547,15 @@ impl Analyzer {
     /// actions in a program that uses `include from`).
     pub fn get_warnings(&self) -> &Vec<SemanticError> {
         &self.warnings
+    }
+
+    /// Take the shared-budget breach recorded during analysis, if any. When
+    /// `analyze` returns `Err`, a caller must consult this to tell a fatal
+    /// deadline/cancellation/resource breach apart from ordinary semantic
+    /// diagnostics — the breach is fatal and its `Vec<SemanticError>` form is
+    /// only a rendering of the same event.
+    pub fn take_budget_error(&mut self) -> Option<crate::exec::budget::BudgetExceeded> {
+        self.budget_error.take()
     }
 
     /// Report an undefined-name reference. Inside a `try` body this is a
@@ -560,6 +602,27 @@ impl Analyzer {
     }
 
     fn analyze_statement(&mut self, statement: &Statement) {
+        // Recursive front-end checkpoint. The entry poll in `analyze` fires once,
+        // but this method recurses through every nested block, loop, `try`,
+        // action, and container-method body — so a single deeply nested
+        // top-level statement could otherwise run the analyzer to completion
+        // without honoring the run budget. Polling here (mirroring the parser's
+        // per-`parse_statement` placement) keeps the whole traversal cooperative
+        // with the deadline/cancellation/operation limits. Once exhausted, the
+        // flag short-circuits every remaining node so the breach is recorded a
+        // single time rather than duplicated per statement.
+        if self.budget_error.is_some() {
+            return;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(SemanticError::new(exceeded.message(), 0, 0));
+            self.budget_error = Some(exceeded);
+            return;
+        }
+
         match statement {
             Statement::VariableDeclaration {
                 name,
@@ -2440,6 +2503,22 @@ impl Analyzer {
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {
+        // Recursive front-end checkpoint for expressions. `analyze_statement`
+        // polls per statement, but one statement can hold an arbitrarily large
+        // expression tree (a huge list/map literal, a long operator chain), so
+        // poll here too. The `budget_error` latch records the breach once and
+        // short-circuits the rest of the traversal.
+        if self.budget_error.is_some() {
+            return;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(SemanticError::new(exceeded.message(), 0, 0));
+            self.budget_error = Some(exceeded);
+            return;
+        }
         match expression {
             Expression::AwaitExpression {
                 expression,

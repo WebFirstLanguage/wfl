@@ -504,6 +504,112 @@ impl ConfigChecker {
             },
         );
 
+        // Shared ExecutionBudget limits (see src/exec/budget.rs). Registered so
+        // `--configCheck` accepts them and `--configFix` does not strip them
+        // (which for `max_operations` would silently revert a ceiling to
+        // unlimited). Includes `web_server_request_queue_bound`, which predates
+        // this change but was never registered.
+        {
+            let mut int_setting = |name: &str, default: &str, category: &str, desc: &str| {
+                expected_settings.insert(
+                    name.to_string(),
+                    ExpectedSetting {
+                        name: name.to_string(),
+                        config_type: ConfigType::Integer,
+                        required: false,
+                        default_value: Some(default.to_string()),
+                        description: desc.to_string(),
+                        valid_values: None,
+                        category: category.to_string(),
+                    },
+                );
+            };
+            int_setting(
+                "web_server_request_queue_bound",
+                "256",
+                "Web Server",
+                "Max queued HTTP requests before shedding with 503 (min 1)",
+            );
+            int_setting(
+                "web_server_max_response_size",
+                "67108864",
+                "Web Server",
+                "Maximum HTTP response body size in bytes (default 64 MiB, min 1)",
+            );
+            int_setting(
+                "web_server_response_timeout_seconds",
+                "300",
+                "Web Server",
+                "Seconds to await a handler before shedding with 504; 0 = disabled",
+            );
+            int_setting(
+                "web_socket_queue_bound",
+                "1024",
+                "Web Server",
+                "Max queued frames/events per WebSocket channel (min 1)",
+            );
+            int_setting(
+                "web_socket_max_connections",
+                "1024",
+                "Web Server",
+                "Max simultaneous live WebSocket connections (min 1)",
+            );
+            int_setting(
+                "web_socket_max_message_size",
+                "1048576",
+                "Web Server",
+                "Max size in bytes of a single WebSocket text message (default 1 MiB, min 1)",
+            );
+            int_setting(
+                "web_socket_max_queued_bytes",
+                "16777216",
+                "Web Server",
+                "Global ceiling in bytes on queued WebSocket payloads (default 16 MiB, min 1)",
+            );
+            int_setting(
+                "max_operations",
+                "0",
+                "Execution Budget",
+                "Hard ceiling on interpreter operations; 0 = unlimited",
+            );
+            int_setting(
+                "max_call_depth",
+                "1000",
+                "Execution Budget",
+                "Maximum WFL call/recursion depth (min 1)",
+            );
+            int_setting(
+                "max_import_depth",
+                "64",
+                "Execution Budget",
+                "Maximum nested load module / include depth (min 1)",
+            );
+            int_setting(
+                "max_execute_file_depth",
+                "4",
+                "Execution Budget",
+                "Maximum execute file nesting depth (min 1)",
+            );
+            int_setting(
+                "max_pattern_steps",
+                "5000000",
+                "Execution Budget",
+                "Maximum pattern-VM transitions per match (ReDoS guard, min 1)",
+            );
+            int_setting(
+                "max_pattern_states",
+                "10000",
+                "Execution Budget",
+                "Maximum simultaneously-active pattern states per match (min 1)",
+            );
+            int_setting(
+                "max_source_size",
+                "67108864",
+                "Execution Budget",
+                "Maximum WFL source-file size in bytes (default 64 MiB, min 1)",
+            );
+        }
+
         Self { expected_settings }
     }
 
@@ -521,6 +627,9 @@ impl ConfigChecker {
             "Security",
             "Subprocess Management",
             "Web Server",
+            // Without this, the config wizard silently omitted every setting
+            // assigned to the ExecutionBudget category.
+            "Execution Budget",
         ];
 
         categories
@@ -607,21 +716,53 @@ impl ConfigChecker {
 
                 match setting.config_type {
                     ConfigType::Integer => {
-                        if value.parse::<i64>().is_err() {
-                            issues.push(ConfigIssue {
-                                file_path: file_path.to_path_buf(),
-                                kind: ConfigIssueKind::InvalidType,
-                                issue_type: ConfigIssueType::Error,
-                                message: format!(
-                                    "Invalid type for {key}: expected integer, got '{value}'"
-                                ),
-                                setting_name: Some(key.to_string()),
-                                line_number: Some(line_number + 1),
-                                fix_message: setting
-                                    .default_value
-                                    .as_ref()
-                                    .map(|default| format!("Set to default value: {default}")),
-                            });
+                        // Validate exactly as the loader does: a *non-negative*
+                        // integer parsed as `u64` (the loader's `usize`/`u64`
+                        // domain), not `i64`. The old `i64` parse wrongly accepted
+                        // negatives and rejected valid `u64` values above
+                        // `i64::MAX`, so `--configFix` could "fix" a good value to
+                        // 0/unlimited and let `max_operations = -1` pass.
+                        match value.parse::<u64>() {
+                            Err(_) => {
+                                issues.push(ConfigIssue {
+                                    file_path: file_path.to_path_buf(),
+                                    kind: ConfigIssueKind::InvalidType,
+                                    issue_type: ConfigIssueType::Error,
+                                    message: format!(
+                                        "Invalid type for {key}: expected a non-negative integer, got '{value}'"
+                                    ),
+                                    setting_name: Some(key.to_string()),
+                                    line_number: Some(line_number + 1),
+                                    fix_message: setting
+                                        .default_value
+                                        .as_ref()
+                                        .map(|default| format!("Set to default value: {default}")),
+                                });
+                            }
+                            Ok(n) => {
+                                // Enforce the loader's per-key minimum (most
+                                // budget/web keys require >= 1 via
+                                // `set_positive_usize`), so a value the loader
+                                // would reject and silently keep-default is
+                                // reported here instead of appearing valid.
+                                if let Some(min) = integer_min_for_key(key)
+                                    && n < min
+                                {
+                                    issues.push(ConfigIssue {
+                                        file_path: file_path.to_path_buf(),
+                                        kind: ConfigIssueKind::InvalidValue,
+                                        issue_type: ConfigIssueType::Error,
+                                        message: format!(
+                                            "Invalid value for {key}: must be at least {min}, got '{value}'"
+                                        ),
+                                        setting_name: Some(key.to_string()),
+                                        line_number: Some(line_number + 1),
+                                        fix_message: setting.default_value.as_ref().map(|default| {
+                                            format!("Set to default value: {default}")
+                                        }),
+                                    });
+                                }
+                            }
                         }
                     }
                     ConfigType::Boolean => {
@@ -946,6 +1087,33 @@ fn is_valid_ip_address(addr: &str) -> bool {
     addr.parse::<IpAddr>().is_ok()
 }
 
+/// The minimum a given integer config key accepts, matching the loader's
+/// per-key validation in `src/config.rs`. `None` leaves a pre-existing key with
+/// no minimum (any non-negative integer). The budget/web keys mirror the loader:
+/// `max_operations` and `web_server_response_timeout_seconds` accept `0`
+/// (unlimited/disabled), while every other budget/web ceiling requires `>= 1`
+/// (the loader's `set_positive_usize`).
+fn integer_min_for_key(key: &str) -> Option<u64> {
+    match key {
+        "max_operations" | "web_server_response_timeout_seconds" => Some(0),
+        "timeout_seconds"
+        | "web_server_max_body_size"
+        | "web_server_request_queue_bound"
+        | "web_server_max_response_size"
+        | "web_socket_queue_bound"
+        | "web_socket_max_connections"
+        | "web_socket_max_message_size"
+        | "web_socket_max_queued_bytes"
+        | "max_call_depth"
+        | "max_import_depth"
+        | "max_execute_file_depth"
+        | "max_pattern_steps"
+        | "max_pattern_states"
+        | "max_source_size" => Some(1),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -980,6 +1148,128 @@ max_line_length = 80
         let issues = checker.check_config_file(&config_path).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].kind, ConfigIssueKind::MissingFile);
+    }
+
+    #[test]
+    fn test_budget_keys_are_known_and_survive_fix() {
+        // Every ExecutionBudget key must be recognized by --configCheck and left
+        // intact by --configFix (stripping `max_operations` would silently revert
+        // a configured ceiling to unlimited).
+        let keys = [
+            "max_operations",
+            "max_call_depth",
+            "max_import_depth",
+            "max_execute_file_depth",
+            "max_pattern_steps",
+            "max_pattern_states",
+            "max_source_size",
+            "web_server_max_response_size",
+            "web_server_response_timeout_seconds",
+            "web_server_request_queue_bound",
+            "web_socket_queue_bound",
+            "web_socket_max_connections",
+            "web_socket_max_message_size",
+            "web_socket_max_queued_bytes",
+        ];
+        let checker = ConfigChecker::new();
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+        let config_content = "\
+max_operations = 25000
+max_call_depth = 2000
+max_import_depth = 32
+max_execute_file_depth = 6
+max_pattern_steps = 250000
+max_pattern_states = 5000
+max_source_size = 1048576
+web_server_max_response_size = 5242880
+web_server_response_timeout_seconds = 30
+web_server_request_queue_bound = 512
+web_socket_queue_bound = 2048
+web_socket_max_connections = 256
+web_socket_max_message_size = 2097152
+web_socket_max_queued_bytes = 33554432
+";
+        fs::write(&config_path, config_content).unwrap();
+
+        let issues = checker.check_config_file(&config_path).unwrap();
+        assert!(issues.is_empty(), "Expected no issues, got: {issues:?}");
+
+        let after = checker.fix_config_file(&config_path).unwrap();
+        assert!(
+            after.is_empty(),
+            "Expected no issues after fix, got: {after:?}"
+        );
+        let content = fs::read_to_string(&config_path).unwrap();
+        for key in keys {
+            assert!(
+                content.contains(&format!("{key} =")),
+                "--configFix stripped '{key}':\n{content}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_budget_keys_enforce_loader_ranges() {
+        // The checker must reject exactly what the loader rejects: a negative
+        // `max_operations` (loader keeps it unlimited) and a zero `max_call_depth`
+        // (a positive-only key), rather than letting them pass check/fix.
+        let checker = ConfigChecker::new();
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+        fs::write(
+            &config_path,
+            "max_operations = -1\nmax_call_depth = 0\nmax_source_size = 4096\n",
+        )
+        .unwrap();
+
+        let issues = checker.check_config_file(&config_path).unwrap();
+        let bad: std::collections::HashSet<_> = issues
+            .iter()
+            .filter_map(|i| i.setting_name.as_deref())
+            .collect();
+        assert!(
+            bad.contains("max_operations"),
+            "negative max_operations must be rejected; issues: {issues:?}"
+        );
+        assert!(
+            bad.contains("max_call_depth"),
+            "zero max_call_depth must be rejected; issues: {issues:?}"
+        );
+        assert!(
+            !bad.contains("max_source_size"),
+            "a valid max_source_size must not be flagged; issues: {issues:?}"
+        );
+
+        // The pre-existing positive-only keys the loader clamps/rejects at 0 are
+        // now enforced by the checker too.
+        fs::write(
+            &config_path,
+            "timeout_seconds = 0\nweb_server_max_body_size = 0\n",
+        )
+        .unwrap();
+        let issues = checker.check_config_file(&config_path).unwrap();
+        let bad: std::collections::HashSet<_> = issues
+            .iter()
+            .filter_map(|i| i.setting_name.as_deref())
+            .collect();
+        assert!(
+            bad.contains("timeout_seconds") && bad.contains("web_server_max_body_size"),
+            "zero timeout_seconds / web_server_max_body_size must be rejected; issues: {issues:?}"
+        );
+
+        // 0 is valid for max_operations (unlimited); a large u64 above i64::MAX
+        // must be accepted, not rejected as before.
+        fs::write(
+            &config_path,
+            "max_operations = 0\nmax_pattern_steps = 18446744073709551615\n",
+        )
+        .unwrap();
+        let issues = checker.check_config_file(&config_path).unwrap();
+        assert!(
+            issues.is_empty(),
+            "0 max_operations and a large u64 must be accepted; got: {issues:?}"
+        );
     }
 
     #[test]

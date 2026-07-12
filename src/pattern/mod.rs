@@ -46,6 +46,8 @@ pub mod compiler;
 pub mod instruction;
 pub mod vm;
 
+use crate::exec::budget::ExecutionBudget;
+
 pub use compiler::PatternCompiler;
 pub use instruction::{Instruction, Program as PatternProgram};
 pub use vm::{MatchResult, PatternVM};
@@ -65,6 +67,18 @@ pub enum PatternError {
     RuntimeError(String),
     /// Pattern execution exceeded the maximum allowed steps (prevents ReDoS)
     StepLimitExceeded,
+    /// Pattern execution exceeded the maximum allowed simultaneously-active
+    /// states (guards against exponential state fan-out)
+    StateLimitExceeded,
+    /// Pattern execution exceeded the run's wall-clock deadline. Carries the
+    /// configured limit in seconds so it can surface as the historic timeout
+    /// error rather than a ReDoS step-limit error.
+    Timeout {
+        /// The configured wall-clock limit, in seconds.
+        limit_secs: u64,
+    },
+    /// Pattern execution was cancelled via the shared `ExecutionBudget`
+    Cancelled,
     /// Referenced capture group does not exist
     InvalidCapture(String),
     /// Invalid bytecode instruction encountered
@@ -77,6 +91,15 @@ impl std::fmt::Display for PatternError {
             PatternError::CompileError(msg) => write!(f, "Pattern compile error: {msg}"),
             PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {msg}"),
             PatternError::StepLimitExceeded => write!(f, "Pattern execution step limit exceeded"),
+            PatternError::StateLimitExceeded => {
+                write!(f, "Pattern execution active-state limit exceeded")
+            }
+            // Reuse the interpreter's historic timeout wording so a pattern that
+            // outruns the deadline reports the same message as any other timeout.
+            PatternError::Timeout { limit_secs } => {
+                write!(f, "Execution exceeded timeout ({limit_secs}s)")
+            }
+            PatternError::Cancelled => write!(f, "Pattern execution was cancelled"),
             PatternError::InvalidCapture(name) => write!(f, "Invalid capture group: {name}"),
             PatternError::InvalidInstruction(msg) => write!(f, "Invalid instruction: {msg}"),
         }
@@ -208,11 +231,11 @@ impl CompiledPattern {
     /// ```
     ///
     /// # Note
-    /// Execution errors are silently converted to `false`. For error details,
-    /// use the VM directly.
+    /// Execution errors (including a ReDoS/budget breach) are silently converted
+    /// to `false`. Use [`CompiledPattern::matches_with_budget`] to observe them.
     pub fn matches(&self, text: &str) -> bool {
-        let mut vm = PatternVM::new();
-        vm.execute(&self.program, text).unwrap_or(false)
+        self.matches_with_budget(text, &ExecutionBudget::current_or_default())
+            .unwrap_or(false)
     }
 
     /// Find the first match in the text with position and capture information.
@@ -235,12 +258,16 @@ impl CompiledPattern {
     /// # let pattern = CompiledPattern::compile(&pattern).unwrap();
     /// let text = "say hello world";
     /// if let Some(m) = pattern.find(text) {
-    ///     println!("Match: '{}' at {}-{}", &text[m.start..m.end], m.start, m.end);
+    ///     // `m.start`/`m.end` are CHARACTER indices, not byte offsets, so
+    ///     // extract by chars — slicing `&text[m.start..m.end]` would panic on
+    ///     // any index that is not a UTF-8 byte boundary.
+    ///     let matched: String = text.chars().skip(m.start).take(m.end - m.start).collect();
+    ///     println!("Match: '{}' at {}-{}", matched, m.start, m.end);
     /// }
     /// ```
     pub fn find(&self, text: &str) -> Option<MatchResult> {
-        let mut vm = PatternVM::new();
-        vm.find(&self.program, text, &self.capture_names)
+        self.find_with_budget(text, &ExecutionBudget::current_or_default())
+            .unwrap_or(None)
     }
 
     /// Find all non-overlapping matches in the text.
@@ -268,7 +295,44 @@ impl CompiledPattern {
     /// For patterns that may match many times, consider using iterative
     /// approaches if memory usage is a concern.
     pub fn find_all(&self, text: &str) -> Vec<MatchResult> {
-        let mut vm = PatternVM::new();
-        vm.find_all(&self.program, text, &self.capture_names)
+        self.find_all_with_budget(text, &ExecutionBudget::current_or_default())
+            .unwrap_or_default()
+    }
+
+    /// [`CompiledPattern::matches`], sharing an existing [`ExecutionBudget`] so
+    /// the match respects the run's pattern step/state ceilings, wall-clock
+    /// deadline, and cooperative cancellation, and **propagating** a budget
+    /// breach instead of hiding it as a non-match. Each call runs on a fresh
+    /// per-match meter, so concurrent matches under one run budget never
+    /// interfere.
+    pub fn matches_with_budget(
+        &self,
+        text: &str,
+        budget: &std::sync::Arc<ExecutionBudget>,
+    ) -> Result<bool, PatternError> {
+        let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
+        vm.execute(&self.program, text)
+    }
+
+    /// [`CompiledPattern::find`], sharing an existing [`ExecutionBudget`] and
+    /// propagating budget breaches on a fresh per-match meter.
+    pub fn find_with_budget(
+        &self,
+        text: &str,
+        budget: &std::sync::Arc<ExecutionBudget>,
+    ) -> Result<Option<MatchResult>, PatternError> {
+        let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
+        vm.try_find(&self.program, text, &self.capture_names)
+    }
+
+    /// [`CompiledPattern::find_all`], sharing an existing [`ExecutionBudget`] and
+    /// propagating budget breaches on a fresh per-match meter.
+    pub fn find_all_with_budget(
+        &self,
+        text: &str,
+        budget: &std::sync::Arc<ExecutionBudget>,
+    ) -> Result<Vec<MatchResult>, PatternError> {
+        let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
+        vm.try_find_all(&self.program, text, &self.capture_names)
     }
 }

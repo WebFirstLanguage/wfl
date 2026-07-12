@@ -117,10 +117,12 @@ impl WflLanguageCore {
                     }
                 }
 
-                // Run type checking
+                // Run type checking. A shared-budget breach is surfaced as a
+                // diagnostic here (the LSP only reports; it never executes), so
+                // rendering it via `into_diagnostics` is sufficient.
                 let mut type_checker = TypeChecker::new();
-                if let Err(errors) = type_checker.check_types(&program) {
-                    for error in errors {
+                if let Err(failure) = type_checker.check_types(&program) {
+                    for error in failure.into_diagnostics() {
                         let wfl_diag = diagnostic_reporter.convert_type_error(file_id, &error);
                         diagnostics.push(wfl_diag);
                     }

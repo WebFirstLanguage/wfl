@@ -28,6 +28,7 @@ use self::value::{
 use crate::builtins::get_function_arity;
 use crate::config::WflConfig;
 use crate::debug_report::CallFrame;
+use crate::exec::budget::{BudgetExceeded, ExecutionBudget};
 #[cfg(debug_assertions)]
 use crate::exec_block_enter;
 #[cfg(debug_assertions)]
@@ -63,11 +64,33 @@ use tokio::sync::{mpsc, oneshot};
 
 // Type alias for complex pending response type
 type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
+
+/// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
+///
+/// Holds only the response channel. The request's in-flight admission slot is
+/// **not** parked here — it lives with the warp transport task, which stays
+/// alive awaiting this response, so the slot is released when that task
+/// completes (a delivered response, a response timeout, or a client
+/// disconnect) independently of any later admitted request. Parking the slot in
+/// this map instead pinned it until a *future* dequeued request pruned it, which
+/// permanently wedged admission once the cap was full (all route tasks timed out
+/// but no new request could be admitted to trigger the prune).
+struct PendingResponse {
+    sender: PendingResponseSender,
+}
 use uuid;
 use warp::Filter;
 
+/// How often (in charged operations) execution cooperatively yields to the async
+/// runtime. A tight CPU-bound `count`/`while`/`repeat` loop otherwise never
+/// returns control to the executor, so a `select!` waiting to deliver
+/// cooperative cancellation (e.g. the REPL's Ctrl-C → `budget.cancel()`) could
+/// not be polled until the run happened to hit real async work. Power of two so
+/// `count & (STRIDE - 1)` is exact; large enough that the yield is negligible.
+const COOP_YIELD_STRIDE: u64 = 1024;
+
 // Web server data structures
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WflHttpRequest {
     pub id: String,
     pub method: String,
@@ -94,6 +117,36 @@ pub struct WflHttpResponse {
     pub status: u16,
     pub content_type: String,
     pub headers: HashMap<String, String>,
+}
+
+/// Ensures an HTTP `respond` always resolves its request. The response sender is
+/// taken out of `pending_responses` (and out of its mutex) up front and held
+/// here; if a fallible step in `respond` returns early before a response is
+/// built, `Drop` answers 500 so the client is resolved deterministically instead
+/// of hanging until the request timeout. A successful `respond` calls
+/// [`ResponseCompletion::take_sender`] to disarm the fallback and deliver the
+/// real response.
+struct ResponseCompletion {
+    sender: Option<oneshot::Sender<WflHttpResponse>>,
+}
+
+impl ResponseCompletion {
+    fn take_sender(&mut self) -> Option<oneshot::Sender<WflHttpResponse>> {
+        self.sender.take()
+    }
+}
+
+impl Drop for ResponseCompletion {
+    fn drop(&mut self) {
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(WflHttpResponse {
+                content: b"Internal Server Error\n".to_vec(),
+                status: 500,
+                content_type: "text/plain; charset=utf-8".to_string(),
+                headers: HashMap::new(),
+            });
+        }
+    }
 }
 
 /// Look up an HTTP header by name in a request headers map.
@@ -124,6 +177,18 @@ pub struct WflWebServer {
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+impl Drop for WflWebServer {
+    fn drop(&mut self) {
+        // Safety net for every non-`close server` teardown (interpreter drop, map
+        // replacement, a caught setup error): abort the accept task so a bound
+        // listener is never orphaned. `close server` moves `server_handle` out
+        // first, so this does not double-abort.
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+        }
+    }
+}
+
 /// Build the 503 response returned when the transport→interpreter request queue
 /// is full (Phase 0, PR-0c). A free function so the shed path can be tested
 /// without standing up a live server.
@@ -139,6 +204,92 @@ pub fn overloaded_response() -> warp::http::Response<Vec<u8>> {
         .expect("static 503 response is always valid")
 }
 
+/// Build a static `text/plain` response with the given status and message.
+fn plain_status_response(
+    status: warp::http::StatusCode,
+    message: &str,
+) -> warp::http::Response<Vec<u8>> {
+    let body = message.as_bytes().to_vec();
+    let content_length = body.len();
+    warp::http::Response::builder()
+        .status(status)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .header("Content-Length", content_length)
+        .body(body)
+        .expect("static status response is always valid")
+}
+
+/// 413 returned when a request body exceeds `web_server_max_body_size`. Because
+/// it is enforced while streaming, a chunked body with no `Content-Length` is
+/// bounded too.
+fn payload_too_large_response() -> warp::http::Response<Vec<u8>> {
+    plain_status_response(
+        warp::http::StatusCode::PAYLOAD_TOO_LARGE,
+        "Payload Too Large: request body exceeds the configured limit\n",
+    )
+}
+
+/// 504 returned when a handler does not answer an accepted request within
+/// `web_server_response_timeout_seconds`, freeing its in-flight slot.
+fn gateway_timeout_response() -> warp::http::Response<Vec<u8>> {
+    plain_status_response(
+        warp::http::StatusCode::GATEWAY_TIMEOUT,
+        "Gateway Timeout: the request handler did not respond in time\n",
+    )
+}
+
+/// 408 returned when a client does not finish sending its request body within
+/// `web_server_response_timeout_seconds`, so a slow "trickle" upload cannot pin
+/// its in-flight slot indefinitely.
+fn request_timeout_response() -> warp::http::Response<Vec<u8>> {
+    plain_status_response(
+        warp::http::StatusCode::REQUEST_TIMEOUT,
+        "Request Timeout: the request body was not received in time\n",
+    )
+}
+
+/// Error from [`read_body_capped`].
+enum BodyReadError {
+    /// The streamed body exceeded the byte ceiling.
+    TooLarge,
+    /// The transport failed while reading the body.
+    Io,
+}
+
+/// Read a streamed request body into a `Vec`, aborting as soon as it exceeds
+/// `max` bytes. Unlike buffering the whole body first, this bounds memory for
+/// chunked requests (which carry no `Content-Length`): the buffer never grows
+/// past `max + 1` bytes before the limit trips.
+async fn read_body_capped<S, B>(stream: S, max: usize) -> Result<Vec<u8>, BodyReadError>
+where
+    S: futures_util::Stream<Item = Result<B, warp::Error>>,
+    B: bytes::Buf,
+{
+    use futures_util::StreamExt;
+
+    futures_util::pin_mut!(stream);
+    let mut out: Vec<u8> = Vec::new();
+    while let Some(item) = stream.next().await {
+        let mut chunk = item.map_err(|_| BodyReadError::Io)?;
+        while chunk.has_remaining() {
+            let slice = chunk.chunk();
+            // Copy at most enough to reach `max + 1` (one sentinel byte past the
+            // limit), so a single huge transport chunk cannot grow `out` to
+            // `max + chunk_len` before the check — the buffer never exceeds
+            // `max + 1` bytes.
+            let allowance = max.saturating_sub(out.len()).saturating_add(1);
+            if slice.len() >= allowance {
+                out.extend_from_slice(&slice[..allowance]);
+                return Err(BodyReadError::TooLarge);
+            }
+            let take = slice.len();
+            out.extend_from_slice(slice);
+            chunk.advance(take);
+        }
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket support
 //
@@ -150,10 +301,16 @@ pub fn overloaded_response() -> warp::http::Response<Vec<u8>> {
 // `wait for <duration>`, so all WFL code still executes on one thread.
 // ---------------------------------------------------------------------------
 
-/// An outbound frame queued for a single connection's writer task.
+/// An outbound frame queued for a single connection's writer task. A `Text`
+/// frame carries a [`WsBytePermit`] reserving its payload against the global
+/// WebSocket queued-byte budget; the permit releases when the frame is sent
+/// (consumed) or shed on a full/closed queue (dropped).
 #[derive(Debug)]
 enum WsOutbound {
-    Text(String),
+    Text {
+        text: String,
+        _permit: crate::exec::budget::WsBytePermit,
+    },
     Close,
 }
 
@@ -173,11 +330,17 @@ struct WflWsEvent {
     client_ip: String,
     /// Text payload for `Message` events; `None` for connect/disconnect.
     content: Option<String>,
+    /// For `Message` events, the reservation of this payload's bytes against
+    /// the global WebSocket queued-byte budget; released when the interpreter
+    /// consumes (drops) the event. `None` for the payloadless connect/disconnect.
+    _permit: Option<crate::exec::budget::WsBytePermit>,
 }
 
 /// Outbound-sender registry keyed by connection id, shared with warp tasks.
-type WsConnectionRegistry =
-    Arc<std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<WsOutbound>>>>;
+/// Each sender is a *bounded* channel (sized from the shared budget's
+/// `ws_queue_bound`), so a slow client cannot make the server buffer frames
+/// without bound — sends `try_send` and shed on `Full`.
+type WsConnectionRegistry = Arc<std::sync::Mutex<HashMap<String, mpsc::Sender<WsOutbound>>>>;
 
 /// A registered `on websocket ...` handler block plus its captured environment.
 struct WsRegisteredHandler {
@@ -197,10 +360,27 @@ struct WsHandlerSet {
 /// A running WebSocket server: an event stream in, the set of live connection
 /// ids (for broadcast), the registered handler blocks, and the server task.
 struct WflWebSocketServer {
-    event_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflWsEvent>>>,
+    event_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflWsEvent>>>,
     connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
     handlers: RefCell<WsHandlerSet>,
     server_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Per-server cancellation: flipping (or dropping) this wakes every live
+    /// connection's reader `select!` so `close server` terminates each socket
+    /// task even if the peer ignores the close handshake.
+    close_tx: tokio::sync::watch::Sender<bool>,
+}
+
+impl Drop for WflWebSocketServer {
+    fn drop(&mut self) {
+        // Safety net for every non-`close server` teardown (interpreter drop, map
+        // replacement, a caught setup error): wake connections and abort the
+        // accept task so a bound listener is never orphaned. `close server` moves
+        // `server_handle` out first, so this does not double-abort.
+        let _ = self.close_tx.send(true);
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+        }
+    }
 }
 
 /// Drives one upgraded WebSocket connection: registers its outbound channel,
@@ -209,19 +389,40 @@ struct WflWebSocketServer {
 async fn handle_ws_connection(
     socket: warp::ws::WebSocket,
     remote_addr: Option<std::net::SocketAddr>,
-    events: mpsc::UnboundedSender<WflWsEvent>,
+    events: mpsc::Sender<WflWsEvent>,
     connections: WsConnectionRegistry,
     connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
+    budget: Arc<ExecutionBudget>,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
-    let conn_id = uuid::Uuid::new_v4().to_string();
     let client_ip = remote_addr
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Enforce the shared connection ceiling before doing any per-connection
+    // work. The guard releases the slot when this task ends (any exit path).
+    let _conn_guard = match budget.try_acquire_ws_connection() {
+        Some(guard) => guard,
+        None => {
+            log::warn!(
+                "WebSocket connection limit ({}) reached; refusing connection from {client_ip}",
+                budget.limits().max_ws_connections
+            );
+            let (mut ws_tx, _ws_rx) = socket.split();
+            let _ = ws_tx.send(warp::ws::Message::close()).await;
+            let _ = ws_tx.flush().await;
+            return;
+        }
+    };
+
+    let conn_id = uuid::Uuid::new_v4().to_string();
+
     let (mut ws_tx, mut ws_rx) = socket.split();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<WsOutbound>();
+    // Bounded outbound queue (sized from the budget): a slow client sheds
+    // frames on `Full` instead of growing memory without bound.
+    let (out_tx, mut out_rx) = mpsc::channel::<WsOutbound>(budget.ws_queue_bound());
 
     if let Ok(mut map) = connections.lock() {
         map.insert(conn_id.clone(), out_tx);
@@ -230,44 +431,111 @@ async fn handle_ws_connection(
         ids.push(conn_id.clone());
     }
 
-    let _ = events.send(WflWsEvent {
+    // The connect event MUST be delivered before this socket is allowed to emit
+    // messages: it runs the `on websocket connect` handler (app init/auth). If it
+    // cannot be admitted (queue full or closed), fail closed — unregister the
+    // connection and close the socket — rather than leaving a live socket whose
+    // connect handler never ran but which could still emit Message events once
+    // the queue drains.
+    if let Err(err) = events.try_send(WflWsEvent {
         kind: WsEventKind::Connect,
         connection_id: conn_id.clone(),
         client_ip: client_ip.clone(),
         content: None,
-    });
+        _permit: None,
+    }) {
+        log::warn!(
+            "WebSocket connect event for {conn_id} could not be admitted ({err}); closing the connection"
+        );
+        if let Ok(mut map) = connections.lock() {
+            map.remove(&conn_id);
+        }
+        if let Ok(mut ids) = connection_ids.lock() {
+            ids.retain(|c| c != &conn_id);
+        }
+        let _ = ws_tx.send(warp::ws::Message::close()).await;
+        let _ = ws_tx.flush().await;
+        return; // `_conn_guard` drops here, releasing the connection slot.
+    }
 
-    // Writer task: drains queued frames to the socket until the channel closes
-    // or the peer goes away.
-    let writer = tokio::spawn(async move {
+    // Writer task: drains queued frames to the socket until an explicit close,
+    // the peer going away, or the channel closing.
+    let mut writer = tokio::spawn(async move {
+        let mut peer_gone = false;
         while let Some(out) = out_rx.recv().await {
             match out {
-                WsOutbound::Text(text) => {
+                // `_permit` drops at the end of this arm, releasing the frame's
+                // reserved bytes back to the global queued-byte budget once sent.
+                WsOutbound::Text { text, _permit } => {
                     if ws_tx.send(warp::ws::Message::text(text)).await.is_err() {
+                        peer_gone = true;
                         break;
                     }
                 }
-                WsOutbound::Close => {
-                    let _ = ws_tx.send(warp::ws::Message::close()).await;
-                    let _ = ws_tx.flush().await;
-                    break;
-                }
+                // Fall through to the unconditional close below.
+                WsOutbound::Close => break,
             }
+        }
+        // Always send a best-effort close frame on exit — whether from an
+        // explicit `Close`, an empty channel (`close server` dropped every
+        // sender), or a `Full` queue that could not carry the `Close` message.
+        // This guarantees `close server` terminates the socket even under
+        // backpressure, instead of leaving the reader task (and its connection
+        // slot) alive waiting on the peer.
+        if !peer_gone {
+            let _ = ws_tx.send(warp::ws::Message::close()).await;
+            let _ = ws_tx.flush().await;
         }
     });
 
     // Reader loop: forward inbound text frames as Message events; stop on close.
-    while let Some(result) = ws_rx.next().await {
+    // A `select!` on the per-server cancellation receiver means `close server`
+    // (which flips/drops the watch channel) wakes a reader that would otherwise
+    // block on `ws_rx.next()` forever waiting on a peer that ignores the close
+    // handshake — so the task and its connection slot always terminate.
+    loop {
+        let result = tokio::select! {
+            biased;
+            changed = cancel.changed() => {
+                // Ok(()) => close requested; Err(_) => the server (its watch
+                // sender) was dropped. Either way, stop reading.
+                let _ = changed;
+                break;
+            }
+            next = ws_rx.next() => match next {
+                Some(r) => r,
+                None => break,
+            },
+        };
         match result {
             Ok(msg) => {
                 if msg.is_text() {
                     if let Ok(text) = msg.to_str() {
-                        let _ = events.send(WflWsEvent {
-                            kind: WsEventKind::Message,
-                            connection_id: conn_id.clone(),
-                            client_ip: client_ip.clone(),
-                            content: Some(text.to_string()),
-                        });
+                        // Bound the frame: reject oversized payloads and reserve
+                        // this payload's bytes against the global queued-byte
+                        // budget, so the event queue holds bounded memory, not
+                        // `ws_queue_bound` arbitrarily-large messages.
+                        match budget.try_reserve_ws_bytes(text.len()) {
+                            Some(permit) => {
+                                if let Err(err) = events.try_send(WflWsEvent {
+                                    kind: WsEventKind::Message,
+                                    connection_id: conn_id.clone(),
+                                    client_ip: client_ip.clone(),
+                                    content: Some(text.to_string()),
+                                    _permit: Some(permit),
+                                }) {
+                                    log::warn!(
+                                        "WebSocket event queue full; dropping message event for {conn_id}: {err}"
+                                    );
+                                }
+                            }
+                            None => {
+                                log::warn!(
+                                    "WebSocket message from {conn_id} ({} bytes) exceeds the per-message or global queued-byte limit; dropping frame",
+                                    text.len()
+                                );
+                            }
+                        }
                     }
                 } else if msg.is_close() {
                     break;
@@ -284,13 +552,40 @@ async fn handle_ws_connection(
     if let Ok(mut ids) = connection_ids.lock() {
         ids.retain(|c| c != &conn_id);
     }
-    let _ = events.send(WflWsEvent {
-        kind: WsEventKind::Disconnect,
-        connection_id: conn_id.clone(),
-        client_ip,
-        content: None,
-    });
-    writer.abort();
+    // The disconnect event MUST be delivered. This connection's connect event
+    // was delivered (connect is fail-closed above), so its `on websocket
+    // connect` handler may have initialized per-connection application state,
+    // and the paired `on websocket disconnect` handler is the only place that
+    // state is cleaned up. A lossy `try_send` here could drop that cleanup under
+    // a momentarily-full queue, leaking application state and leaving a queued
+    // Connect with no matching Disconnect. Use a blocking send so every admitted
+    // Connect gets its paired Disconnect: it resolves as the interpreter drains
+    // the queue, and returns `Err` only if the server has shut down (its
+    // receiver dropped), in which case no disconnect handler remains to run.
+    if let Err(err) = events
+        .send(WflWsEvent {
+            kind: WsEventKind::Disconnect,
+            connection_id: conn_id.clone(),
+            client_ip,
+            content: None,
+            _permit: None,
+        })
+        .await
+    {
+        log::warn!(
+            "WebSocket disconnect event for {conn_id} could not be delivered (server shut down): {err}"
+        );
+    }
+    // Bounded close handshake: give the writer a moment to flush its close frame,
+    // then force teardown so a peer that ignores the handshake cannot keep this
+    // task alive. The writer exits once its channel drains/closes; on timeout we
+    // abort it (dropping a JoinHandle would only detach, not stop, the task).
+    if tokio::time::timeout(Duration::from_millis(250), &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
 }
 
 impl WsEventKind {
@@ -355,14 +650,24 @@ struct Overloaded;
 
 impl warp::reject::Reject for Overloaded {}
 
-/// Warp recover handler: turn an [`Overloaded`] rejection into a 503, and
-/// re-raise every other rejection so warp's default handling still applies
-/// (e.g. oversized-body `ServerError`s are unaffected).
+/// Rejection raised when a request's advertised `Content-Length` exceeds the
+/// body ceiling, so it is refused before any body is read. Mapped to a 413 by
+/// [`handle_overloaded`] (the streaming path returns the 413 directly).
+#[derive(Debug)]
+struct PayloadTooLarge;
+
+impl warp::reject::Reject for PayloadTooLarge {}
+
+/// Warp recover handler: turn an [`Overloaded`] rejection into a 503 and a
+/// [`PayloadTooLarge`] rejection into a 413, and re-raise every other rejection
+/// so warp's default handling still applies.
 async fn handle_overloaded(
     err: warp::Rejection,
 ) -> Result<warp::http::Response<Vec<u8>>, warp::Rejection> {
     if err.find::<Overloaded>().is_some() {
         Ok(overloaded_response())
+    } else if err.find::<PayloadTooLarge>().is_some() {
+        Ok(payload_too_large_response())
     } else {
         Err(err)
     }
@@ -423,6 +728,27 @@ fn validate_tls_pem_files(cert_path: &str, key_path: &str) -> Result<(), String>
     }
 
     Ok(())
+}
+
+/// RAII guard for the interpreter's live recursion depth. Increments on
+/// `enter`, decrements on drop (normal return *or* error unwind), so the depth
+/// counter always reflects the real call nesting — independent of the
+/// diagnostic `call_stack`, which may be force-cleared on a terminal timeout.
+struct CallDepthGuard<'a> {
+    cell: &'a Cell<usize>,
+}
+
+impl<'a> CallDepthGuard<'a> {
+    fn enter(cell: &'a Cell<usize>) -> Self {
+        cell.set(cell.get() + 1);
+        Self { cell }
+    }
+}
+
+impl Drop for CallDepthGuard<'_> {
+    fn drop(&mut self) {
+        self.cell.set(self.cell.get().saturating_sub(1));
+    }
 }
 
 /// RAII guard that ensures module loading context is restored on scope exit.
@@ -702,22 +1028,60 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
-/// Maximum nesting depth for `execute file` runs, guarding against a file
-/// that (directly or indirectly) executes itself. Kept small because each
-/// nesting level polls through the full interpreter recursively, so deep
-/// nesting would exhaust the thread stack (debug builds overflow near a
-/// depth of 8) before a larger guard could fire.
-const MAX_EXECUTE_FILE_DEPTH: usize = 4;
-
+/// The WFL tree-walking interpreter.
+///
+/// # Stack safety (embedders)
+///
+/// The interpreter recurses through several async frames per WFL call, so deep
+/// WFL recursion is stack-heavy: an ordinary 8 MiB thread stack overflows near
+/// depth ~40 in debug builds. The budget's `max_call_depth` only turns runaway
+/// recursion into a clean, catchable `ResourceLimit` error when the stack is
+/// large enough to *reach* that limit first.
+///
+/// The default public path is therefore **safe by default**:
+/// [`Interpreter::new`] — which promises nothing about the thread stack it runs
+/// on — caps recursion at the conservative [`Interpreter::DEFAULT_EMBED_CALL_DEPTH`]
+/// (not the config-file default of 1000), so a deep WFL program returns a
+/// catchable depth error instead of aborting the host process on an ordinary
+/// stack. To recurse deeper, opt into both a higher `max_call_depth` (via
+/// [`Interpreter::with_config`] / [`Interpreter::with_config_and_budget`]) **and**
+/// the large stack from [`crate::run_with_interpreter_stack`] — the combination
+/// the WFL CLI uses to reach the full configured 1000. Those config-taking
+/// constructors honor the caller's `max_call_depth` verbatim precisely so the
+/// CLI (and any embedder that has arranged the stack) can raise it.
 pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
-    in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
-    op_count: Cell<usize>,       // Instruction counter for optimized timeout checks
-    started: Instant,
-    max_duration: Duration,
+    // Main-loop state (deadline exemption) now lives on the shared budget as a
+    // depth counter with an RAII guard (see `ExecutionBudget::enter_main_loop`),
+    // so it restores on every exit and nests correctly across `execute file`.
+    /// Monotonic per-statement counter driving the cooperative-yield stride.
+    /// Increments on every executed statement regardless of the deadline
+    /// exemption (unlike the operation counter, which a `main loop` skips), so a
+    /// CPU-bound `main loop` body still yields to the runtime and lets a
+    /// `select!` deliver cooperative cancellation (the REPL's Ctrl-C).
+    sched_counter: Cell<u64>,
+    /// The single shared execution budget: deadline/cancellation, operation
+    /// ceiling, recursion/import/execute-file depth, pattern steps/states, byte
+    /// caps, pending-request and WebSocket limits. Held behind `Arc` so the
+    /// multi-threaded web transport (warp accept tasks, per-connection
+    /// WebSocket tasks) can read it without any `Rc`/`RefCell` crossing a
+    /// thread boundary. Replaces the old `op_count`/`started`/`max_duration`
+    /// fields and the scattered per-subsystem constants.
+    budget: Arc<ExecutionBudget>,
     call_stack: RefCell<Vec<CallFrame>>,
+    /// Live recursion depth for enforcement, kept **separate** from `call_stack`
+    /// (which is diagnostic and gets force-cleared on a terminal timeout). A
+    /// dedicated RAII counter means a caught `ResourceLimit` can never leave the
+    /// enforcement depth under-counted, so catch-and-recurse stays bounded.
+    call_depth: Cell<usize>,
+    /// The depth `call_depth` resets to at the start of a run. Normally 0, but a
+    /// child interpreter spawned by `execute file` inherits the parent's live
+    /// depth here, so recursion accounting *spans* the execute-file boundary: a
+    /// parent already near `max_call_depth` cannot run a child that consumes
+    /// another full allowance and multiplies the native stack toward overflow.
+    base_call_depth: usize,
     #[allow(dead_code)]
     io_client: Rc<IoClient>,
     step_mode: bool,          // Controls single-step execution mode
@@ -725,7 +1089,7 @@ pub struct Interpreter {
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     web_socket_servers: RefCell<HashMap<String, WflWebSocketServer>>, // WebSocket servers keyed by address
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
-    pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
+    pending_responses: RefCell<HashMap<String, PendingResponse>>, // Pending responses (channel + admission slot) by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -1750,11 +2114,43 @@ fn lexical_abspath(path: &std::path::Path, cwd: &std::path::Path) -> String {
 }
 
 impl Interpreter {
+    /// Conservative WFL call/recursion ceiling for an interpreter built via
+    /// [`Interpreter::new`], the zero-config default path that makes no promise
+    /// about the thread stack it runs on. WFL's async tree-walker costs enough
+    /// debug stack per WFL call that an ordinary (e.g. 8 MiB) thread overflows
+    /// after only a few dozen frames, so this default is kept well below that so
+    /// the budget's catchable "maximum call depth exceeded" error fires *before*
+    /// a native stack overflow on such a stack. It is deliberately shallow:
+    /// programs that recurse deeper must opt into both a higher `max_call_depth`
+    /// and [`crate::run_with_interpreter_stack`] (see the type-level "Stack
+    /// safety" docs); the config-taking constructors honor the configured depth,
+    /// so the CLI reaches the full 1000 on its dedicated 1 GiB stack.
+    pub const DEFAULT_EMBED_CALL_DEPTH: usize = 12;
+
     pub fn new() -> Self {
-        Self::with_config(Arc::new(WflConfig::default()))
+        // The default path makes no stack guarantee, so cap recursion
+        // conservatively (see `DEFAULT_EMBED_CALL_DEPTH`) rather than inheriting
+        // the config-file default of 1000, which only stays catchable on the
+        // CLI's dedicated large stack.
+        let config = WflConfig {
+            max_call_depth: Self::DEFAULT_EMBED_CALL_DEPTH,
+            ..WflConfig::default()
+        };
+        Self::with_config(Arc::new(config))
     }
 
     pub fn with_config(config: Arc<WflConfig>) -> Self {
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        Self::with_config_and_budget(config, budget)
+    }
+
+    /// Construct an interpreter that shares a caller-supplied
+    /// [`ExecutionBudget`], so one budget can govern a whole run — the CLI's
+    /// pre-parse source check, lexing/parsing, interpretation, and any nested
+    /// `execute file` all charge the same deadline, operation ceiling, and
+    /// cancellation flag. Use [`Interpreter::budget`] to obtain the handle for
+    /// cancellation.
+    pub fn with_config_and_budget(config: Arc<WflConfig>, budget: Arc<ExecutionBudget>) -> Self {
         let global_env = Environment::new_global();
 
         {
@@ -1771,11 +2167,11 @@ impl Interpreter {
             global_env,
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
-            in_main_loop: RefCell::new(false),
-            op_count: Cell::new(0),
-            started: Instant::now(),
-            max_duration: Duration::from_secs(config.timeout_seconds),
+            sched_counter: Cell::new(0),
+            budget,
             call_stack: RefCell::new(Vec::new()),
+            call_depth: Cell::new(0),
+            base_call_depth: 0,
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
             script_args: Vec::new(),                   // Initialize empty, will be set later
@@ -1805,6 +2201,27 @@ impl Interpreter {
 
     pub fn set_step_mode(&mut self, step_mode: bool) {
         self.step_mode = step_mode;
+    }
+
+    /// The shared [`ExecutionBudget`] governing this run. Clone the handle to
+    /// observe usage or to request cooperative cancellation via
+    /// [`ExecutionBudget::cancel`] from another task/thread (the budget is
+    /// `Send + Sync`).
+    pub fn budget(&self) -> Arc<ExecutionBudget> {
+        Arc::clone(&self.budget)
+    }
+
+    /// Install a fresh run budget while keeping the rest of the interpreter
+    /// state (environment, definitions) intact. Used by the REPL to give each
+    /// command its own wall-clock deadline and cancellation flag without
+    /// discarding the session's variables.
+    pub fn set_budget(&mut self, budget: Arc<ExecutionBudget>) {
+        self.budget = budget;
+    }
+
+    /// A read-only handle to this interpreter's configuration.
+    pub fn config(&self) -> &Arc<WflConfig> {
+        &self.config
     }
 
     pub fn set_script_args(&mut self, args: Vec<String>) {
@@ -2146,43 +2563,130 @@ impl Interpreter {
         &self.global_env
     }
 
+    /// Charge one interpreter operation against the shared budget. This counts
+    /// the operation, honours cooperative cancellation, and — outside a
+    /// `main loop` — enforces the operation ceiling and wall-clock deadline. The
+    /// `main loop` exemption preserves the historic rule that a long-lived
+    /// server loop never times out; cancellation still applies so a server can
+    /// be stopped. Clock reads stay throttled to one per 1024 operations inside
+    /// the budget, matching the previous `op_count & 1023` optimization.
     fn check_time(&self) -> Result<(), RuntimeError> {
-        // Skip timeout check if we're in a main loop
-        if *self.in_main_loop.borrow() {
-            return Ok(());
+        // Deadline/operation-ceiling exemption is driven by the shared budget's
+        // main-loop depth (see `ExecutionBudget::enter_main_loop`): exempt while
+        // any `main loop` is active on this run, so a long-lived server never
+        // times out on its own uptime; cancellation still applies everywhere.
+        let enforce_limits = !self.budget.is_deadline_exempt();
+        match self.budget.charge_operation(enforce_limits) {
+            Ok(()) => Ok(()),
+            Err(exceeded) => Err(self.budget_error(exceeded, 0, 0)),
+        }
+    }
+
+    /// Map a [`BudgetExceeded`] onto a `RuntimeError`.
+    ///
+    /// The deadline keeps its historic `[Timeout]` kind (and verbatim message)
+    /// so existing timeout handling still matches; every other budget breach is
+    /// a resource-limit error.
+    ///
+    /// This maps the breach to a kind but intentionally performs **no** state
+    /// mutation. Every budget breach — including the deadline — is catchable by
+    /// a general `try`/`when`, so the call stack, count-loop flags, and recursion
+    /// depth must unwind *naturally*: `call_function` pops each frame as the
+    /// error propagates and the RAII `CallDepthGuard` restores `call_depth`.
+    /// Force-clearing state here would corrupt an enclosing count loop or
+    /// under-count depth after a catch; `interpret()` resets everything for the
+    /// next top-level run, so an uncaught terminal breach is fine too.
+    fn budget_error(&self, exceeded: BudgetExceeded, line: usize, column: usize) -> RuntimeError {
+        // Do NOT mutate interpreter state here. Every budget breach — deadline,
+        // operation ceiling, recursion/import/execute-file depth, byte caps — is
+        // catchable by a general `try`/`when`, so the call stack, count-loop
+        // flags, and recursion depth must unwind *naturally* to leave a
+        // consistent, resumable interpreter when the error is caught:
+        // `call_function` pops each frame and the RAII `CallDepthGuard` restores
+        // `call_depth` as the error propagates. Force-clearing that state (as the
+        // historic timeout path did) corrupts an enclosing count loop or
+        // under-counts depth after a catch. `interpret()` resets everything for
+        // the next top-level run, so an *uncaught* terminal breach is fine too.
+        let kind = match exceeded {
+            BudgetExceeded::Deadline { .. } => ErrorKind::Timeout,
+            _ => ErrorKind::ResourceLimit,
+        };
+        RuntimeError::with_kind(exceeded.message(), line, column, kind)
+    }
+
+    /// Map a pattern-VM error onto a `RuntimeError`. Budget breaches (step/state
+    /// ceilings, cancellation) surface as catchable `ResourceLimit` errors so a
+    /// ReDoS/cancellation during matching is not silently collapsed into a
+    /// non-match; structural pattern errors surface as general runtime errors.
+    fn pattern_error(
+        &self,
+        err: crate::pattern::PatternError,
+        line: usize,
+        column: usize,
+    ) -> RuntimeError {
+        use crate::pattern::PatternError;
+        let kind = match err {
+            // A pattern that outruns the wall-clock deadline is a timeout, with
+            // the historic `[Timeout]` kind and message, so existing timeout
+            // handling/tests keep matching.
+            PatternError::Timeout { .. } => ErrorKind::Timeout,
+            PatternError::StepLimitExceeded
+            | PatternError::StateLimitExceeded
+            | PatternError::Cancelled => ErrorKind::ResourceLimit,
+            _ => ErrorKind::General,
+        };
+        RuntimeError::with_kind(err.to_string(), line, column, kind)
+    }
+
+    /// Read a WFL source file (`load module`, `include from`, `execute file`)
+    /// under the shared source-size ceiling. Reads at most `max_source_size + 1`
+    /// bytes, so an oversized file is refused without ever allocating the whole
+    /// thing — this holds even when the file's metadata is unavailable, stale,
+    /// or reports `0` (special files), which a metadata-only check would miss.
+    async fn read_source_bounded(
+        &self,
+        path: &std::path::Path,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        use tokio::io::AsyncReadExt;
+
+        let io_err = |e: std::io::Error| {
+            let kind = match e.kind() {
+                std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
+                std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
+                _ => ErrorKind::General,
+            };
+            RuntimeError::with_kind(
+                format!("Cannot read source file '{}': {e}", path.display()),
+                line,
+                column,
+                kind,
+            )
+        };
+
+        let max = self.budget.max_source_bytes();
+        // Read one byte past the limit so exceeding it is detectable; the buffer
+        // never grows beyond `max + 1`.
+        let read_cap = (max as u64).saturating_add(1);
+        let file = tokio::fs::File::open(path).await.map_err(io_err)?;
+        let mut buf = Vec::new();
+        file.take(read_cap)
+            .read_to_end(&mut buf)
+            .await
+            .map_err(io_err)?;
+
+        if let Err(exceeded) = self.budget.check_source_bytes(buf.len()) {
+            return Err(self.budget_error(exceeded, line, column));
         }
 
-        // Optimization: Only check system time every 1024 operations
-        // This avoids expensive syscalls/hardware clock reads in tight loops
-        let count = self.op_count.get();
-        self.op_count.set(count.wrapping_add(1));
-
-        if count & 1023 != 0 {
-            return Ok(());
-        }
-
-        if self.started.elapsed() > self.max_duration {
-            if *self.in_count_loop.borrow() {
-                *self.in_count_loop.borrow_mut() = false;
-                *self.current_count.borrow_mut() = None;
-            }
-
-            // Force all resources to be released
-            self.call_stack.borrow_mut().clear();
-
-            // Terminate with a timeout error
-            Err(RuntimeError::with_kind(
-                format!(
-                    "Execution exceeded timeout ({}s)",
-                    self.max_duration.as_secs()
-                ),
-                0,
-                0,
-                ErrorKind::Timeout,
-            ))
-        } else {
-            Ok(())
-        }
+        String::from_utf8(buf).map_err(|_| {
+            RuntimeError::new(
+                format!("Source file '{}' is not valid UTF-8", path.display()),
+                line,
+                column,
+            )
+        })
     }
 
     fn assert_invariants(&self) {
@@ -2207,6 +2711,36 @@ impl Interpreter {
     }
 
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
+        // Scope this run's budget as the TASK-local current budget, so leaf
+        // helpers with no budget parameter (the stdlib pattern builtins in
+        // particular) match under the run's configured ceilings and shared
+        // meters — and, crucially, so a library embedder that interleaves two
+        // interpreter futures on one thread never sees the other's budget or
+        // restores stale state across an `.await`. An `execute file` child that
+        // calls `interpret` again nests its own scope (same or child budget).
+        ExecutionBudget::scope(Arc::clone(&self.budget), self.interpret_inner(program)).await
+    }
+
+    /// The interpreter run body, executed inside the task-local budget scope
+    /// established by [`Interpreter::interpret`].
+    async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
+        // Reset per-run enforcement/loop state first, so a prior *terminal*
+        // budget breach (e.g. an uncaught timeout that unwound to the top) can't
+        // leak stale count-loop or depth state into this run — matters when one
+        // interpreter is reused (the REPL). Done before `assert_invariants` so
+        // the invariant holds regardless of how the previous run ended.
+        *self.in_count_loop.borrow_mut() = false;
+        *self.current_count.borrow_mut() = None;
+        // Reset to the inherited base depth (0 for a top-level run/REPL; the
+        // parent's live depth for an `execute file` child) so recursion
+        // accounting spans the execute-file boundary instead of granting the
+        // child a fresh full allowance.
+        self.call_depth.set(self.base_call_depth);
+        // NOTE: do NOT touch the shared budget's main-loop depth here. It is
+        // managed entirely by the RAII `MainLoopGuard`, so it never leaks (a
+        // mid-loop unwind drops the guard); and for an `execute file` child that
+        // shares the parent's budget, clearing it would wrongly cancel the
+        // parent's still-active main-loop exemption.
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
 
@@ -2456,6 +2990,19 @@ impl Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         self.check_time()?;
+
+        // Cooperatively yield to the async runtime on a throttled stride so a
+        // tight CPU-bound loop periodically returns control to the executor,
+        // letting a `select!` deliver cooperative cancellation (e.g. the REPL's
+        // Ctrl-C → `budget.cancel()`). Driven by a dedicated per-statement
+        // counter that advances even inside a `main loop` (whose operation
+        // counter is exempt and whose body is not guaranteed to await anything
+        // that returns `Pending`), so a CPU-only main loop still yields.
+        let sched = self.sched_counter.get().wrapping_add(1);
+        self.sched_counter.set(sched);
+        if sched & (COOP_YIELD_STRIDE - 1) == 0 {
+            tokio::task::yield_now().await;
+        }
 
         let env_before = if self.step_mode {
             self.global_env.borrow().values.clone()
@@ -3143,14 +3690,19 @@ impl Interpreter {
                 #[cfg(debug_assertions)]
                 exec_trace!("Executing main loop (timeout disabled)");
 
-                // Set the main loop flag to disable timeout
-                *self.in_main_loop.borrow_mut() = true;
+                // Enter the main loop's deadline exemption via an RAII guard on
+                // the shared budget. The guard restores the depth on EVERY exit —
+                // a normal end, an early `return` below, a caught error unwinding
+                // through `?`, or a nested main loop — so the exemption is never
+                // leaked or cleared while an outer loop is still active. A child
+                // `execute file` sharing this budget inherits the exemption too.
+                let _main_loop_guard = self.budget.enter_main_loop();
 
                 let mut _last_value = Value::Null;
                 let mut loop_env_recycle = None;
 
                 loop {
-                    // Note: check_time() will skip timeout check when in_main_loop is true
+                    // check_time() skips the deadline while the main-loop depth > 0
                     self.check_time()?;
 
                     // OPTIMIZATION: Recycle environment if possible
@@ -3175,22 +3727,19 @@ impl Interpreter {
                         ControlFlow::Exit => {
                             #[cfg(debug_assertions)]
                             exec_trace!("Exiting from main loop");
-                            *self.in_main_loop.borrow_mut() = false;
+                            // `_main_loop_guard` drops here, restoring the depth.
                             return Ok((_last_value, ControlFlow::Exit));
                         }
                         ControlFlow::Return(val) => {
                             #[cfg(debug_assertions)]
                             exec_trace!("Returning from main loop with value: {:?}", val);
-                            *self.in_main_loop.borrow_mut() = false;
                             return Ok((val.clone(), ControlFlow::Return(val)));
                         }
                         ControlFlow::None => {}
                     }
                 }
 
-                // Reset the main loop flag when exiting normally
-                *self.in_main_loop.borrow_mut() = false;
-
+                // `_main_loop_guard` drops here on normal exit.
                 Ok((_last_value, ControlFlow::None))
             }
 
@@ -3710,25 +4259,31 @@ impl Interpreter {
                 // 2. Resolve absolute path
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
 
-                // 3. Check circular dependencies
+                // 3. Check circular dependencies and the shared import-depth
+                // ceiling (loading_stack length is the depth already entered).
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
+                if let Err(exceeded) = self
+                    .budget
+                    .check_import_depth(self.loading_stack.borrow().len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
 
-                // 4. Read file content
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(|e| {
-                        RuntimeError::new(
-                            format!("Cannot load module '{}': {}", path_str, e),
-                            *line,
-                            *column,
-                        )
-                    })?;
+                // 4. Read file content under the shared source-size ceiling.
+                let content = self
+                    .read_source_bounded(&resolved_path, *line, *column)
+                    .await?;
 
                 // 6. Parse module
-                use crate::lexer::lex_wfl_with_positions;
+                use crate::lexer::lex_wfl_with_positions_checked;
                 use crate::parser::Parser;
 
-                let tokens = lex_wfl_with_positions(&content);
+                // Lex under the shared run budget: a deadline / cancellation /
+                // operation breach during nested source loading surfaces as a
+                // typed, catchable runtime error instead of a truncated token
+                // stream that could execute as if it were the whole file.
+                let tokens = lex_wfl_with_positions_checked(&content)
+                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
                     // Use the parse error's position from the module file, not the load site
@@ -3769,24 +4324,34 @@ impl Interpreter {
                 }
 
                 // 8. Type check
-                use crate::typechecker::TypeChecker;
+                use crate::typechecker::{TypeCheckError, TypeChecker};
 
                 // Use the analyzer with parent scope for type checking
                 let mut tc = TypeChecker::with_analyzer(analyzer);
-                if let Err(type_errors) = tc.check_types(&program) {
-                    // Use the type error's position from the module file, not the load site
-                    let first_error = type_errors.first();
-                    let (error_line, error_column) =
-                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Type error in module '{}': {}",
-                            resolved_path.display(),
-                            first_error.map(|e| e.to_string()).unwrap_or_default()
-                        ),
-                        error_line,
-                        error_column,
-                    ));
+                if let Err(failure) = tc.check_types(&program) {
+                    match failure {
+                        // A shared-budget breach while type-checking the module is
+                        // fatal: surface it as the catchable resource/timeout
+                        // error rather than a "type error in module".
+                        TypeCheckError::Budget(exceeded) => {
+                            return Err(self.budget_error(exceeded, 0, 0));
+                        }
+                        TypeCheckError::Types(type_errors) => {
+                            // Use the type error's position from the module file, not the load site
+                            let first_error = type_errors.first();
+                            let (error_line, error_column) =
+                                first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Type error in module '{}': {}",
+                                    resolved_path.display(),
+                                    first_error.map(|e| e.to_string()).unwrap_or_default()
+                                ),
+                                error_line,
+                                error_column,
+                            ));
+                        }
+                    }
                 }
 
                 // 8. Create isolated child environment
@@ -3870,25 +4435,31 @@ impl Interpreter {
                 // 2. Resolve absolute path
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
 
-                // 3. Check circular dependencies
+                // 3. Check circular dependencies and the shared import-depth
+                // ceiling (loading_stack length is the depth already entered).
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
+                if let Err(exceeded) = self
+                    .budget
+                    .check_import_depth(self.loading_stack.borrow().len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
 
-                // 4. Read file content
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(|e| {
-                        RuntimeError::new(
-                            format!("Cannot include file '{}': {}", path_str, e),
-                            *line,
-                            *column,
-                        )
-                    })?;
+                // 4. Read file content under the shared source-size ceiling.
+                let content = self
+                    .read_source_bounded(&resolved_path, *line, *column)
+                    .await?;
 
                 // 5. Parse included file
-                use crate::lexer::lex_wfl_with_positions;
+                use crate::lexer::lex_wfl_with_positions_checked;
                 use crate::parser::Parser;
 
-                let tokens = lex_wfl_with_positions(&content);
+                // Lex under the shared run budget: a deadline / cancellation /
+                // operation breach during nested source loading surfaces as a
+                // typed, catchable runtime error instead of a truncated token
+                // stream that could execute as if it were the whole file.
+                let tokens = lex_wfl_with_positions_checked(&content)
+                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
                     let first_error = errors.first();
@@ -3932,21 +4503,34 @@ impl Interpreter {
                 // strictly than the same code written in the main program
                 // (issues #551/#553).
                 use crate::diagnostics::DiagnosticReporter;
-                use crate::typechecker::TypeChecker;
+                use crate::typechecker::{TypeCheckError, TypeChecker};
 
                 let mut tc = TypeChecker::with_analyzer(analyzer);
-                if let Err(type_errors) = tc.check_types(&program) {
-                    eprintln!(
-                        "Type checking warnings in included file '{}':",
-                        resolved_path.display()
-                    );
-                    let mut reporter = DiagnosticReporter::new();
-                    let file_id =
-                        reporter.add_file(resolved_path.display().to_string(), content.clone());
-                    for error in &type_errors {
-                        let diagnostic = reporter.convert_type_error(file_id, error);
-                        if reporter.report_diagnostic(file_id, &diagnostic).is_err() {
-                            eprintln!("{error}");
+                if let Err(failure) = tc.check_types(&program) {
+                    match failure {
+                        // Ordinary type diagnostics stay non-fatal warnings here
+                        // (included code must never be checked more strictly than
+                        // the same code in the main file). A shared-budget breach
+                        // is the exception: the deadline/cancellation/resource
+                        // limit was hit while checking the included file, so the
+                        // run must stop instead of executing it.
+                        TypeCheckError::Budget(exceeded) => {
+                            return Err(self.budget_error(exceeded, 0, 0));
+                        }
+                        TypeCheckError::Types(type_errors) => {
+                            eprintln!(
+                                "Type checking warnings in included file '{}':",
+                                resolved_path.display()
+                            );
+                            let mut reporter = DiagnosticReporter::new();
+                            let file_id = reporter
+                                .add_file(resolved_path.display().to_string(), content.clone());
+                            for error in &type_errors {
+                                let diagnostic = reporter.convert_type_error(file_id, error);
+                                if reporter.report_diagnostic(file_id, &diagnostic).is_err() {
+                                    eprintln!("{error}");
+                                }
+                            }
                         }
                     }
                 }
@@ -5414,67 +5998,61 @@ impl Interpreter {
                 // Create request/response channels. The request queue is bounded
                 // (Phase 0, PR-0c) so a flood of accepted-but-unhandled requests
                 // sheds with 503 instead of growing memory without bound.
-                let queue_bound = self.config.web_server_request_queue_bound.max(1);
+                let queue_bound = self.budget.max_pending_requests();
                 let (request_sender, request_receiver) =
                     mpsc::channel::<WflHttpRequest>(queue_bound);
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
-                // Cap concurrently in-flight requests so a flood cannot allocate
-                // an unbounded number of request bodies before the queue check
-                // (Phase 0, PR-0c). A permit is acquired *before* `body::bytes()`
-                // buffers the payload and released when the request completes;
-                // when none is available the request is shed with 503 before any
-                // body is read.
-                let inflight = Arc::new(tokio::sync::Semaphore::new(queue_bound));
-
                 // Create warp routes that handle all HTTP methods and paths.
-                // Body size: reject oversized Content-Length *before* buffering
-                // (when the header is present), then re-check after
-                // `body::bytes()` for missing/wrong Content-Length. GET and
-                // other no-body requests still work without Content-Length.
-                // Limit is configurable via `.wflcfg` `web_server_max_body_size`
-                // (default 1 MB).
+                // In-flight admission uses the shared ExecutionBudget's global
+                // request cap (RequestGuard), so a flood is bounded across every
+                // listener — not per-server. The guard is acquired *before* the
+                // body is read and held until the handler answers, the request
+                // times out, or the client disconnects, so a dequeued request
+                // can no longer pin memory indefinitely. Body size is enforced
+                // *while streaming* (below), which bounds chunked bodies that
+                // carry no Content-Length.
                 let request_sender_clone = request_sender.clone();
-                let max_body_size = self.config.web_server_max_body_size;
+                let max_body_size = self.budget.max_request_body_bytes();
                 let max_body_size_u64 = max_body_size as u64;
+                let request_timeout = self.budget.max_request_duration();
+                let admit_budget = Arc::clone(&self.budget);
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
                     .and(warp::query::raw().or(warp::any().map(String::new)).unify())
                     .and(warp::header::headers_cloned())
-                    // Early reject when the client advertises an oversized body,
-                    // so we never allocate for that payload. Optional header so
-                    // GETs without Content-Length are unaffected.
+                    // Fast path: reject when the client advertises an oversized
+                    // body, before we admit it or read a byte. Optional header so
+                    // GETs (and chunked bodies) without Content-Length are still
+                    // admitted and then bounded by the streaming check below.
                     .and(
                         warp::header::optional::<u64>("content-length").and_then(
                             move |len: Option<u64>| async move {
                                 if let Some(len) = len
                                     && len > max_body_size_u64
                                 {
-                                    return Err(warp::reject::custom(ServerError(format!(
-                                        "Request body too large: {len} bytes (limit: {max_body_size_u64} bytes)"
-                                    ))));
+                                    return Err(warp::reject::custom(PayloadTooLarge));
                                 }
                                 Ok::<(), warp::Rejection>(())
                             },
                         ),
                     )
-                    // Admission control: acquire an in-flight permit *before* the
-                    // body is buffered. If the server is saturated, shed with a
-                    // 503 (via the `Overloaded` rejection + `handle_overloaded`)
-                    // so we never allocate a body for a request we can't serve.
+                    // Admission control: reserve a global in-flight slot *before*
+                    // the body is read. At the ceiling, shed with 503 (via the
+                    // `Overloaded` rejection) without reading a body.
                     .and({
-                        let inflight = inflight.clone();
+                        let admit_budget = Arc::clone(&admit_budget);
                         warp::any().and_then(move || {
-                            let inflight = inflight.clone();
+                            let admit_budget = Arc::clone(&admit_budget);
                             async move {
-                                inflight
-                                    .try_acquire_owned()
-                                    .map_err(|_| warp::reject::custom(Overloaded))
+                                admit_budget
+                                    .try_acquire_request()
+                                    .ok_or_else(|| warp::reject::custom(Overloaded))
                             }
                         })
                     })
-                    .and(warp::body::bytes())
+                    .and(warp::body::stream())
                     .and(warp::addr::remote())
                     .and_then(
                         move |method: warp::http::Method,
@@ -5482,29 +6060,70 @@ impl Interpreter {
                               query: String,
                               headers: warp::http::HeaderMap,
                               (),
-                              permit: tokio::sync::OwnedSemaphorePermit,
-                              body: bytes::Bytes,
+                              guard: crate::exec::budget::RequestGuard,
+                              body_stream,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // `permit` (acquired before the body was buffered)
-                                // is released right after the request is enqueued
-                                // below — see the `drop(permit)` in the `try_send`
-                                // Ok arm. Holding it across the untimed response
-                                // wait would let a handler that never calls
-                                // `respond` pin the in-flight cap and take the
-                                // server offline; an actual per-request response
-                                // timeout is Phase 1 work. On the early returns
-                                // below, `permit` is dropped when the future ends.
-                                // Safety net when Content-Length was absent or lied:
-                                // still refuse after buffering so the limit holds.
-                                if body.len() > max_body_size {
-                                    return Err(warp::reject::custom(ServerError(format!(
-                                        "Request body too large: {} bytes (limit: {} bytes)",
-                                        body.len(),
-                                        max_body_size
-                                    ))));
-                                }
+                                // Hold the admission slot for this request's WHOLE
+                                // transport lifetime by binding the guard into this
+                                // future: it drops when the future completes — on a
+                                // delivered response, a response/body timeout, or a
+                                // client disconnect (warp cancels the future) —
+                                // releasing the in-flight slot INDEPENDENTLY of any
+                                // later admitted request. This future stays alive
+                                // awaiting the response (below) even after the
+                                // interpreter dequeues the request, so the slot is
+                                // still held during handling — it is not released at
+                                // dequeue. Parking the guard in the interpreter's
+                                // pending map instead pinned it until a *future*
+                                // dequeued request pruned it, which could never
+                                // happen once the cap was full — permanently wedging
+                                // admission. The bounded request mpsc separately
+                                // caps still-queued bodies, so releasing here does
+                                // not let queued-body memory grow unbounded.
+                                let _admission_guard = guard;
+
+                                // One deadline for the whole accepted-request
+                                // lifetime (body read + handler response), set at
+                                // admission. Applying it to the *body read* is
+                                // what stops a slow "trickle" upload (a chunked
+                                // body dribbled under the size cap forever) from
+                                // pinning its global in-flight slot: without this,
+                                // only the response wait was bounded.
+                                let overall_deadline = request_timeout
+                                    .map(|dur| tokio::time::Instant::now() + dur);
+
+                                // Enforce the body limit while streaming so a
+                                // chunked body (no Content-Length) is bounded too,
+                                // and bound the read by the shared deadline.
+                                let read_fut = read_body_capped(body_stream, max_body_size);
+                                let body_read = match overall_deadline {
+                                    Some(dl) => match tokio::time::timeout_at(dl, read_fut).await {
+                                        Ok(r) => r,
+                                        Err(_) => {
+                                            log::warn!(
+                                                "web server request from {} did not finish its body in time; shedding 408",
+                                                remote_addr
+                                                    .map(|a| a.ip().to_string())
+                                                    .unwrap_or_else(|| "unknown".to_string()),
+                                            );
+                                            return Ok(request_timeout_response());
+                                        }
+                                    },
+                                    None => read_fut.await,
+                                };
+                                let body_bytes = match body_read {
+                                    Ok(bytes) => bytes,
+                                    Err(BodyReadError::TooLarge) => {
+                                        return Ok(payload_too_large_response());
+                                    }
+                                    Err(BodyReadError::Io) => {
+                                        return Err(warp::reject::custom(ServerError(
+                                            "Failed to read request body".to_string(),
+                                        )));
+                                    }
+                                };
 
                                 // Generate unique request ID
                                 let request_id = uuid::Uuid::new_v4().to_string();
@@ -5522,16 +6141,16 @@ impl Interpreter {
                                     }
                                 }
 
-                                // Keep the raw body bytes so binary uploads survive;
-                                // WFL exposes both a lossy-text `body` and a lossless
-                                // `body_bytes` view of these bytes.
-                                let body_bytes = body.to_vec();
-
                                 // Create response channel
                                 let (response_sender, response_receiver) =
                                     oneshot::channel::<WflHttpResponse>();
 
-                                // Create WFL request
+                                // Create the WFL request. The admission guard is
+                                // NOT moved in — it stays bound to this transport
+                                // future (see `_admission_guard` above), which
+                                // outlives the enqueue and awaits the response, so
+                                // the slot is held through handling and released
+                                // when this future ends (respond/timeout/disconnect).
                                 let wfl_request = WflHttpRequest {
                                     id: request_id,
                                     method: method.to_string(),
@@ -5546,21 +6165,12 @@ impl Interpreter {
                                 };
 
                                 // Send request to WFL interpreter. The queue is
-                                // bounded (Phase 0, PR-0c): a full queue means the
-                                // interpreter is saturated, so shed with 503 rather
-                                // than buffering unbounded work. `try_send` never
+                                // bounded: a full queue means the interpreter is
+                                // saturated, so shed with 503 rather than
+                                // buffering unbounded work. `try_send` never
                                 // blocks the transport task.
                                 match sender.try_send(wfl_request) {
-                                    Ok(()) => {
-                                        // Enqueued: the body is now owned by the
-                                        // bounded queue (then the serial
-                                        // interpreter), so release the admission
-                                        // permit before the response wait. Concurrent
-                                        // body buffering stays bounded without pinning
-                                        // a permit to a possibly-never-answered
-                                        // request.
-                                        drop(permit);
-                                    }
+                                    Ok(()) => {}
                                     Err(mpsc::error::TrySendError::Full(shed)) => {
                                         log::warn!(
                                             "web server request queue full (capacity {}); shedding {} {} from {} with 503",
@@ -5578,8 +6188,32 @@ impl Interpreter {
                                     }
                                 }
 
-                                // Wait for response
-                                match response_receiver.await {
+                                // Wait for the handler's response, bounded by the
+                                // *same* deadline as the body read so a handler
+                                // that never answers frees its in-flight slot with
+                                // a 504. Dropping `response_receiver` here closes
+                                // its oneshot sender, which the interpreter
+                                // observes (`is_closed`) to skip/prune the
+                                // abandoned request rather than run zombie work.
+                                let received = match overall_deadline {
+                                    Some(dl) => {
+                                        match tokio::time::timeout_at(dl, response_receiver).await {
+                                            Ok(r) => r,
+                                            Err(_) => {
+                                                log::warn!(
+                                                    "web server request from {} timed out awaiting handler; shedding 504",
+                                                    remote_addr
+                                                        .map(|a| a.ip().to_string())
+                                                        .unwrap_or_else(|| "unknown".to_string()),
+                                                );
+                                                return Ok(gateway_timeout_response());
+                                            }
+                                        }
+                                    }
+                                    None => response_receiver.await,
+                                };
+
+                                match received {
                                     Ok(response) => {
                                         let status_code =
                                             warp::http::StatusCode::from_u16(response.status)
@@ -5983,40 +6617,63 @@ impl Interpreter {
                         None
                     };
 
-                    // Wait for request with or without timeout
-                    if let Some(duration) = timeout_duration {
-                        match tokio::time::timeout(duration, receiver.recv()).await {
-                            Ok(Some(req)) => req,
-                            Ok(None) => {
-                                return Err(RuntimeError::new(
-                                    "Request channel closed".to_string(),
-                                    *line,
-                                    *column,
-                                ));
+                    // Wait for request with or without timeout. Loop so a request
+                    // whose client already gave up (its oneshot receiver dropped
+                    // on 408/504/disconnect, closing the sender) is skipped rather
+                    // than handled — otherwise the interpreter would run a handler
+                    // for a dead request and register a dead pending-response
+                    // entry, letting repeated timeouts accumulate zombie work.
+                    loop {
+                        let req = if let Some(duration) = timeout_duration {
+                            match tokio::time::timeout(duration, receiver.recv()).await {
+                                Ok(Some(req)) => req,
+                                Ok(None) => {
+                                    return Err(RuntimeError::new(
+                                        "Request channel closed".to_string(),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                                Err(_) => {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Timeout waiting for request ({} ms)",
+                                            duration.as_millis()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
                             }
-                            Err(_) => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Timeout waiting for request ({} ms)",
-                                        duration.as_millis()
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
+                        } else {
+                            // No timeout - wait indefinitely
+                            match receiver.recv().await {
+                                Some(req) => req,
+                                None => {
+                                    return Err(RuntimeError::new(
+                                        "Request channel closed".to_string(),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
                             }
+                        };
+
+                        let abandoned = {
+                            let sender_opt = req.response_sender.lock().await;
+                            sender_opt.as_ref().is_none_or(|s| s.is_closed())
+                        };
+                        if abandoned {
+                            log::debug!(
+                                "skipping abandoned request {} ({} {}) from {}",
+                                req.id,
+                                req.method,
+                                req.path,
+                                req.client_ip
+                            );
+                            continue;
                         }
-                    } else {
-                        // No timeout - wait indefinitely
-                        match receiver.recv().await {
-                            Some(req) => req,
-                            None => {
-                                return Err(RuntimeError::new(
-                                    "Request channel closed".to_string(),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        }
+                        break req;
                     }
                 };
 
@@ -6095,7 +6752,23 @@ impl Interpreter {
                 // client hanging instead of failing fast.
                 {
                     let mut pending_responses = self.pending_responses.borrow_mut();
-                    pending_responses.insert(request.id.clone(), request.response_sender);
+                    // Prune entries whose client already disconnected/timed out
+                    // (oneshot sender closed) before inserting the new one, so a
+                    // handler that never `respond`s to a since-abandoned request
+                    // cannot let the map grow without bound across many timeouts.
+                    // (The admission slot itself is released by the transport task,
+                    // not this prune — see `PendingResponse`.)
+                    pending_responses.retain(|_, pending| match pending.sender.try_lock() {
+                        Ok(guard) => guard.as_ref().is_some_and(|s| !s.is_closed()),
+                        // Locked right now (being responded to) — keep it.
+                        Err(_) => true,
+                    });
+                    pending_responses.insert(
+                        request.id.clone(),
+                        PendingResponse {
+                            sender: request.response_sender,
+                        },
+                    );
                 }
 
                 Ok((Value::Null, ControlFlow::None))
@@ -6134,18 +6807,91 @@ impl Interpreter {
                     }
                 };
 
+                // Take the response sender out of the pending map (and out of its
+                // mutex) up front, into an RAII completion guard, *before* any
+                // fallible response construction below (content/status/type/header
+                // evaluation, byte-cap checks). On an early error the guard's Drop
+                // answers 500, so the request is always resolved instead of
+                // hanging until its timeout; a successful respond disarms it via
+                // `take_sender`.
+                let pending_entry = {
+                    let mut pending = self.pending_responses.borrow_mut();
+                    pending.remove(&request_id)
+                };
+                let mut completion = match pending_entry {
+                    // The admission slot is released by the transport task when it
+                    // finishes delivering this response (or on its timeout), so the
+                    // completion guard carries only the response channel.
+                    Some(entry) => match entry.sender.lock().await.take() {
+                        Some(sender) => ResponseCompletion {
+                            sender: Some(sender),
+                        },
+                        None => {
+                            return Err(RuntimeError::new(
+                                "Response already sent for this request".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Request ID not found - response may have already been sent"
+                                .to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
                 // Evaluate response content. Binary values are carried through
                 // as raw bytes so fonts/images/etc. serve losslessly; text and
                 // scalar values keep their existing UTF-8 rendering.
                 let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let is_binary = matches!(content_val, Value::Binary(_));
+
+                // Enforce the response-body ceiling on the *borrowed* length
+                // first, so an oversized Text/Binary body is refused before it is
+                // duplicated into `content_bytes` (bounding peak allocation).
+                if let Value::Text(text) = &content_val
+                    && let Err(exceeded) = self.budget.check_response_bytes(text.len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
+                if let Value::Binary(bytes) = &content_val
+                    && let Err(exceeded) = self.budget.check_response_bytes(bytes.len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
+
                 let content_bytes: Vec<u8> = match &content_val {
                     Value::Text(text) => text.as_bytes().to_vec(),
                     Value::Number(n) => n.to_string().into_bytes(),
                     Value::Bool(b) => b.to_string().into_bytes(),
                     Value::Binary(bytes) => bytes.to_vec(),
-                    _ => format!("{content_val:?}").into_bytes(),
+                    Value::Null => Vec::new(),
+                    // Composite/opaque values (lists, objects, functions, …) have
+                    // no meaningful HTTP body rendering, and their `{:?}` form is
+                    // unbounded — materializing it would allocate past the
+                    // response cap before it could be checked. Reject them with a
+                    // clear error instead.
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Cannot use {} as a response body; respond with text, a number, a boolean, binary data, or nothing",
+                                other.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
                 };
+
+                // Re-check the materialized length to cover the small formatted
+                // variants (Number/Bool), which have no cheap borrowed length.
+                if let Err(exceeded) = self.budget.check_response_bytes(content_bytes.len()) {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
 
                 // Evaluate status code (optional)
                 let status_code = if let Some(status_expr) = status {
@@ -6252,15 +6998,10 @@ impl Interpreter {
                     headers: custom_headers,
                 };
 
-                // Send response
-                let response_sender = {
-                    let mut pending = self.pending_responses.borrow_mut();
-                    pending.remove(&request_id)
-                };
-
-                if let Some(sender_arc) = response_sender {
-                    let mut sender_opt = sender_arc.lock().await;
-                    if let Some(sender) = sender_opt.take() {
+                // Deliver the response and disarm the guard's 500 fallback. The
+                // sender was taken up front, so this is the sole delivery path.
+                match completion.take_sender() {
+                    Some(sender) => {
                         if sender.send(response).is_err() {
                             return Err(RuntimeError::new(
                                 "Failed to send response - client may have disconnected"
@@ -6269,19 +7010,14 @@ impl Interpreter {
                                 *column,
                             ));
                         }
-                    } else {
+                    }
+                    None => {
                         return Err(RuntimeError::new(
                             "Response already sent for this request".to_string(),
                             *line,
                             *column,
                         ));
                     }
-                } else {
-                    return Err(RuntimeError::new(
-                        "Request ID not found - response may have already been sent".to_string(),
-                        *line,
-                        *column,
-                    ));
                 }
 
                 Ok((Value::Null, ControlFlow::None))
@@ -6368,7 +7104,11 @@ impl Interpreter {
                     && name.starts_with("WebSocketServer::")
                 {
                     let key = name.to_string();
-                    if let Some(ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                    if let Some(mut ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                        // Wake every live connection's reader so it stops waiting
+                        // on the peer and tears down (releasing its slot), even if
+                        // the peer never answers the close handshake.
+                        let _ = ws_server.close_tx.send(true);
                         let ids = ws_server
                             .connection_ids
                             .lock()
@@ -6377,11 +7117,11 @@ impl Interpreter {
                         if let Ok(mut map) = self.ws_connections.lock() {
                             for id in ids {
                                 if let Some(tx) = map.remove(&id) {
-                                    let _ = tx.send(WsOutbound::Close);
+                                    let _ = tx.try_send(WsOutbound::Close);
                                 }
                             }
                         }
-                        if let Some(handle) = ws_server.server_handle {
+                        if let Some(handle) = ws_server.server_handle.take() {
                             // Give queued close frames a moment to flush before
                             // the accept task is torn down.
                             tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
@@ -6443,10 +7183,10 @@ impl Interpreter {
 
                 // Close the server
                 let mut web_servers = self.web_servers.borrow_mut();
-                if let Some(wfl_server) = web_servers.remove(&server_name) {
+                if let Some(mut wfl_server) = web_servers.remove(&server_name) {
                     // Graceful shutdown: Give in-flight responses time to complete transmission
                     // before forcefully aborting the server task
-                    if let Some(handle) = wfl_server.server_handle {
+                    if let Some(handle) = wfl_server.server_handle.take() {
                         // Allow 50ms for pending HTTP responses to be transmitted
                         // This prevents race condition where abort() closes the TCP connection
                         // before response bytes reach the client, causing IncompleteMessage errors
@@ -6483,23 +7223,50 @@ impl Interpreter {
                     }
                 };
 
-                let (event_sender, event_receiver) = mpsc::unbounded_channel::<WflWsEvent>();
+                // Bounded lifecycle-event channel (sized from the shared budget):
+                // a flood of connect/message/disconnect events sheds on `Full`
+                // rather than growing memory without bound.
+                let (event_sender, event_receiver) =
+                    mpsc::channel::<WflWsEvent>(self.budget.ws_queue_bound());
                 let event_receiver = Arc::new(tokio::sync::Mutex::new(event_receiver));
                 let connection_ids = Arc::new(std::sync::Mutex::new(Vec::new()));
+                // Per-server cancellation channel. Each connection clones the
+                // receiver; `close server` flips/drops the sender to wake them.
+                let (close_tx, close_rx) = tokio::sync::watch::channel(false);
 
                 // Clones handed to warp's per-connection tasks.
                 let ws_connections = Arc::clone(&self.ws_connections);
                 let connection_ids_task = Arc::clone(&connection_ids);
                 let event_sender_task = event_sender.clone();
+                let budget_task = Arc::clone(&self.budget);
+                let close_rx_task = close_rx.clone();
 
+                // Cap the transport's own message/frame assembly at the budget's
+                // per-message limit *before* upgrade, so a fragmented text frame
+                // or an ignored binary frame cannot allocate up to Tungstenite's
+                // independent defaults on the receive side. The queued-byte permit
+                // in the reader loop is then the second (global) layer.
+                let max_ws_message = self.budget.max_ws_message_bytes();
                 let route = warp::ws().and(warp::addr::remote()).map(
                     move |ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| {
                         let events = event_sender_task.clone();
                         let connections = Arc::clone(&ws_connections);
                         let ids = Arc::clone(&connection_ids_task);
-                        ws.on_upgrade(move |socket| {
-                            handle_ws_connection(socket, remote, events, connections, ids)
-                        })
+                        let budget = Arc::clone(&budget_task);
+                        let cancel = close_rx_task.clone();
+                        ws.max_message_size(max_ws_message)
+                            .max_frame_size(max_ws_message)
+                            .on_upgrade(move |socket| {
+                                handle_ws_connection(
+                                    socket,
+                                    remote,
+                                    events,
+                                    connections,
+                                    ids,
+                                    budget,
+                                    cancel,
+                                )
+                            })
                     },
                 );
 
@@ -6527,6 +7294,7 @@ impl Interpreter {
                             connection_ids,
                             handlers: RefCell::new(WsHandlerSet::default()),
                             server_handle: Some(server_handle),
+                            close_tx,
                         };
                         self.web_socket_servers
                             .borrow_mut()
@@ -6592,7 +7360,8 @@ impl Interpreter {
                 column,
             } => {
                 let message_val = self.evaluate_expression(message, Rc::clone(&env)).await?;
-                let text = Self::ws_message_text(&message_val, *line, *column)?;
+                // Measure the payload from the borrowed value first (no clone).
+                let msg_len = Self::ws_message_byte_len(&message_val, *line, *column)?;
 
                 let target_val = self.evaluate_expression(target, Rc::clone(&env)).await?;
                 let conn_id = Self::ws_connection_id(&target_val, *line, *column)?;
@@ -6605,9 +7374,30 @@ impl Interpreter {
 
                 match sender {
                     Some(tx) => {
-                        // A closed writer task is indistinguishable from a live
-                        // one here; a dropped frame simply means the peer left.
-                        let _ = tx.send(WsOutbound::Text(text));
+                        // Reserve the frame's bytes against the per-message and
+                        // global queued-byte budget *before* materializing the
+                        // payload, so an oversized value is never cloned first.
+                        match self.budget.try_reserve_ws_bytes(msg_len) {
+                            Some(permit) => {
+                                let text = Self::ws_message_text(&message_val, *line, *column)?;
+                                // A closed writer task is indistinguishable from a
+                                // live one here; a dropped frame simply means the
+                                // peer left (or the bounded queue is saturated).
+                                if let Err(err) = tx.try_send(WsOutbound::Text {
+                                    text,
+                                    _permit: permit,
+                                }) {
+                                    log::warn!(
+                                        "WebSocket outbound queue full/closed for {conn_id}; dropping frame: {err}"
+                                    );
+                                }
+                            }
+                            None => {
+                                log::warn!(
+                                    "WebSocket outbound frame for {conn_id} ({msg_len} bytes) exceeds the per-message or global queued-byte limit; dropping frame"
+                                );
+                            }
+                        }
                         Ok((Value::Null, ControlFlow::None))
                     }
                     None => Err(RuntimeError::new(
@@ -6624,6 +7414,15 @@ impl Interpreter {
                 column,
             } => {
                 let message_val = self.evaluate_expression(message, Rc::clone(&env)).await?;
+                // Measure first; reject an oversized broadcast payload before it
+                // is materialized (and then cloned per recipient).
+                let msg_len = Self::ws_message_byte_len(&message_val, *line, *column)?;
+                if msg_len > self.budget.max_ws_message_bytes() {
+                    log::warn!(
+                        "WebSocket broadcast payload ({msg_len} bytes) exceeds the per-message limit; dropping broadcast"
+                    );
+                    return Ok((Value::Null, ControlFlow::None));
+                }
                 let text = Self::ws_message_text(&message_val, *line, *column)?;
 
                 let server_key = self
@@ -6645,7 +7444,26 @@ impl Interpreter {
                 if let Ok(map) = self.ws_connections.lock() {
                     for id in ids {
                         if let Some(tx) = map.get(&id) {
-                            let _ = tx.send(WsOutbound::Text(text.clone()));
+                            // Reserve each recipient's copy against the global
+                            // queued-byte budget; shed over-budget frames rather
+                            // than buffering them without bound.
+                            match self.budget.try_reserve_ws_bytes(msg_len) {
+                                Some(permit) => {
+                                    if let Err(err) = tx.try_send(WsOutbound::Text {
+                                        text: text.clone(),
+                                        _permit: permit,
+                                    }) {
+                                        log::warn!(
+                                            "WebSocket broadcast: outbound queue full/closed for {id}; dropping frame: {err}"
+                                        );
+                                    }
+                                }
+                                None => {
+                                    log::warn!(
+                                        "WebSocket broadcast frame for {id} ({msg_len} bytes) exceeds the global queued-byte limit; dropping frame"
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -6753,15 +7571,10 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Guard against a file that (directly or indirectly) executes itself
-                if self.execute_depth >= MAX_EXECUTE_FILE_DEPTH {
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Maximum execute file nesting depth ({MAX_EXECUTE_FILE_DEPTH}) exceeded - possible circular execution"
-                        ),
-                        *line,
-                        *column,
-                    ));
+                // Guard against a file that (directly or indirectly) executes
+                // itself, using the shared budget's execute-file depth ceiling.
+                if let Err(exceeded) = self.budget.check_execute_file_depth(self.execute_depth) {
+                    return Err(self.budget_error(exceeded, *line, *column));
                 }
 
                 // Evaluate path expression to string
@@ -6814,9 +7627,10 @@ impl Interpreter {
                 let resolved_path = tokio::fs::canonicalize(&joined)
                     .await
                     .map_err(map_io_error)?;
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(map_io_error)?;
+                // Read under the shared source-size ceiling (bounded read).
+                let content = self
+                    .read_source_bounded(&resolved_path, *line, *column)
+                    .await?;
 
                 // Evaluate the optional request context and extract the variables
                 // that `wait for request` defines, so the executed file sees the
@@ -6882,10 +7696,15 @@ impl Interpreter {
                 };
 
                 // Parse the file; errors are catchable in the parent
-                use crate::lexer::lex_wfl_with_positions;
+                use crate::lexer::lex_wfl_with_positions_checked;
                 use crate::parser::Parser;
 
-                let tokens = lex_wfl_with_positions(&content);
+                // Lex under the shared run budget: a deadline / cancellation /
+                // operation breach during nested source loading surfaces as a
+                // typed, catchable runtime error instead of a truncated token
+                // stream that could execute as if it were the whole file.
+                let tokens = lex_wfl_with_positions_checked(&content)
+                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
                     let first_error = errors.first();
@@ -6932,6 +7751,15 @@ impl Interpreter {
                 let mut child = Interpreter::with_config(Arc::clone(&self.config));
                 child.set_source_file(resolved_path.clone());
                 child.execute_depth = self.execute_depth + 1;
+                // Share the parent's budget so the deadline, operation ceiling,
+                // and cancellation span the whole run — otherwise splitting work
+                // across `execute file` calls would reset them and evade the cap.
+                child.budget = Arc::clone(&self.budget);
+                // Seed the child's recursion accounting with the parent's live
+                // depth so the combined WFL call depth across nested `execute
+                // file` runs is bounded by `max_call_depth` (not multiplied per
+                // level), preventing native-stack overflow before the guard fires.
+                child.base_call_depth = self.call_depth.get();
 
                 {
                     let mut child_env = child.global_env().borrow_mut();
@@ -6948,6 +7776,11 @@ impl Interpreter {
                 let capture_buffer = variable_name
                     .as_ref()
                     .map(|_| Rc::new(RefCell::new(String::new())));
+                // The child shares this budget, so the parent's active main-loop
+                // exemption (a depth counter, not a flag) naturally covers the
+                // child and the nested front end — `execute file` from inside a
+                // server's `main loop` handler inherits the exemption instead of
+                // spuriously timing out, and the RAII guard needs no save/restore.
                 let run_result = {
                     let _guard = capture_buffer
                         .as_ref()
@@ -7425,6 +8258,26 @@ impl Interpreter {
         }
     }
 
+    /// The byte length a `send`/`broadcast` value would serialize to, computed
+    /// from the *borrowed* value — for `Value::Text` (`Arc<str>`) this is
+    /// `t.len()` with no allocation. Lets the queued-byte permit be reserved
+    /// (and an oversized message rejected) *before* the payload is cloned into a
+    /// `String`, so an oversized runtime value is never fully duplicated first.
+    fn ws_message_byte_len(
+        value: &Value,
+        line: usize,
+        column: usize,
+    ) -> Result<usize, RuntimeError> {
+        match value {
+            Value::Text(t) => Ok(t.len()),
+            // Small, bounded scalars — measuring == materializing cost.
+            Value::Number(n) => Ok(format!("{n}").len()),
+            Value::Bool(b) => Ok(if *b { 3 } else { 2 }),
+            // Reuse `ws_message_text`'s errors for the unsupported cases.
+            _ => Self::ws_message_text(value, line, column).map(|s| s.len()),
+        }
+    }
+
     /// Extracts a connection id from a `send ... to <target>` target. Accepts the
     /// connection object bound by a connect/message handler (reads its `id`).
     fn ws_connection_id(value: &Value, line: usize, column: usize) -> Result<String, RuntimeError> {
@@ -7455,15 +8308,12 @@ impl Interpreter {
 
             // Snapshot the receivers with a short borrow; dispatch below must not
             // hold a borrow of web_socket_servers across handler execution.
-            let receivers: Vec<(
-                String,
-                Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflWsEvent>>>,
-            )> = self
-                .web_socket_servers
-                .borrow()
-                .iter()
-                .map(|(key, srv)| (key.clone(), Arc::clone(&srv.event_receiver)))
-                .collect();
+            let receivers: Vec<(String, Arc<tokio::sync::Mutex<mpsc::Receiver<WflWsEvent>>>)> =
+                self.web_socket_servers
+                    .borrow()
+                    .iter()
+                    .map(|(key, srv)| (key.clone(), Arc::clone(&srv.event_receiver)))
+                    .collect();
 
             if receivers.is_empty() {
                 tokio::time::sleep(remaining).await;
@@ -8622,8 +9472,12 @@ impl Interpreter {
                     }
                 };
 
-                // Perform the match
-                let matches = compiled_pattern.matches(text_str);
+                // Perform the match under the shared budget so a pathological
+                // pattern is bounded by the run's step/state ceilings; a breach
+                // surfaces as a catchable error, not a silent non-match.
+                let matches = compiled_pattern
+                    .matches_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *_line, *_column))?;
                 Ok(Value::Bool(matches))
             }
 
@@ -8660,8 +9514,12 @@ impl Interpreter {
                     }
                 };
 
-                // Find the first match
-                match compiled_pattern.find(text_str) {
+                // Find the first match under the shared budget (a breach is a
+                // catchable error rather than a silent non-match).
+                let found = compiled_pattern
+                    .find_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *_line, *_column))?;
+                match found {
                     Some(match_result) => {
                         // Return an object with match information
                         let mut result_map = std::collections::HashMap::new();
@@ -9334,6 +10192,18 @@ impl Interpreter {
             // unbound and let the body resolve to the global instead (#582).
             let _ = call_env.borrow_mut().define_direct(param, arg.clone());
         }
+
+        // Enforce the shared recursion ceiling before descending another level,
+        // turning runaway recursion into a clean error instead of a native stack
+        // overflow. The dedicated `call_depth` counter (not `call_stack.len()`)
+        // is the enforcement source of truth: it is decremented by the RAII
+        // guard below as the call unwinds — including when a `try`/`when`
+        // catches a `ResourceLimit` — so catch-and-recurse cannot under-count
+        // and pile onto still-live native frames.
+        if let Err(exceeded) = self.budget.check_call_depth(self.call_depth.get()) {
+            return Err(self.budget_error(exceeded, line, column));
+        }
+        let _depth_guard = CallDepthGuard::enter(&self.call_depth);
 
         let frame = CallFrame::new(
             func.name

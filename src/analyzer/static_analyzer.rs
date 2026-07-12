@@ -390,6 +390,17 @@ impl StaticAnalyzer for Analyzer {
     fn analyze_static(&mut self, program: &Program, file_id: usize) -> Vec<WflDiagnostic> {
         let mut diagnostics = Vec::new();
 
+        // Front-end budget checkpoint: honor the run's deadline/cancellation at
+        // the analysis phase boundary (via the current-thread budget), so a run
+        // that has already blown its deadline during parsing/lexing is refused
+        // here instead of proceeding — `--analyze` consults the budget too.
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            diagnostics.push(WflDiagnostic::error(exceeded.message()));
+            return diagnostics;
+        }
+
         // Collect all action parameters to filter out errors related to them
         let mut action_parameters = HashSet::new();
         for statement in &program.statements {

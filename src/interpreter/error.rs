@@ -5,6 +5,9 @@ pub enum ErrorKind {
     General,
     EnvDropped,
     Timeout,
+    /// A shared `ExecutionBudget` ceiling other than the deadline was reached
+    /// (operation count, recursion/import/execute-file depth, byte caps, etc.).
+    ResourceLimit,
     FileNotFound,
     PermissionDenied,
     ProcessNotFound,
@@ -47,6 +50,7 @@ impl fmt::Display for RuntimeError {
             ErrorKind::General => "",
             ErrorKind::EnvDropped => "[Environment dropped] ",
             ErrorKind::Timeout => "[Timeout] ",
+            ErrorKind::ResourceLimit => "[Resource limit] ",
             ErrorKind::FileNotFound => "[File not found] ",
             ErrorKind::PermissionDenied => "[Permission denied] ",
             ErrorKind::ProcessNotFound => "[Process not found] ",

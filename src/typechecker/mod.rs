@@ -49,6 +49,47 @@ impl fmt::Display for TypeError {
     }
 }
 
+/// The outcome of [`TypeChecker::check_types`] when it does not succeed.
+///
+/// A shared-budget breach (deadline, cancellation, operation/depth/byte
+/// ceiling) is a **fatal** event: the run must stop, and it must never be
+/// mistaken for — or silently downgraded to — an ordinary type diagnostic.
+/// Encoding it as a distinct variant forces every caller to distinguish the two
+/// at the type level, instead of relying on an optional side channel a caller
+/// can forget to consult. This is why `check_types` returns this enum rather
+/// than a bare `Vec<TypeError>`.
+#[derive(Debug, Clone)]
+pub enum TypeCheckError {
+    /// The shared run budget was exhausted during analysis or type checking.
+    /// Fatal — callers must abort the run (do not execute the program).
+    Budget(crate::exec::budget::BudgetExceeded),
+    /// Ordinary type diagnostics. Callers may report these and, in the
+    /// `include from` path, continue (matching the main-file pipeline).
+    Types(Vec<TypeError>),
+}
+
+impl TypeCheckError {
+    /// Render this failure as type diagnostics: the diagnostics themselves, or a
+    /// budget breach rendered as a single diagnostic. Convenience for callers
+    /// (and tests) that only need to display the failure.
+    pub fn into_diagnostics(self) -> Vec<TypeError> {
+        match self {
+            TypeCheckError::Types(errors) => errors,
+            TypeCheckError::Budget(breach) => {
+                vec![TypeError::new(breach.message(), None, None, 0, 0)]
+            }
+        }
+    }
+
+    /// The budget breach, if this failure was one.
+    pub fn budget_breach(&self) -> Option<&crate::exec::budget::BudgetExceeded> {
+        match self {
+            TypeCheckError::Budget(breach) => Some(breach),
+            TypeCheckError::Types(_) => None,
+        }
+    }
+}
+
 impl std::error::Error for TypeError {}
 
 impl fmt::Display for Type {
@@ -96,6 +137,14 @@ pub struct TypeChecker {
     /// expose their actions dynamically at runtime, so undefined-action errors
     /// are suppressed to match the analyzer (see issue #548).
     has_includes: bool,
+    /// A shared-budget breach hit during type checking. Kept **separate** from
+    /// `errors` because callers (the CLI, `include`) print `TypeError`s as
+    /// non-fatal warnings and continue — which would erase a real
+    /// deadline/cancellation/resource breach. This is an internal latch:
+    /// `check_types` surfaces it to callers as the fatal
+    /// [`TypeCheckError::Budget`] variant so the distinction is enforced by the
+    /// type system rather than an optional side channel.
+    budget_error: Option<crate::exec::budget::BudgetExceeded>,
 }
 
 impl Default for TypeChecker {
@@ -116,6 +165,7 @@ impl TypeChecker {
             analyzer_already_run: false,
             current_container: None,
             has_includes: false,
+            budget_error: None,
         }
     }
 
@@ -128,6 +178,7 @@ impl TypeChecker {
             analyzer_already_run: true, // Analyzer has already been run when passed in
             current_container: None,
             has_includes: false,
+            budget_error: None,
         }
     }
 
@@ -247,7 +298,13 @@ impl TypeChecker {
         }
     }
 
-    pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
+    pub fn check_types(&mut self, program: &Program) -> Result<(), TypeCheckError> {
+        // Reset the per-run budget breach so a reused TypeChecker (e.g. an editor
+        // session) neither carries a stale breach nor lets the recursive
+        // `check_statement_types` short-circuit fire against a previous run's
+        // state.
+        self.budget_error = None;
+
         // Detect includes: their exposed actions are only known at runtime.
         // Assign directly so a reused TypeChecker (e.g. an editor session) does
         // not carry a stale flag from a program that used includes.
@@ -259,6 +316,12 @@ impl TypeChecker {
         if !self.analyzer_already_run
             && let Err(semantic_errors) = self.analyzer.analyze(program)
         {
+            // Propagate the analyzer's *typed* breach so an analysis-phase
+            // deadline/cancellation/resource failure stays fatal and is never
+            // mistaken for an ordinary semantic diagnostic.
+            if let Some(breach) = self.analyzer.take_budget_error() {
+                return Err(TypeCheckError::Budget(breach));
+            }
             for error in semantic_errors {
                 self.errors.push(TypeError::new(
                     error.message,
@@ -268,17 +331,30 @@ impl TypeChecker {
                     error.column,
                 ));
             }
-            return Err(self.errors.clone());
+            return Err(TypeCheckError::Types(self.errors.clone()));
         }
 
         for statement in &program.statements {
+            // The budget is polled inside `check_statement_types` (below), which
+            // runs for every top-level statement and recurses into nested bodies.
+            // Stop iterating the moment a breach is recorded there — including one
+            // surfaced deep inside a previous statement's nested body.
+            if self.budget_error.is_some() {
+                break;
+            }
             self.check_statement_types(statement);
+        }
+
+        // A budget breach is fatal and takes precedence over any diagnostics
+        // accumulated alongside it.
+        if let Some(breach) = self.budget_error.take() {
+            return Err(TypeCheckError::Budget(breach));
         }
 
         if self.errors.is_empty() {
             Ok(())
         } else {
-            Err(self.errors.clone())
+            Err(TypeCheckError::Types(self.errors.clone()))
         }
     }
 
@@ -370,6 +446,27 @@ impl TypeChecker {
     }
 
     fn check_statement_types(&mut self, statement: &Statement) {
+        // Recursive front-end checkpoint. This method recurses into `if`/loop/
+        // `try`/action/container-method bodies, so polling the run budget here
+        // (mirroring the parser's per-`parse_statement` placement) keeps deeply
+        // nested type-checking cooperative with the deadline/cancellation/
+        // operation limits — not just the top-level statement boundary. Once a
+        // breach is recorded, short-circuit so it is captured a single time
+        // rather than re-charged per nested node. The breach is kept on the
+        // dedicated `budget_error` channel (callers must stop) AND pushed as a
+        // diagnostic so `Err` still short-circuits normal reporting.
+        if self.budget_error.is_some() {
+            return;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+            self.budget_error = Some(exceeded);
+            return;
+        }
+
         match statement {
             Statement::PushStatement {
                 list,
@@ -2515,6 +2612,23 @@ impl TypeChecker {
     }
 
     fn infer_expression_type(&mut self, expression: &Expression) -> Type {
+        // Recursive front-end checkpoint for expressions (mirrors the analyzer's
+        // `analyze_expression`): `check_statement_types` polls per statement, but
+        // one statement can hold an arbitrarily large expression tree, so poll
+        // here too. The `budget_error` latch records the breach once and
+        // short-circuits; the returned `Any` is irrelevant because `check_types`
+        // turns the latched breach into the fatal `TypeCheckError::Budget`.
+        if self.budget_error.is_some() {
+            return Type::Any;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+            self.budget_error = Some(exceeded);
+            return Type::Any;
+        }
         match expression {
             Expression::Literal(literal, _, _) => match literal {
                 Literal::String(_) => Type::Text,
@@ -4235,7 +4349,7 @@ mod tests {
         let result = type_checker.check_types(&program);
         assert!(result.is_err(), "Expected type error for mismatched types");
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4274,7 +4388,7 @@ mod tests {
             result.is_err(),
             "Expected a type error for non-map response headers"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4343,7 +4457,7 @@ mod tests {
             "Expected type error for incompatible operation"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("Cannot perform")));
     }
 
@@ -4392,7 +4506,7 @@ mod tests {
             "Expected type error for wrong argument type"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("incorrect type")));
     }
 
@@ -4415,7 +4529,7 @@ mod tests {
             "Expected type error for non-boolean condition"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4478,7 +4592,7 @@ mod tests {
             "Expected type error for incompatible operation on loop variable"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors.iter().any(|e| e.message.contains("Cannot perform")),
             "Expected error about invalid operation, got: {:?}",
@@ -4541,7 +4655,7 @@ mod tests {
             result.is_err(),
             "Expected type error for unhandleable signal name (SIGKILL)"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4561,7 +4675,7 @@ mod tests {
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&undefined_handler);
         assert!(result.is_err(), "Expected type error for undefined handler");
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4593,7 +4707,7 @@ mod tests {
             result.is_err(),
             "Expected type error when handler is not a function"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("not a function")));
 
         // Test case 5: Handler has too many parameters
@@ -4637,7 +4751,7 @@ mod tests {
             result.is_err(),
             "Expected type error when handler has too many parameters"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4676,7 +4790,7 @@ mod tests {
             result.is_err(),
             "Expected type error when handler has wrong parameter type"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| {
             e.message
                 .contains("Signal handler parameter must be a Number")
@@ -4748,7 +4862,7 @@ mod tests {
             result.is_err(),
             "Expected type error for invalid server expression"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4781,7 +4895,7 @@ mod tests {
             result.is_err(),
             "Expected type error for invalid timeout expression"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4832,7 +4946,7 @@ mod tests {
             result.is_err(),
             "Expected type error for invalid list reference in pattern"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("must be a List")));
 
         // Test valid List<Text> reference
@@ -4888,7 +5002,7 @@ mod tests {
             result.is_err(),
             "Expected type error for List<Number> reference in pattern"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -5005,7 +5119,7 @@ mod tests {
             result.is_err(),
             "Action returning Number used as a file path must still be flagged"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors.iter().any(|e| e.found == Some(Type::Number)),
             "Mismatch should report the inferred Number type, got: {errors:?}"
@@ -5127,7 +5241,7 @@ mod tests {
             result.is_err(),
             "Reachable Number return used as a file path must still be flagged"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors.iter().any(|e| e.found == Some(Type::Number)),
             "Inferred type should be precisely Number (not widened to Any), got: {errors:?}"

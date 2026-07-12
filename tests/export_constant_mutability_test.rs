@@ -28,7 +28,7 @@ export constant mutable_var
         "Type checking should fail when exporting mutable variable as constant"
     );
 
-    let errors = result.unwrap_err();
+    let errors = result.unwrap_err().into_diagnostics();
     assert!(
         !errors.is_empty(),
         "Should have type errors for mutable constant export"
@@ -93,7 +93,7 @@ export constant MISSING_CONSTANT
         "Type checking should fail when exporting non-existent constant"
     );
 
-    let errors = result.unwrap_err();
+    let errors = result.unwrap_err().into_diagnostics();
     assert!(
         !errors.is_empty(),
         "Should have type errors for missing constant"
