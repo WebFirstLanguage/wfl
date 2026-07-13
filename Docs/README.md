@@ -221,6 +221,7 @@ Guidelines for quality, security, performance, and collaboration — aligned wit
 - **[Operator Reference](reference/operator-reference.md)** - All operators
 - **[Built-in Functions](reference/builtin-functions-reference.md)** - Complete function list
 - **[Error Codes](reference/error-codes.md)** - Understanding errors
+- **[Supported Platforms & Support Boundaries](reference/supported-platforms.md)** - Support tiers, platform matrix, toolchain/runtime requirements, and what "supported" covers
 
 ### Development
 

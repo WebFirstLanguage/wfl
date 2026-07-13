@@ -10,11 +10,13 @@ We provide security updates for the following versions of WFL:
 
 | Version Pattern | Supported          | Notes |
 | --------------- | ------------------ | ----- |
-| 26.6.x (Current)| ✅ Yes             | Active development, security fixes prioritized |
-| 26.5.x         | ⚠️ Limited         | Critical security issues only |
-| 26.4.x and older| ❌ No            | No security updates provided |
+| 26.7.x (Current)| ✅ Yes             | Active development, security fixes prioritized |
+| 26.6.x         | ⚠️ Limited         | Critical security issues only |
+| 26.5.x and older| ❌ No            | No security updates provided |
 
 **Version Scheme**: WFL uses calendar-based versioning (YY.MM.BUILD). Security patches are released as point releases within the current month.
+
+**Supported Platforms**: See [Docs/reference/supported-platforms.md](Docs/reference/supported-platforms.md) for the platform support tiers (what CI builds and tests), the toolchain/runtime requirements, and the boundaries of "supported" behaviour.
 
 ## 🔒 Reporting Security Vulnerabilities
 
