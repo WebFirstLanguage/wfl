@@ -63,8 +63,11 @@
 //! * #578's *`X ends with Y` misparse* item is also **no longer reproducible**
 //!   (fixed alongside #566).
 //!
-//! Full per-item classification of the remaining #578 checkboxes is Phase 2
-//! scoping work, tracked on the issue itself.
+//! Full per-item classification of the remaining #578 checkboxes is **open
+//! Phase 1 work** — it is part of the Phase 1 task *"convert every known
+//! correctness defect into an end-to-end regression test"* and is tracked on the
+//! issue. (*Fixing* those #578 defects is Phase 2; only their classification /
+//! regression coverage belongs to Phase 1.)
 //!
 //! Every "fixed" verdict was measured against a fresh `cargo build --release`
 //! binary, not inferred from commit history.
