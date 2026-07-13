@@ -100,7 +100,9 @@ const RUN_TIMEOUT: Duration = Duration::from_secs(30);
 /// but *not* interleaved by time) — and the process exit code (`None` if the run
 /// was killed on timeout). Pipes are drained on background threads so a chatty program
 /// cannot dead-lock on a full pipe buffer, and the child is killed if it exceeds
-/// [`RUN_TIMEOUT`].
+/// [`RUN_TIMEOUT`]. Output is drained as raw bytes and decoded with
+/// [`String::from_utf8_lossy`], so non-UTF-8 bytes become `U+FFFD` rather than
+/// aborting the read (which `read_to_string` would, silently truncating capture).
 fn run_files(files: &[(&str, &str)], entry: &str) -> (String, Option<i32>) {
     let dir = TempDir::new().expect("tempdir");
     for (name, content) in files {
@@ -122,14 +124,14 @@ fn run_files(files: &[(&str, &str)], entry: &str) -> (String, Option<i32>) {
     let mut out_pipe = child.stdout.take().expect("stdout");
     let mut err_pipe = child.stderr.take().expect("stderr");
     let out_thread = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out_pipe.read_to_string(&mut s);
-        s
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        String::from_utf8_lossy(&buf).into_owned()
     });
     let err_thread = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err_pipe.read_to_string(&mut s);
-        s
+        let mut buf = Vec::new();
+        let _ = err_pipe.read_to_end(&mut buf);
+        String::from_utf8_lossy(&buf).into_owned()
     });
 
     let start = Instant::now();
