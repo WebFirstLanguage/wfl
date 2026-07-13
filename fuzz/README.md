@@ -13,8 +13,8 @@ unresolved crash or hang."*
 |---|---|---|
 | `fuzz_lexer` | Tokenization | `lexer::lex_wfl_with_positions_checked` |
 | `fuzz_parser` | Recursive-descent parser (with error recovery) | `lexer::lex_wfl_with_positions` → `Parser::parse` |
-| `fuzz_pattern` | Pattern grammar + compiler + VM (ReDoS surface) | `create pattern` parse → `CompiledPattern::compile` → `find_all` |
-| `fuzz_module_loading` | Module-content handling: include/load-module detection + include-aware analysis | `program_has_includes` / `program_has_load_module` / `Analyzer::analyze` |
+| `fuzz_pattern` | Pattern grammar + compiler + VM (ReDoS surface) | `pattern\0haystack` pair → `create pattern` parse → `CompiledPattern::compile` → `find_all(haystack)` |
+| `fuzz_module_loading` | Module-content handling (static half of loading): checked lex → parse → include/load-module detection → include-aware analysis → type check | `lex_wfl_with_positions_checked` → `Parser::parse` → `program_has_includes`/`program_has_load_module` → `Analyzer::analyze` → `TypeChecker::check_types` |
 
 Each target's invariant is the same: **no arbitrary input may panic, overflow
 the stack, or hang.** Controlled `Err`/diagnostic results are expected outcomes,
@@ -45,16 +45,20 @@ cargo install cargo-fuzz
 # List targets
 cargo +nightly fuzz list
 
-# Run one target, seeding from the tracked corpus in fuzz/seeds/<target>.
-# libFuzzer treats the first dir as the writable corpus and the rest as
-# read-only seed inputs.
-cargo +nightly fuzz run fuzz_lexer          fuzz/corpus/fuzz_lexer          fuzz/seeds/fuzz_lexer
-cargo +nightly fuzz run fuzz_parser         fuzz/corpus/fuzz_parser         fuzz/seeds/fuzz_parser
-cargo +nightly fuzz run fuzz_pattern        fuzz/corpus/fuzz_pattern        fuzz/seeds/fuzz_pattern
-cargo +nightly fuzz run fuzz_module_loading fuzz/corpus/fuzz_module_loading fuzz/seeds/fuzz_module_loading
+# The live corpus dir (fuzz/corpus/<target>) is gitignored and does NOT exist on
+# a fresh clone, so seed it from the tracked seeds first. `cargo fuzz run` then
+# uses fuzz/corpus/<target> as the writable corpus by default.
+for t in fuzz_lexer fuzz_parser fuzz_pattern fuzz_module_loading; do
+  mkdir -p "fuzz/corpus/$t"
+  cp -n fuzz/seeds/$t/* "fuzz/corpus/$t/" 2>/dev/null || true
+done
 
-# Time-boxed run (the shape a CI/nightly job uses); -max_len bounds input size.
-cargo +nightly fuzz run fuzz_parser -- -max_total_time=300 -max_len=65536
+# Run one target (writable corpus defaults to fuzz/corpus/<target>).
+# -timeout=10 flags any single input that takes >10s as a hang.
+cargo +nightly fuzz run fuzz_parser -- -timeout=10 -max_len=65536
+
+# Time-boxed run (the shape a CI/nightly job uses); bounds total time + input.
+cargo +nightly fuzz run fuzz_parser -- -max_total_time=300 -timeout=10 -max_len=65536
 ```
 
 Crashes/hangs are written to `fuzz/artifacts/<target>/`; reproduce with:

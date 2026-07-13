@@ -25,6 +25,24 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  # The fuzz crate is a standalone workspace excluded from the root build, so a
+  # normal `cargo build` never compiles it — API drift in wfl could silently
+  # break every fuzz target. This job type-checks the targets against the current
+  # API on stable (libFuzzer/nightly is only needed to actually *run* them).
+  fuzz-check:
+    name: Fuzz targets compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          shared-key: fuzz-check-cache
+      - name: Type-check fuzz targets against the current API
+        run: cargo check --manifest-path fuzz/Cargo.toml
+
   clippy-and-test:
     name: Build, Test, Clippy
     runs-on: ubuntu-latest

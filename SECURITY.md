@@ -142,10 +142,11 @@ WFL interprets and executes user-provided code. Consider these security implicat
 
 ```ini
 # Example secure .wflcfg
-timeout_seconds = 30          # Reasonable timeout
+timeout_seconds = 30          # Reasonable wall-clock timeout (ExecutionBudget)
 logging_enabled = true        # Enable for audit trails
 debug_report_enabled = false  # Disable in production-like environments
-max_nesting_depth = 5         # Prevent deep recursion attacks
+max_call_depth = 1000         # Runtime recursion/stack ceiling (ExecutionBudget)
+max_nesting_depth = 5         # Linter: max block nesting for readability (style, not a runtime guard)
 ```
 
 ## 🔍 Known Security Limitations
@@ -153,10 +154,10 @@ max_nesting_depth = 5         # Prevent deep recursion attacks
 As alpha software, WFL has the following known limitations:
 
 1. **Execution Sandboxing**: No built-in sandboxing for untrusted code execution
-2. **Resource Limits**: Limited built-in protection against resource exhaustion
+2. **Resource Limits**: A shared `ExecutionBudget` now enforces ceilings (recursion/import depth, pattern steps/states, source/body/response bytes, HTTP/WebSocket capacity, and optional operation/time limits). Adversarial per-limit boundary testing is still in progress (tracked as Phase 3 of #610).
 3. **Input Sanitization**: Basic input validation - additional sanitization may be needed
 4. **Audit Logging**: Security-focused audit logging still in development
-5. **Cryptographic Operations**: No built-in cryptographic functions (rely on external tools)
+5. **Cryptographic Operations**: WFL ships a crypto standard library (WFLHASH plus SHA-256/HMAC and password KDFs — argon2, bcrypt, scrypt, PBKDF2). **WFLHASH is a custom, experimental primitive** and must not be used where a standardized, independently audited hash is required.
 
 ## 📚 Security Resources
 
@@ -198,6 +199,6 @@ We appreciate the security research community and will acknowledge responsible d
 ---
 
 **Last Updated**: July 2026
-**Version**: 26.6.5
+**Version**: 26.7.37
 
 © 2026 Logbie LLC. This security policy is subject to updates as WFL evolves from alpha to stable release.

@@ -19,7 +19,7 @@ exercises**, not by aspiration.
 
 | Tier | Meaning | What you can rely on |
 |---|---|---|
-| **Tier 1 — Supported** | Built **and** tested on every change in CI. | Release binaries, the full `cargo test` suite, integration tests, and the end-to-end `TestPrograms` corpus all run here. Regressions block merges. |
+| **Tier 1 — Supported** | Built **and** tested on every PR in CI. | A release binary is built and the end-to-end `TestPrograms` + integration-test scripts run on **every** Tier-1 platform; regressions block merges. Coverage is **not identical** across Tier-1 platforms — see *Per-platform PR CI coverage* below for the exact lanes each one runs. |
 | **Tier 2 — Best-effort** | Expected to build from source; **not** covered by CI. | The code targets it and contributors run it, but breakage is possible between releases and is fixed on a best-effort basis. |
 | **Unsupported** | Not built, not tested, not a goal for the 8/10 release. | May work, may not. No guarantees, no gate coverage. |
 
@@ -28,7 +28,7 @@ exercises**, not by aspiration.
 | Platform | Architecture | Tier | Evidence / notes |
 |---|---|---|---|
 | **Linux (glibc)** | `x86_64` | **Tier 1** | `ci.yml` builds + tests on `ubuntu-latest`: unit/integration tests, Clippy (`-D warnings`), database tests (PostgreSQL + MariaDB), and the `TestPrograms` runner. |
-| **Windows** | `x86_64` (`x86_64-pc-windows-msvc`) | **Tier 1** | `ci.yml` runs the integration + `TestPrograms` matrix on `windows-latest`; `nightly.yml` builds the release binary and the MSI installer (`cargo-wix`) and runs an installer smoke test. |
+| **Windows** | `x86_64` (`x86_64-pc-windows-msvc`) | **Tier 1** | `ci.yml` runs the integration + `TestPrograms` matrix on `windows-latest`. The MSI installer (`cargo-wix`) and its smoke test run in `nightly.yml` **after** merge, not on PRs. |
 | **macOS** | `x86_64`, `aarch64` (Apple Silicon) | **Tier 2** | Builds from source (`installation.md` documents the flow) but is **not** in CI. Supported best-effort until a macOS CI lane is added. |
 | **Linux (musl / non-glibc)** | any | **Tier 2** | No CI lane; static-musl builds are expected to work but unverified. |
 | **Linux / other Unix** | `aarch64`, others | **Tier 2** | Pure-Rust with a Tokio runtime; expected to build where the toolchain and dependencies do. Unverified. |
@@ -38,12 +38,35 @@ exercises**, not by aspiration.
 builds it and runs the integration + `TestPrograms` suites green — a
 before-the-release-gate requirement, not a documentation change.
 
+### Per-platform PR CI coverage (what actually runs today)
+
+Tier-1 coverage is **not symmetric**. This table lists exactly what each Tier-1
+platform runs on a pull request, per `.github/workflows/ci.yml`:
+
+| Lane | Linux (`ubuntu-latest`) | Windows (`windows-latest`) |
+|---|---|---|
+| `cargo fmt --check` | ✅ | ➖ (Linux only) |
+| Full `cargo test` (unit + integration) | ✅ | ➖ (Linux only) |
+| LSP build + tests | ✅ | ➖ (Linux only) |
+| Clippy `-D warnings` | ✅ | ➖ (Linux only) |
+| Database tests (PostgreSQL + MariaDB) | ✅ | ➖ (Linux only) |
+| Integration-test scripts | ✅ | ✅ |
+| `TestPrograms` end-to-end runner | ✅ | ✅ |
+| Release **artifact publish** (checksums, installers) | ➖ | ➖ (nightly/post-merge only) |
+| Documentation-example execution | ➖ (not wired into CI yet — mandatory gate still open) | ➖ |
+
+Known gaps that are **not** yet gated on any PR: the full unit/LSP/clippy/DB
+suite runs on Linux only; installer testing is nightly and post-merge; release
+artifacts are not published from PR CI; documentation examples are not executed
+in CI; and the declared MSRV is not verified (see below). These are tracked
+Phase 1→3 items, not guarantees.
+
 ## Toolchain requirements
 
 | Requirement | Value | Source of truth |
 |---|---|---|
 | Rust channel | **stable** | All CI jobs use `dtolnay/rust-toolchain@stable`. |
-| Minimum supported Rust version (MSRV) | **1.88** | `Cargo.toml` `rust-version = "1.88"`. The codebase uses `let`-chains (stabilized in 1.88); older toolchains fail fast. |
+| Minimum supported Rust version (MSRV) | **1.88** (declared) | `Cargo.toml` `rust-version = "1.88"`. The codebase uses `let`-chains (stabilized in 1.88), so older toolchains fail fast via `cargo`'s check. Note: CI builds on **stable**, so the 1.88 floor is *declared but not gate-tested* — an MSRV lane is a tracked follow-up. |
 | Rust edition | **2024** | `Cargo.toml` `edition = "2024"`. |
 | Build profiles | `debug`, `release` | Integration tests and `TestPrograms` require a `cargo build --release` binary. |
 | Disallowed | `panic = "abort"` | CI asserts the release binary rejects `panic=abort` (`ci.yml`), so panics stay unwindable/catchable. |
@@ -71,8 +94,12 @@ testable, documented, and operable* for **supported language behaviour**:
 - Supported language constructs behave consistently across the parser, analyzer,
   type checker, and interpreter.
 - The documented CLI, `.wflcfg` configuration, and standard-library surface work
-  as described, with documentation examples validated.
-- Release artifacts are produced and installable via the documented paths.
+  as described. (Automated execution of documentation examples in CI is a
+  mandatory release gate that is **not yet met** — examples are validated
+  locally via `scripts/validate_docs_examples.py` today.)
+- Release artifacts are produced by the nightly/release workflows (not from PR
+  CI) and installable via the documented paths; verifiable checksums are a
+  tracked Operations follow-up.
 
 Support **does not** extend to:
 

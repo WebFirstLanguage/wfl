@@ -16,8 +16,13 @@ use time::format_description::FormatItem;
 static LOGGER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static EXEC_LOGGER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
-static TIME_FORMAT: Lazy<Vec<FormatItem>> =
-    Lazy::new(|| time::format_description::parse("[hour]:[minute]:[second].[subsecond]").unwrap());
+static TIME_FORMAT: Lazy<Vec<FormatItem>> = Lazy::new(|| {
+    // `parse` is deprecated in favor of the version-explicit `parse_borrowed`.
+    // Version 2 is behaviorally identical for this format string (only
+    // components plus literal `:`/`.` separators — no characters whose escaping
+    // differs between format-description versions).
+    time::format_description::parse_borrowed::<2>("[hour]:[minute]:[second].[subsecond]").unwrap()
+});
 static INDENTATION_LEVEL: AtomicUsize = AtomicUsize::new(0);
 thread_local! {
     static EXECUTION_LOG_FILE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
