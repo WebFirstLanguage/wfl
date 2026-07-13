@@ -24,14 +24,25 @@ demonstrably behaves correctly today.
 
 ## Inventory result
 
-**Total open at start:** 17 (16 tracked issues + the #610 tracker itself).
-**Closed as verified-fixed:** 10. **Remaining open after triage:** ~~6~~ **5** tracked + #610 (this originally read "6"; corrected to 5 after the #573 reclassification below).
+**Total open on GitHub at start:** 17 (16 tracked issues + the #610 tracker itself).
 
-> **Correction (post-review):** #573 in the table below was recorded as an open
-> "Medium" limitation **in error** — PR #574 had already shipped binary
-> serving + MIME (with byte-round-trip tests) before this inventory. Counting
-> that correction, only **5** tracked issues remain genuinely open (+#610). See
-> the #573 row for details.
+**Reconciliation of the 16 tracked issues** — stated explicitly because "open"
+was previously conflated between two senses (*open on GitHub* vs. *genuinely
+unresolved*):
+
+| Bucket | Count | Issues |
+|---|---|---|
+| Verified-fixed **and** closed on GitHub | 10 | the *Closed* table below |
+| Verified-fixed but still **open on GitHub**, pending a close click | 1 | #573 |
+| **Genuinely unresolved** | 5 | #592, #578, #555, #600, #612 |
+
+Arithmetic: `10 + 1 + 5 = 16` tracked `+ #610 = 17`, matching the start count. So
+**6** tracked issues are still *open on GitHub* (the 5 unresolved **plus** #573),
+but only **5** are *genuinely unresolved*. #573 is verified-fixed — PR #574
+shipped binary read/write + MIME with byte-round-trip tests **before** this
+inventory, and the issue is open on GitHub only pending a close click (it was
+originally recorded here as an open "Medium" limitation in error). See the #573
+row below.
 
 ### Closed — verified fixed against 26.7.36
 

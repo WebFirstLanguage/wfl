@@ -491,12 +491,17 @@ fn issue_578_with_form_action_call_is_not_a_silent_concat() {
         !out.contains("action double21") && !out.contains("double21"),
         "`double with 21` must not silently concatenate to a string (#578): {out}"
     );
-    // Desired: it either calls `double` (→ 42) or is rejected with an explicit
-    // non-zero exit; today it silently concatenates and exits 0, which this guard
-    // fails on. `matches!(code, Some(c) if c != 0)` (not `code != Some(0)`) so a
-    // timeout kill (`code == None`) does not count as "rejected".
+    // Desired: it either calls `double` (→ prints exactly `42` AND exits 0) or is
+    // rejected with an explicit non-zero exit; today it silently concatenates and
+    // exits 0, which this guard fails on. Both branches require the run to have
+    // *completed*: the success branch pins `code == Some(0)` so "prints 42 then
+    // hangs" (`code == None`) can't pass, and the failure branch uses
+    // `matches!(code, Some(c) if c != 0)` (not `code != Some(0)`) so a timeout kill
+    // (`code == None`) does not count as "rejected". The exact-line match
+    // (`line.trim() == "42"`) avoids a stray `42` inside diagnostics passing.
     assert!(
-        out.contains("42") || matches!(code, Some(c) if c != 0),
-        "`with`-form call must call the action (→42) or fail with a non-zero exit, not silently concat or hang (#578): {out}"
+        (code == Some(0) && out.lines().any(|line| line.trim() == "42"))
+            || matches!(code, Some(c) if c != 0),
+        "`with`-form call must call the action (→ prints `42`, exit 0) or fail with a non-zero exit, not silently concat or hang (#578): {out}"
     );
 }
