@@ -43,8 +43,10 @@ jobs:
         with:
           workspaces: fuzz
           shared-key: fuzz-check-cache
+      # `--locked` enforces the committed fuzz/Cargo.lock, so dependency drift
+      # fails the job instead of silently regenerating the lockfile.
       - name: Type-check fuzz targets against the current API
-        run: cargo check --manifest-path fuzz/Cargo.toml
+        run: cargo check --locked --manifest-path fuzz/Cargo.toml
 
   clippy-and-test:
     name: Build, Test, Clippy

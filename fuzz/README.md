@@ -52,15 +52,19 @@ complete.
 targets need a **nightly** toolchain and the sanitizer runtime; keeping them out
 of the default build means the mandatory CI checks stay on stable.
 
-You can still *type-check* the targets on stable to catch API drift:
+You can still *type-check* the targets on stable to catch API drift. `--locked`
+enforces the committed `fuzz/Cargo.lock` (fails on dependency drift instead of
+regenerating it):
 
 ```bash
-cargo check --manifest-path fuzz/Cargo.toml
+cargo check --locked --manifest-path fuzz/Cargo.toml
 ```
 
 ## Running
 
-Requires a nightly toolchain and `cargo-fuzz`:
+Requires a nightly toolchain and `cargo-fuzz`. **Run all commands below from the
+repository root** — `cargo fuzz` locates the `fuzz/` workspace automatically, and
+the seeding commands use repo-root-relative `fuzz/…` paths:
 
 ```bash
 rustup toolchain install nightly
