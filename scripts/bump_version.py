@@ -210,6 +210,95 @@ def update_cargo_lock():
         print(f"Error validating Cargo.lock: {e}")
         sys.exit(1)
 
+def update_fuzz_cargo_lock(expected_version):
+    """Sync + validate the standalone fuzz workspace's Cargo.lock after a bump.
+
+    `fuzz/` is a SEPARATE cargo workspace (excluded from the root workspace) that
+    path-depends on the root `wfl` package, so `fuzz/Cargo.lock` pins the root
+    version too. `update_cargo_lock()` only refreshes the ROOT lock; if we don't
+    also refresh and STAGE `fuzz/Cargo.lock`, the committed fuzz lock goes stale
+    on every bump and the next `cargo check --locked --manifest-path
+    fuzz/Cargo.toml` (the `fuzz-check` CI gate) fails — and the bump commit is
+    `[skip ci]`, so nothing self-corrects. We also run that same locked check
+    here so a broken lock can never be committed/tagged.
+
+    Raises SystemExit on any error to ensure CI failure.
+    """
+    FUZZ_MANIFEST = os.path.join("fuzz", "Cargo.toml")
+    FUZZ_LOCK = os.path.join("fuzz", "Cargo.lock")
+
+    if not (os.path.exists(FUZZ_MANIFEST) and os.path.exists(FUZZ_LOCK)):
+        print(f"Note: {FUZZ_LOCK} not present; skipping fuzz lock sync.")
+        return
+
+    print("Syncing fuzz/Cargo.lock to match the new root version...")
+
+    # Refresh only the `wfl` entry (a path dep) so the fuzz lock records the new
+    # version without churning unrelated dependencies.
+    try:
+        subprocess.run(
+            ["cargo", "update", "--package", "wfl", "--manifest-path", FUZZ_MANIFEST],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error running cargo update for fuzz/Cargo.lock: {e}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
+        sys.exit(1)
+    except FileNotFoundError:
+        print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
+        sys.exit(1)
+
+    # Verify the fuzz lock now records the expected version for `wfl`.
+    try:
+        with open(FUZZ_LOCK, "r") as f:
+            fuzz_lock_content = f.read()
+
+        fuzz_wfl_match = re.search(
+            r'\[\[package\]\]\s*name = "wfl"\s*version = "([^"]+)"',
+            fuzz_lock_content,
+            re.DOTALL,
+        )
+        if not fuzz_wfl_match:
+            print("Error: Could not find WFL package version in fuzz/Cargo.lock")
+            sys.exit(1)
+
+        fuzz_version = fuzz_wfl_match.group(1)
+        if fuzz_version != expected_version:
+            print("Error: fuzz/Cargo.lock version mismatch!")
+            print(f"  expected: {expected_version}")
+            print(f"  fuzz/Cargo.lock: {fuzz_version}")
+            sys.exit(1)
+
+        print(f"✓ fuzz/Cargo.lock synchronized: {expected_version}")
+
+    except Exception as e:
+        print(f"Error validating fuzz/Cargo.lock: {e}")
+        sys.exit(1)
+
+    # Prove the staged lock passes the SAME `--locked` gate the next PR's
+    # `fuzz-check` job runs, so a stale/inconsistent lock can never be
+    # committed or tagged by the [skip ci] bump.
+    try:
+        subprocess.run(
+            ["cargo", "check", "--locked", "--manifest-path", FUZZ_MANIFEST],
+            check=True,
+        )
+        print("✓ cargo check --locked --manifest-path fuzz/Cargo.toml passed")
+    except subprocess.CalledProcessError:
+        print(
+            "Error: locked fuzz check failed after bump; "
+            "refusing to stage a broken fuzz/Cargo.lock"
+        )
+        sys.exit(1)
+    except FileNotFoundError:
+        print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
+        sys.exit(1)
+
+    MODIFIED_FILES.append(FUZZ_LOCK)
+
 def update_wix_toml(version):
     """Update version in wix.toml."""
     if not os.path.exists(WIX_TOML):
@@ -313,6 +402,10 @@ def main():
         update_cargo_toml(version)
         # Update Cargo.lock after Cargo.toml to ensure version synchronization
         update_cargo_lock()
+        # The standalone fuzz workspace path-depends on root `wfl`, so its lock
+        # pins the root version too. Keep it in sync + staged, or the [skip ci]
+        # bump silently breaks the next `--locked` fuzz-check (see the function).
+        update_fuzz_cargo_lock(version)
         update_vscode_extensions(version)
         update_wix_toml(version)
         print(f"Updated all version references to {version}")
