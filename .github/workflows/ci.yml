@@ -98,13 +98,12 @@ jobs:
       - name: Run Tests
         run: cargo test --workspace --verbose
 
-      # Build LSP to catch Send/Sync regressions
+      # Build the LSP binary explicitly as a focused Send/Sync build gate.
+      # (`cargo test --workspace` above already compiles and runs wfl-lsp's
+      # tests, so a separate `cargo test -p wfl-lsp` step would only duplicate
+      # them — it was removed.)
       - name: Build LSP
         run: cargo build -p wfl-lsp --verbose
-
-      # Run LSP tests
-      - name: Run LSP Tests
-        run: cargo test -p wfl-lsp --verbose
 
       # Run Clippy for code quality
       - name: Run Clippy

@@ -29,7 +29,7 @@ exercises**, not by aspiration.
 |---|---|---|---|
 | **Linux (glibc)** | `x86_64` | **Tier 1** | `ci.yml` builds + tests on `ubuntu-latest`: unit/integration tests, Clippy (`-D warnings`), database tests (PostgreSQL + MariaDB), and the `TestPrograms` runner. |
 | **Windows** | `x86_64` (`x86_64-pc-windows-msvc`) | **Tier 1** | `ci.yml` runs the integration + `TestPrograms` matrix on `windows-latest`. The MSI installer (`cargo-wix`) and its smoke test run in `nightly.yml` **after** merge, not on PRs. |
-| **macOS** | `x86_64`, `aarch64` (Apple Silicon) | **Tier 2** | Builds from source (`installation.md` documents the flow) but is **not** in CI. Supported best-effort until a macOS CI lane is added. |
+| **macOS** | `x86_64`, `aarch64` (Apple Silicon) | **Tier 2** | Builds from source ([`installation.md`](../02-getting-started/installation.md) documents the flow) but is **not** in CI. Supported best-effort until a macOS CI lane is added. |
 | **Linux (musl / non-glibc)** | any | **Tier 2** | No CI lane; static-musl builds are expected to work but unverified. |
 | **Linux / other Unix** | `aarch64`, others | **Tier 2** | Pure-Rust with a Tokio runtime; expected to build where the toolchain and dependencies do. Unverified. |
 | **32-bit targets** | `i686`, `armv7`, … | **Unsupported** | Not built or tested. The interpreter runs on a large (1 GiB) call stack thread and assumes 64-bit address space. |
