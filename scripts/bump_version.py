@@ -113,6 +113,31 @@ def update_cargo_toml(version):
     MODIFIED_FILES.append(CARGO_TOML)
     return True
 
+def _extract_wfl_lock_version(lock_path):
+    """Return the pinned `wfl` package version from a Cargo.lock file.
+
+    Shared by `update_cargo_lock` (root) and `update_fuzz_cargo_lock` (the
+    standalone fuzz workspace) so the `[[package]] name = "wfl"` parse can't
+    drift out of sync between them. Exits (SystemExit) if the file can't be read
+    or the `wfl` entry is absent, so a malformed/missing lock fails the bump.
+    """
+    try:
+        with open(lock_path, "r") as f:
+            content = f.read()
+    except OSError as e:
+        print(f"Error reading {lock_path}: {e}")
+        sys.exit(1)
+
+    match = re.search(
+        r'\[\[package\]\]\s*name = "wfl"\s*version = "([^"]+)"',
+        content,
+        re.DOTALL,
+    )
+    if not match:
+        print(f"Error: Could not find WFL package version in {lock_path}")
+        sys.exit(1)
+    return match.group(1)
+
 def update_cargo_lock():
     """Update Cargo.lock to match Cargo.toml version by running cargo update.
 
@@ -181,34 +206,19 @@ def update_cargo_lock():
         print(f"Error: {CARGO_LOCK} not found after cargo update")
         sys.exit(1)
 
-    try:
-        # Extract version from Cargo.lock using cross-platform Python approach
-        with open(CARGO_LOCK, "r") as f:
-            cargo_lock_content = f.read()
+    actual_version = _extract_wfl_lock_version(CARGO_LOCK)
+    print(f"Cargo.lock version: {actual_version}")
 
-        # Find WFL package version specifically (equivalent to grep -A1 'name = "wfl"')
-        wfl_package_match = re.search(r'\[\[package\]\]\s*name = "wfl"\s*version = "([^"]+)"', cargo_lock_content, re.DOTALL)
-        if not wfl_package_match:
-            print("Error: Could not find WFL package version in Cargo.lock")
-            sys.exit(1)
-
-        actual_version = wfl_package_match.group(1)
-        print(f"Cargo.lock version: {actual_version}")
-
-        # Verify versions match
-        if expected_version != actual_version:
-            print(f"Error: Version mismatch!")
-            print(f"  Cargo.toml version: {expected_version}")
-            print(f"  Cargo.lock version: {actual_version}")
-            print("Cargo.lock was not properly synchronized")
-            sys.exit(1)
-
-        print(f"✓ Version synchronization verified: {expected_version}")
-        MODIFIED_FILES.append(CARGO_LOCK)
-
-    except Exception as e:
-        print(f"Error validating Cargo.lock: {e}")
+    # Verify versions match
+    if expected_version != actual_version:
+        print("Error: Version mismatch!")
+        print(f"  Cargo.toml version: {expected_version}")
+        print(f"  Cargo.lock version: {actual_version}")
+        print("Cargo.lock was not properly synchronized")
         sys.exit(1)
+
+    print(f"✓ Version synchronization verified: {expected_version}")
+    MODIFIED_FILES.append(CARGO_LOCK)
 
 def update_fuzz_cargo_lock(expected_version):
     """Sync + validate the standalone fuzz workspace's Cargo.lock after a bump.
@@ -252,31 +262,14 @@ def update_fuzz_cargo_lock(expected_version):
         sys.exit(1)
 
     # Verify the fuzz lock now records the expected version for `wfl`.
-    try:
-        with open(FUZZ_LOCK, "r") as f:
-            fuzz_lock_content = f.read()
-
-        fuzz_wfl_match = re.search(
-            r'\[\[package\]\]\s*name = "wfl"\s*version = "([^"]+)"',
-            fuzz_lock_content,
-            re.DOTALL,
-        )
-        if not fuzz_wfl_match:
-            print("Error: Could not find WFL package version in fuzz/Cargo.lock")
-            sys.exit(1)
-
-        fuzz_version = fuzz_wfl_match.group(1)
-        if fuzz_version != expected_version:
-            print("Error: fuzz/Cargo.lock version mismatch!")
-            print(f"  expected: {expected_version}")
-            print(f"  fuzz/Cargo.lock: {fuzz_version}")
-            sys.exit(1)
-
-        print(f"✓ fuzz/Cargo.lock synchronized: {expected_version}")
-
-    except Exception as e:
-        print(f"Error validating fuzz/Cargo.lock: {e}")
+    fuzz_version = _extract_wfl_lock_version(FUZZ_LOCK)
+    if fuzz_version != expected_version:
+        print("Error: fuzz/Cargo.lock version mismatch!")
+        print(f"  expected: {expected_version}")
+        print(f"  fuzz/Cargo.lock: {fuzz_version}")
         sys.exit(1)
+
+    print(f"✓ fuzz/Cargo.lock synchronized: {expected_version}")
 
     # Prove the staged lock passes the SAME `--locked` gate the next PR's
     # `fuzz-check` job runs, so a stale/inconsistent lock can never be
