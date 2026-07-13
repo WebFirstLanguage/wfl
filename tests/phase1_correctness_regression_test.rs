@@ -74,10 +74,13 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
-/// Absolute path to the `wfl` binary Cargo built for this test run. Under
-/// `cargo test --release` (how the integration suite is run) this is the release
-/// binary; under a plain `cargo test` it is the debug binary. `CARGO_BIN_EXE_wfl`
-/// always points at the freshly-built one, so there is no stale-binary risk.
+/// Absolute path to the `wfl` binary Cargo built for this test run. It matches
+/// the profile the test itself is compiled with: the **debug** binary under a
+/// plain `cargo test` / `cargo test --workspace` (what CI's test job runs), or
+/// the **release** binary under `cargo test --release`. Either way
+/// `CARGO_BIN_EXE_wfl` points at the freshly-built one, so there is no
+/// stale-binary risk. (These regression programs are tiny, so the debug/release
+/// distinction doesn't affect their outcome.)
 fn wfl_exe() -> &'static str {
     env!("CARGO_BIN_EXE_wfl")
 }
