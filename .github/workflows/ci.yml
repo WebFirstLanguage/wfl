@@ -32,8 +32,11 @@ jobs:
   fuzz-check:
     name: Fuzz targets compile
     runs-on: ubuntu-latest
+    needs: fmt
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo registry and target directory
         uses: Swatinem/rust-cache@v2

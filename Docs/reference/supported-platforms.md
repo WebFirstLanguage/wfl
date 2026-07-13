@@ -19,7 +19,7 @@ exercises**, not by aspiration.
 
 | Tier | Meaning | What you can rely on |
 |---|---|---|
-| **Tier 1 — Supported** | Built **and** tested on every PR in CI. | A release binary is built and the end-to-end `TestPrograms` + integration-test scripts run on **every** Tier-1 platform; regressions block merges. Coverage is **not identical** across Tier-1 platforms — see *Per-platform PR CI coverage* below for the exact lanes each one runs. |
+| **Tier 1 — Supported** | Built **and** tested on every PR in CI. | A release binary is built and the end-to-end `TestPrograms` + Rust integration tests (`cargo test --test '*'`) run on **every** Tier-1 platform; regressions block merges. Coverage is **not identical** across Tier-1 platforms — see *Per-platform PR CI coverage* below for the exact lanes each one runs. |
 | **Tier 2 — Best-effort** | Expected to build from source; **not** covered by CI. | The code targets it and contributors run it, but breakage is possible between releases and is fixed on a best-effort basis. |
 | **Unsupported** | Not built, not tested, not a goal for the 8/10 release. | May work, may not. No guarantees, no gate coverage. |
 
@@ -50,7 +50,7 @@ platform runs on a pull request, per `.github/workflows/ci.yml`:
 | LSP build + tests | ✅ | ➖ (Linux only) |
 | Clippy `-D warnings` | ✅ | ➖ (Linux only) |
 | Database tests (PostgreSQL + MariaDB) | ✅ | ➖ (Linux only) |
-| Integration-test scripts | ✅ | ✅ |
+| Rust integration tests (`cargo test --test '*'`) | ✅ | ✅ |
 | `TestPrograms` end-to-end runner | ✅ | ✅ |
 | Release **artifact publish** (checksums, installers) | ➖ | ➖ (nightly/post-merge only) |
 | Documentation-example execution | ➖ (not wired into CI yet — mandatory gate still open) | ➖ |

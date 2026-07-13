@@ -69,7 +69,7 @@ cargo +nightly fuzz run fuzz_parser fuzz/artifacts/fuzz_parser/crash-<hash>
 
 ## Layout
 
-```
+```text
 fuzz/
   Cargo.toml            # standalone cargo-fuzz workspace
   fuzz_targets/*.rs     # one libFuzzer target per surface
