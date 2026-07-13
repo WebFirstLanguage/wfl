@@ -24,8 +24,25 @@ demonstrably behaves correctly today.
 
 ## Inventory result
 
-**Total open at start:** 17 (16 tracked issues + the #610 tracker itself).
-**Closed as verified-fixed:** 10. **Remaining open after triage:** 6 tracked + #610.
+**Total open on GitHub at start:** 17 (16 tracked issues + the #610 tracker itself).
+
+**Reconciliation of the 16 tracked issues** — stated explicitly because "open"
+was previously conflated between two senses (*open on GitHub* vs. *genuinely
+unresolved*):
+
+| Bucket | Count | Issues |
+|---|---|---|
+| Verified-fixed **and** closed on GitHub | 10 | the *Closed* table below |
+| Verified-fixed but still **open on GitHub**, pending a close click | 1 | #573 |
+| **Genuinely unresolved** | 5 | #592, #578, #555, #600, #612 |
+
+Arithmetic: `10 + 1 + 5 = 16` tracked `+ #610 = 17`, matching the start count. So
+**6** tracked issues are still *open on GitHub* (the 5 unresolved **plus** #573),
+but only **5** are *genuinely unresolved*. #573 is verified-fixed — PR #574
+shipped binary read/write + MIME with byte-round-trip tests **before** this
+inventory, and the issue is open on GitHub only pending a close click (it was
+originally recorded here as an open "Medium" limitation in error). See the #573
+row below.
 
 ### Closed — verified fixed against 26.7.36
 
@@ -49,8 +66,8 @@ demonstrably behaves correctly today.
 | #592 | Zero-arg include-exposed action by bare name is fatal | **High** | Fatal (`exit 3`, `Variable 'greet' is not defined`) on valid natural multi-file API; the third call form #580/#581's fix did not cover. Repro still fails on 26.7.36. |
 | #578 | Remaining #571 rough edges (glob, pattern-VM, text→number, inference) | **High** | Confirmed functional bugs (wrong result/crash, not doc drift). Verified `list files … with pattern "*.txt"` still returns `0` on 26.7.36. |
 | #555 | Aspirational skipped tests + broken keyword_reference docs examples | **Medium** | Core websockets landed (#593), but session/CSRF/cookie middleware, direct-index syntax, and 10 docs examples remain; 3 `CI-SKIP` TestPrograms still present. Docs-examples-in-CI is a mandatory release gate. Feature parts are effectively post-production. |
-| #573 | Web server cannot serve binary content (fonts, images) | **Medium** | Real limitation (file read + HTTP body are text/UTF-8 only); blocks self-hosting static assets. Not a regression in existing behavior. |
-| #600 | Native TLS: SNI / multiple certificates on one `:443` | **Post-production-readiness** | Single-cert HTTPS works; multi-cert/SNI is a multi-tenant deployment enhancement, not a release-gate blocker. |
+| ~~#573~~ | Web server cannot serve binary content (fonts, images) | **Fixed (correction)** | **Reclassified: this was recorded open in error.** PR #574 shipped binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers *before* this inventory, guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification (2026-07-06) recommends closing; it is open on GitHub only pending a close click. |
+| #600 | Native TLS ergonomics: SNI / multiple certificates on one `:443` | **Post-production-readiness** (SNI) · Dependabot alert #49 = *vulnerable code not used* | **Correction (source-level re-review).** An earlier revision reclassified this **High (security)**, treating the *presence* of `rustls-webpki` (alert #49, [GHSA-82j2-j2ch-gfr8](https://github.com/advisories/GHSA-82j2-j2ch-gfr8)) in the dependency graph as WFL exploitability. That overreached. The advisory's panic requires opt-in `RevocationOptions` **and** attacker-controlled CRL bytes; default rustls configs are unaffected. WFL's only TLS setup is `warp::serve(routes).tls().cert_path(…).key_path(…)` (`src/interpreter/mod.rs:6441`); warp 0.3.7 defaults client auth to `TlsClientAuth::Off` / `with_no_client_auth()`, and WFL configures **no** CRL / `RevocationOptions` anywhere (verified by grep) — so the vulnerable path is **not reachable**. Disposition: record/dismiss alert #49 as *"vulnerable code not used."* #600 itself is the **SNI / multi-cert enhancement** (post-production); it is **not** a reachable High WFL security defect, and its TLS rewrite is not established as required remediation on this evidence. The literal *no-open-High-severity-security* policy gate may remain administratively open until #49 is formally triaged. SNI priority is tracked on #600 independently. |
 | #612 | Make PR #609 resource-budget policies overrideable via `.wflcfg` | **Low** | Explicitly filed "low priority"; safe conservative defaults already ship. Config-surface polish. |
 
 ### Severity legend (aligned to #610's gates)
@@ -58,7 +75,10 @@ demonstrably behaves correctly today.
 - **Critical** — blocks a mandatory release gate: critical correctness/security,
   data loss, or uncontrolled resource exhaustion.
 - **High** — correctness defect on valid/supported programs (incl. fatal
-  false-positives) or a confirmed functional bug; must be fixed before RC.
+  false-positives), a confirmed functional bug, **or a *reachable* high-severity
+  security advisory** — the vulnerable code path must actually be exercised by
+  WFL's usage; the mere *presence* of a vulnerable dependency does **not** qualify
+  (see the #600 row); must be fixed before RC.
 - **Medium** — false diagnostics that don't change runtime results, or real but
   non-blocking feature limitations touching a gate.
 - **Low** — polish / configurability with safe current defaults.
@@ -67,12 +87,18 @@ demonstrably behaves correctly today.
 ## Phase 1 exit-gate read
 
 The exit gate for Phase 1 is *"No known production-readiness risk is untracked."*
-After this pass **no open issue is Critical**, and the two open High-severity
-correctness items (#592, #578) are tracked with reproductions. The remaining
-Phase 1 tasks (record scorecard baseline, integrate the shared ExecutionBudget —
-note #609 already merged — regression tests, fuzz targets, baseline metrics,
-supported-platform definition) are separate checkboxes and out of scope for this
-inventory entry.
+After this pass **no open issue is Critical**, and the two open High-severity items
+are both **correctness** defects (#592, #578), tracked with reproductions.
+Separately, Dependabot **alert #49** (`rustls-webpki`, high severity) is present in
+the dependency graph but its vulnerable code path is **not reachable** in WFL's
+usage (see the #600 row) — disposition *"vulnerable code not used."* It is therefore
+**not** classified as a reachable High WFL defect, and #600's TLS rewrite is not
+established as its required remediation; the literal *no-open-high-severity-security*
+policy gate may remain administratively open until the alert is formally
+triaged/dismissed on the Security tab. The remaining Phase 1 tasks (record scorecard
+baseline, integrate the shared ExecutionBudget — note #609 already merged —
+regression tests, fuzz targets, baseline metrics, supported-platform definition) are
+separate checkboxes and out of scope for this inventory entry.
 
 ## Compatibility / resource impact
 

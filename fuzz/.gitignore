@@ -1,0 +1,7 @@
+target
+corpus
+artifacts
+coverage
+# Cargo.lock IS committed for the fuzz crate: it is an application (binaries),
+# so a pinned lockfile makes fuzz builds reproducible and lets the CI
+# fuzz-compile check catch dependency/API drift deterministically.

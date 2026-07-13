@@ -25,6 +25,29 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  # The fuzz crate is a standalone workspace excluded from the root build, so a
+  # normal `cargo build` never compiles it — API drift in wfl could silently
+  # break every fuzz target. This job type-checks the targets against the current
+  # API on stable (libFuzzer/nightly is only needed to actually *run* them).
+  fuzz-check:
+    name: Fuzz targets compile
+    runs-on: ubuntu-latest
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          shared-key: fuzz-check-cache
+      # `--locked` enforces the committed fuzz/Cargo.lock, so dependency drift
+      # fails the job instead of silently regenerating the lockfile.
+      - name: Type-check fuzz targets against the current API
+        run: cargo check --locked --manifest-path fuzz/Cargo.toml
+
   clippy-and-test:
     name: Build, Test, Clippy
     runs-on: ubuntu-latest
@@ -70,17 +93,19 @@ jobs:
           fi
           echo "panic=abort correctly rejected by the compile_error gate"
 
-      # Run tests (integration tests now have access to release binary)
+      # Run tests across the WHOLE workspace (root package + wflpkg + wfl-lsp),
+      # so the CI aggregate is a true full-workspace baseline. Previously this
+      # was `cargo test` (root package only), which silently skipped wflpkg's
+      # tests. (integration tests have access to the release binary)
       - name: Run Tests
-        run: cargo test --verbose
+        run: cargo test --workspace --verbose
 
-      # Build LSP to catch Send/Sync regressions
+      # Build the LSP binary explicitly as a focused Send/Sync build gate.
+      # (`cargo test --workspace` above already compiles and runs wfl-lsp's
+      # tests, so a separate `cargo test -p wfl-lsp` step would only duplicate
+      # them — it was removed.)
       - name: Build LSP
         run: cargo build -p wfl-lsp --verbose
-
-      # Run LSP tests
-      - name: Run LSP Tests
-        run: cargo test -p wfl-lsp --verbose
 
       # Run Clippy for code quality
       - name: Run Clippy
@@ -455,11 +480,12 @@ jobs:
             exit 1
           }
 
-  # Version bumping only happens after ALL checks pass
+  # Version bumping only happens after ALL checks pass — including fuzz-check,
+  # so API drift that breaks the fuzz targets blocks the post-merge version bump.
   bump-version:
     name: Bump Version
     runs-on: ubuntu-latest
-    needs: [fmt, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
+    needs: [fmt, fuzz-check, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write

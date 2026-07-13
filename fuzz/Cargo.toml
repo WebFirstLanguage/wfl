@@ -1,0 +1,52 @@
+# WFL fuzz targets (cargo-fuzz / libFuzzer).
+#
+# This is a SEPARATE workspace (note the empty `[workspace]` table below) so the
+# stable-toolchain `cargo build` / `cargo test` at the repo root never tries to
+# build it — libFuzzer targets require a nightly toolchain and the sanitizer
+# runtime. See fuzz/README.md for how to run them.
+[package]
+name = "wfl-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.wfl]
+path = ".."
+
+# Keep the fuzz crate out of the parent workspace.
+[workspace]
+
+# libFuzzer targets: no libtest harness, no doctests, no benches.
+[[bin]]
+name = "fuzz_lexer"
+path = "fuzz_targets/fuzz_lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_parser"
+path = "fuzz_targets/fuzz_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_pattern"
+path = "fuzz_targets/fuzz_pattern.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_frontend"
+path = "fuzz_targets/fuzz_frontend.rs"
+test = false
+doc = false
+bench = false

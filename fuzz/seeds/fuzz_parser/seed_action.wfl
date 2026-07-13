@@ -1,0 +1,4 @@
+define action called f with parameters n:
+    return n times 2
+end action
+display f of 21

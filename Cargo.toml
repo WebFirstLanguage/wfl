@@ -28,6 +28,11 @@ members = [
     "wfl-lsp",
     "crates/wflpkg"
 ]
+# `fuzz/` is a standalone cargo-fuzz workspace (nightly + libFuzzer only); keep
+# it out of the stable-toolchain root build/test.
+exclude = [
+    "fuzz"
+]
 
 [package.metadata.deb]
 assets = [
