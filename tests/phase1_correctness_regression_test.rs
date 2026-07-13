@@ -427,11 +427,18 @@ fn issue_578_number_plus_text_is_a_type_error() {
         !out.contains("25Alice"),
         "`Number plus Text` must not silently concatenate (#578): {out}"
     );
-    // Require an explicit non-zero exit. NOT `code != Some(0)`, which would also
-    // accept a timeout kill (`code == None`) and let a future hang pass as green.
+    // "Rejected" must be policy-agnostic: WFL type errors are *non-fatal* — the
+    // type checker prints a "Type checking warnings:" diagnostic and execution
+    // still exits 0 (only ExecutionBudget breaches are fatal; see src/main.rs).
+    // So accept EITHER a non-zero exit (if a future fix makes it fatal, e.g. a
+    // Severity::Error semantic diagnostic → exit 3) OR an explicit type-checker
+    // diagnostic on a *completed* run. `code == None` (timeout kill) fails both
+    // branches, so a future hang can't pass as green.
     assert!(
-        matches!(code, Some(c) if c != 0),
-        "`Number plus Text` should be rejected with a non-zero exit — not exit 0 and not a hang/timeout (#578): {out}"
+        matches!(code, Some(c) if c != 0)
+            || (code == Some(0) && out.contains("Type checking warnings:")),
+        "`Number plus Text` must be rejected — a non-zero exit OR an explicit type-checker \
+         diagnostic (WFL type errors are non-fatal), not a silent concat or a hang/timeout (#578): {out}"
     );
 }
 

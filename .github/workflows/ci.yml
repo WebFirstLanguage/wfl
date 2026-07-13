@@ -480,11 +480,12 @@ jobs:
             exit 1
           }
 
-  # Version bumping only happens after ALL checks pass
+  # Version bumping only happens after ALL checks pass — including fuzz-check,
+  # so API drift that breaks the fuzz targets blocks the post-merge version bump.
   bump-version:
     name: Bump Version
     runs-on: ubuntu-latest
-    needs: [fmt, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
+    needs: [fmt, fuzz-check, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
