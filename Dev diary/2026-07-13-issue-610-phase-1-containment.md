@@ -173,7 +173,7 @@ a scope-labeled estimate pending the `--workspace` CI run.
 | Result suites (root package) | **76** (observed on `f627b4e`); `wfl-lsp` + `wflpkg` add their own binaries | the earlier "95" figure was mis-scoped; 76 is the observed root-package result-suite count |
 | Skipped Rust tests (`#[ignore]`, root) | **25** | 24 observed on `f627b4e` + 1 new (`with`-form #578 reproducer); #590 is a *passing* CLI guard, not ignored |
 | Skipped end-to-end programs (`CI-SKIP`) | **32** of 163 `TestPrograms/*.wfl` | see skip justification below |
-| Compiler / Clippy warnings | **0 (gate: `clippy --all-targets --all-features -- -D warnings`)** | the one pre-existing `deprecated` rustc warning in `src/logging.rs` is **fixed in this change** (`parse` → `parse_borrowed::<2>`) |
+| Compiler / Clippy warnings | **0 (CI gate: `cargo clippy --all-targets -- -D warnings`)** | the one pre-existing `deprecated` rustc warning in `src/logging.rs` is **fixed in this change** (`parse` → `parse_borrowed::<2>`) |
 | Line coverage | **not instrumented** | no coverage tool wired (tarpaulin/llvm-cov absent); a coverage baseline + CI report is a Testing-dimension follow-up |
 | Fuzz sustained-run duration | **0 s** (targets established + a `fuzz-check` compile job on PRs; not yet run for duration) | sustained run + corpus retention is Phase 3 |
 | Known crashes / hangs | **none reproducible** | the 2 open High defects (#592, #578) reproduce as wrong-result / parse-error / silent-concat, not crashes or hangs; #578's listed nested-`for each` crash did **not** reproduce on the current build; recursion overflow is now a clean `ExecutionBudget` error, not SIGABRT |

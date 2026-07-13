@@ -392,7 +392,9 @@ fn issue_578_pattern_one_or_more_quantifier() {
 #[ignore = "open defect #578: `repeat N times` counted loop is unsupported"]
 fn issue_578_repeat_n_times() {
     let (out, code) = run_src("repeat 3 times:\n    display \"hi\"\nend repeat\n");
-    let hi_count = out.matches("hi").count();
+    // Count lines that are exactly `hi` (not substring `matches("hi")`, which a
+    // diagnostic containing "this"/"which" could inflate).
+    let hi_count = out.lines().filter(|line| line.trim() == "hi").count();
     assert_eq!(
         hi_count, 3,
         "`repeat 3 times` must run its body 3 times (#578): {out}"

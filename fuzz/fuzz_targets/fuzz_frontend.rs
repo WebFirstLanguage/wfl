@@ -8,8 +8,11 @@
 //!   2. parse,
 //!   3. include/load-module detection predicates (`program_has_includes` /
 //!      `program_has_load_module`),
-//!   4. include-aware semantic analysis (`Analyzer::analyze`),
-//!   5. type checking (`TypeChecker::check_types`).
+//!   4. include-aware semantic analysis **and** type checking via
+//!      `TypeChecker::check_types` — which runs `Analyzer::analyze` internally
+//!      (its `analyzer_already_run` starts false), so a single call exercises
+//!      both stages. Calling `Analyzer::analyze` separately as well would just
+//!      double-analyze and halve fuzz throughput, so it is not done.
 //!
 //! Invariant: no arbitrary input may panic, overflow the stack, or hang the
 //! frontend. Controlled `Err`/diagnostic results are expected.
@@ -26,7 +29,7 @@
 //! filesystem writes. That is tracked as follow-up in `fuzz/README.md`; the
 //! Phase 1 "module loading" fuzz surface is therefore **not** covered here.
 use libfuzzer_sys::fuzz_target;
-use wfl::analyzer::{self, Analyzer};
+use wfl::analyzer;
 use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
@@ -44,8 +47,9 @@ fuzz_target!(|data: &[u8]| {
     };
     let _ = analyzer::program_has_includes(&program);
     let _ = analyzer::program_has_load_module(&program);
-    let mut analyzer = Analyzer::new();
-    let _ = analyzer.analyze(&program);
+    // `check_types` runs the analyzer internally (analyzer_already_run == false),
+    // so this single call exercises both semantic analysis and type checking
+    // without double-analyzing.
     let mut type_checker = TypeChecker::new();
     let _ = type_checker.check_types(&program);
 });
