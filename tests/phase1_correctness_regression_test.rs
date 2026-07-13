@@ -311,8 +311,12 @@ fn assert_greet_resolves(main_src: &str, context: &str) {
         out.contains("hello from greet"),
         "bare zero-arg included action must resolve ({context}, #592): {out}"
     );
+    // Match only the *fatal* diagnostic form (`Variable 'greet' is not defined`,
+    // the `error[ANALYZE-SEMANTIC]` #592 emits), not the bare substring
+    // "is not defined" — a benign "This action is not defined in this file …"
+    // note must not false-fail this once the fix lands.
     assert!(
-        !out.contains("is not defined"),
+        !out.contains("Variable 'greet' is not defined"),
         "must not be a fatal undefined-variable error ({context}, #592): {out}"
     );
     assert_eq!(
