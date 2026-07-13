@@ -67,7 +67,7 @@ row below.
 | #578 | Remaining #571 rough edges (glob, pattern-VM, text→number, inference) | **High** | Confirmed functional bugs (wrong result/crash, not doc drift). Verified `list files … with pattern "*.txt"` still returns `0` on 26.7.36. |
 | #555 | Aspirational skipped tests + broken keyword_reference docs examples | **Medium** | Core websockets landed (#593), but session/CSRF/cookie middleware, direct-index syntax, and 10 docs examples remain; 3 `CI-SKIP` TestPrograms still present. Docs-examples-in-CI is a mandatory release gate. Feature parts are effectively post-production. |
 | ~~#573~~ | Web server cannot serve binary content (fonts, images) | **Fixed (correction)** | **Reclassified: this was recorded open in error.** PR #574 shipped binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers *before* this inventory, guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification (2026-07-06) recommends closing; it is open on GitHub only pending a close click. |
-| #600 | Native TLS: SNI / multiple certificates on one `:443` | **Post-production-readiness** | Single-cert HTTPS works; multi-cert/SNI is a multi-tenant deployment enhancement, not a release-gate blocker. |
+| #600 | Native TLS refactor (SNI / multi-cert) — **also the vehicle for the `rustls-webpki` security bump** | **High (security)** | **Reclassified from "post-production."** #600 carries open **high-severity Dependabot alert #49** (`rustls-webpki` DoS via panic), still live in `Cargo.lock` through `warp 0.3.7 → tokio-rustls 0.25.0 → rustls 0.22.4 → rustls-webpki 0.102.8`. `warp 0.3.7` pins that TLS stack, so **no in-line bump exists** — the fix rides #600's TLS rewrite. It therefore blocks the mandatory *no-open-high-severity-security* release gate; the SNI/multi-cert ergonomics are secondary. (This PR classifies the risk; it does **not** implement the rewrite.) See [#600 update](https://github.com/WebFirstLanguage/wfl/issues/600#issuecomment-4956256654) and [#610 analysis](https://github.com/WebFirstLanguage/wfl/issues/610#issuecomment-4956252322). |
 | #612 | Make PR #609 resource-budget policies overrideable via `.wflcfg` | **Low** | Explicitly filed "low priority"; safe conservative defaults already ship. Config-surface polish. |
 
 ### Severity legend (aligned to #610's gates)
@@ -75,7 +75,9 @@ row below.
 - **Critical** — blocks a mandatory release gate: critical correctness/security,
   data loss, or uncontrolled resource exhaustion.
 - **High** — correctness defect on valid/supported programs (incl. fatal
-  false-positives) or a confirmed functional bug; must be fixed before RC.
+  false-positives), a confirmed functional bug, **or an open high-severity
+  security advisory that a mandatory release gate forbids** (e.g. a live
+  high-severity Dependabot alert); must be fixed before RC.
 - **Medium** — false diagnostics that don't change runtime results, or real but
   non-blocking feature limitations touching a gate.
 - **Low** — polish / configurability with safe current defaults.
@@ -84,12 +86,18 @@ row below.
 ## Phase 1 exit-gate read
 
 The exit gate for Phase 1 is *"No known production-readiness risk is untracked."*
-After this pass **no open issue is Critical**, and the two open High-severity
-correctness items (#592, #578) are tracked with reproductions. The remaining
-Phase 1 tasks (record scorecard baseline, integrate the shared ExecutionBudget —
-note #609 already merged — regression tests, fuzz targets, baseline metrics,
-supported-platform definition) are separate checkboxes and out of scope for this
-inventory entry.
+After this pass **no open issue is Critical**, and the open High-severity items are
+all tracked: two correctness defects (#592, #578) with reproductions, **plus one
+security item** — #600, which carries open high-severity **Dependabot alert #49**
+(`rustls-webpki` DoS) whose fix rides #600's TLS-stack refactor (no in-line bump
+exists). Phase 1's gate is satisfied *because the risk is now tracked and
+classified* — but that is explicitly **not** a claim it is resolved: the mandatory
+**no-open-high-severity-security** release gate remains **open**, with #600 / alert
+#49 as its tracked blocker. This PR classifies that risk; it does not implement the
+TLS rewrite. The remaining Phase 1 tasks (record scorecard baseline, integrate the
+shared ExecutionBudget — note #609 already merged — regression tests, fuzz targets,
+baseline metrics, supported-platform definition) are separate checkboxes and out of
+scope for this inventory entry.
 
 ## Compatibility / resource impact
 

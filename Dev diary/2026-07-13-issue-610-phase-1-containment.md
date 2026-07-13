@@ -220,8 +220,14 @@ recursion claims corrected in the same change (docs-honesty).
 
 > **Exit gate:** *No known production-readiness risk is untracked.*
 
-- No open **Critical** issue; the 2 open **High** correctness items (#592, #578)
-  are tracked with reproductions **and** regression tests.
+- No open **Critical** issue. The open **High** items are all tracked: the 2 open
+  High **correctness** items (#592, #578) with reproductions **and** regression
+  tests, **plus one open High *security* item — #600**, which carries open
+  high-severity **Dependabot alert #49** (`rustls-webpki` DoS, live in the lock via
+  `warp 0.3.7 → tokio-rustls 0.25 → rustls 0.22.4 → rustls-webpki 0.102.8`). Its fix
+  rides #600's TLS-stack refactor (no in-line bump exists); this PR **classifies**
+  it, and the mandatory *no-open-high-severity-security* release gate stays **open**
+  with #600 / alert #49 as its tracked blocker. See the inventory diary's #600 row.
 - ExecutionBudget is finished, integrated, and test-covered.
 - Every inventoried correctness **issue** has at least one guard, but the
   *"convert every known correctness defect"* task is **PARTIAL** — only #578's
