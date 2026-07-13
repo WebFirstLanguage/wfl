@@ -76,7 +76,7 @@ use std::fs;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use tempfile::TempDir;
+use tempfile::{NamedTempFile, TempDir};
 
 /// Absolute path to the `wfl` binary Cargo built for this test run. It matches
 /// the profile the test itself is compiled with: the **debug** binary under a
@@ -113,9 +113,20 @@ fn run_files(files: &[(&str, &str)], entry: &str) -> (String, Option<i32>) {
         fs::write(&path, content).expect("write file");
     }
     let entry_path = dir.path().join(entry);
+
+    // Hermeticity: pin `WFL_GLOBAL_CONFIG_PATH` to an empty temp file so the child
+    // never picks up a machine-global `/etc/wfl/wfl.cfg` (or its legacy
+    // `/etc/wfl/.wflcfg` fallback), which could silently change timeouts/limits and
+    // make this suite flaky outside CI. The file must *exist* and be empty: a
+    // missing path makes the loader fall back to the legacy `/etc/wfl/.wflcfg`
+    // (see `src/config.rs`), so a nonexistent path would NOT isolate it. It lives
+    // outside `dir`, so directory-listing reproducers can't observe it. Kept in
+    // scope until after the child exits so it isn't deleted mid-run.
+    let global_cfg = NamedTempFile::new().expect("empty global-config tempfile");
     let mut child = Command::new(wfl_exe())
         .arg(&entry_path)
         .current_dir(dir.path())
+        .env("WFL_GLOBAL_CONFIG_PATH", global_cfg.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
