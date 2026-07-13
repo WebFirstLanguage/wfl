@@ -96,8 +96,9 @@ const RUN_TIMEOUT: Duration = Duration::from_secs(30);
 /// Write `files` (relative `name`, `content`) into a fresh temp dir, run the
 /// `entry` program with the temp dir as the working directory (so relative
 /// `include from` / `list files in` paths resolve inside it), and return the
-/// merged stdout+stderr and the process exit code (`None` if the run was killed
-/// on timeout). Pipes are drained on background threads so a chatty program
+/// captured output — **stdout concatenated with stderr** (both captured in full,
+/// but *not* interleaved by time) — and the process exit code (`None` if the run
+/// was killed on timeout). Pipes are drained on background threads so a chatty program
 /// cannot dead-lock on a full pipe buffer, and the child is killed if it exceeds
 /// [`RUN_TIMEOUT`].
 fn run_files(files: &[(&str, &str)], entry: &str) -> (String, Option<i32>) {
