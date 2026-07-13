@@ -25,7 +25,7 @@ demonstrably behaves correctly today.
 ## Inventory result
 
 **Total open at start:** 17 (16 tracked issues + the #610 tracker itself).
-**Closed as verified-fixed:** 10. **Remaining open after triage:** 6 tracked + #610.
+**Closed as verified-fixed:** 10. **Remaining open after triage:** ~~6~~ **5** tracked + #610 (this originally read "6"; corrected to 5 after the #573 reclassification below).
 
 > **Correction (post-review):** #573 in the table below was recorded as an open
 > "Medium" limitation **in error** — PR #574 had already shipped binary
