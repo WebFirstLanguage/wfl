@@ -22,6 +22,11 @@ not failures.
 
 ### Not yet covered: module *loading* (open Phase 1 follow-up)
 
+> **Naming note:** an earlier revision named the frontend target
+> `fuzz_module_loading`; it was **renamed to `fuzz_frontend`** because it does
+> not actually fuzz module loading. If you are cross-referencing older PR text
+> that says `fuzz_module_loading`, it means `fuzz_frontend`.
+
 Phase 1 ([#610](https://github.com/WebFirstLanguage/wfl/issues/610)) lists a
 **module-loading** fuzz surface. There is no such target yet. `fuzz_frontend`
 fuzzes the static pipeline a module's *content* passes through, but it does

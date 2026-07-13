@@ -252,7 +252,7 @@ fn issue_590_self_recursive_indexed_result_runs_cli() {
         \x20   end check\n\
         \x20   return other of n\n\
          end action\n\n\
-         display (p_unary of 3)[\"val\"]\n",
+         display \"VAL=\" with (p_unary of 3)[\"val\"]\n",
     );
     assert!(
         !out.contains("Cannot index into Nothing"),
@@ -264,9 +264,11 @@ fn issue_590_self_recursive_indexed_result_runs_cli() {
     );
     assert_eq!(code, Some(0), "program should exit 0 (#590): {out}");
     // The base case returns `other of 0` → map {"val": 0}; indexing "val" prints 0.
+    // Assert the exact labeled marker so unrelated output (other numbers,
+    // timestamps, diagnostics) can't accidentally satisfy the guard.
     assert!(
-        out.contains('0'),
-        "program must run and print its value (#590): {out}"
+        out.contains("VAL=0"),
+        "program must run and print its labeled value VAL=0 (#590): {out}"
     );
 }
 
@@ -323,9 +325,14 @@ fn issue_592_bare_zero_arg_included_action_top_level() {
 #[ignore = "open defect #592: bare zero-arg included action is fatal inside an action body"]
 fn issue_592_bare_zero_arg_included_action_in_action_body() {
     assert_greet_resolves(
+        // Invoke run_it with an explicit `call` (not a bare `display run_it`),
+        // so the test stays focused on the included-action name resolution
+        // inside run_it's body (`store x as greet`) and does not depend on
+        // top-level bare-call semantics.
         "include from \"mod.wfl\"\n\
          define action called run_it:\n    store x as greet\n    return x\nend action\n\
-         display run_it\n",
+         store result as call run_it\n\
+         display result\n",
         "action body",
     );
 }
