@@ -220,14 +220,18 @@ recursion claims corrected in the same change (docs-honesty).
 
 > **Exit gate:** *No known production-readiness risk is untracked.*
 
-- No open **Critical** issue. The open **High** items are all tracked: the 2 open
-  High **correctness** items (#592, #578) with reproductions **and** regression
-  tests, **plus one open High *security* item — #600**, which carries open
-  high-severity **Dependabot alert #49** (`rustls-webpki` DoS, live in the lock via
-  `warp 0.3.7 → tokio-rustls 0.25 → rustls 0.22.4 → rustls-webpki 0.102.8`). Its fix
-  rides #600's TLS-stack refactor (no in-line bump exists); this PR **classifies**
-  it, and the mandatory *no-open-high-severity-security* release gate stays **open**
-  with #600 / alert #49 as its tracked blocker. See the inventory diary's #600 row.
+- No open **Critical** issue. The 2 open **High** items are both **correctness**
+  defects (#592, #578), tracked with reproductions **and** regression tests.
+  Separately, Dependabot **alert #49** (`rustls-webpki`, high severity) is present in
+  the dependency graph, but its vulnerable code path is **not reachable** in WFL:
+  the only TLS setup is `warp::serve(routes).tls().cert_path(…).key_path(…)`
+  (`src/interpreter/mod.rs:6441`) with client auth off and **no** CRL /
+  `RevocationOptions` configured, and the advisory (GHSA-82j2-j2ch-gfr8) only
+  triggers on opt-in revocation + attacker CRL bytes. Disposition *"vulnerable code
+  not used"* — **not** a reachable High WFL defect; #600 is the separate SNI /
+  multi-cert enhancement (post-production). The literal *no-open-high-severity-
+  security* policy gate may remain administratively open until alert #49 is formally
+  triaged. See the inventory diary's #600 row.
 - ExecutionBudget is finished, integrated, and test-covered.
 - Every inventoried correctness **issue** has at least one guard, but the
   *"convert every known correctness defect"* task is **PARTIAL** — only #578's

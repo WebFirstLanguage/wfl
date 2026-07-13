@@ -44,7 +44,7 @@
 //! | #578 | **High (open, umbrella)** | ⏳ | this file: `issue_578_*` (`#[ignore]`) — see note below |
 //! | #573 | Medium (**fixed**) | ✅ | Binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers shipped in #574; guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification recommends closing; it is open only pending the close click. |
 //! | #555 | Medium (open) | ⏳ | `TestPrograms/` `CI-SKIP` corpus (docs-in-CI gate) |
-//! | #600 | **High (open, security)** | ⏳ | Not a WFL-program defect: #600's TLS-stack refactor is the vehicle for clearing open high-severity Dependabot alert #49 (`rustls-webpki 0.102.8` DoS via panic, pinned through `warp 0.3.7`→`tokio-rustls 0.25`→`rustls 0.22.4`). No in-line bump exists, so it's tracked as a security/release risk — not code-tested here. |
+//! | #600 | Post-prod (SNI) | — | Native TLS SNI / multi-cert enhancement. Dependabot alert #49 (`rustls-webpki` DoS) is *present* in the dep graph but **not reachable** — WFL uses `warp …tls().cert_path().key_path()` with client auth off and no CRL/`RevocationOptions` (GHSA-82j2-j2ch-gfr8 needs opt-in revocation + attacker CRL). Disposition "vulnerable code not used"; not a reachable High WFL defect. |
 //! | #612 | Low | — | PR #609 safe defaults already shipped |
 //!
 //! ### Note on #578 (umbrella issue)
