@@ -53,17 +53,18 @@ evaluation, pattern matching, web handling, and module loading"* is **met**. The
 adjacent gate — *adversarial* tests for each limit — is explicitly **Phase 3**
 and is not claimed here.
 
-## 2. Known correctness defects → regression tests (per-issue, with a representative #578 sample)
+## 2. Known correctness defects → regression tests (PARTIAL — #578 tail still open)
 
-New suite `tests/phase1_correctness_regression_test.rs` maps every inventoried
-correctness **issue** to regression coverage. **Scope, stated honestly:** this is
-*per-issue* coverage, **not** a test for every conceivable sub-defect — **#578 is
-an umbrella** (~26 checkboxes), and only its reproducible confirmed
-functional/silent-wrong-result bugs are encoded; its remaining sub-items are
-tracked on the issue, not here. So the Phase 1 task *"convert every known
-correctness defect into an end-to-end regression test"* is satisfied at the
-issue level with a representative #578 sample — it does **not** claim exhaustive
-coverage of #578's tail. Two halves:
+New suite `tests/phase1_correctness_regression_test.rs`. **Stated plainly: the
+Phase 1 task *"convert every known correctness defect into an end-to-end
+regression test"* is NOT complete.** Every inventoried correctness *issue* has at
+least one guard, but **#578 is an umbrella** (~26 checkboxes) and only its
+reproducible confirmed functional/silent-wrong-result bugs are encoded — its
+remaining sub-items (weak inference edges, ergonomics, missing forms) have **no
+regression test yet** and are tracked on the issue. So this is **partial**
+coverage: a representative #578 sample plus per-issue guards, with exhaustive
+per-item #578 classification left open. It is not a redefinition of "every
+defect" as "every issue". Two halves:
 
 - **Fixed defects → passing guards.** New binary-level guards for **#569**
   (action-call result is `Text`, not `Nothing`), **#571** (precedence, both
@@ -154,24 +155,25 @@ package, not that CI run. This is exactly why the earlier single "≈1479 aggreg
 was **derived, not measured**.
 
 **Fix applied here:** `ci.yml`'s "Run Tests" step now runs `cargo test
---workspace` (was `cargo test`), so from this commit forward CI executes the
-**whole workspace** — root + `wflpkg` + `wfl-lsp` — in one lane and reports a true
-aggregate. (A full local `cargo test --all` on this head was also attempted to
-confirm the number directly; it exhausted the sandbox's fixed per-session disk
-allowance mid-compile — `No space left on device`, an environment limit, not a
-failure — so the authoritative combined number will come from the next
-`--workspace` CI run, to be recorded here with the workflow link.)
+--workspace` (was `cargo test`), so CI executes the **whole workspace** — root +
+`wflpkg` + `wfl-lsp` — in one lane and reports a true aggregate.
 
-**This change's delta** to the root-package suite: the new
-`phase1_correctness_regression_test` adds **3 passing** guards (#569, #571, #590)
-and **9 `#[ignore]`d** reproducers (2×#592, 7×#578). The table below is therefore
-a scope-labeled estimate pending the `--workspace` CI run.
+**Authoritative full-workspace run — MEASURED (no longer pending).** CI run
+[**29240959575**](https://github.com/WebFirstLanguage/wfl/actions/runs/29240959575)
+ran `cargo test --workspace` on this branch's head and passed with **1480 passed
+/ 0 failed / 25 ignored across 95 result suites**. That is the observed
+full-workspace baseline, recorded below. (It matches the earlier derived estimate
+exactly — but it is now a *measured* run with a workflow link, not an estimate.
+The `f627b4e` component table above is retained only to explain why the interim
+figure had to be derived.) This change's contribution to the suite is the new
+`phase1_correctness_regression_test`: **3 passing** guards (#569, #571, #590) and
+**9 `#[ignore]`d** reproducers (2×#592, 7×#578).
 
 | Metric | Baseline | Source / notes |
 |---|---|---|
-| Rust test count (workspace) | **≈1480 passed / 0 failed / 25 ignored** (scope-labeled estimate; `--workspace` CI run pending) | root ≈1207/0/25 (observed 1206/0/24 on `f627b4e` + this change's +1 passing #590, +1 ignored) **+** `wfl-lsp` 69 **+** `wflpkg` 204 |
-| Result suites (root package) | **76** (observed on `f627b4e`); `wfl-lsp` + `wflpkg` add their own binaries | the earlier "95" figure was mis-scoped; 76 is the observed root-package result-suite count |
-| Skipped Rust tests (`#[ignore]`, root) | **25** | 24 observed on `f627b4e` + 1 new (`with`-form #578 reproducer); #590 is a *passing* CLI guard, not ignored |
+| Rust test count (workspace) | **1480 passed / 0 failed / 25 ignored** | **measured** — CI run [29240959575](https://github.com/WebFirstLanguage/wfl/actions/runs/29240959575), `cargo test --workspace` on this head |
+| Result suites (workspace) | **95** | measured on the same run (root + `wfl-lsp` + `wflpkg` test binaries) |
+| Skipped Rust tests (`#[ignore]`, workspace) | **25** | measured on the same run |
 | Skipped end-to-end programs (`CI-SKIP`) | **32** of 163 `TestPrograms/*.wfl` | see skip justification below |
 | Compiler / Clippy warnings | **0 (CI gate: `cargo clippy --all-targets -- -D warnings`)** | the one pre-existing `deprecated` rustc warning in `src/logging.rs` is **fixed in this change** (`parse` → `parse_borrowed::<2>`) |
 | Line coverage | **not instrumented** | no coverage tool wired (tarpaulin/llvm-cov absent); a coverage baseline + CI report is a Testing-dimension follow-up |
@@ -221,20 +223,22 @@ recursion claims corrected in the same change (docs-honesty).
 - No open **Critical** issue; the 2 open **High** correctness items (#592, #578)
   are tracked with reproductions **and** regression tests.
 - ExecutionBudget is finished, integrated, and test-covered.
-- Every inventoried correctness **issue** has regression coverage (passing guard
-  if fixed; ignored repro if open) — with a **representative**, not exhaustive,
-  sample of #578's umbrella sub-items (the rest tracked on the issue).
+- Every inventoried correctness **issue** has at least one guard, but the
+  *"convert every known correctness defect"* task is **PARTIAL** — only #578's
+  reproducible confirmed bugs are encoded; exhaustive per-item #578
+  classification is still open (see §2).
 - Fuzz targets cover **three of the four** required surfaces (lexer, parser,
   pattern engine). **Module-loading fuzzing is not done** — see §3; it is an
   explicitly open Phase 1 item.
-- Baseline metrics are recorded (scope-labeled; the authoritative full-workspace
-  aggregate comes from the now-`--workspace` CI run); supported platforms and
-  boundaries are defined.
+- Baseline metrics are **measured**: CI run 29240959575 (`cargo test
+  --workspace`) reports **1480 passed / 0 failed / 25 ignored across 95 suites**
+  (§4). Supported platforms and boundaries are defined.
 
 **Phase 1 is therefore not fully complete.** Explicitly open Phase 1 items,
 carried forward and tracked: (1) a **module-loading fuzz target** (safe async
-harness); (2) the record of the **`--workspace` CI aggregate** with a workflow
-link; (3) exhaustive per-item **#578 classification**. Larger hand-offs to Phase
-2/3 (also tracked): the parser/analyzer/type-checker/runtime **consistency
-suite**, **docs examples into CI**, the **sustained fuzz run** + corpus
-retention, per-limit **adversarial tests**, and **coverage instrumentation**.
+harness); (2) exhaustive per-item **#578 classification**. (The `--workspace` CI
+aggregate is now recorded — run 29240959575 — so that earlier-pending item is
+closed.) Larger hand-offs to Phase 2/3 (also tracked): the
+parser/analyzer/type-checker/runtime **consistency suite**, **docs examples into
+CI**, the **sustained fuzz run** + corpus retention, per-limit **adversarial
+tests**, and **coverage instrumentation**.

@@ -15,15 +15,16 @@
 //!   reproduces every open defect **encoded in this file** on demand (each
 //!   currently fails).
 //!
-//! ## Scope of the "every correctness defect" claim (important)
+//! ## The "convert every known correctness defect" task is PARTIAL, not complete
 //!
-//! This suite maps every inventoried *issue* to regression coverage. It does
-//! **not** claim a test for every individual sub-item: **#578 is an umbrella**
-//! of ~26 checkboxes, and only its reproducible confirmed functional/silent-
-//! wrong-result bugs are encoded below (see the #578 note). Its remaining
-//! sub-items (e.g. weak inference edges, ergonomics, missing forms) are tracked
-//! on the issue, not here. So read this as *per-issue* coverage with a
-//! representative #578 sample — not "a test exists for every conceivable defect".
+//! Stated plainly so the record can't be read as complete: this suite does
+//! **not** finish that Phase 1 task. **#578 is an umbrella** of ~26 checkboxes;
+//! only its reproducible confirmed functional/silent-wrong-result bugs are
+//! encoded below. Its remaining sub-items (weak inference edges, ergonomics,
+//! missing forms) have **no regression test yet** and are tracked on the issue.
+//! So the "every known correctness defect" gate is **incomplete** — exhaustive
+//! per-item #578 classification remains open Phase 1 work. This is *partial*
+//! coverage; it is **not** a redefinition of "every defect" as "every issue".
 //!
 //! ## Coverage map for the Phase 1 inventory (16 tracked issues + the #610 tracker)
 //!

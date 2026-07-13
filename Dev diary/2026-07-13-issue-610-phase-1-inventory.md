@@ -27,6 +27,12 @@ demonstrably behaves correctly today.
 **Total open at start:** 17 (16 tracked issues + the #610 tracker itself).
 **Closed as verified-fixed:** 10. **Remaining open after triage:** 6 tracked + #610.
 
+> **Correction (post-review):** #573 in the table below was recorded as an open
+> "Medium" limitation **in error** — PR #574 had already shipped binary
+> serving + MIME (with byte-round-trip tests) before this inventory. Counting
+> that correction, only **5** tracked issues remain genuinely open (+#610). See
+> the #573 row for details.
+
 ### Closed — verified fixed against 26.7.36
 
 | Issue | Title (short) | Class (at filing) | Fix PR | Verification |
@@ -49,7 +55,7 @@ demonstrably behaves correctly today.
 | #592 | Zero-arg include-exposed action by bare name is fatal | **High** | Fatal (`exit 3`, `Variable 'greet' is not defined`) on valid natural multi-file API; the third call form #580/#581's fix did not cover. Repro still fails on 26.7.36. |
 | #578 | Remaining #571 rough edges (glob, pattern-VM, text→number, inference) | **High** | Confirmed functional bugs (wrong result/crash, not doc drift). Verified `list files … with pattern "*.txt"` still returns `0` on 26.7.36. |
 | #555 | Aspirational skipped tests + broken keyword_reference docs examples | **Medium** | Core websockets landed (#593), but session/CSRF/cookie middleware, direct-index syntax, and 10 docs examples remain; 3 `CI-SKIP` TestPrograms still present. Docs-examples-in-CI is a mandatory release gate. Feature parts are effectively post-production. |
-| #573 | Web server cannot serve binary content (fonts, images) | **Medium** | Real limitation (file read + HTTP body are text/UTF-8 only); blocks self-hosting static assets. Not a regression in existing behavior. |
+| ~~#573~~ | Web server cannot serve binary content (fonts, images) | **Fixed (correction)** | **Reclassified: this was recorded open in error.** PR #574 shipped binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers *before* this inventory, guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification (2026-07-06) recommends closing; it is open on GitHub only pending a close click. |
 | #600 | Native TLS: SNI / multiple certificates on one `:443` | **Post-production-readiness** | Single-cert HTTPS works; multi-cert/SNI is a multi-tenant deployment enhancement, not a release-gate blocker. |
 | #612 | Make PR #609 resource-budget policies overrideable via `.wflcfg` | **Low** | Explicitly filed "low priority"; safe conservative defaults already ship. Config-surface polish. |
 
