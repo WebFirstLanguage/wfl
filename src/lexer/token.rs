@@ -1,7 +1,10 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(skip r"[ \t\f]+|//[^\r\n]*|#[^\r\n]*")] // Skip whitespace and line comments (stop at line endings)
+// Skip whitespace and line comments (stop at line endings). The `[^\r\n]*`
+// comment tails are intentionally greedy but bounded to a single line, so
+// `allow_greedy` opts out of logos 0.16's unbounded-greedy-repetition lint.
+#[logos(skip(r"[ \t\f]+|//[^\r\n]*|#[^\r\n]*", allow_greedy = true))]
 pub enum Token {
     #[token("\n")]
     #[token("\r\n")]

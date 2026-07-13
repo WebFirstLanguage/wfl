@@ -128,7 +128,10 @@ pub async fn connect(url: &str) -> Result<DbPool, String> {
 pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<Value, String> {
     let rows: Vec<Value> = match pool {
         DbPool::Sqlite(pool) => {
-            let mut query = sqlx::query(sql);
+            // sqlx 0.9 gates `query()` behind `SqlSafeStr`; the SQL text comes
+            // from the WFL program (not concatenated user input) and every value
+            // is passed via `.bind()`, so wrapping with `AssertSqlSafe` is sound.
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_sqlite(query, param);
             }
@@ -141,7 +144,10 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
                 .collect::<Result<_, _>>()?
         }
         DbPool::Postgres(pool) => {
-            let mut query = sqlx::query(sql);
+            // sqlx 0.9 gates `query()` behind `SqlSafeStr`; the SQL text comes
+            // from the WFL program (not concatenated user input) and every value
+            // is passed via `.bind()`, so wrapping with `AssertSqlSafe` is sound.
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_postgres(query, param);
             }
@@ -152,7 +158,10 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
             rows.iter().map(pg_row_to_value).collect::<Result<_, _>>()?
         }
         DbPool::MySql(pool) => {
-            let mut query = sqlx::query(sql);
+            // sqlx 0.9 gates `query()` behind `SqlSafeStr`; the SQL text comes
+            // from the WFL program (not concatenated user input) and every value
+            // is passed via `.bind()`, so wrapping with `AssertSqlSafe` is sound.
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_mysql(query, param);
             }
@@ -175,7 +184,10 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
 pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<Value, String> {
     let (affected_rows, last_insert_id): (u64, Option<i64>) = match pool {
         DbPool::Sqlite(pool) => {
-            let mut query = sqlx::query(sql);
+            // sqlx 0.9 gates `query()` behind `SqlSafeStr`; the SQL text comes
+            // from the WFL program (not concatenated user input) and every value
+            // is passed via `.bind()`, so wrapping with `AssertSqlSafe` is sound.
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_sqlite(query, param);
             }
@@ -186,7 +198,10 @@ pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Resul
             (result.rows_affected(), Some(result.last_insert_rowid()))
         }
         DbPool::Postgres(pool) => {
-            let mut query = sqlx::query(sql);
+            // sqlx 0.9 gates `query()` behind `SqlSafeStr`; the SQL text comes
+            // from the WFL program (not concatenated user input) and every value
+            // is passed via `.bind()`, so wrapping with `AssertSqlSafe` is sound.
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_postgres(query, param);
             }
@@ -197,7 +212,10 @@ pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Resul
             (result.rows_affected(), None)
         }
         DbPool::MySql(pool) => {
-            let mut query = sqlx::query(sql);
+            // sqlx 0.9 gates `query()` behind `SqlSafeStr`; the SQL text comes
+            // from the WFL program (not concatenated user input) and every value
+            // is passed via `.bind()`, so wrapping with `AssertSqlSafe` is sound.
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_mysql(query, param);
             }
@@ -238,9 +256,9 @@ pub async fn close(pool: DbPool) {
 macro_rules! bind_param {
     ($fn_name:ident, $db:ty) => {
         fn $fn_name<'q>(
-            query: sqlx::query::Query<'q, $db, <$db as sqlx::Database>::Arguments<'q>>,
+            query: sqlx::query::Query<'q, $db, <$db as sqlx::Database>::Arguments>,
             param: &SqlParam,
-        ) -> sqlx::query::Query<'q, $db, <$db as sqlx::Database>::Arguments<'q>> {
+        ) -> sqlx::query::Query<'q, $db, <$db as sqlx::Database>::Arguments> {
             match param {
                 SqlParam::Int(v) => query.bind(*v),
                 SqlParam::Float(v) => query.bind(*v),

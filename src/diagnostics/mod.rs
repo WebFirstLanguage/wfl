@@ -180,7 +180,7 @@ impl DiagnosticReporter {
         let writer = StandardStream::stderr(ColorChoice::Always);
         let config = term::Config::default();
 
-        term::emit(&mut writer.lock(), &config, &self.files, &diag)
+        term::emit_to_write_style(&mut writer.lock(), &config, &self.files, &diag)
             .map_err(|_| io::Error::other("Failed to emit diagnostic"))
     }
 

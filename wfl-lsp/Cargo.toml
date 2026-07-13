@@ -8,16 +8,16 @@ license = "MIT"
 [dependencies]
 wfl = { path = ".." }
 tower-lsp = "0.20.0"
-tokio = { version = "1.35.1", features = ["full"] }
-dashmap = "5.5.3"
-serde_json = "1.0.114"
-env_logger = "0.10.1"
+tokio = { version = "1.52.3", features = ["full"] }
+dashmap = "6.2.1"
+serde_json = "1.0.150"
+env_logger = "0.11.11"
 
 # MCP support - manual JSON-RPC 2.0 implementation
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
-tokio-test = "0.4.3"
+tokio-test = "0.4.5"
 
 [[bin]]
 name = "wfl-lsp"

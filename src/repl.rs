@@ -204,7 +204,7 @@ impl ReplState {
 
                     let mut buffer = Buffer::ansi();
                     let config = term::Config::default();
-                    if let Err(_e) = term::emit(
+                    if let Err(_e) = term::emit_to_write_style(
                         &mut buffer,
                         &config,
                         &reporter.files,
@@ -239,7 +239,7 @@ impl ReplState {
             for diagnostic in &sema_diags {
                 let mut buffer = Buffer::ansi();
                 let config = term::Config::default();
-                if let Err(_e) = term::emit(
+                if let Err(_e) = term::emit_to_write_style(
                     &mut buffer,
                     &config,
                     &reporter.files,
@@ -273,7 +273,7 @@ impl ReplState {
 
                 let mut buffer = Buffer::ansi();
                 let config = term::Config::default();
-                if let Err(_e) = term::emit(
+                if let Err(_e) = term::emit_to_write_style(
                     &mut buffer,
                     &config,
                     &reporter.files,
@@ -313,7 +313,7 @@ impl ReplState {
 
                                 let mut buffer = Buffer::ansi();
                                 let config = term::Config::default();
-                                if let Err(_e) = term::emit(
+                                if let Err(_e) = term::emit_to_write_style(
                                     &mut buffer,
                                     &config,
                                     &reporter.files,
@@ -343,7 +343,7 @@ impl ReplState {
 
                             let mut buffer = Buffer::ansi();
                             let config = term::Config::default();
-                            if let Err(_e) = term::emit(
+                            if let Err(_e) = term::emit_to_write_style(
                                 &mut buffer,
                                 &config,
                                 &reporter.files,
@@ -374,7 +374,7 @@ impl ReplState {
 
                         let mut buffer = Buffer::ansi();
                         let config = term::Config::default();
-                        if let Err(_e) = term::emit(
+                        if let Err(_e) = term::emit_to_write_style(
                             &mut buffer,
                             &config,
                             &reporter.files,
