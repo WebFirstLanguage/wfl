@@ -421,11 +421,11 @@ fn issue_578_number_plus_text_is_a_type_error() {
         !out.contains("25Alice"),
         "`Number plus Text` must not silently concatenate (#578): {out}"
     );
-    // The strong, non-fragile signal that it was rejected: a non-zero exit.
-    assert_ne!(
-        code,
-        Some(0),
-        "`Number plus Text` should be rejected with a non-zero exit (#578): {out}"
+    // Require an explicit non-zero exit. NOT `code != Some(0)`, which would also
+    // accept a timeout kill (`code == None`) and let a future hang pass as green.
+    assert!(
+        matches!(code, Some(c) if c != 0),
+        "`Number plus Text` should be rejected with a non-zero exit — not exit 0 and not a hang/timeout (#578): {out}"
     );
 }
 
@@ -491,10 +491,12 @@ fn issue_578_with_form_action_call_is_not_a_silent_concat() {
         !out.contains("action double21") && !out.contains("double21"),
         "`double with 21` must not silently concatenate to a string (#578): {out}"
     );
-    // Desired: it either calls `double` (→ 42) or is rejected; today it silently
-    // concatenates and exits 0, which this guard fails on.
+    // Desired: it either calls `double` (→ 42) or is rejected with an explicit
+    // non-zero exit; today it silently concatenates and exits 0, which this guard
+    // fails on. `matches!(code, Some(c) if c != 0)` (not `code != Some(0)`) so a
+    // timeout kill (`code == None`) does not count as "rejected".
     assert!(
-        out.contains("42") || code != Some(0),
-        "`with`-form call must either call the action or error, not silently concat (#578): {out}"
+        out.contains("42") || matches!(code, Some(c) if c != 0),
+        "`with`-form call must call the action (→42) or fail with a non-zero exit, not silently concat or hang (#578): {out}"
     );
 }
