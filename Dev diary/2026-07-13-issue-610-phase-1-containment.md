@@ -53,36 +53,49 @@ evaluation, pattern matching, web handling, and module loading"* is **met**. The
 adjacent gate — *adversarial* tests for each limit — is explicitly **Phase 3**
 and is not claimed here.
 
-## 2. Known correctness defects → end-to-end regression tests
+## 2. Known correctness defects → regression tests (per-issue, with a representative #578 sample)
 
-New suite `tests/phase1_correctness_regression_test.rs` is the single auditable
-index of every inventoried correctness defect, each mapped to an end-to-end test
-that drives the release `wfl` binary against the defect's own repro. It has two
-halves:
+New suite `tests/phase1_correctness_regression_test.rs` maps every inventoried
+correctness **issue** to regression coverage. **Scope, stated honestly:** this is
+*per-issue* coverage, **not** a test for every conceivable sub-defect — **#578 is
+an umbrella** (~26 checkboxes), and only its reproducible confirmed
+functional/silent-wrong-result bugs are encoded; its remaining sub-items are
+tracked on the issue, not here. So the Phase 1 task *"convert every known
+correctness defect into an end-to-end regression test"* is satisfied at the
+issue level with a representative #578 sample — it does **not** claim exhaustive
+coverage of #578's tail. Two halves:
 
-- **Fixed defects → passing guards.** New coverage for **#569** (action-call
-  result is `Text`, not `Nothing`, in a Text-required position — no spurious
-  "found Nothing") and **#571** (precedence, `/` division, `modulo`, `is
-  between`). Defects already covered elsewhere (#582/#557/#566/#567/#583/#588 in
-  `github_issues_batch_test.rs`, #580 in `include_of_form_resolution_test.rs`,
-  #590 in `recursive_action_return_type_test.rs`) are indexed in the file's
-  module doc rather than duplicated.
+- **Fixed defects → passing guards.** New binary-level guards for **#569**
+  (action-call result is `Text`, not `Nothing`), **#571** (precedence, both
+  `divided by` and `/` division, `modulo`, `is between`), and **#590** (a
+  CLI-level end-to-end guard for the self-recursive indexed-result case, added on
+  review — complementing the in-process `recursive_action_return_type_test.rs`).
+  Defects already covered elsewhere (#582/#557/#566/#567/#583/#588 in
+  `github_issues_batch_test.rs`, #580 in `include_of_form_resolution_test.rs`)
+  are indexed in the file's module doc rather than duplicated. **#573 is fixed**
+  (binary read/write + MIME shipped in #574; guarded by `web_server_binary_test.rs`
+  + `binary_io_test.rs` + `binary_file_and_mime_test.wfl`; the issue is open only
+  pending a close click).
 - **Open defects → `#[ignore]`d desired-behaviour tests** that reproduce the bug
-  today (they fail under `--ignored`) and flip green the moment Phase 2 fixes
-  land — no new file needed, just remove `#[ignore]`:
-  - **#592** — bare zero-arg include-exposed action is fatal at top level.
-  - **#578** — `list files … with pattern` returns 0; `one or more` quantifier
-    matches per-char (16 vs 4 words); `repeat N times` is a parse error;
-    `Number plus Text` silently concatenates; no text→number conversion.
+  today (they fail under `--ignored`) and flip green when the fix lands:
+  - **#592** — bare zero-arg included action fatal at top level **and** in an
+    action body (parameterized).
+  - **#578** (reproducible confirmed bugs) — `list files … with pattern` returns
+    0; `one or more` quantifier matches per-char (16 vs 4 words); `repeat N times`
+    is a parse error; `Number plus Text` silently concatenates; no text→number
+    conversion; `format_date` echoes friendly patterns; and `with`-form action
+    calls silently concatenate.
 
-This satisfies *"convert every known correctness defect into an end-to-end
-regression test"* while keeping CI green (open defects are ignored, not failing).
+CI stays green (open defects are `#[ignore]`d, not failing).
 
-Re-verification surfaced one correction to the inventory: #578's *`X ends with
-Y` misparse* item **no longer reproduces** on the current build (fixed alongside #566), so
-it was not encoded as an open defect.
+Re-verification against the release binary corrected the inventory in several
+places: #578's *`X ends with Y` misparse*, its *`add` to `List<Any>` drops in
+`--test` mode*, and its *`double of 5 minus 1` → Nothing* inference items **no
+longer reproduce** on the current build (fixed), so they are not encoded as open
+defects; #573 is **fixed** (above), not the open limitation an earlier draft
+listed.
 
-## 3. Fuzz targets established
+## 3. Fuzz targets — three of four surfaces established; module loading still open
 
 New standalone cargo-fuzz workspace under `fuzz/` (kept out of the stable root
 build via its own `[workspace]` and root `exclude = ["fuzz"]`):
@@ -92,7 +105,7 @@ build via its own `[workspace]` and root `exclude = ["fuzz"]`):
 | `fuzz_lexer` | `lex_wfl_with_positions_checked` |
 | `fuzz_parser` | lex → `Parser::parse` |
 | `fuzz_pattern` | `pattern\0haystack` **pair** → `create pattern` parse → `CompiledPattern::compile` → `find_all(haystack)` (ReDoS surface: the fuzzer controls both the pattern and the input it runs against) |
-| `fuzz_module_loading` | the **static half** of module loading: **checked** lex → parse → include/load-module detection → include-aware `Analyzer::analyze` → `TypeChecker::check_types` on arbitrary module content |
+| `fuzz_frontend` | compiler **frontend** on arbitrary source: **checked** lex → parse → include/load-module detection → `Analyzer::analyze` → `TypeChecker::check_types` |
 
 Each target's invariant: no arbitrary input may panic, overflow the stack, or
 hang. Tracked seed inputs live in `fuzz/seeds/<target>/`; the live corpus and
@@ -106,40 +119,59 @@ API drift can't silently break the excluded fuzz crate. The *sustained run* (wit
 corpus retention) is deliberately **Phase 3** work; no run duration is claimed at
 baseline (see metrics below).
 
-**Honest scope of `fuzz_module_loading`:** it exercises the untrusted-content
-parsing/analysis pipeline that every loaded module goes through, but it does
-**not** run the Tokio interpreter, so filesystem path
-resolution/canonicalization, bounded reads, cross-file circular/import-depth
-enforcement, and module *execution* are out of scope and tracked as follow-up
-(they need a harness that can drive the async runtime). The target keeps the
-"module loading" name because it is the Phase 1 module-loading surface that runs
-without the interpreter.
+**Module-loading fuzzing is NOT done (open Phase 1 item).** Phase 1 lists four
+required surfaces: lexer, parser, pattern engine, **and module loading**. The
+first three are covered. `fuzz_frontend` fuzzes the static frontend that a
+module's *content* passes through, but it deliberately does **not** invoke the
+interpreter's `LoadModuleStatement` / `IncludeStatement` paths — so filesystem
+path resolution/canonicalization, bounded reads, cross-file circular/import-depth
+enforcement, parent-scope construction, and module execution are **uncovered**.
+Fuzzing the real loader means driving the async interpreter against on-disk
+modules, and doing that *safely* is the blocker: executing fuzzer-generated WFL
+would also exercise subprocess spawning, networking, the web server, and
+filesystem writes. A sandboxed module-loading harness (benign module bodies +
+fuzzed include-graph structure, or an execution-disabled load path) is tracked as
+remaining Phase 1 work. The renamed target (`fuzz_frontend`, formerly the
+misleadingly-named `fuzz_module_loading`) no longer claims to fuzz module
+loading.
 
 ## 4. Baseline metrics (2026-07-13; rebased onto WFL 26.7.37, Linux)
 
-**Methodology.** The prior aggregate Rust tally (1477 passed / 0 failed / 16
-ignored, 94 suites) was a **local `cargo test --all`** measurement recorded in
-the scorecard-baseline entry — *not* a CI run: the referenced commit `fc21f2f`
-is a `[skip ci]` version bump with no workflow, so an earlier draft's
-"CI-measured" label was wrong. A full local `cargo test --all` on the rebased
-head was **attempted** to confirm the aggregate directly (the database suites
-**skip** when their connection env vars are absent, so a local run is
-representative — correcting an earlier note that claimed it could not be run
-locally). That run exhausted the sandbox's **fixed per-session disk allowance**
-while compiling the ~70 release test binaries (`rustc-LLVM ERROR: No space left
-on device`) — an environmental limit, **not** a test failure — so the
-authoritative full-suite aggregate is deferred to **CI on the pushed head SHA**
-(the `clippy-and-test` job runs the full `cargo test` on `ubuntu-latest`). Until
-that CI run's number is recorded here, the aggregate below is **derived** =
-prior local baseline **+** this change's verified delta — the one new suite
-`phase1_correctness_regression_test`, measured in isolation: **2 passed, 0
-failed, 8 ignored** — and is labeled as an estimate.
+**Methodology (corrected after the round-2 review).** The head-SHA CI run on
+`f627b4e` was **green**, but its `cargo test` command tested the **root package
+only** — it did **not** run `wflpkg`, so it was never a full-workspace baseline.
+Observed component numbers on that run (scope-labeled):
+
+| Scope | Command (on `f627b4e`) | passed | failed | ignored | result suites |
+|---|---|---:|---:|---:|---:|
+| root package | `cargo test` | 1206 | 0 | 24 | 76 |
+| `wfl-lsp` | `cargo test -p wfl-lsp` | 69 | 0 | — | — |
+| `wflpkg` | *(not run by CI)* | 204† | 0 | — | — |
+| **workspace total** | (sum) | **≈1479** | **0** | **24+** | — |
+
+† `wflpkg`'s 204 tests were not executed by CI on `f627b4e`; the count is from the
+package, not that CI run. This is exactly why the earlier single "≈1479 aggregate"
+was **derived, not measured**.
+
+**Fix applied here:** `ci.yml`'s "Run Tests" step now runs `cargo test
+--workspace` (was `cargo test`), so from this commit forward CI executes the
+**whole workspace** — root + `wflpkg` + `wfl-lsp` — in one lane and reports a true
+aggregate. (A full local `cargo test --all` on this head was also attempted to
+confirm the number directly; it exhausted the sandbox's fixed per-session disk
+allowance mid-compile — `No space left on device`, an environment limit, not a
+failure — so the authoritative combined number will come from the next
+`--workspace` CI run, to be recorded here with the workflow link.)
+
+**This change's delta** to the root-package suite: the new
+`phase1_correctness_regression_test` adds **3 passing** guards (#569, #571, #590)
+and **9 `#[ignore]`d** reproducers (2×#592, 7×#578). The table below is therefore
+a scope-labeled estimate pending the `--workspace` CI run.
 
 | Metric | Baseline | Source / notes |
 |---|---|---|
-| Rust test count | **≈1479 passed / 0 failed / 24 ignored** (derived; full-run confirmation pending) | prior local baseline 1477/0/16 + this change's +2 passing, +8 ignored |
-| Test suites | **95** | 94 prior + 1 new (`phase1_correctness_regression_test`) |
-| Skipped Rust tests (`#[ignore]`) | **24** | 16 prior + the 8 new open-defect reproducers (2×#592, 6×#578) |
+| Rust test count (workspace) | **≈1480 passed / 0 failed / 25 ignored** (scope-labeled estimate; `--workspace` CI run pending) | root ≈1207/0/25 (observed 1206/0/24 on `f627b4e` + this change's +1 passing #590, +1 ignored) **+** `wfl-lsp` 69 **+** `wflpkg` 204 |
+| Result suites (root package) | **76** (observed on `f627b4e`); `wfl-lsp` + `wflpkg` add their own binaries | the earlier "95" figure was mis-scoped; 76 is the observed root-package result-suite count |
+| Skipped Rust tests (`#[ignore]`, root) | **25** | 24 observed on `f627b4e` + 1 new (`with`-form #578 reproducer); #590 is a *passing* CLI guard, not ignored |
 | Skipped end-to-end programs (`CI-SKIP`) | **32** of 163 `TestPrograms/*.wfl` | see skip justification below |
 | Compiler / Clippy warnings | **0 (gate: `clippy --all-targets --all-features -- -D warnings`)** | the one pre-existing `deprecated` rustc warning in `src/logging.rs` is **fixed in this change** (`parse` → `parse_borrowed::<2>`) |
 | Line coverage | **not instrumented** | no coverage tool wired (tarpaulin/llvm-cov absent); a coverage baseline + CI report is a Testing-dimension follow-up |
@@ -189,12 +221,20 @@ recursion claims corrected in the same change (docs-honesty).
 - No open **Critical** issue; the 2 open **High** correctness items (#592, #578)
   are tracked with reproductions **and** regression tests.
 - ExecutionBudget is finished, integrated, and test-covered.
-- Every known correctness defect has an end-to-end regression test (passing
-  guard if fixed; ignored repro if open).
-- Fuzz targets exist for all four required surfaces.
-- Baseline metrics are recorded; supported platforms and boundaries are defined.
+- Every inventoried correctness **issue** has regression coverage (passing guard
+  if fixed; ignored repro if open) — with a **representative**, not exhaustive,
+  sample of #578's umbrella sub-items (the rest tracked on the issue).
+- Fuzz targets cover **three of the four** required surfaces (lexer, parser,
+  pattern engine). **Module-loading fuzzing is not done** — see §3; it is an
+  explicitly open Phase 1 item.
+- Baseline metrics are recorded (scope-labeled; the authoritative full-workspace
+  aggregate comes from the now-`--workspace` CI run); supported platforms and
+  boundaries are defined.
 
-Remaining Phase 1 → Phase 2/3 hand-offs (all tracked): the parser/analyzer/
-type-checker/runtime **consistency suite**, wiring **docs examples into CI**, the
-**sustained fuzz run** + corpus retention, per-limit **adversarial tests**, and
-**coverage instrumentation**.
+**Phase 1 is therefore not fully complete.** Explicitly open Phase 1 items,
+carried forward and tracked: (1) a **module-loading fuzz target** (safe async
+harness); (2) the record of the **`--workspace` CI aggregate** with a workflow
+link; (3) exhaustive per-item **#578 classification**. Larger hand-offs to Phase
+2/3 (also tracked): the parser/analyzer/type-checker/runtime **consistency
+suite**, **docs examples into CI**, the **sustained fuzz run** + corpus
+retention, per-limit **adversarial tests**, and **coverage instrumentation**.

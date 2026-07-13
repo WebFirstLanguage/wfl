@@ -45,8 +45,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_module_loading"
-path = "fuzz_targets/fuzz_module_loading.rs"
+name = "fuzz_frontend"
+path = "fuzz_targets/fuzz_frontend.rs"
 test = false
 doc = false
 bench = false

@@ -12,7 +12,18 @@
 //!   behaviour (the fix's acceptance criterion). It is skipped in CI today so
 //!   the tree stays green, and is flipped to a passing guard by removing
 //!   `#[ignore]` the moment the fix lands. Running `cargo test -- --ignored`
-//!   reproduces every open defect on demand (each currently fails).
+//!   reproduces every open defect **encoded in this file** on demand (each
+//!   currently fails).
+//!
+//! ## Scope of the "every correctness defect" claim (important)
+//!
+//! This suite maps every inventoried *issue* to regression coverage. It does
+//! **not** claim a test for every individual sub-item: **#578 is an umbrella**
+//! of ~26 checkboxes, and only its reproducible confirmed functional/silent-
+//! wrong-result bugs are encoded below (see the #578 note). Its remaining
+//! sub-items (e.g. weak inference edges, ergonomics, missing forms) are tracked
+//! on the issue, not here. So read this as *per-issue* coverage with a
+//! representative #578 sample — not "a test exists for every conceivable defect".
 //!
 //! ## Coverage map for the Phase 1 inventory (16 tracked issues + the #610 tracker)
 //!
@@ -27,10 +38,10 @@
 //! | #569 | Medium (fixed) | ✅ | this file: `issue_569_*` (drives the binary) |
 //! | #583 | Medium (fixed) | ✅ | `github_issues_batch_test.rs::bracket_string_stays_text` |
 //! | #588 | Medium (fixed) | ✅ | `github_issues_batch_test.rs` (`store x as <call>` Unknown) |
-//! | #590 | Medium (fixed) | ✅ | `recursive_action_return_type_test.rs` (focused parser/type-checker guard) |
+//! | #590 | Medium (fixed) | ✅ | `recursive_action_return_type_test.rs` (in-process type-checker guard) **+** this file: `issue_590_*` (CLI-level end-to-end guard) |
 //! | #592 | **High (open)** | ⏳ | this file: `issue_592_*` (`#[ignore]`, top-level + action-body) |
 //! | #578 | **High (open, umbrella)** | ⏳ | this file: `issue_578_*` (`#[ignore]`) — see note below |
-//! | #573 | Medium (open) | ⏳ | `web_server_binary_test.rs` guards the byte round-trip; the issue stays open on GitHub (user-facing binary-read keyword + MIME helper incomplete) |
+//! | #573 | Medium (**fixed**) | ✅ | Binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers shipped in #574; guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification recommends closing; it is open only pending the close click. |
 //! | #555 | Medium (open) | ⏳ | `TestPrograms/` `CI-SKIP` corpus (docs-in-CI gate) |
 //! | #600 | Post-prod | — | multi-cert SNI enhancement, not a release-gate defect |
 //! | #612 | Low | — | PR #609 safe defaults already shipped |
@@ -217,6 +228,48 @@ fn issue_571_precedence_division_modulo_between() {
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
 
+// --- #590 ------------------------------------------------------------------
+// A self-recursive action whose result is indexed must not be typed `Nothing`
+// (which produced a false `Cannot index into Nothing` and could poison runtime).
+// `recursive_action_return_type_test.rs` guards the type-checker in-process;
+// this is the CLI-level end-to-end guard the review asked for — it drives the
+// binary and asserts the program runs and prints, with no Nothing diagnostic.
+// https://github.com/WebFirstLanguage/wfl/issues/590
+
+#[test]
+fn issue_590_self_recursive_indexed_result_runs_cli() {
+    let (out, code) = run_src(
+        "define action called other with parameters n:\n\
+        \x20   create map m:\n\
+        \x20       \"val\" is n\n\
+        \x20   end map\n\
+        \x20   return m\n\
+         end action\n\n\
+         define action called p_unary with parameters n:\n\
+        \x20   check if n is greater than 0:\n\
+        \x20       store r as p_unary of (n minus 1)\n\
+        \x20       return other of (r[\"val\"])\n\
+        \x20   end check\n\
+        \x20   return other of n\n\
+         end action\n\n\
+         display (p_unary of 3)[\"val\"]\n",
+    );
+    assert!(
+        !out.contains("Cannot index into Nothing"),
+        "self-recursive indexed result must not be typed Nothing (#590): {out}"
+    );
+    assert!(
+        !out.contains("found Nothing"),
+        "no spurious Nothing diagnostic on the recursive result (#590): {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0 (#590): {out}");
+    // The base case returns `other of 0` → map {"val": 0}; indexing "val" prints 0.
+    assert!(
+        out.contains('0'),
+        "program must run and print its value (#590): {out}"
+    );
+}
+
 // ===========================================================================
 // OPEN DEFECTS — assert desired behaviour, `#[ignore]`d until the fix lands.
 // Remove `#[ignore]` (and update the linked issue) when the fix lands.
@@ -396,4 +449,35 @@ fn issue_578_format_date_friendly_pattern() {
         "the literal pattern string must not be returned verbatim (#578): {out}"
     );
     assert_eq!(code, Some(0), "program should exit 0 (#578): {out}");
+}
+
+// A `with`-form action call (`store r as double with 21`) silently builds the
+// string `action double21` and exits 0 instead of calling `double` (the correct
+// form is `double of 21`). A common mistake that passes without any error/warning.
+// CURRENT (26.7.37): prints `action double21`, exit 0.
+//
+// (Re-verified with the release binary; the other #578 items the round-2 review
+// named — `add` to a `List<Any>` dropping in `--test` mode, and residual
+// return-type inference `double of 5 minus 1` → Nothing — did NOT reproduce on
+// the current build, so they are not encoded as open defects here.)
+#[test]
+#[ignore = "open defect #578: `with`-form action call silently concatenates instead of calling"]
+fn issue_578_with_form_action_call_is_not_a_silent_concat() {
+    let (out, code) = run_src(
+        "define action called double with parameters n:\n\
+        \x20   return n times 2\n\
+         end action\n\
+         store r as double with 21\n\
+         display r\n",
+    );
+    assert!(
+        !out.contains("action double21") && !out.contains("double21"),
+        "`double with 21` must not silently concatenate to a string (#578): {out}"
+    );
+    // Desired: it either calls `double` (→ 42) or is rejected; today it silently
+    // concatenates and exits 0, which this guard fails on.
+    assert!(
+        out.contains("42") || code != Some(0),
+        "`with`-form call must either call the action or error, not silently concat (#578): {out}"
+    );
 }

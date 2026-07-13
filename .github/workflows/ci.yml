@@ -91,9 +91,12 @@ jobs:
           fi
           echo "panic=abort correctly rejected by the compile_error gate"
 
-      # Run tests (integration tests now have access to release binary)
+      # Run tests across the WHOLE workspace (root package + wflpkg + wfl-lsp),
+      # so the CI aggregate is a true full-workspace baseline. Previously this
+      # was `cargo test` (root package only), which silently skipped wflpkg's
+      # tests. (integration tests have access to the release binary)
       - name: Run Tests
-        run: cargo test --verbose
+        run: cargo test --workspace --verbose
 
       # Build LSP to catch Send/Sync regressions
       - name: Build LSP
