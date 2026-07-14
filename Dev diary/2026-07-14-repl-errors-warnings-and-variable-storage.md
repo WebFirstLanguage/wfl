@@ -45,20 +45,30 @@ positives about the live session.
 
 All changes are in `src/repl.rs` (plus a tiny cleanup in `src/interpreter/mod.rs`).
 
-- **The interpreter is the source of truth.** The REPL no longer lets the
-  stateless analyzer/type-checker gate execution. Static analysis is kept only
-  for advisory **warnings** that are self-contained within one line (unreachable
-  code, shadowing, insecure RNG seeding, inconsistent returns). Analyzer
-  *errors* (undefined name, "not an action", already-defined) are context
-  dependent, so they are not reported here — the interpreter re-checks them
-  against the real session environment and reports genuine ones at run time with
-  the standard formatting. The type checker is skipped for the same reason. This
-  fixes causes #1 and #2 together: `store` stores, and later lines can use what
-  earlier lines defined.
-
-- **"Unused variable" warnings are suppressed in the REPL.** A stored binding is
-  available to the next line, so "unused" is always a false positive
-  interactively.
+- **The interpreter is the source of truth, and static analysis is filtered by
+  diagnostic code — not blanket-dropped.** The REPL no longer lets the stateless
+  analyzer/type-checker reject valid session code, but it still preserves the
+  diagnostics that are genuinely valid line-by-line:
+  - `ANALYZE-SEMANTIC` (context-dependent name resolution: undefined name, "not
+    an action", already-defined, undefined-inside-`try`) is dropped — a name
+    defined on an earlier line looks undefined to the per-line analyzer. The
+    interpreter re-checks these against the real environment and reports genuine
+    ones at run time. This fixes causes #1 and #2: `store` stores and later lines
+    can use what earlier lines defined.
+  - `ANALYZE-UNUSED` is dropped — a stored binding is available to the next line,
+    so "unused" is always a false positive interactively.
+  - **everything else is kept exactly as `wfl <file>` treats it.** Advisory
+    warnings (unreachable code, dead branch, shadowing, inconsistent returns) are
+    shown, and any self-contained **error** — notably the `ANALYZE-SECURITY` lint
+    that blocks seeding the RNG (`random_seed`) inside crypto/auth code — is shown
+    **and blocks execution**. These lints depend only on the current line's own
+    code, never on session state, so weakening them would be wrong. (An earlier
+    revision of this fix incorrectly filtered on `Severity::Warning`, which
+    silently discarded the fatal `ANALYZE-SECURITY` lint in the REPL; caught in
+    review and corrected to the code-based filter above.)
+  - The type checker is skipped: its diagnostics are the same context-dependent
+    name/type kind that would be noise on every line referring back to the
+    session.
 
 - **Robust multi-line detection.** `error_means_more_input_needed` replaces the
   fragile string match with two case-insensitive signals: the parser ran out of

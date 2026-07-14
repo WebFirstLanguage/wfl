@@ -216,15 +216,22 @@ impl ReplState {
         let mut diag = diagnostic.clone();
         if diag.labels.is_empty()
             && diag.line >= 1
-            && let Some(start) = reporter.line_col_to_offset(file_id, diag.line, diag.column)
+            && let Some(offset) = reporter.line_col_to_offset(file_id, diag.line, diag.column)
         {
-            diag.labels.push((
-                Span {
-                    start,
-                    end: start + 1,
-                },
-                "here".to_string(),
-            ));
+            // `line_col_to_offset` may return an offset one past the last byte
+            // (a column at end-of-line / EOF). Clamp the one-character span into
+            // the source, because codespan fails to emit on an end offset past
+            // the file length — which would silently drop the caret.
+            let source_len = reporter
+                .files
+                .get(file_id)
+                .map(|file| file.source().len())
+                .unwrap_or(0);
+            let start = offset.min(source_len.saturating_sub(1));
+            let end = (start + 1).min(source_len);
+            if start < end {
+                diag.labels.push((Span { start, end }, "here".to_string()));
+            }
         }
 
         let mut buffer = Buffer::ansi();
@@ -290,34 +297,50 @@ impl ReplState {
         // Messages accumulated across the analysis and run phases.
         let mut messages: Vec<String> = Vec::new();
 
-        // --- Static analysis (advisory only) --------------------------------
+        // --- Static analysis -------------------------------------------------
         // The REPL keeps ONE persistent interpreter for the whole session, but
         // the analyzer and type checker are whole-program tools that only ever
-        // see this single line. A variable or action defined on an *earlier*
-        // line therefore looks "undefined" to them, and a bare `store x as 5`
-        // looks "unused" — both false positives against the live session. So
-        // the interpreter (which owns the real environment) is the source of
-        // truth for what is defined and what is an error, and static analysis
-        // is used here only for advisory WARNINGS that are self-contained
-        // within a single line (unreachable code, shadowing, insecure RNG
-        // seeding, inconsistent returns).
+        // see this single line. Some of their diagnostics are false positives
+        // against the live session; others are perfectly valid. So they are
+        // filtered by diagnostic code, not blanket-dropped:
         //
-        // Concretely: analyzer *errors* (undefined name, "not an action",
-        // already-defined, ...) are context-dependent and are re-checked by the
-        // interpreter at run time against the real environment — so they are
-        // NOT reported here (that is what made `display x` on the line after
-        // `store x as 5` wrongly fail). "Unused variable" warnings are likewise
-        // false positives in an interactive session and are suppressed. The
-        // type checker is skipped entirely for the same reason: its diagnostics
-        // are the same context-dependent kind and would be noise on every line
-        // that refers back to the session.
+        //   * `ANALYZE-SEMANTIC` — context-dependent name resolution (undefined
+        //     name, "not an action", already-defined, undefined-inside-`try`).
+        //     A name defined on an earlier line looks undefined here, so these
+        //     are dropped: the interpreter, which owns the real environment,
+        //     re-checks them at run time and reports genuine ones (this is what
+        //     made `display x` after `store x as 5` wrongly fail).
+        //   * `ANALYZE-UNUSED` — a stored binding is available to the next line,
+        //     so "unused" is always a false positive interactively. Dropped.
+        //   * everything else is *self-contained* within the single line and is
+        //     kept exactly as `wfl <file>` treats it: advisory warnings
+        //     (unreachable code, dead branch, shadowing, inconsistent returns)
+        //     are shown, and any error — notably the `ANALYZE-SECURITY` lint for
+        //     seeding the RNG in crypto/auth code — is shown AND blocks
+        //     execution. Such lints depend only on this line's own code, never
+        //     on session state, so there is no reason to weaken them.
+        //
+        // The type checker is skipped because its diagnostics are the same
+        // context-dependent name/type kind that would be noise on every line
+        // referring back to the session.
         let mut analyzer = Analyzer::new();
+        let mut has_fatal_error = false;
         for diagnostic in &analyzer.analyze_static(&program, file_id) {
-            let keep =
-                diagnostic.severity == Severity::Warning && diagnostic.code != "ANALYZE-UNUSED";
-            if keep {
-                messages.push(Self::render_diagnostic(&mut reporter, file_id, diagnostic));
+            if matches!(
+                diagnostic.code.as_str(),
+                "ANALYZE-SEMANTIC" | "ANALYZE-UNUSED"
+            ) {
+                continue;
             }
+            messages.push(Self::render_diagnostic(&mut reporter, file_id, diagnostic));
+            if diagnostic.severity == Severity::Error {
+                has_fatal_error = true;
+            }
+        }
+        // A self-contained fatal analysis error (e.g. a security-policy
+        // violation) must stop the command before it runs, just like the CLI.
+        if has_fatal_error {
+            return Ok(Some(messages.join("\n")));
         }
 
         // --- Execution -------------------------------------------------------
@@ -536,6 +559,33 @@ mod tests {
     }
 
     // --- Error reporting still fires for genuine mistakes ------------------
+
+    #[tokio::test]
+    async fn self_contained_security_lint_still_blocks() {
+        // Seeding the RNG inside crypto/auth code is a self-contained security
+        // violation (it does not depend on session state), so it must stay
+        // fatal in the REPL — not get filtered out with the context-dependent
+        // name-resolution diagnostics.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called make_token:",
+            "random_seed of 1",
+            "give back secure_random_bytes of 16",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("the security lint must be reported");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        // Execution was blocked, so the action was never defined.
+        assert!(!repl.interpreter.global_env().borrow().has("make_token"));
+    }
 
     #[tokio::test]
     async fn undefined_variable_is_reported_as_a_runtime_error() {
