@@ -73,7 +73,8 @@ async fn next_text(ws: &mut WsStream) -> String {
             .expect("stream ended unexpectedly")
             .expect("websocket error");
         match msg {
-            Message::Text(text) => return text,
+            // tokio-tungstenite 0.30 carries text frames as `Utf8Bytes`.
+            Message::Text(text) => return text.to_string(),
             Message::Ping(_) | Message::Pong(_) => continue,
             other => panic!("unexpected websocket frame: {other:?}"),
         }
@@ -167,12 +168,12 @@ async fn websocket_connect_and_echo() {
 
     // The message handler echoes with a prefix, proving inbound content reaches
     // the handler (`body of msg`) and `send ... to msg` replies to the sender.
-    ws.send(Message::Text("hello".to_string()))
+    ws.send(Message::Text("hello".into()))
         .await
         .expect("send hello");
     assert_eq!(next_text(&mut ws).await, "Echo: hello");
 
-    ws.send(Message::Text("again".to_string()))
+    ws.send(Message::Text("again".into()))
         .await
         .expect("send again");
     assert_eq!(next_text(&mut ws).await, "Echo: again");
@@ -193,7 +194,7 @@ async fn websocket_broadcast_reaches_all_clients() {
     assert_eq!(next_text(&mut a).await, "ready");
     assert_eq!(next_text(&mut b).await, "ready");
 
-    a.send(Message::Text("ping".to_string()))
+    a.send(Message::Text("ping".into()))
         .await
         .expect("send ping");
 
@@ -232,7 +233,7 @@ async fn websocket_close_server_closes_connections() {
     assert_eq!(next_text(&mut ws).await, "ready");
 
     // Asking the server to close should tear the client's connection down.
-    ws.send(Message::Text("shutdown".to_string()))
+    ws.send(Message::Text("shutdown".into()))
         .await
         .expect("send shutdown");
     expect_closed(&mut ws).await;

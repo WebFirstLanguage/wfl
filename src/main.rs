@@ -122,6 +122,13 @@ fn main() -> io::Result<()> {
         return build_runtime()?.block_on(run());
     }
 
+    // Multiple rustls crypto providers are linked in (aws-lc-rs via reqwest,
+    // ring via sqlx); install one process-level default before any interpreter
+    // path that may build a TLS config, so an ambient-default lookup can't
+    // panic. Placed after the trivial check so `--help`/`--version` (which never
+    // touch TLS) stay lightweight. Shared helper so every binary/embedder matches.
+    wfl::init_rustls_crypto_provider();
+
     // Otherwise run on a dedicated large-stack thread (the shared
     // `wfl::run_with_interpreter_stack` helper, also intended for library
     // embedders) so the shared budget's `max_call_depth` turns runaway recursion

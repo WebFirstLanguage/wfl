@@ -47,6 +47,11 @@ fn main() {
         }
     }
 
+    // This binary links the wfl crate, which pulls two rustls crypto providers
+    // (aws-lc-rs via reqwest, ring via sqlx). Install one process-level default
+    // so any ambient-default TLS path can't panic. See the helper's docs.
+    wfl::init_rustls_crypto_provider();
+
     // Only create tokio runtime when actually running a server
     let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
     rt.block_on(async_main(args));

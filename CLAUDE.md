@@ -110,7 +110,14 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **REPL** (`src/repl.rs`): Interactive Read-Eval-Print Loop for experimentation
 
 ## Build, Test, and Dev Commands
-- **Build**: `cargo build` (release: `cargo build --release`).
+- **Disk space (clean *before* building when disk is low)**: The `target/` tree (debug + release, with `debug = true` on release) grows to ~30 GB and can exhaust a constrained environment's disk allowance, causing `No space left on device` / linker `Bus error` failures **mid-build**. When a build dies that way you have to `cargo clean` and rebuild from scratch *anyway* — so cleaning up front is strictly cheaper than paying for a failed build plus the clean-and-rebuild. Don't clean unconditionally, though (that throws away incremental compilation on machines with plenty of disk). Instead clean *intelligently*, based on free space — clean only when there isn't room for a full build (~30 GB here):
+  ```bash
+  # Linux build env: cargo clean first only when free space is tight, then build.
+  [ "$(df -BG --output=avail . | tail -1 | tr -dc '0-9')" -lt 30 ] && cargo clean
+  cargo build            # or: cargo build --release
+  ```
+  On a roomy machine this stays fully incremental; in the constrained environment it cleans just-in-time. (A lighter, incrementality-preserving alternative is to shrink `target/` via profile tweaks — e.g. `debug = 0` for dependencies — not adopted here so release backtraces stay intact.)
+- **Build**: `cargo build` (release: `cargo build --release`) — see the disk-space note above before building in a constrained environment.
 - **Run**: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
 - **Test**: `cargo test`; integration requires release binary.
   - Integration: `./scripts/run_integration_tests.ps1` or `.sh`
@@ -215,7 +222,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 
 ## Technical Requirements
-- **Rust Edition**: 2024 (MSRV: 1.88+ — the codebase uses `let`-chains; Dev: 1.91.1+)
+- **Rust Edition**: 2024 (MSRV: 1.94+ — raised by the `sqlx` 0.9 dependency; Dev: 1.94+)
 - **Versioning**: YY.MM.BUILD (e.g., 26.1.22). Major version always < 256 (Windows MSI compatibility).
 - **Key Dependencies**:
   - `logos`: Lexer

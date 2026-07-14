@@ -25,7 +25,9 @@ fn write_self_signed_cert(dir: &std::path::Path) -> (String, String) {
     let cert_path = dir.join("cert.pem");
     let key_path = dir.join("key.pem");
     std::fs::write(&cert_path, certified.cert.pem()).expect("Failed to write cert.pem");
-    std::fs::write(&key_path, certified.key_pair.serialize_pem()).expect("Failed to write key.pem");
+    // rcgen 0.14 renamed `CertifiedKey.key_pair` to `signing_key`.
+    std::fs::write(&key_path, certified.signing_key.serialize_pem())
+        .expect("Failed to write key.pem");
 
     // Forward slashes: these paths are embedded in WFL string literals, and
     // Windows backslashes would be rejected by the WFL lexer. Windows file

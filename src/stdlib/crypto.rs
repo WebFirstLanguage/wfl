@@ -554,7 +554,7 @@ pub fn native_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
 pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("generate_csrf_token", &args, 0)?;
 
-    use rand::RngCore;
+    use rand::Rng;
 
     // Generate 32 random bytes (256 bits)
     let mut rng = rand::rng();
@@ -734,7 +734,7 @@ pub fn native_constant_time_equals(args: Vec<Value>) -> Result<Value, RuntimeErr
 pub fn native_secure_random_bytes(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("secure_random_bytes", &args, 1)?;
 
-    use rand::RngCore;
+    use rand::Rng;
 
     let n = expect_count("secure_random_bytes", "n", &args[0])? as usize;
     if n < 1 {
@@ -796,7 +796,7 @@ fn check_password_len(func: &str, password: &str) -> Result<(), RuntimeError> {
 
 /// Generate a cryptographically random 16-byte salt encoded for PHC output.
 fn random_salt() -> Result<SaltString, RuntimeError> {
-    use rand::RngCore;
+    use rand::Rng;
 
     let mut bytes = [0u8; 16];
     rand::rng().fill_bytes(&mut bytes);

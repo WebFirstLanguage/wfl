@@ -66,7 +66,7 @@ Phase 1→3 items, not guarantees.
 | Requirement | Value | Source of truth |
 |---|---|---|
 | Rust channel | **stable** | All CI jobs use `dtolnay/rust-toolchain@stable`. |
-| Minimum supported Rust version (MSRV) | **1.88** (declared) | `Cargo.toml` `rust-version = "1.88"`. The codebase uses `let`-chains (stabilized in 1.88), so older toolchains fail fast via `cargo`'s check. Note: CI builds on **stable**, so the 1.88 floor is *declared but not gate-tested* — an MSRV lane is a tracked follow-up. |
+| Minimum supported Rust version (MSRV) | **1.94** (declared) | `Cargo.toml` `rust-version = "1.94"`, driven by the `sqlx` 0.9 dependency; older toolchains fail fast via `cargo`'s check. Note: CI builds on **stable**, so the 1.94 floor is *declared but not gate-tested* — an MSRV lane is a tracked follow-up. |
 | Rust edition | **2024** | `Cargo.toml` `edition = "2024"`. |
 | Build profiles | `debug`, `release` | Integration tests and `TestPrograms` require a `cargo build --release` binary. |
 | Disallowed | `panic = "abort"` | CI asserts the release binary rejects `panic=abort` (`ci.yml`), so panics stay unwindable/catchable. |
