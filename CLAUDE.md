@@ -110,7 +110,8 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **REPL** (`src/repl.rs`): Interactive Read-Eval-Print Loop for experimentation
 
 ## Build, Test, and Dev Commands
-- **Build**: `cargo build` (release: `cargo build --release`).
+- **Disk space (run `cargo clean` before every build)**: The build environment has a limited disk allowance and the `target/` tree (debug + release, with `debug = true` on release) grows to tens of GB, which causes `No space left on device` / linker `Bus error` failures. Run `cargo clean` before each build so a fresh build never runs out of space. (Trade-off: this forgoes incremental compilation, so every build is a full rebuild.)
+- **Build**: `cargo clean && cargo build` (release: `cargo clean && cargo build --release`).
 - **Run**: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
 - **Test**: `cargo test`; integration requires release binary.
   - Integration: `./scripts/run_integration_tests.ps1` or `.sh`
