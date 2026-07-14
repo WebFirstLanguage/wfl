@@ -260,7 +260,7 @@ confused with WFL code. Type `.help` at any time to list them:
 | Command | What it does |
 |---------|--------------|
 | `.help` | Show the list of REPL commands |
-| `.history` | Show the commands you have entered this session |
+| `.history` | List the WFL inputs you've run this session (dot-commands are not included) |
 | `.clear` | Clear the screen |
 | `.exit` | Exit the REPL |
 
@@ -497,8 +497,9 @@ The REPL has some limitations:
 3. **No undo** - Can't undo variable assignments (but you can re-`store` a
    variable to overwrite it)
 
-You *can* review what you have typed this session with `.history`, and recall
-previous lines with the up/down arrow keys.
+You *can* review the WFL inputs you've run this session with `.history` (it does
+not list dot-commands like `.help`), and recall any previous line — including
+dot-commands — with the up/down arrow keys.
 
 **Solution:** Use the REPL for experiments, then move working code to `.wfl` files.
 
