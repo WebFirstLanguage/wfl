@@ -661,14 +661,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn multiline_if_block_runs_only_once_closed() {
+    async fn multiline_if_block_buffers_across_lines_and_runs_on_close() {
         let mut repl = ReplState::new();
+        // Opener and body are buffered — the REPL waits and runs nothing yet.
         assert_eq!(repl.process_line("check if yes:").await.unwrap(), None);
         assert!(repl.in_multiline, "REPL should be waiting for more input");
-        assert_eq!(repl.process_line("display \"inside\"").await.unwrap(), None);
+        assert_eq!(
+            repl.process_line("store inside_block as 7").await.unwrap(),
+            None
+        );
         assert!(repl.in_multiline);
-        // Closing the block completes the buffered input and clears multiline.
-        repl.process_line("end check").await.unwrap();
+        assert!(
+            !repl.interpreter.global_env().borrow().has("inside_block"),
+            "the buffered block must not run before it is closed"
+        );
+        // Closing the block completes the buffered input and runs it once,
+        // cleanly (no error → `Ok(None)`), which defines the block's variable.
+        assert_eq!(repl.process_line("end check").await.unwrap(), None);
         assert!(!repl.in_multiline, "block is closed, multiline should end");
+        assert!(
+            repl.interpreter.global_env().borrow().has("inside_block"),
+            "closing the block should execute its body exactly once"
+        );
     }
 }
