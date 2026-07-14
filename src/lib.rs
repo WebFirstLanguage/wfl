@@ -75,6 +75,19 @@ pub fn init_loggers(log_path: &Path, script_dir: &Path) {
     }
 }
 
+/// Install a process-level rustls [`CryptoProvider`](rustls::crypto::CryptoProvider).
+///
+/// This crate links two rustls crypto providers into one `rustls 0.23`:
+/// aws-lc-rs (via reqwest) and ring (via sqlx). rustls refuses to auto-select a
+/// default when more than one is present, so any code path that builds a TLS
+/// config from the ambient default panics at runtime. Every binary that links
+/// this crate — and any embedder — should call this once at startup, before
+/// creating a TLS client or connection pool. Installing twice is a no-op (the
+/// second call returns `Err`, which is ignored), so it is always safe to call.
+pub fn init_rustls_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 pub use interpreter::{Interpreter, TestFailure, TestResults};
 
 /// Dedicated interpreter thread stack size (1 GiB), reserved virtually and

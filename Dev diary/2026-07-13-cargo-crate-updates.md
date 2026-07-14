@@ -45,11 +45,12 @@ required a manifest change and, in several cases, source changes.
   with *two* providers. reqwest and sqlx each configure their own provider
   explicitly, so HTTPS and DB TLS work today (verified with a live HTTPS
   request), but rustls 0.23 panics if any code builds a config from the *ambient*
-  default while more than one provider is present. As a defensive measure `main`
-  now installs a process-level default once at startup
-  (`rustls::crypto::ring::default_provider().install_default()`), added as a
-  direct `rustls` dependency (ring feature only). This only affects the `wfl`
-  binary, which is the one linking both providers.
+  default while more than one provider is present. As a defensive measure the lib
+  exposes `wfl::init_rustls_crypto_provider()` (installs the ring provider as the
+  process default), called once at startup from every binary entry point that
+  links both providers — `wfl` (`src/main.rs`, after the `--help`/`--version`
+  fast path) and `wfl-lsp` — and available to embedders. Added as a direct
+  `rustls` dependency (ring feature only).
 - **`sqlx 0.8 → 0.9`** — this bump also **raises the workspace MSRV to 1.94**:
   `sqlx 0.9.0` declares `rust-version = "1.94.0"`, and it is the only updated
   crate that needs more than 1.85, so it sets the effective floor. WFL previously

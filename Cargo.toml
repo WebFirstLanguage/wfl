@@ -90,10 +90,11 @@ pbkdf2 = { version = "0.12", features = ["simple"] }
 bcrypt = "0.19"
 # Force newer version to fix future incompatibility warning
 num-bigint-dig = "0.8.6"
-# Direct dep only so `main` can install a process-level rustls CryptoProvider.
-# reqwest pulls aws-lc-rs and sqlx pulls ring into the same rustls 0.23, and
-# rustls refuses to pick a default when both are present; installing one up
-# front keeps any ambient-default TLS path from panicking. `ring` matches sqlx.
+# Direct dep so the lib can expose `init_rustls_crypto_provider()` (called by
+# every binary/embedder at startup). reqwest pulls aws-lc-rs and sqlx pulls ring
+# into the same rustls 0.23, and rustls refuses to pick a default when both are
+# present; installing one up front keeps any ambient-default TLS path from
+# panicking. `ring` matches sqlx.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [features]
