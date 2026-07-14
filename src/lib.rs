@@ -82,9 +82,17 @@ pub fn init_loggers(log_path: &Path, script_dir: &Path) {
 /// default when more than one is present, so any code path that builds a TLS
 /// config from the ambient default panics at runtime. Every binary that links
 /// this crate — and any embedder — should call this once at startup, before
-/// creating a TLS client or connection pool. Installing twice is a no-op (the
-/// second call returns `Err`, which is ignored), so it is always safe to call.
+/// creating a TLS client or connection pool.
+///
+/// The guarantee is only that *a* process-level provider is installed once this
+/// returns, not that it is ring specifically: `install_default` fails if a
+/// default is already set (by an earlier call to this function *or* by any other
+/// code), and that `Err` is intentionally ignored so the call is always safe and
+/// idempotent. Callers must not assume which provider ends up installed. If you
+/// need a specific provider, install it yourself before calling any WFL code.
 pub fn init_rustls_crypto_provider() {
+    // Ignore the `Err`: it means a default is already installed, which satisfies
+    // the "some provider is set" contract regardless of which one it is.
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
