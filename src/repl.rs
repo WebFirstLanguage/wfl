@@ -217,18 +217,26 @@ impl ReplState {
         if diag.labels.is_empty()
             && diag.line >= 1
             && let Some(offset) = reporter.line_col_to_offset(file_id, diag.line, diag.column)
+            && let Ok(file) = reporter.files.get(file_id)
         {
-            // `line_col_to_offset` may return an offset one past the last byte
-            // (a column at end-of-line / EOF). Clamp the one-character span into
-            // the source, because codespan fails to emit on an end offset past
-            // the file length — which would silently drop the caret.
-            let source_len = reporter
-                .files
-                .get(file_id)
-                .map(|file| file.source().len())
-                .unwrap_or(0);
-            let start = offset.min(source_len.saturating_sub(1));
-            let end = (start + 1).min(source_len);
+            // Build a one-character span that stays on UTF-8 char boundaries.
+            // Spans are byte offsets into the source `String`; a `start + 1`
+            // (or an EOF clamp of `len - 1`) can land in the middle of a
+            // multi-byte character, and codespan then slices a non-char-boundary
+            // range and panics. Snap `start` down and `end` up to the enclosing
+            // character so the caret always underlines a whole char. Also
+            // guards the EOF case, where `line_col_to_offset` may return an
+            // offset one past the last byte.
+            let source = file.source();
+            let len = source.len();
+            let mut start = offset.min(len);
+            while start > 0 && !source.is_char_boundary(start) {
+                start -= 1;
+            }
+            let mut end = (start + 1).min(len);
+            while end < len && !source.is_char_boundary(end) {
+                end += 1;
+            }
             if start < end {
                 diag.labels.push((Span { start, end }, "here".to_string()));
             }
@@ -606,6 +614,32 @@ mod tests {
         let mut repl = ReplState::new();
         let out = repl.process_line("store as 5").await.unwrap();
         assert!(out.is_some(), "a syntax error must be surfaced");
+    }
+
+    #[test]
+    fn render_diagnostic_snaps_span_to_char_boundaries() {
+        // A label-less diagnostic whose position falls on a multi-byte
+        // character must not make codespan slice a non-char-boundary range
+        // (which panics). "café" is 5 bytes; column 4 is the start of the 2-byte
+        // 'é', so a naive `start + 1` span would split it.
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", "café");
+        let diag = WflDiagnostic::new(
+            Severity::Warning,
+            "unreachable code",
+            None::<String>,
+            "ANALYZE-UNREACHABLE",
+            file_id,
+            1,
+            4,
+            None,
+        );
+        // Must not panic, and must still carry the message.
+        let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
+        assert!(
+            rendered.contains("unreachable code"),
+            "expected the message in the rendered diagnostic, got: {rendered}"
+        );
     }
 
     // --- Expression echo uses WFL's own value spelling --------------------
