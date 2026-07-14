@@ -2,10 +2,10 @@
 name = "wfl"
 version = "26.7.37"
 edition = "2024"
-# Minimum supported Rust version. The codebase itself only needs 1.88 (it uses
-# `if let … && …` let-chains, stabilized then), but the `sqlx` 0.9 dependency
-# declares `rust-version = "1.94"`, which raises the effective floor. Recorded
-# here so `cargo` fails fast on older toolchains instead of deep in a build.
+# Minimum supported Rust version. Driven by the `sqlx` 0.9 dependency, which
+# declares `rust-version = "1.94"`; the WFL sources themselves need less.
+# Recorded here so `cargo` fails fast on older toolchains instead of deep in a
+# build.
 rust-version = "1.94"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"

@@ -215,7 +215,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 
 ## Technical Requirements
-- **Rust Edition**: 2024 (MSRV: 1.94+ — the codebase needs `let`-chains from 1.88, but `sqlx` 0.9 raises the floor to 1.94; Dev: 1.94+)
+- **Rust Edition**: 2024 (MSRV: 1.94+ — raised by the `sqlx` 0.9 dependency; Dev: 1.94+)
 - **Versioning**: YY.MM.BUILD (e.g., 26.1.22). Major version always < 256 (Windows MSI compatibility).
 - **Key Dependencies**:
   - `logos`: Lexer
