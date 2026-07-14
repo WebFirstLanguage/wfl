@@ -110,8 +110,14 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **REPL** (`src/repl.rs`): Interactive Read-Eval-Print Loop for experimentation
 
 ## Build, Test, and Dev Commands
-- **Disk space (run `cargo clean` before every build)**: The build environment has a limited disk allowance and the `target/` tree (debug + release, with `debug = true` on release) grows to tens of GB, which causes `No space left on device` / linker `Bus error` failures. Run `cargo clean` before each build so a fresh build never runs out of space. (Trade-off: this forgoes incremental compilation, so every build is a full rebuild.)
-- **Build**: `cargo clean && cargo build` (release: `cargo clean && cargo build --release`).
+- **Disk space (clean *before* building when disk is low)**: The `target/` tree (debug + release, with `debug = true` on release) grows to ~30 GB and can exhaust a constrained environment's disk allowance, causing `No space left on device` / linker `Bus error` failures **mid-build**. When a build dies that way you have to `cargo clean` and rebuild from scratch *anyway* — so cleaning up front is strictly cheaper than paying for a failed build plus the clean-and-rebuild. Don't clean unconditionally, though (that throws away incremental compilation on machines with plenty of disk). Instead clean *intelligently*, based on free space — clean only when there isn't room for a full build (~30 GB here):
+  ```bash
+  # Linux build env: cargo clean first only when free space is tight, then build.
+  [ "$(df -BG --output=avail . | tail -1 | tr -dc '0-9')" -lt 30 ] && cargo clean
+  cargo build            # or: cargo build --release
+  ```
+  On a roomy machine this stays fully incremental; in the constrained environment it cleans just-in-time. (A lighter, incrementality-preserving alternative is to shrink `target/` via profile tweaks — e.g. `debug = 0` for dependencies — not adopted here so release backtraces stay intact.)
+- **Build**: `cargo build` (release: `cargo build --release`) — see the disk-space note above before building in a constrained environment.
 - **Run**: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
 - **Test**: `cargo test`; integration requires release binary.
   - Integration: `./scripts/run_integration_tests.ps1` or `.sh`
