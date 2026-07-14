@@ -40,8 +40,15 @@ required a manifest change and, in several cases, source changes.
 - **`reqwest 0.11 → 0.13`** — no source changes; the client/request/response/
   multipart APIs used in `src/interpreter/mod.rs` and the `wflpkg` registry are
   unchanged. The default TLS backend is now rustls via the platform verifier.
-- **`sqlx 0.8 → 0.9`** — three breaking changes handled in
-  `src/interpreter/database.rs`:
+- **`sqlx 0.8 → 0.9`** — this bump also **raises the workspace MSRV to 1.94**:
+  `sqlx 0.9.0` declares `rust-version = "1.94.0"`, and it is the only updated
+  crate that needs more than 1.85, so it sets the effective floor. WFL previously
+  advertised MSRV 1.88 (dev 1.91.1); building on that toolchain would now fail in
+  cargo. The declared MSRV was raised to 1.94 in `Cargo.toml` and in the docs
+  (`CLAUDE.md`, `AGENTS.md`, `Docs/development/building-from-source.md`,
+  `Docs/reference/supported-platforms.md`). CI uses `dtolnay/rust-toolchain@stable`
+  (currently ≥1.94), so no workflow change was needed. Three breaking changes were
+  handled in `src/interpreter/database.rs`:
   1. The `runtime-tokio-rustls` feature was split into a separate runtime and TLS
      backend; the manifest now uses `runtime-tokio` + `tls-rustls`
      (`tls-rustls` aliases the ring-backed rustls stack as before).
@@ -94,15 +101,14 @@ required a manifest change and, in several cases, source changes.
   22 skipped** (skips are the web/websocket programs handled by dedicated scripts
   plus CI-SKIP directives).
 
-### Note on the toolchain
+### Note on pre-existing clippy lints in test files
 
-This environment runs rustc/clippy **1.94.1**, newer than the project's stated dev
-toolchain (1.91.1). The newer clippy flags some pre-existing style lints
+With the MSRV now at 1.94, clippy 1.94 flags some **pre-existing** style lints
 (`field_reassign_with_default`, `manual_map`, stricter `dead_code`) in
 **test files that this change does not touch** — `crates/wflpkg/tests/…` and
 `wfl-lsp/tests/…`. These reproduce identically on a clean checkout (verified by
-stashing this change and re-running clippy on `HEAD`), so they are toolchain lint
-drift, not migration regressions, and were left out of this dependency-focused
-change.
+stashing this change and re-running clippy on `HEAD`), so they are not migration
+regressions and were left out of this dependency-focused change; they are worth a
+separate small cleanup PR now that 1.94 is the supported toolchain.
 
 *`codespan-reporting` is a source-changed migration; see the list above.

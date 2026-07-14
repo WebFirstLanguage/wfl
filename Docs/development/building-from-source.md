@@ -6,7 +6,7 @@ Compile WFL on your machine, run tests, and use a local binary. You do not need 
 
 | Tool | Notes |
 |------|--------|
-| **Rust** | 1.75 or later (development often uses 1.91.1+) |
+| **Rust** | 1.94 or later (raised by the `sqlx` 0.9 dependency) |
 | **Cargo** | Comes with Rust via rustup |
 | **Git** | To clone the repository |
 
