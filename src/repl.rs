@@ -221,15 +221,20 @@ impl ReplState {
         {
             // Build a one-character span that stays on UTF-8 char boundaries.
             // Spans are byte offsets into the source `String`; a `start + 1`
-            // (or an EOF clamp of `len - 1`) can land in the middle of a
-            // multi-byte character, and codespan then slices a non-char-boundary
-            // range and panics. Snap `start` down and `end` up to the enclosing
-            // character so the caret always underlines a whole char. Also
-            // guards the EOF case, where `line_col_to_offset` may return an
-            // offset one past the last byte.
+            // (or an EOF clamp) can land in the middle of a multi-byte
+            // character, and codespan then slices a non-char-boundary range and
+            // panics. Snap `start` down and `end` up to the enclosing character
+            // so the caret always underlines a whole char.
             let source = file.source();
             let len = source.len();
             let mut start = offset.min(len);
+            // `line_col_to_offset` may return an offset at EOF (one past the
+            // last byte). There is no character to the right there, so step back
+            // onto the last character so the caret still points at the source
+            // instead of vanishing.
+            if start == len && len > 0 {
+                start -= 1;
+            }
             while start > 0 && !source.is_char_boundary(start) {
                 start -= 1;
             }
@@ -634,11 +639,38 @@ mod tests {
             4,
             None,
         );
-        // Must not panic, and must still carry the message.
+        // Must not panic, must carry the message, and must render the caret
+        // (the source-location header) rather than the caret-less fallback.
         let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
         assert!(
-            rendered.contains("unreachable code"),
-            "expected the message in the rendered diagnostic, got: {rendered}"
+            rendered.contains("unreachable code") && rendered.contains("repl:1:"),
+            "expected a caret-rendered diagnostic, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_diagnostic_points_at_source_even_at_eof() {
+        // A diagnostic whose column lands at EOF (one past the last byte) must
+        // still get a caret on the last character, not render caret-less.
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", "hi");
+        let diag = WflDiagnostic::new(
+            Severity::Warning,
+            "watch out",
+            None::<String>,
+            "ANALYZE-SHADOW",
+            file_id,
+            1,
+            3, // column past the last character of "hi"
+            None,
+        );
+        let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
+        // A caret label makes codespan emit the source-location header
+        // (`repl:1:2`, pointing at the last character); without a label the
+        // message would render alone with no location.
+        assert!(
+            rendered.contains("repl:1:"),
+            "expected a caret pointing at the source at EOF, got: {rendered}"
         );
     }
 
