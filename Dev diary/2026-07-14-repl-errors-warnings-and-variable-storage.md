@@ -43,7 +43,8 @@ positives about the live session.
 
 ## What changed
 
-All changes are in `src/repl.rs` (plus a tiny cleanup in `src/interpreter/mod.rs`).
+The implementation change is entirely in `src/repl.rs`; the REPL guide
+(`Docs/02-getting-started/repl-guide.md`) and this diary are updated alongside it.
 
 - **The interpreter is the source of truth, and static analysis is filtered by
   diagnostic code — not blanket-dropped.** The REPL no longer lets the stateless

@@ -31,6 +31,10 @@ The `wfl>` prompt means WFL is ready for your input. While you are part-way
 through a multi-line block, the prompt changes to `...` to show WFL is waiting
 for the rest of the block.
 
+> **Reading the examples:** to keep them short, the examples below use `>` as
+> shorthand for the `wfl>` prompt (and `...` for the multi-line continuation
+> prompt). Type only the code after the prompt.
+
 ## Basic Usage
 
 ### Simple Expressions
@@ -266,19 +270,19 @@ To see a value, just type the variable name (no dot — that's WFL code, not a
 REPL command):
 
 ```wfl
-wfl> store x as 100
-wfl> x
+> store x as 100
+> x
 100
 
-wfl> store name as "Alice"
-wfl> name
+> store name as "Alice"
+> name
 Alice
 ```
 
 ### Clear the Screen
 
 ```wfl
-wfl> .clear
+> .clear
 ```
 
 ### Exit the REPL
@@ -287,7 +291,7 @@ Any of these work:
 
 1. **Type `.exit`:**
    ```wfl
-   wfl> .exit
+   > .exit
    ```
 
 2. **Press Ctrl+C** (cancels a running command; press at the empty prompt to quit)
@@ -347,7 +351,7 @@ See how WFL reports errors. For example, referring to a variable you never
 defined points right at the problem:
 
 ```wfl
-wfl> display total
+> display total
 error: Undefined variable 'total'
   ┌─ repl:1:9
   │
