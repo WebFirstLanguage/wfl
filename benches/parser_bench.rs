@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use std::fs;
+use std::hint::black_box;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
