@@ -1,14 +1,11 @@
 use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::StaticAnalyzer;
-use crate::diagnostics::DiagnosticReporter;
+use crate::diagnostics::{DiagnosticReporter, Severity, Span, WflDiagnostic};
 use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
+use crate::interpreter::value::Value;
 use crate::lexer::{lex_wfl_with_positions_checked, token::TokenWithPosition};
-use crate::parser::{
-    Parser,
-    ast::{Program, Statement},
-};
-use crate::typechecker::{TypeCheckError, TypeChecker};
+use crate::parser::{Parser, ast::Statement};
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
@@ -174,11 +171,83 @@ impl ReplState {
 
         let mut parser = Parser::new(tokens);
         match parser.parse() {
-            Err(errors) => errors.iter().any(|e| {
-                e.message.contains("Unexpected end of input")
-                    || (e.message.contains("expected") && e.message.contains("end"))
-            }),
+            Err(errors) => errors.iter().any(Self::error_means_more_input_needed),
             Ok(_) => false, // Successfully parsed, input is complete
+        }
+    }
+
+    /// Decide whether a parse error means "keep reading — the user is
+    /// mid-construct" rather than "this is genuinely wrong".
+    ///
+    /// The parser has no single "unexpected EOF" error type; each construct
+    /// phrases running out of tokens in its own way ("Unexpected end of
+    /// input …", "…, found end of input", and — for action bodies — a bare
+    /// "Expected 'end' after action body" with no EOF marker at all). Matching
+    /// on those strings case-sensitively is what made `check if …:` and
+    /// `define action …:` blocks fail to continue onto the next line. Two
+    /// case-insensitive signals cover every block form:
+    ///   1. the parser explicitly ran out of tokens (`end of input`), or
+    ///   2. it is still waiting for a block terminator (`expected 'end`) and
+    ///      did **not** stop on a concrete token (no `found …`) — i.e. it hit
+    ///      EOF, so more lines can still complete the block.
+    ///
+    /// A real mid-stream mistake reports `… found <Token>` and is therefore
+    /// surfaced immediately instead of silently swallowed.
+    fn error_means_more_input_needed(error: &crate::parser::ast::ParseError) -> bool {
+        let message = error.message.to_lowercase();
+        message.contains("end of input")
+            || (message.contains("expected 'end") && !message.contains("found"))
+    }
+
+    /// Render one WFL diagnostic to a coloured, Elm-style block (source
+    /// snippet, caret, and note), returning the string the REPL prints.
+    ///
+    /// Parse/type/runtime diagnostics already carry a labelled span, so they
+    /// render with a caret as-is. Analyzer diagnostics only carry a
+    /// line/column, so a one-character span is synthesized from it here — that
+    /// way *every* REPL diagnostic follows the same "point at the source"
+    /// convention (WFL Fundamental #4: clear, actionable errors) instead of
+    /// some showing a bare message with no location.
+    fn render_diagnostic(
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+        diagnostic: &WflDiagnostic,
+    ) -> String {
+        let mut diag = diagnostic.clone();
+        if diag.labels.is_empty()
+            && diag.line >= 1
+            && let Some(start) = reporter.line_col_to_offset(file_id, diag.line, diag.column)
+        {
+            diag.labels.push((
+                Span {
+                    start,
+                    end: start + 1,
+                },
+                "here".to_string(),
+            ));
+        }
+
+        let mut buffer = Buffer::ansi();
+        let config = term::Config::default();
+        match term::emit_to_write_style(
+            &mut buffer,
+            &config,
+            &reporter.files,
+            &diag.to_codespan_diagnostic(file_id),
+        ) {
+            Ok(()) => String::from_utf8_lossy(buffer.as_slice()).to_string(),
+            Err(_) => {
+                let severity = match diag.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                    Severity::Note => "note",
+                    Severity::Help => "help",
+                };
+                format!(
+                    "{severity}: {} (at line {}, column {})",
+                    diag.message, diag.line, diag.column
+                )
+            }
         }
     }
 
@@ -191,37 +260,26 @@ impl ReplState {
 
         let tokens = lex_wfl_with_positions_checked(input).map_err(|e| e.message())?;
 
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", input);
+
+        // --- Parse -----------------------------------------------------------
+        // A syntax error is genuinely fatal for this line: there is no AST to
+        // run. (Incomplete multiline input was already routed away by
+        // `is_input_incomplete`, so anything that reaches here is meant to be
+        // complete.)
         let mut parser = Parser::new(&tokens);
         let program = match parser.parse() {
             Ok(prog) => prog,
             Err(errors) => {
-                let mut error_messages = Vec::new();
-                let mut reporter = DiagnosticReporter::new();
-                let file_id = reporter.add_file("repl", input);
-
-                for error in &errors {
-                    let diagnostic = reporter.convert_parse_error(file_id, error);
-
-                    let mut buffer = Buffer::ansi();
-                    let config = term::Config::default();
-                    if let Err(_e) = term::emit_to_write_style(
-                        &mut buffer,
-                        &config,
-                        &reporter.files,
-                        &diagnostic.to_codespan_diagnostic(file_id),
-                    ) {
-                        error_messages.push(format!(
-                            "Parse error at line {}, column {}: {}",
-                            error.line, error.column, error.message
-                        ));
-                        continue;
-                    }
-
-                    let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                    error_messages.push(output);
-                }
-
-                return Ok(Some(error_messages.join("\n")));
+                let rendered: Vec<String> = errors
+                    .iter()
+                    .map(|error| {
+                        let diagnostic = reporter.convert_parse_error(file_id, error);
+                        Self::render_diagnostic(&mut reporter, file_id, &diagnostic)
+                    })
+                    .collect();
+                return Ok(Some(rendered.join("\n")));
             }
         };
 
@@ -229,171 +287,76 @@ impl ReplState {
             return Ok(None);
         }
 
+        // Messages accumulated across the analysis and run phases.
+        let mut messages: Vec<String> = Vec::new();
+
+        // --- Static analysis (advisory only) --------------------------------
+        // The REPL keeps ONE persistent interpreter for the whole session, but
+        // the analyzer and type checker are whole-program tools that only ever
+        // see this single line. A variable or action defined on an *earlier*
+        // line therefore looks "undefined" to them, and a bare `store x as 5`
+        // looks "unused" — both false positives against the live session. So
+        // the interpreter (which owns the real environment) is the source of
+        // truth for what is defined and what is an error, and static analysis
+        // is used here only for advisory WARNINGS that are self-contained
+        // within a single line (unreachable code, shadowing, insecure RNG
+        // seeding, inconsistent returns).
+        //
+        // Concretely: analyzer *errors* (undefined name, "not an action",
+        // already-defined, ...) are context-dependent and are re-checked by the
+        // interpreter at run time against the real environment — so they are
+        // NOT reported here (that is what made `display x` on the line after
+        // `store x as 5` wrongly fail). "Unused variable" warnings are likewise
+        // false positives in an interactive session and are suppressed. The
+        // type checker is skipped entirely for the same reason: its diagnostics
+        // are the same context-dependent kind and would be noise on every line
+        // that refers back to the session.
         let mut analyzer = Analyzer::new();
-        let mut reporter = DiagnosticReporter::new();
-        let file_id = reporter.add_file("repl", input);
-        let sema_diags = analyzer.analyze_static(&program, file_id);
-
-        if !sema_diags.is_empty() {
-            let mut error_messages = Vec::new();
-            for diagnostic in &sema_diags {
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit_to_write_style(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Semantic error: {}", diagnostic.message));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
+        for diagnostic in &analyzer.analyze_static(&program, file_id) {
+            let keep =
+                diagnostic.severity == Severity::Warning && diagnostic.code != "ANALYZE-UNUSED";
+            if keep {
+                messages.push(Self::render_diagnostic(&mut reporter, file_id, diagnostic));
             }
-
-            return Ok(Some(error_messages.join("\n")));
         }
 
-        let mut type_checker = TypeChecker::new();
-        if let Err(failure) = type_checker.check_types(&program) {
-            // A shared-budget breach (deadline/cancellation/resource) is fatal
-            // for this command and must not be rendered as an ordinary type
-            // diagnostic that the REPL might otherwise shrug off.
-            let errors = match failure {
-                TypeCheckError::Budget(exceeded) => {
-                    return Ok(Some(format!("Error: {}", exceeded.message())));
+        // --- Execution -------------------------------------------------------
+        // Run the WHOLE program (so every statement's side effects happen), and
+        // echo the final value only when the last statement is a bare
+        // expression — `interpret` returns the value of the last executed
+        // statement. `store`/`change`/`display` statements produce no echo.
+        let echo_value = matches!(
+            program.statements.last(),
+            Some(Statement::ExpressionStatement { .. })
+        );
+        match self.interpreter.interpret(&program).await {
+            Ok(value) => {
+                // Suppress the echo for void results (`nothing`/null) so a call
+                // to an action that only has side effects — e.g. `call greet
+                // with "World"` — does not print a stray `null` under its output.
+                //
+                // Echo with `Display`, not `Debug`, so the value reads the way
+                // WFL itself presents it (`yes`/`no` for booleans, unquoted
+                // text, `[1, 2, 3]` for lists) — consistent with `display` and
+                // WFL's natural-language principle, instead of Rust's `"..."`
+                // / `true` debug spelling.
+                if echo_value && !matches!(value, Value::Nothing | Value::Null) {
+                    messages.push(format!("{value}"));
                 }
-                TypeCheckError::Types(errors) => errors,
-            };
-            let mut error_messages = Vec::new();
-            for error in &errors {
-                let diagnostic = reporter.convert_type_error(file_id, error);
-
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit_to_write_style(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Type error: {error}"));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
             }
-
-            return Ok(Some(error_messages.join("\n")));
+            Err(errors) => {
+                for error in &errors {
+                    let diagnostic = reporter.convert_runtime_error(file_id, error);
+                    messages.push(Self::render_diagnostic(&mut reporter, file_id, &diagnostic));
+                }
+            }
         }
 
-        let mut result_output = None;
-
-        if let Some(last_stmt) = program.statements.last() {
-            match last_stmt {
-                Statement::ExpressionStatement { .. } => {
-                    let expr_program = Program {
-                        statements: vec![last_stmt.clone()],
-                    };
-
-                    match self.interpreter.interpret(&expr_program).await {
-                        Ok(value) => {
-                            result_output = Some(format!("{value:?}"));
-                        }
-                        Err(errors) => {
-                            let mut error_messages = Vec::new();
-                            let mut reporter = DiagnosticReporter::new();
-                            let file_id = reporter.add_file("repl", input);
-
-                            for error in &errors {
-                                let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                                let mut buffer = Buffer::ansi();
-                                let config = term::Config::default();
-                                if let Err(_e) = term::emit_to_write_style(
-                                    &mut buffer,
-                                    &config,
-                                    &reporter.files,
-                                    &diagnostic.to_codespan_diagnostic(file_id),
-                                ) {
-                                    error_messages.push(format!("Runtime error: {error}"));
-                                    continue;
-                                }
-
-                                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                                error_messages.push(output);
-                            }
-
-                            result_output = Some(error_messages.join("\n"));
-                        }
-                    }
-                }
-                _ => match self.interpreter.interpret(&program).await {
-                    Ok(_) => {}
-                    Err(errors) => {
-                        let mut error_messages = Vec::new();
-                        let mut reporter = DiagnosticReporter::new();
-                        let file_id = reporter.add_file("repl", input);
-
-                        for error in &errors {
-                            let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                            let mut buffer = Buffer::ansi();
-                            let config = term::Config::default();
-                            if let Err(_e) = term::emit_to_write_style(
-                                &mut buffer,
-                                &config,
-                                &reporter.files,
-                                &diagnostic.to_codespan_diagnostic(file_id),
-                            ) {
-                                error_messages.push(format!("Runtime error: {error}"));
-                                continue;
-                            }
-
-                            let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                            error_messages.push(output);
-                        }
-
-                        result_output = Some(error_messages.join("\n"));
-                    }
-                },
-            }
+        if messages.is_empty() {
+            Ok(None)
         } else {
-            match self.interpreter.interpret(&program).await {
-                Ok(_) => {}
-                Err(errors) => {
-                    let mut error_messages = Vec::new();
-                    let mut reporter = DiagnosticReporter::new();
-                    let file_id = reporter.add_file("repl", input);
-
-                    for error in &errors {
-                        let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                        let mut buffer = Buffer::ansi();
-                        let config = term::Config::default();
-                        if let Err(_e) = term::emit_to_write_style(
-                            &mut buffer,
-                            &config,
-                            &reporter.files,
-                            &diagnostic.to_codespan_diagnostic(file_id),
-                        ) {
-                            error_messages.push(format!("Runtime error: {error}"));
-                            continue;
-                        }
-
-                        let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                        error_messages.push(output);
-                    }
-
-                    result_output = Some(error_messages.join("\n"));
-                }
-            }
+            Ok(Some(messages.join("\n")))
         }
-
-        Ok(result_output)
     }
 }
 
@@ -520,5 +483,142 @@ mod tests {
         assert_eq!(result.unwrap(), CommandResult::ClearedScreen);
 
         unsafe { libc::dup2(_stdout_dup.as_raw_fd(), stdout_fd) };
+    }
+
+    /// Lex a snippet the way the REPL does before asking whether it is complete.
+    fn tokens_of(src: &str) -> Vec<TokenWithPosition> {
+        crate::lexer::lex_wfl_with_positions(src)
+    }
+
+    // --- The reported bug --------------------------------------------------
+    // Storing a variable used to print an "unused variable" warning and, worse,
+    // the warning made the REPL discard the whole command so the variable was
+    // never stored. A bare `store` must now produce no output *and* persist.
+
+    #[tokio::test]
+    async fn store_persists_and_prints_nothing() {
+        let mut repl = ReplState::new();
+        let out = repl.process_line("store x as 5").await.unwrap();
+        assert_eq!(out, None, "`store` must not print a warning or any echo");
+        assert!(
+            repl.interpreter.global_env().borrow().has("x"),
+            "the variable must actually be stored in the session"
+        );
+    }
+
+    #[tokio::test]
+    async fn variable_defined_on_an_earlier_line_is_usable_later() {
+        let mut repl = ReplState::new();
+        repl.process_line("store x as 5").await.unwrap();
+        // A bare reference echoes the value — proving the per-line analyzer no
+        // longer reports the session variable as "not defined".
+        let echo = repl.process_line("x").await.unwrap();
+        assert_eq!(echo, Some("5".to_string()));
+    }
+
+    #[tokio::test]
+    async fn action_defined_earlier_can_be_called_later_without_null_echo() {
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called greet with name:",
+            "display \"Hello \" with name",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        // The call resolves against the session (not "not an action") and its
+        // void return value is not echoed as a stray `null`.
+        let out = repl
+            .process_line("call greet with \"World\"")
+            .await
+            .unwrap();
+        assert_eq!(out, None);
+    }
+
+    // --- Error reporting still fires for genuine mistakes ------------------
+
+    #[tokio::test]
+    async fn undefined_variable_is_reported_as_a_runtime_error() {
+        let mut repl = ReplState::new();
+        let out = repl
+            .process_line("display genuinely_missing")
+            .await
+            .unwrap()
+            .expect("a genuine typo must still be reported");
+        assert!(
+            out.contains("genuinely_missing") && out.to_lowercase().contains("defined"),
+            "expected an undefined-variable error, got: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn syntax_error_is_reported() {
+        let mut repl = ReplState::new();
+        let out = repl.process_line("store as 5").await.unwrap();
+        assert!(out.is_some(), "a syntax error must be surfaced");
+    }
+
+    // --- Expression echo uses WFL's own value spelling --------------------
+
+    #[tokio::test]
+    async fn expression_result_is_echoed() {
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("2 plus 3").await.unwrap(),
+            Some("5".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn boolean_echo_uses_yes_no_not_true_false() {
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("5 is greater than 3").await.unwrap(),
+            Some("yes".to_string())
+        );
+    }
+
+    // --- Multiline block detection ----------------------------------------
+    // Every `end`-terminated block must be recognised as "keep reading" so it
+    // can be typed across several lines (previously only some were).
+
+    #[test]
+    fn incomplete_blocks_request_more_input() {
+        let repl = ReplState::new();
+        for opener in [
+            "check if yes:",
+            "count from 1 to 3:",
+            "for each item in items:",
+            "repeat while yes:",
+            "define action called f with n:",
+        ] {
+            assert!(
+                repl.is_input_incomplete(&tokens_of(opener)),
+                "`{opener}` should be treated as incomplete (awaiting its `end`)"
+            );
+        }
+    }
+
+    #[test]
+    fn complete_statements_are_not_treated_as_incomplete() {
+        let repl = ReplState::new();
+        for complete in ["store x as 5", "display \"hi\"", "2 plus 3"] {
+            assert!(
+                !repl.is_input_incomplete(&tokens_of(complete)),
+                "`{complete}` is a complete statement and should run immediately"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn multiline_if_block_runs_only_once_closed() {
+        let mut repl = ReplState::new();
+        assert_eq!(repl.process_line("check if yes:").await.unwrap(), None);
+        assert!(repl.in_multiline, "REPL should be waiting for more input");
+        assert_eq!(repl.process_line("display \"inside\"").await.unwrap(), None);
+        assert!(repl.in_multiline);
+        // Closing the block completes the buffered input and clears multiline.
+        repl.process_line("end check").await.unwrap();
+        assert!(!repl.in_multiline, "block is closed, multiline should end");
     }
 }

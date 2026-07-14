@@ -23,12 +23,13 @@ wfl
 
 **You'll see:**
 ```
-WFL REPL v26.1.17
-Type 'exit' or press Ctrl+C to quit
->
+WFL REPL - Type .help for commands or .exit to quit
+wfl>
 ```
 
-The `>` prompt means WFL is ready for your input.
+The `wfl>` prompt means WFL is ready for your input. While you are part-way
+through a multi-line block, the prompt changes to `...` to show WFL is waiting
+for the rest of the block.
 
 ## Basic Usage
 
@@ -249,44 +250,49 @@ no
 
 ## REPL Commands
 
+Commands that control the REPL itself all start with a dot, so they are never
+confused with WFL code. Type `.help` at any time to list them:
+
+| Command | What it does |
+|---------|--------------|
+| `.help` | Show the list of REPL commands |
+| `.history` | Show the commands you have entered this session |
+| `.clear` | Clear the screen |
+| `.exit` | Exit the REPL |
+
 ### Display Variables
 
-Just type the variable name:
+To see a value, just type the variable name (no dot — that's WFL code, not a
+REPL command):
 
 ```wfl
-> store x as 100
-> x
+wfl> store x as 100
+wfl> x
 100
 
-> store name as "Alice"
-> name
+wfl> store name as "Alice"
+wfl> name
 Alice
 ```
 
-### Clear Screen (if supported)
+### Clear the Screen
 
-Some terminals support:
 ```wfl
-> clear
+wfl> .clear
 ```
 
 ### Exit the REPL
 
-Multiple ways to exit:
+Any of these work:
 
-1. **Type `exit`:**
+1. **Type `.exit`:**
    ```wfl
-   > exit
+   wfl> .exit
    ```
 
-2. **Type `quit`:**
-   ```wfl
-   > quit
-   ```
+2. **Press Ctrl+C** (cancels a running command; press at the empty prompt to quit)
 
-3. **Press Ctrl+C**
-
-4. **Press Ctrl+D** (Linux/macOS)
+3. **Press Ctrl+D** (Linux/macOS)
 
 ## Tips and Tricks
 
@@ -337,16 +343,20 @@ List
 
 ### 4. Test Error Messages
 
-See how WFL reports errors:
+See how WFL reports errors. For example, referring to a variable you never
+defined points right at the problem:
 
 ```wfl
-> 5 plus "hello"
-ERROR: Cannot add Number and Text
-
-Type mismatch: expected Number, got Text
+wfl> display total
+error: Undefined variable 'total'
+  ┌─ repl:1:9
+  │
+1 │ display total
+  │         ^ Runtime error occurred here
 ```
 
-Error messages in the REPL help you understand what went wrong.
+Error messages in the REPL use the same clear, source-highlighting format as
+running a file, so they help you understand exactly what went wrong.
 
 ### 5. Prototype Functions
 
@@ -479,9 +489,12 @@ Hello, World!
 The REPL has some limitations:
 
 1. **No file saving** - Your session disappears when you exit
-2. **No history** (yet) - Can't scroll through previous commands
-3. **Limited editing** - Can't edit multi-line blocks easily
-4. **No undo** - Can't undo variable assignments
+2. **Limited editing** - Can't edit multi-line blocks after entering them
+3. **No undo** - Can't undo variable assignments (but you can re-`store` a
+   variable to overwrite it)
+
+You *can* review what you have typed this session with `.history`, and recall
+previous lines with the up/down arrow keys.
 
 **Solution:** Use the REPL for experiments, then move working code to `.wfl` files.
 
