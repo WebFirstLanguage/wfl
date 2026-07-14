@@ -9,6 +9,12 @@
 //! All SQL runs through runtime `sqlx::query` with explicit `.bind()` calls —
 //! parameter values are never interpolated into SQL text. Placeholders are
 //! driver-native: `?` for SQLite/MariaDB, `$1` for PostgreSQL.
+//!
+//! The query text is a runtime WFL value, not a `&'static str`, so every
+//! `sqlx::query` call below wraps it in [`sqlx::AssertSqlSafe`] to opt out of
+//! sqlx 0.9's `SqlSafeStr` gate. That opt-out asserts nothing about the text's
+//! own safety — only the bound parameter *values* are injection-safe (via
+//! `.bind()`), and WFL programs must not build SQL text from untrusted input.
 
 use super::value::Value;
 use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
@@ -128,12 +134,8 @@ pub async fn connect(url: &str) -> Result<DbPool, String> {
 pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<Value, String> {
     let rows: Vec<Value> = match pool {
         DbPool::Sqlite(pool) => {
-            // sqlx 0.9 gates `query()` behind `SqlSafeStr`. `AssertSqlSafe` is
-            // the explicit opt-out for our dynamic SQL: `sql` is a runtime WFL
-            // value, not a `&'static str`. It asserts nothing about the query
-            // text's own safety — only parameter *values* are injection-safe,
-            // via `.bind()`. WFL programs must not build this SQL text from
-            // untrusted input.
+            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
+            // runtime SQL text (see the module docs for the safety contract).
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_sqlite(query, param);
@@ -147,12 +149,8 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
                 .collect::<Result<_, _>>()?
         }
         DbPool::Postgres(pool) => {
-            // sqlx 0.9 gates `query()` behind `SqlSafeStr`. `AssertSqlSafe` is
-            // the explicit opt-out for our dynamic SQL: `sql` is a runtime WFL
-            // value, not a `&'static str`. It asserts nothing about the query
-            // text's own safety — only parameter *values* are injection-safe,
-            // via `.bind()`. WFL programs must not build this SQL text from
-            // untrusted input.
+            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
+            // runtime SQL text (see the module docs for the safety contract).
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_postgres(query, param);
@@ -164,12 +162,8 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
             rows.iter().map(pg_row_to_value).collect::<Result<_, _>>()?
         }
         DbPool::MySql(pool) => {
-            // sqlx 0.9 gates `query()` behind `SqlSafeStr`. `AssertSqlSafe` is
-            // the explicit opt-out for our dynamic SQL: `sql` is a runtime WFL
-            // value, not a `&'static str`. It asserts nothing about the query
-            // text's own safety — only parameter *values* are injection-safe,
-            // via `.bind()`. WFL programs must not build this SQL text from
-            // untrusted input.
+            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
+            // runtime SQL text (see the module docs for the safety contract).
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_mysql(query, param);
@@ -193,12 +187,8 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
 pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<Value, String> {
     let (affected_rows, last_insert_id): (u64, Option<i64>) = match pool {
         DbPool::Sqlite(pool) => {
-            // sqlx 0.9 gates `query()` behind `SqlSafeStr`. `AssertSqlSafe` is
-            // the explicit opt-out for our dynamic SQL: `sql` is a runtime WFL
-            // value, not a `&'static str`. It asserts nothing about the query
-            // text's own safety — only parameter *values* are injection-safe,
-            // via `.bind()`. WFL programs must not build this SQL text from
-            // untrusted input.
+            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
+            // runtime SQL text (see the module docs for the safety contract).
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_sqlite(query, param);
@@ -210,12 +200,8 @@ pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Resul
             (result.rows_affected(), Some(result.last_insert_rowid()))
         }
         DbPool::Postgres(pool) => {
-            // sqlx 0.9 gates `query()` behind `SqlSafeStr`. `AssertSqlSafe` is
-            // the explicit opt-out for our dynamic SQL: `sql` is a runtime WFL
-            // value, not a `&'static str`. It asserts nothing about the query
-            // text's own safety — only parameter *values* are injection-safe,
-            // via `.bind()`. WFL programs must not build this SQL text from
-            // untrusted input.
+            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
+            // runtime SQL text (see the module docs for the safety contract).
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_postgres(query, param);
@@ -227,12 +213,8 @@ pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Resul
             (result.rows_affected(), None)
         }
         DbPool::MySql(pool) => {
-            // sqlx 0.9 gates `query()` behind `SqlSafeStr`. `AssertSqlSafe` is
-            // the explicit opt-out for our dynamic SQL: `sql` is a runtime WFL
-            // value, not a `&'static str`. It asserts nothing about the query
-            // text's own safety — only parameter *values* are injection-safe,
-            // via `.bind()`. WFL programs must not build this SQL text from
-            // untrusted input.
+            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
+            // runtime SQL text (see the module docs for the safety contract).
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
                 query = bind_mysql(query, param);

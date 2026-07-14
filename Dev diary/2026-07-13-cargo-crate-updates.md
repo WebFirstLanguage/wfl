@@ -33,13 +33,23 @@ required a manifest change and, in several cases, source changes.
   and bounded to a single line, so the skip attribute now uses the group form
   with `allow_greedy = true`.
 - **`codespan-reporting 0.11 → 0.13`** — `term::emit` is deprecated; switched the
-  three call sites (`src/diagnostics/mod.rs`, `src/repl.rs`) to
+  call sites (one in `src/diagnostics/mod.rs`, six in `src/repl.rs`) to
   `term::emit_to_write_style`, the color-preserving replacement (both
   `StandardStream` and `Buffer` satisfy the new `WriteStyle` blanket impl via
   `termcolor::WriteColor`).
 - **`reqwest 0.11 → 0.13`** — no source changes; the client/request/response/
   multipart APIs used in `src/interpreter/mod.rs` and the `wflpkg` registry are
   unchanged. The default TLS backend is now rustls via the platform verifier.
+- **rustls crypto provider** — with reqwest 0.13 (aws-lc-rs) and sqlx 0.9
+  (`tls-rustls-ring`) both pulling `rustls 0.23`, that single rustls is compiled
+  with *two* providers. reqwest and sqlx each configure their own provider
+  explicitly, so HTTPS and DB TLS work today (verified with a live HTTPS
+  request), but rustls 0.23 panics if any code builds a config from the *ambient*
+  default while more than one provider is present. As a defensive measure `main`
+  now installs a process-level default once at startup
+  (`rustls::crypto::ring::default_provider().install_default()`), added as a
+  direct `rustls` dependency (ring feature only). This only affects the `wfl`
+  binary, which is the one linking both providers.
 - **`sqlx 0.8 → 0.9`** — this bump also **raises the workspace MSRV to 1.94**:
   `sqlx 0.9.0` declares `rust-version = "1.94.0"`, and it is the only updated
   crate that needs more than 1.85, so it sets the effective floor. WFL previously
