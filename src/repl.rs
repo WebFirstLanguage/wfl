@@ -521,9 +521,12 @@ mod tests {
         unsafe { libc::dup2(_stdout_dup.as_raw_fd(), stdout_fd) };
     }
 
-    /// Lex a snippet the way the REPL does before asking whether it is complete.
+    /// Lex a snippet through the same entry point the REPL uses before asking
+    /// whether the input is complete (`lex_wfl_with_positions_checked`). With no
+    /// budget scoped — as in these tests — the checked lexer skips its budget
+    /// checks and behaves like the plain lexer, so a small snippet never errors.
     fn tokens_of(src: &str) -> Vec<TokenWithPosition> {
-        crate::lexer::lex_wfl_with_positions(src)
+        lex_wfl_with_positions_checked(src).expect("test snippet should lex cleanly")
     }
 
     // --- The reported bug --------------------------------------------------
