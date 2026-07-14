@@ -109,6 +109,14 @@ fn build_runtime() -> io::Result<tokio::runtime::Runtime> {
 }
 
 fn main() -> io::Result<()> {
+    // Multiple rustls crypto providers are compiled into this binary: aws-lc-rs
+    // (via reqwest) and ring (via sqlx), sharing one rustls 0.23. rustls refuses
+    // to auto-select a default when more than one is present, so any code path
+    // that builds a TLS config from the ambient default would panic at runtime.
+    // Install ring explicitly, once, so the process default is unambiguous; a
+    // prior install (the Err case) is fine to ignore.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // Trivial, non-interpreting invocations (`--help`, `--version`) never
     // recurse, so run them on the ordinary stack — don't make printing help
     // depend on reserving a large stack (which can fail under a tight

@@ -4010,6 +4010,7 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest",
+ "rustls 0.23.42",
  "rustls-pemfile",
  "rustyline",
  "scrypt",
