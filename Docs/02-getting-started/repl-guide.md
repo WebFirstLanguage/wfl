@@ -23,12 +23,17 @@ wfl
 
 **You'll see:**
 ```
-WFL REPL v26.1.17
-Type 'exit' or press Ctrl+C to quit
->
+WFL REPL - Type .help for commands or .exit to quit
+wfl>
 ```
 
-The `>` prompt means WFL is ready for your input.
+The `wfl>` prompt means WFL is ready for your input. While you are part-way
+through a multi-line block, the prompt changes to `...` to show WFL is waiting
+for the rest of the block.
+
+> **Reading the examples:** to keep them short, the examples below use `>` as
+> shorthand for the `wfl>` prompt (and `...` for the multi-line continuation
+> prompt). Type only the code after the prompt.
 
 ## Basic Usage
 
@@ -249,9 +254,20 @@ no
 
 ## REPL Commands
 
+Commands that control the REPL itself all start with a dot, so they are never
+confused with WFL code. Type `.help` at any time to list them:
+
+| Command | What it does |
+|---------|--------------|
+| `.help` | Show the list of REPL commands |
+| `.history` | List the WFL inputs you've run this session (dot-commands are not included) |
+| `.clear` | Clear the screen (via ANSI escape codes; see note below) |
+| `.exit` | Exit the REPL |
+
 ### Display Variables
 
-Just type the variable name:
+To see a value, just type the variable name (no dot — that's WFL code, not a
+REPL command):
 
 ```wfl
 > store x as 100
@@ -263,30 +279,30 @@ Just type the variable name:
 Alice
 ```
 
-### Clear Screen (if supported)
+### Clear the Screen
 
-Some terminals support:
 ```wfl
-> clear
+> .clear
 ```
+
+`.clear` works by writing standard ANSI escape sequences. In most terminals it
+clears the screen and moves the cursor to the top; in a terminal or environment
+that does not interpret ANSI escapes (or when output is redirected), it may print
+the escape characters instead of clearing. Your session state is unaffected
+either way — `.clear` only touches the display.
 
 ### Exit the REPL
 
-Multiple ways to exit:
+Any of these work:
 
-1. **Type `exit`:**
+1. **Type `.exit`:**
    ```wfl
-   > exit
+   > .exit
    ```
 
-2. **Type `quit`:**
-   ```wfl
-   > quit
-   ```
+2. **Press Ctrl+C** (cancels a running command; press at the empty prompt to quit)
 
-3. **Press Ctrl+C**
-
-4. **Press Ctrl+D** (Linux/macOS)
+3. **Press Ctrl+D** (Linux/macOS)
 
 ## Tips and Tricks
 
@@ -337,16 +353,22 @@ List
 
 ### 4. Test Error Messages
 
-See how WFL reports errors:
+See how WFL reports errors. For example, referring to a variable you never
+defined points right at the problem:
 
 ```wfl
-> 5 plus "hello"
-ERROR: Cannot add Number and Text
-
-Type mismatch: expected Number, got Text
+> display total
+error: Variable 'total' is not defined
+  ┌─ repl:1:9
+  │
+1 │ display total
+  │         ^ here
 ```
 
-Error messages in the REPL help you understand what went wrong.
+Because the REPL analyses your input the same way `wfl <file>` does, an
+undefined name is caught up front by static analysis (the line is not run), and
+the error uses the same clear, source-highlighting format as running a file — so
+it points right at the problem and helps you understand exactly what went wrong.
 
 ### 5. Prototype Functions
 
@@ -479,9 +501,13 @@ Hello, World!
 The REPL has some limitations:
 
 1. **No file saving** - Your session disappears when you exit
-2. **No history** (yet) - Can't scroll through previous commands
-3. **Limited editing** - Can't edit multi-line blocks easily
-4. **No undo** - Can't undo variable assignments
+2. **Limited editing** - Can't edit multi-line blocks after entering them
+3. **No undo** - Can't undo variable assignments (but you can re-`store` a
+   variable to overwrite it)
+
+You *can* review the WFL inputs you've run this session with `.history` (it does
+not list dot-commands like `.help`), and recall any previous line — including
+dot-commands — with the up/down arrow keys.
 
 **Solution:** Use the REPL for experiments, then move working code to `.wfl` files.
 

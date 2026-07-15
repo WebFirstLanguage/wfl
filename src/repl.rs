@@ -1,14 +1,17 @@
 use crate::analyzer::Analyzer;
-use crate::analyzer::static_analyzer::StaticAnalyzer;
-use crate::diagnostics::DiagnosticReporter;
+use crate::analyzer::static_analyzer::{
+    RngSecurityIngredients, StaticAnalyzer, rng_security_ingredients,
+};
+use crate::diagnostics::{DiagnosticReporter, Severity, Span, WflDiagnostic};
 use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
+use crate::interpreter::value::Value;
 use crate::lexer::{lex_wfl_with_positions_checked, token::TokenWithPosition};
 use crate::parser::{
     Parser,
     ast::{Program, Statement},
 };
-use crate::typechecker::{TypeCheckError, TypeChecker};
+use crate::typechecker::{TypeCheckError, TypeChecker, TypeError};
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
@@ -28,7 +31,40 @@ pub struct ReplState {
     input_buffer: String,
     in_multiline: bool,
     history: Vec<String>,
+    /// Every submission that passed static analysis and was executed this
+    /// session, in order. Re-analysing `session_inputs + new submission` as one
+    /// program is what lets the (otherwise whole-program) analyzer and type
+    /// checker see names, actions, and their declared types from earlier lines,
+    /// so cross-line references resolve and cross-line type/security contracts
+    /// are still enforced — the interpreter alone cannot do the latter.
+    session_inputs: Vec<String>,
+    /// Session-level state for the insecure-RNG-seeding security control
+    /// (`ANALYZE-SECURITY`). The file lint sees only one program, so it cannot
+    /// catch a `random_seed` entered in one submission and a crypto/auth op in
+    /// another. These record whether any submission the REPL has *run* seeded the
+    /// RNG (`rng_insecurely_seeded`) or used a security-sensitive builtin
+    /// (`security_builtin_used`), so the insecure combination is blocked however
+    /// it is split across submissions — and independently of the capped
+    /// combined-source analysis, which the performance fallback skips.
+    ///
+    /// "Run" means recorded on execution *attempt* (the same rule as
+    /// `session_inputs`), and detection is syntactic — so an ingredient counts
+    /// even if the submission later errored at run time. That is deliberately
+    /// conservative: it matches the file lint, which flags the *presence* of
+    /// `random_seed` in security-sensitive code, not its execution.
+    rng_insecurely_seeded: bool,
+    security_builtin_used: bool,
+    /// Byte cap on the accumulated source that session-aware analysis will build
+    /// before falling back to analysing this submission alone. A field (not a
+    /// hard-coded constant) so tests can force the fallback without constructing
+    /// a multi-hundred-kilobyte session; production always uses the default.
+    max_session_analysis_bytes: usize,
 }
+
+/// Default cap on the accumulated session source before analysis falls back to
+/// the current submission alone. Generous — realistic interactive sessions stay
+/// far below it.
+const DEFAULT_MAX_SESSION_ANALYSIS_BYTES: usize = 256 * 1024;
 
 impl Default for ReplState {
     fn default() -> Self {
@@ -60,6 +96,10 @@ impl ReplState {
             input_buffer: String::new(),
             in_multiline: false,
             history: Vec::new(),
+            session_inputs: Vec::new(),
+            rng_insecurely_seeded: false,
+            security_builtin_used: false,
+            max_session_analysis_bytes: DEFAULT_MAX_SESSION_ANALYSIS_BYTES,
         }
     }
 
@@ -174,11 +214,123 @@ impl ReplState {
 
         let mut parser = Parser::new(tokens);
         match parser.parse() {
-            Err(errors) => errors.iter().any(|e| {
-                e.message.contains("Unexpected end of input")
-                    || (e.message.contains("expected") && e.message.contains("end"))
-            }),
+            Err(errors) => errors.iter().any(Self::error_means_more_input_needed),
             Ok(_) => false, // Successfully parsed, input is complete
+        }
+    }
+
+    /// Decide whether a parse error means "keep reading — the user is
+    /// mid-construct" rather than "this is genuinely wrong".
+    ///
+    /// The parser has no single "unexpected EOF" error type; each construct
+    /// phrases running out of tokens in its own way ("Unexpected end of
+    /// input …", "…, found end of input", and — for action bodies — a bare
+    /// "Expected 'end' after action body" with no EOF marker at all). Matching
+    /// on those strings case-sensitively is what made `check if …:` and
+    /// `define action …:` blocks fail to continue onto the next line. Two
+    /// case-insensitive signals cover every block form:
+    ///   1. the parser explicitly ran out of tokens (`end of input`), or
+    ///   2. it is still waiting for a block terminator (`expected 'end`) and
+    ///      did **not** stop on a concrete token (no `found …`) — i.e. it hit
+    ///      EOF, so more lines can still complete the block.
+    ///
+    /// A real mid-stream mistake reports `… found <Token>` and is therefore
+    /// surfaced immediately instead of silently swallowed.
+    fn error_means_more_input_needed(error: &crate::parser::ast::ParseError) -> bool {
+        let message = error.message.to_lowercase();
+        message.contains("end of input")
+            || (message.contains("expected 'end") && !message.contains("found"))
+    }
+
+    /// Clamp a byte-offset span onto valid UTF-8 char boundaries within
+    /// `source`. Spans index the source `String`; a `start + 1` end (produced by
+    /// the `convert_*` helpers and the synthesized-label path alike) can land in
+    /// the middle of a multi-byte character, and codespan then slices a
+    /// non-char-boundary range and panics. This snaps `start` down and `end` up
+    /// to the enclosing character (widening never shrinking), covering the last
+    /// character when the offset was at EOF.
+    fn snap_span_to_char_boundaries(source: &str, span: Span) -> Span {
+        let len = source.len();
+        let mut start = span.start.min(len);
+        let mut end = span.end.min(len).max(start);
+        if start == end {
+            // Empty span: cover one character so the caret is visible. At EOF
+            // there is nothing to the right, so step back onto the last char.
+            if start == len && len > 0 {
+                start -= 1;
+            } else if end < len {
+                end += 1;
+            }
+        }
+        while start > 0 && !source.is_char_boundary(start) {
+            start -= 1;
+        }
+        while end < len && !source.is_char_boundary(end) {
+            end += 1;
+        }
+        Span { start, end }
+    }
+
+    /// Render one WFL diagnostic to a coloured, Elm-style block (source
+    /// snippet, caret, and note), returning the string the REPL prints.
+    ///
+    /// Parse/type/runtime diagnostics already carry a labelled span; analyzer
+    /// diagnostics only carry a line/column, so a span is synthesized from it —
+    /// that way *every* REPL diagnostic follows the same "point at the source"
+    /// convention (WFL Fundamental #4: clear, actionable errors). Every label
+    /// span (synthesized or pre-existing) is then snapped to UTF-8 char
+    /// boundaries so codespan never slices mid-codepoint on multi-byte source.
+    fn render_diagnostic(
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+        diagnostic: &WflDiagnostic,
+    ) -> String {
+        let mut diag = diagnostic.clone();
+        if diag.labels.is_empty()
+            && diag.line >= 1
+            && let Some(offset) = reporter.line_col_to_offset(file_id, diag.line, diag.column)
+        {
+            diag.labels.push((
+                Span {
+                    start: offset,
+                    end: offset + 1,
+                },
+                "here".to_string(),
+            ));
+        }
+
+        // Normalize ALL label spans (synthesized or from `convert_*`) to valid
+        // char boundaries, then drop any that collapse to empty (e.g. an empty
+        // source) so they never render a zero-width caret.
+        if let Ok(file) = reporter.files.get(file_id) {
+            let source = file.source();
+            for (span, _) in diag.labels.iter_mut() {
+                *span = Self::snap_span_to_char_boundaries(source, *span);
+            }
+        }
+        diag.labels.retain(|(span, _)| span.start < span.end);
+
+        let mut buffer = Buffer::ansi();
+        let config = term::Config::default();
+        match term::emit_to_write_style(
+            &mut buffer,
+            &config,
+            &reporter.files,
+            &diag.to_codespan_diagnostic(file_id),
+        ) {
+            Ok(()) => String::from_utf8_lossy(buffer.as_slice()).to_string(),
+            Err(_) => {
+                let severity = match diag.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                    Severity::Note => "note",
+                    Severity::Help => "help",
+                };
+                format!(
+                    "{severity}: {} (at line {}, column {})",
+                    diag.message, diag.line, diag.column
+                )
+            }
         }
     }
 
@@ -191,37 +343,26 @@ impl ReplState {
 
         let tokens = lex_wfl_with_positions_checked(input).map_err(|e| e.message())?;
 
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", input);
+
+        // --- Parse -----------------------------------------------------------
+        // A syntax error is genuinely fatal for this line: there is no AST to
+        // run. (Incomplete multiline input was already routed away by
+        // `is_input_incomplete`, so anything that reaches here is meant to be
+        // complete.)
         let mut parser = Parser::new(&tokens);
         let program = match parser.parse() {
             Ok(prog) => prog,
             Err(errors) => {
-                let mut error_messages = Vec::new();
-                let mut reporter = DiagnosticReporter::new();
-                let file_id = reporter.add_file("repl", input);
-
-                for error in &errors {
-                    let diagnostic = reporter.convert_parse_error(file_id, error);
-
-                    let mut buffer = Buffer::ansi();
-                    let config = term::Config::default();
-                    if let Err(_e) = term::emit_to_write_style(
-                        &mut buffer,
-                        &config,
-                        &reporter.files,
-                        &diagnostic.to_codespan_diagnostic(file_id),
-                    ) {
-                        error_messages.push(format!(
-                            "Parse error at line {}, column {}: {}",
-                            error.line, error.column, error.message
-                        ));
-                        continue;
-                    }
-
-                    let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                    error_messages.push(output);
-                }
-
-                return Ok(Some(error_messages.join("\n")));
+                let rendered: Vec<String> = errors
+                    .iter()
+                    .map(|error| {
+                        let diagnostic = reporter.convert_parse_error(file_id, error);
+                        Self::render_diagnostic(&mut reporter, file_id, &diagnostic)
+                    })
+                    .collect();
+                return Ok(Some(rendered.join("\n")));
             }
         };
 
@@ -229,171 +370,435 @@ impl ReplState {
             return Ok(None);
         }
 
-        let mut analyzer = Analyzer::new();
-        let mut reporter = DiagnosticReporter::new();
-        let file_id = reporter.add_file("repl", input);
-        let sema_diags = analyzer.analyze_static(&program, file_id);
+        // Messages accumulated across the analysis and run phases.
+        let mut messages: Vec<String> = Vec::new();
 
-        if !sema_diags.is_empty() {
-            let mut error_messages = Vec::new();
-            for diagnostic in &sema_diags {
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit_to_write_style(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Semantic error: {}", diagnostic.message));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
-            }
-
-            return Ok(Some(error_messages.join("\n")));
+        // --- Session-aware security gate -------------------------------------
+        // Owns the insecure-RNG-seeding control (`ANALYZE-SECURITY`) at the
+        // *session* level: a `random_seed` and a crypto/auth op can be entered as
+        // separate submissions, which neither the whole-program file lint nor the
+        // capped combined-source analysis below can see together. This runs on
+        // EVERY submission regardless of the analysis path, so the security
+        // control is never relaxed by the performance fallback. Blocking here is
+        // fatal and, like any fatal, does not record the submission — so the
+        // session never accumulates both ingredients, and a later innocent
+        // command is not blocked.
+        let security_ingredients = rng_security_ingredients(&program);
+        if let Some(rendered) =
+            self.insecure_seed_block(&security_ingredients, &mut reporter, file_id)
+        {
+            return Ok(Some(rendered));
         }
 
-        let mut type_checker = TypeChecker::new();
-        if let Err(failure) = type_checker.check_types(&program) {
-            // A shared-budget breach (deadline/cancellation/resource) is fatal
-            // for this command and must not be rendered as an ordinary type
-            // diagnostic that the REPL might otherwise shrug off.
-            let errors = match failure {
-                TypeCheckError::Budget(exceeded) => {
-                    return Ok(Some(format!("Error: {}", exceeded.message())));
-                }
-                TypeCheckError::Types(errors) => errors,
-            };
-            let mut error_messages = Vec::new();
-            for error in &errors {
-                let diagnostic = reporter.convert_type_error(file_id, error);
-
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit_to_write_style(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Type error: {error}"));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
-            }
-
-            return Ok(Some(error_messages.join("\n")));
+        // --- Session-aware static analysis -----------------------------------
+        // Run the SAME analyze -> type-check -> execute pipeline `wfl <file>`
+        // uses, but over `session_inputs + this submission` as one program, so
+        // names/actions/types defined on earlier lines are in scope. Only this
+        // submission's diagnostics are reported (see `static_check_submission`).
+        // A genuine semantic error (undefined name, insecure `random_seed`
+        // seeding, an undefined reference inside an action body) blocks
+        // execution just as it aborts a file; type diagnostics are advisory, as
+        // in the file pipeline.
+        if self.static_check_submission(input, &program, &mut reporter, file_id, &mut messages) {
+            return Ok(Some(messages.join("\n")));
         }
 
-        let mut result_output = None;
-
-        if let Some(last_stmt) = program.statements.last() {
-            match last_stmt {
-                Statement::ExpressionStatement { .. } => {
-                    let expr_program = Program {
-                        statements: vec![last_stmt.clone()],
-                    };
-
-                    match self.interpreter.interpret(&expr_program).await {
-                        Ok(value) => {
-                            result_output = Some(format!("{value:?}"));
-                        }
-                        Err(errors) => {
-                            let mut error_messages = Vec::new();
-                            let mut reporter = DiagnosticReporter::new();
-                            let file_id = reporter.add_file("repl", input);
-
-                            for error in &errors {
-                                let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                                let mut buffer = Buffer::ansi();
-                                let config = term::Config::default();
-                                if let Err(_e) = term::emit_to_write_style(
-                                    &mut buffer,
-                                    &config,
-                                    &reporter.files,
-                                    &diagnostic.to_codespan_diagnostic(file_id),
-                                ) {
-                                    error_messages.push(format!("Runtime error: {error}"));
-                                    continue;
-                                }
-
-                                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                                error_messages.push(output);
-                            }
-
-                            result_output = Some(error_messages.join("\n"));
-                        }
-                    }
+        // --- Execution -------------------------------------------------------
+        // Execute ONLY this submission — the earlier submissions already ran
+        // against the persistent interpreter, so re-running them would repeat
+        // their output and side effects. Echo the final value only when the last
+        // statement is a bare expression (`interpret` returns the value of the
+        // last executed statement); `store`/`change`/`display` produce no echo.
+        let echo_value = matches!(
+            program.statements.last(),
+            Some(Statement::ExpressionStatement { .. })
+        );
+        match self.interpreter.interpret(&program).await {
+            Ok(value) => {
+                // Suppress the echo for void results (`nothing`/null) so a call
+                // to an action that only has side effects — e.g. `call greet
+                // with "World"` — does not print a stray `null` under its output.
+                //
+                // Echo with `Display`, not `Debug`, so the value reads the way
+                // WFL itself presents it (`yes`/`no` for booleans, unquoted
+                // text, `[1, 2, 3]` for lists) — consistent with `display` and
+                // WFL's natural-language principle, instead of Rust's `"..."`
+                // / `true` debug spelling.
+                if echo_value && !matches!(value, Value::Nothing | Value::Null) {
+                    messages.push(format!("{value}"));
                 }
-                _ => match self.interpreter.interpret(&program).await {
-                    Ok(_) => {}
-                    Err(errors) => {
-                        let mut error_messages = Vec::new();
-                        let mut reporter = DiagnosticReporter::new();
-                        let file_id = reporter.add_file("repl", input);
-
-                        for error in &errors {
-                            let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                            let mut buffer = Buffer::ansi();
-                            let config = term::Config::default();
-                            if let Err(_e) = term::emit_to_write_style(
-                                &mut buffer,
-                                &config,
-                                &reporter.files,
-                                &diagnostic.to_codespan_diagnostic(file_id),
-                            ) {
-                                error_messages.push(format!("Runtime error: {error}"));
-                                continue;
-                            }
-
-                            let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                            error_messages.push(output);
-                        }
-
-                        result_output = Some(error_messages.join("\n"));
-                    }
-                },
             }
+            Err(errors) => {
+                for error in &errors {
+                    let diagnostic = reporter.convert_runtime_error(file_id, error);
+                    messages.push(Self::render_diagnostic(&mut reporter, file_id, &diagnostic));
+                }
+            }
+        }
+
+        // This submission passed static analysis and was executed, so it joins
+        // the session's static context for later submissions. It is recorded on
+        // execution *attempt*, not only on success, on purpose: recording only
+        // fully-successful submissions would drop the bindings a partially-run
+        // construct DID establish in the interpreter, so a later reference to
+        // one would be wrongly reported as "undefined" — reintroducing exactly
+        // the false-positive blocking this change removes. The opposite drift (a
+        // fully-failed `store` whose binding never took effect is still "known"
+        // to later analysis) is benign: the reference simply raises a clear
+        // undefined error at run time rather than being blocked.
+        //
+        // Fold this submission's security ingredients into the session state
+        // (only reached when the security gate did NOT block) so a later
+        // submission supplying the missing half is blocked. Detection is
+        // syntactic, so it is recorded even if the submission errored at run
+        // time — matching `session_inputs`' record-on-attempt rule above.
+        self.rng_insecurely_seeded |= security_ingredients.seeds_rng();
+        self.security_builtin_used |= security_ingredients.uses_security_builtin();
+        self.session_inputs.push(input.to_string());
+
+        if messages.is_empty() {
+            Ok(None)
         } else {
-            match self.interpreter.interpret(&program).await {
-                Ok(_) => {}
-                Err(errors) => {
-                    let mut error_messages = Vec::new();
-                    let mut reporter = DiagnosticReporter::new();
-                    let file_id = reporter.add_file("repl", input);
+            Ok(Some(messages.join("\n")))
+        }
+    }
 
+    /// The insecure-RNG-seeding security control, evaluated at the session level.
+    /// Returns a rendered fatal `ANALYZE-SECURITY` diagnostic when — combining
+    /// this submission's ingredients with the session state — the RNG has been
+    /// seeded with `random_seed` AND a security-sensitive builtin is used
+    /// somewhere in the session; otherwise `None`.
+    ///
+    /// This is the REPL's single owner of `ANALYZE-SECURITY`. The whole-program
+    /// file lint (`check_insecure_rng_seeding`) cannot see the two ingredients
+    /// when they are split across submissions, and the analysis fallback skips
+    /// the combined source entirely — so a source-driven check would let a long
+    /// or lex-failing session bypass the control. Running here, before and
+    /// independent of that analysis, keeps the control in force on every path.
+    ///
+    /// Because a completing submission is blocked (fatal) and therefore not
+    /// recorded, the session never holds both ingredients at once; so whenever
+    /// this fires, at least one site is in the *current* submission. The caret
+    /// points at the crypto op here if present (the operation just made
+    /// predictable), otherwise at the `random_seed` entered here against an
+    /// earlier crypto op.
+    fn insecure_seed_block(
+        &self,
+        ingredients: &RngSecurityIngredients,
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+    ) -> Option<String> {
+        let seeded = self.rng_insecurely_seeded || ingredients.seeds_rng();
+        let uses_security = self.security_builtin_used || ingredients.uses_security_builtin();
+        if !(seeded && uses_security) {
+            return None;
+        }
+        let (line, column) = ingredients
+            .security_site
+            .or(ingredients.seed_site)
+            .unwrap_or((1, 1));
+        let diagnostic = WflDiagnostic::new(
+            Severity::Error,
+            "random_seed must not be used in authentication, session, or cryptographic code"
+                .to_string(),
+            Some(
+                "Seeding the random number generator makes its output predictable, which \
+                 undermines salts, session IDs, and tokens. Remove the random_seed call; \
+                 use secure_random_bytes for cryptographic randomness. Seeding is only for \
+                 reproducible non-security code such as simulations or tests."
+                    .to_string(),
+            ),
+            "ANALYZE-SECURITY".to_string(),
+            file_id,
+            line,
+            column,
+            None,
+        );
+        Some(Self::render_diagnostic(reporter, file_id, &diagnostic))
+    }
+
+    /// Analyse `session_inputs + submission` as a single program and report only
+    /// the diagnostics that fall inside the new submission, translated back to
+    /// the submission's own line numbers. Returns `true` when a fatal error was
+    /// found (the submission must not run).
+    ///
+    /// This is what makes REPL static analysis session-aware: a variable/action
+    /// defined on an earlier line is in scope, so it is not a false "undefined";
+    /// and self-contained contracts the interpreter cannot enforce — the
+    /// insecure-RNG security lint, undefined references inside a not-yet-called
+    /// action body, cross-line type mismatches — are still checked. Semantic
+    /// errors are fatal (as they abort a file); type diagnostics are advisory
+    /// (as the file pipeline prints them and continues).
+    fn static_check_submission(
+        &self,
+        input: &str,
+        program: &Program,
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+        messages: &mut Vec<String>,
+    ) -> bool {
+        // Re-analysing the whole session each command is O(n²) over its length.
+        // A per-command budget deadline already bounds the work, but cap the
+        // accumulated source at a generous size so a pathologically long session
+        // degrades to analysing just this submission (whose diagnostics are then
+        // advisory — reported but non-blocking) instead of getting slow.
+        // Realistic interactive sessions never approach this. The self-contained
+        // security control is NOT relaxed by this fallback: it is enforced ahead
+        // of here by the session-level `insecure_seed_block`, which does not
+        // depend on the combined source.
+        //
+        // Size the cap check off `session_inputs` directly so a very long session
+        // falls back without first paying an O(n) `join`/`format!` copy every
+        // command. `join("\n")` over the prefix is `sum(len) + (count - 1)` bytes,
+        // and the combined source adds a separator plus `input`, so its length is
+        // exactly `sum(len_i + 1) + input.len()` when the session is non-empty.
+        //
+        // Also never lex a combined source larger than the user's configured
+        // `max_source_bytes`: that ceiling bounds how much source any one program
+        // may process, and the accumulated session IS the program being analysed
+        // here. The isolated fallback only sees this submission, which already
+        // passed the `max_source_bytes` check in `process_complete_input`.
+        let cap = self
+            .max_session_analysis_bytes
+            .min(self.interpreter.budget().max_source_bytes());
+        let prefix_bytes: usize = self.session_inputs.iter().map(|s| s.len() + 1).sum();
+        if prefix_bytes + input.len() > cap {
+            return self.static_check_isolated(program, reporter, file_id, messages);
+        }
+
+        // Build the accumulated source. `base_line` is the number of lines in
+        // the prefix (0 for the first submission), so the new submission's first
+        // line sits at `base_line + 1` in the combined source — the offset used
+        // to keep only this submission's diagnostics and shift them back.
+        let prefix = self.session_inputs.join("\n");
+        let (combined, base_line) = if prefix.is_empty() {
+            (input.to_string(), 0usize)
+        } else {
+            (
+                format!("{prefix}\n{input}"),
+                prefix.matches('\n').count() + 1,
+            )
+        };
+
+        // The checked lexer only fails on a budget breach (deadline /
+        // cancellation / operation ceiling), never on a token error — so a lex
+        // failure here is fatal for the command, exactly as it is at entry in
+        // `process_complete_input`. Surface it instead of falling through to
+        // execute the submission with the budget already spent.
+        let tokens = match lex_wfl_with_positions_checked(&combined) {
+            Ok(tokens) => tokens,
+            Err(exceeded) => {
+                messages.push(format!("Error: {}", exceeded.message()));
+                return true;
+            }
+        };
+        // Each prior submission parsed on its own, so the concatenation parses
+        // too; if it somehow does not, fall back to analysing this submission
+        // alone (no earlier-line context; its diagnostics are reported but
+        // advisory — never blocking, so a dropped cross-line contract can't turn
+        // into a false fatal).
+        let mut parser = Parser::new(&tokens);
+        let Ok(combined_program) = parser.parse() else {
+            return self.static_check_isolated(program, reporter, file_id, messages);
+        };
+
+        // `analyze_static` only needs a `file_id` to tag its diagnostics; it does
+        // not read source through a reporter. Diagnostics are rendered against the
+        // caller's submission `reporter`/`file_id` after their line numbers are
+        // shifted back by `base_line`, so pass the caller's `file_id` directly
+        // rather than cloning the whole combined source into a scratch reporter
+        // just for an id (an O(combined) copy on every submission).
+        let mut analyzer = Analyzer::new();
+        let mut fatal = false;
+        for diagnostic in &analyzer.analyze_static(&combined_program, file_id) {
+            if !Self::belongs_to_submission(diagnostic.line, base_line)
+                || Self::is_repl_ignorable_semantic(diagnostic)
+            {
+                continue;
+            }
+            let mut adjusted = diagnostic.clone();
+            adjusted.line = adjusted.line.saturating_sub(base_line);
+            messages.push(Self::render_diagnostic(reporter, file_id, &adjusted));
+            if adjusted.severity == Severity::Error {
+                fatal = true;
+            }
+        }
+        // A fatal semantic error aborts before type checking, exactly as a file.
+        if fatal {
+            return true;
+        }
+
+        // Type checking is advisory in the file pipeline (`wfl <file>` prints
+        // type diagnostics and keeps going); mirror that here. A shared-budget
+        // breach is still fatal.
+        let mut type_checker = TypeChecker::with_analyzer(analyzer);
+        if let Err(failure) = type_checker.check_types(&combined_program) {
+            match failure {
+                TypeCheckError::Budget(exceeded) => {
+                    messages.push(format!("Error: {}", exceeded.message()));
+                    return true;
+                }
+                TypeCheckError::Types(errors) => {
+                    let action_params = type_checker.get_action_parameters().clone();
                     for error in &errors {
-                        let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                        let mut buffer = Buffer::ansi();
-                        let config = term::Config::default();
-                        if let Err(_e) = term::emit_to_write_style(
-                            &mut buffer,
-                            &config,
-                            &reporter.files,
-                            &diagnostic.to_codespan_diagnostic(file_id),
-                        ) {
-                            error_messages.push(format!("Runtime error: {error}"));
+                        if !Self::belongs_to_submission(error.line, base_line)
+                            || Self::is_repl_ignorable_type_error(error, &action_params)
+                        {
                             continue;
                         }
-
-                        let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                        error_messages.push(output);
+                        let mut adjusted = error.clone();
+                        adjusted.line = adjusted.line.saturating_sub(base_line);
+                        let diagnostic = reporter.convert_type_error(file_id, &adjusted);
+                        messages.push(Self::render_diagnostic(reporter, file_id, &diagnostic));
                     }
-
-                    result_output = Some(error_messages.join("\n"));
                 }
             }
         }
+        false
+    }
 
-        Ok(result_output)
+    /// Fallback used when the accumulated source exceeds
+    /// `max_session_analysis_bytes` or unexpectedly fails to lex/parse: analyse
+    /// this submission alone (the analyzer's semantic pass only — type checking is
+    /// discussed below). Every non-ignorable diagnostic is still *reported*.
+    ///
+    /// It operates on the submission's already-parsed `program` (the same AST
+    /// `process_complete_input` produced and will execute) rather than re-lexing
+    /// the source: the input was lexed under the command budget once at entry —
+    /// where a `BudgetExceeded` is already surfaced fatally — so re-lexing here
+    /// would only duplicate work and risk *swallowing* a second budget breach by
+    /// treating it as an ordinary "couldn't analyse" skip.
+    ///
+    /// A performance/parse fallback must not become a correctness mode switch, so
+    /// blocking is decided per diagnostic, not relaxed wholesale:
+    /// - **Self-contained fatal errors still block** (returns `true`). They are
+    ///   present in the submission regardless of the earlier lines we can't see.
+    /// - **An undefined-name error is dropped only when the name is a live
+    ///   earlier-session binding.** Without the earlier lines a reference to an
+    ///   earlier-defined name looks "undefined"; the live interpreter environment
+    ///   is the source of truth for what the session actually holds, so if the
+    ///   name is bound there the diagnostic is a false positive — skip it. If the
+    ///   name is NOT in the session, it is a genuine undefined reference and stays
+    ///   fatal. This is what preserves definition-time checking for undefined
+    ///   references inside deferred bodies (a not-yet-called action/handler stores
+    ///   its body without evaluating it, so execution would not catch the typo);
+    ///   it also keeps the fallback consistent with the full-analysis path, which
+    ///   likewise treats a name absent from the session as a genuine error.
+    ///
+    /// The one self-contained fatal that does *not* rely on the analyzer here —
+    /// insecure RNG seeding (`ANALYZE-SECURITY`) — is enforced ahead of this by
+    /// `insecure_seed_block`, independent of the combined source; so a long or
+    /// lex-failing session cannot execute a `random_seed` + crypto combination it
+    /// would have blocked at full length.
+    ///
+    /// Type checking is intentionally *not* run here: its diagnostics are advisory
+    /// (they never block, so no safety is lost), and without the earlier session
+    /// symbols it would emit false-positive "undefined" type diagnostics for valid
+    /// earlier-session references — exactly the noise the session-aware path
+    /// avoids. The session-aware path (`static_check_submission`) runs it normally.
+    fn static_check_isolated(
+        &self,
+        program: &Program,
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+        messages: &mut Vec<String>,
+    ) -> bool {
+        // `file_id` already refers to this submission's source, so analyse
+        // against it directly — no scratch reporter, and diagnostics render with
+        // the submission's own line/column.
+        let mut analyzer = Analyzer::new();
+        let mut fatal = false;
+        for diagnostic in &analyzer.analyze_static(program, file_id) {
+            if Self::is_repl_ignorable_semantic(diagnostic) {
+                continue;
+            }
+            // Drop an undefined-name diagnostic only when that name is actually a
+            // live earlier-session binding (a false positive from losing the
+            // prefix): don't report noise, don't block. A name NOT in the session
+            // is a genuine undefined reference and falls through to fatal — which
+            // keeps a typo inside a not-yet-called action/handler body caught at
+            // definition time, since execution won't validate a stored-but-unrun
+            // body.
+            if let Some(name) = Self::undefined_name_of(diagnostic)
+                && self.interpreter.global_env().borrow().has(name)
+            {
+                continue;
+            }
+            messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
+            if diagnostic.severity == Severity::Error {
+                fatal = true;
+            }
+        }
+        fatal
+    }
+
+    /// If `diagnostic` is a context-dependent undefined-name error (an undefined
+    /// variable/action/handler/list reference), return the referenced name;
+    /// otherwise `None`. The isolated fallback uses this to check the name against
+    /// the live session environment: a name the session actually holds is a false
+    /// positive (skip it), while any other name — or any non-name-resolution
+    /// error — stays fatal.
+    fn undefined_name_of(diagnostic: &WflDiagnostic) -> Option<&str> {
+        if diagnostic.code != "ANALYZE-SEMANTIC" {
+            return None;
+        }
+        let message = diagnostic.message.as_str();
+        message
+            .strip_prefix("Variable '")
+            .and_then(|rest| rest.strip_suffix("' is not defined"))
+            .or_else(|| {
+                message
+                    .strip_prefix("Undefined action '")
+                    .and_then(|rest| rest.strip_suffix('\''))
+            })
+            .or_else(|| {
+                message
+                    .strip_prefix("Undefined signal handler '")
+                    .and_then(|rest| rest.strip_suffix('\''))
+            })
+            .or_else(|| {
+                message
+                    .strip_prefix("Undefined list reference '")
+                    .and_then(|rest| rest.strip_suffix("' in pattern"))
+            })
+    }
+
+    /// A diagnostic belongs to the new submission when it sits on a line after
+    /// the accumulated prefix. Position-less diagnostics (line 0) are kept so a
+    /// genuine but unlocated error is never silently dropped.
+    fn belongs_to_submission(line: usize, base_line: usize) -> bool {
+        line == 0 || line > base_line
+    }
+
+    /// Semantic diagnostics that are correct for a file but wrong to enforce in
+    /// an interactive session.
+    fn is_repl_ignorable_semantic(diagnostic: &WflDiagnostic) -> bool {
+        // "Unused" is a false positive interactively — a binding is available to
+        // a *future* submission. Re-`store`/re-defining a name is allowed in the
+        // REPL (the interpreter reassigns), so "already defined" must not block
+        // continuing the session.
+        diagnostic.code == "ANALYZE-UNUSED"
+            || diagnostic.message.contains("already been defined")
+            || diagnostic.message.contains("already defined")
+    }
+
+    /// Type diagnostics to drop in the REPL: the same action-parameter and
+    /// duplicate-symbol false positives `wfl <file>` filters, plus re-definition
+    /// (allowed interactively).
+    fn is_repl_ignorable_type_error(
+        error: &TypeError,
+        action_params: &std::collections::HashSet<String>,
+    ) -> bool {
+        if error.message.starts_with("Variable '") && error.message.ends_with("' is not defined") {
+            let name = error
+                .message
+                .trim_start_matches("Variable '")
+                .trim_end_matches("' is not defined");
+            if action_params.contains(name) {
+                return true;
+            }
+        }
+        error.message.contains("already been defined") || error.message.contains("already defined")
     }
 }
 
@@ -520,5 +925,653 @@ mod tests {
         assert_eq!(result.unwrap(), CommandResult::ClearedScreen);
 
         unsafe { libc::dup2(_stdout_dup.as_raw_fd(), stdout_fd) };
+    }
+
+    /// Lex a snippet through the same entry point the REPL uses before asking
+    /// whether the input is complete (`lex_wfl_with_positions_checked`). With no
+    /// budget scoped — as in these tests — the checked lexer skips its budget
+    /// checks and behaves like the plain lexer, so a small snippet never errors.
+    fn tokens_of(src: &str) -> Vec<TokenWithPosition> {
+        lex_wfl_with_positions_checked(src).expect("test snippet should lex cleanly")
+    }
+
+    // --- The reported bug --------------------------------------------------
+    // Storing a variable used to print an "unused variable" warning and, worse,
+    // the warning made the REPL discard the whole command so the variable was
+    // never stored. A bare `store` must now produce no output *and* persist.
+
+    #[tokio::test]
+    async fn store_persists_and_prints_nothing() {
+        let mut repl = ReplState::new();
+        let out = repl.process_line("store x as 5").await.unwrap();
+        assert_eq!(out, None, "`store` must not print a warning or any echo");
+        assert!(
+            repl.interpreter.global_env().borrow().has("x"),
+            "the variable must actually be stored in the session"
+        );
+    }
+
+    #[tokio::test]
+    async fn variable_defined_on_an_earlier_line_is_usable_later() {
+        let mut repl = ReplState::new();
+        repl.process_line("store x as 5").await.unwrap();
+        // A bare reference echoes the value — proving the per-line analyzer no
+        // longer reports the session variable as "not defined".
+        let echo = repl.process_line("x").await.unwrap();
+        assert_eq!(echo, Some("5".to_string()));
+    }
+
+    #[tokio::test]
+    async fn action_defined_earlier_can_be_called_later_without_null_echo() {
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called greet with name:",
+            "display \"Hello \" with name",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        // The call resolves against the session (not "not an action") and its
+        // void return value is not echoed as a stray `null`.
+        let out = repl
+            .process_line("call greet with \"World\"")
+            .await
+            .unwrap();
+        assert_eq!(out, None);
+    }
+
+    // --- Error reporting still fires for genuine mistakes ------------------
+
+    #[tokio::test]
+    async fn self_contained_security_lint_still_blocks() {
+        // Seeding the RNG inside crypto/auth code is a self-contained security
+        // violation (it does not depend on session state), so it must stay
+        // fatal in the REPL — not get filtered out with the context-dependent
+        // name-resolution diagnostics.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called make_token:",
+            "random_seed of 1",
+            "give back secure_random_bytes of 16",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("the security lint must be reported");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        // Execution was blocked, so the action was never defined.
+        assert!(!repl.interpreter.global_env().borrow().has("make_token"));
+    }
+
+    #[tokio::test]
+    async fn undefined_variable_is_reported() {
+        let mut repl = ReplState::new();
+        let out = repl
+            .process_line("display genuinely_missing")
+            .await
+            .unwrap()
+            .expect("a genuine typo must still be reported");
+        assert!(
+            out.contains("genuinely_missing") && out.to_lowercase().contains("defined"),
+            "expected an undefined-variable error, got: {out}"
+        );
+    }
+
+    // --- Session-aware static analysis (maintainer review on PR #617) ------
+    // The REPL analyses `earlier submissions + this one` as one program, so the
+    // static checks the interpreter cannot do (security lint, definition-time
+    // reference checks, cross-line type contracts) still run, while genuine
+    // session definitions are not false "undefined".
+
+    #[tokio::test]
+    async fn insecure_rng_is_blocked_even_when_referencing_an_earlier_line_variable() {
+        // The security lint runs against the whole session, so referencing a
+        // variable defined on an earlier line no longer makes the analyzer bail
+        // before the lint (which was the reported gap).
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store note as \"session\"")
+                .await
+                .unwrap(),
+            None
+        );
+        for line in [
+            "define action called mk:",
+            "display note", // references the earlier-line variable
+            "random_seed of 1",
+            "give back secure_random_bytes of 16",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("the security lint must still fire");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("mk"));
+    }
+
+    // --- Cross-submission insecure-RNG-seeding gate (maintainer review) -----
+    // A `random_seed` and a crypto/auth op can be entered as SEPARATE
+    // submissions. The whole-program file lint cannot see the two together, so
+    // the REPL tracks them at the session level and blocks the combination
+    // however it is split — and independently of the analysis fallback.
+
+    #[tokio::test]
+    async fn insecure_seed_then_crypto_in_separate_submissions_is_blocked() {
+        let mut repl = ReplState::new();
+        // Seeding alone is legitimate (reproducible simulations) and executes.
+        assert_eq!(
+            repl.process_line("store s as random_seed of 1234")
+                .await
+                .unwrap(),
+            None
+        );
+        // A later, separate crypto op must be blocked: the RNG is now predictable.
+        let out = repl
+            .process_line("store token as secure_random_bytes of 32")
+            .await
+            .unwrap()
+            .expect("the later crypto op must be blocked once the RNG is seeded");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        // Blocked: it never executed nor joined the session context.
+        assert!(!repl.interpreter.global_env().borrow().has("token"));
+        assert!(
+            !repl
+                .session_inputs
+                .iter()
+                .any(|s| s.contains("secure_random_bytes"))
+        );
+    }
+
+    #[tokio::test]
+    async fn crypto_then_insecure_seed_in_separate_submissions_is_blocked() {
+        // The reverse split: a clean crypto op first, then a `random_seed` in a
+        // later submission. Seeding after security-sensitive code is in the
+        // session is equally insecure and must be blocked.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store token as secure_random_bytes of 32")
+                .await
+                .unwrap(),
+            None
+        );
+        let out = repl
+            .process_line("store s as random_seed of 1234")
+            .await
+            .unwrap()
+            .expect("seeding after crypto is in the session must be blocked");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("s"));
+    }
+
+    #[tokio::test]
+    async fn innocent_command_after_a_blocked_crypto_op_is_not_over_blocked() {
+        // The completing (blocked) submission is not recorded, so the session
+        // never holds both ingredients: a later innocent command must still run.
+        // The gate must not latch into "block everything".
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store s as random_seed of 1234")
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(
+            repl.process_line("store token as secure_random_bytes of 32")
+                .await
+                .unwrap()
+                .expect("blocked")
+                .contains("random_seed must not be used")
+        );
+        // An unrelated command runs normally and joins the session.
+        assert_eq!(
+            repl.process_line("store greeting as \"hi\"").await.unwrap(),
+            None
+        );
+        assert!(repl.interpreter.global_env().borrow().has("greeting"));
+        assert_eq!(
+            repl.process_line("greeting").await.unwrap().as_deref(),
+            Some("hi")
+        );
+    }
+
+    #[tokio::test]
+    async fn insecure_seed_alone_is_still_allowed() {
+        // Seeding without any security-sensitive builtin is legitimate (e.g. a
+        // reproducible simulation) and must NOT be blocked.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store s as random_seed of 42")
+                .await
+                .unwrap(),
+            None,
+            "seeding without crypto must be allowed"
+        );
+        assert!(repl.interpreter.global_env().borrow().has("s"));
+    }
+
+    #[tokio::test]
+    async fn fallback_path_still_blocks_insecure_seeding() {
+        // Reaching the isolated fallback (source over the cap, or a combined-source
+        // lex/parse failure) must not relax the security control. Force the
+        // fallback with a tiny cap and verify the seed+crypto combination — same
+        // submission AND split across submissions — is still fatal.
+        let mut repl = ReplState::new();
+        repl.max_session_analysis_bytes = 1; // any non-empty submission falls back
+
+        // Same-submission seed+crypto, taken down the isolated path.
+        let out = repl
+            .process_line("store t as secure_random_bytes of 16\nstore s as random_seed of 1")
+            .await
+            .unwrap()
+            .expect("the fallback must still block a self-contained security violation");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG error on the fallback path, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("t"));
+
+        // Cross-submission on the isolated path: seed first (clean, runs under the
+        // fallback), then a separate crypto op — still blocked by the session gate.
+        assert_eq!(
+            repl.process_line("store seed_val as random_seed of 7")
+                .await
+                .unwrap(),
+            None
+        );
+        let out = repl
+            .process_line("store tok as secure_random_bytes of 8")
+            .await
+            .unwrap()
+            .expect("cross-submission seeding must be blocked even on the fallback path");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG error on the fallback path, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("tok"));
+    }
+
+    #[tokio::test]
+    async fn fallback_does_not_block_reference_to_a_live_earlier_session_binding() {
+        // In the isolated fallback we can't see earlier submissions, so a
+        // reference to an earlier-session variable looks "undefined". But the name
+        // IS a live session binding, so the diagnostic is a false positive: it is
+        // dropped (no noise, no block) and cross-line references keep working even
+        // in the degraded fallback, while self-contained fatal errors (see the
+        // security tests) and genuine typos still block.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store greeting as \"hi\"").await.unwrap(),
+            None
+        );
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        // Referencing the earlier-session variable must run cleanly with no error.
+        assert_eq!(
+            repl.process_line("store echoed as greeting").await.unwrap(),
+            None,
+            "a live earlier-session reference must not error in the isolated fallback"
+        );
+        assert!(repl.interpreter.global_env().borrow().has("echoed"));
+    }
+
+    #[tokio::test]
+    async fn fallback_blocks_undefined_reference_inside_a_deferred_action_body() {
+        // Maintainer review (head 52c16b2): defining an action stores its body
+        // WITHOUT running it, so a genuine typo inside the body is not validated
+        // by execution. In the isolated fallback the undefined name must therefore
+        // still be fatal at definition time — the name is absent from the live
+        // session, so it is a real error, not a lost cross-line reference.
+        let mut repl = ReplState::new();
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in ["define action called broken:", "display genuinely_missing"] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out =
+            repl.process_line("end action").await.unwrap().expect(
+                "an undefined reference in a deferred body must block, even in the fallback",
+            );
+        assert!(
+            out.contains("genuinely_missing") && out.to_lowercase().contains("defined"),
+            "expected an undefined-name error, got: {out}"
+        );
+        // Blocked: the invalid definition was not accepted.
+        assert!(!repl.interpreter.global_env().borrow().has("broken"));
+    }
+
+    #[tokio::test]
+    async fn fallback_allows_action_referencing_a_valid_earlier_session_binding() {
+        // The companion to the previous test: an action body that references a
+        // name defined on an EARLIER line is valid — the live session holds it, so
+        // the fallback must accept the definition rather than block it.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store greeting as \"hi\"").await.unwrap(),
+            None
+        );
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in [
+            "define action called sayit:",
+            "display greeting",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(
+            repl.interpreter.global_env().borrow().has("sayit"),
+            "an action referencing a live earlier-session binding must be accepted in the fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_blocks_undefined_action_call_inside_a_deferred_body() {
+        // The same guarantee for an undefined *action call* (not just a variable
+        // reference) inside a stored action body: the env check keys on the name,
+        // not on its syntactic role, so a call to a nonexistent action in a body
+        // is fatal at definition time even on the fallback path.
+        let mut repl = ReplState::new();
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in ["define action called caller:", "call ghost_action"] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("an undefined action call in a deferred body must block in the fallback");
+        assert!(
+            out.contains("ghost_action"),
+            "expected an undefined-action error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("caller"));
+    }
+
+    #[tokio::test]
+    async fn fallback_allows_earlier_session_action_call_inside_a_deferred_body() {
+        // The valid companion: a body that CALLS an action defined on an earlier
+        // line is accepted in the fallback — the callee is a live session binding,
+        // so the "undefined action" false positive is dropped, not blocked.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called helper:",
+            "display \"hi\"",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(repl.interpreter.global_env().borrow().has("helper"));
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in ["define action called caller:", "call helper", "end action"] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(
+            repl.interpreter.global_env().borrow().has("caller"),
+            "a body calling a live earlier-session action must be accepted in the fallback"
+        );
+    }
+
+    #[tokio::test]
+    async fn undefined_reference_inside_an_action_body_is_blocked_at_definition() {
+        // Defining an action stores its body without running it, so without
+        // definition-time validation a typo would only surface when the action
+        // is finally called. The analyzer must catch it now.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called broken:",
+            "display misspelled_variable",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("an undefined reference in the body must be reported");
+        assert!(
+            out.contains("misspelled_variable") && out.to_lowercase().contains("defined"),
+            "expected an undefined-variable error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("broken"));
+    }
+
+    #[tokio::test]
+    async fn earlier_session_variable_is_usable_inside_a_definition() {
+        // The converse of the previous test: a reference that *is* defined on an
+        // earlier line must resolve, so the definition is accepted and runs.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store greeting as \"hello\"")
+                .await
+                .unwrap(),
+            None
+        );
+        for line in [
+            "define action called sayit:",
+            "display greeting",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(repl.interpreter.global_env().borrow().has("sayit"));
+        // And calling it runs cleanly (no "not defined").
+        assert_eq!(repl.process_line("call sayit").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn self_recursive_action_is_accepted() {
+        // The action's own name is in scope inside its body (signature pass), so
+        // a self-reference is not a false "undefined" at definition time.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called countdown with n:",
+            "call countdown with n",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(repl.interpreter.global_env().borrow().has("countdown"));
+    }
+
+    #[tokio::test]
+    async fn cross_line_type_mismatch_is_surfaced() {
+        // The type checker sees `n: Number` from the earlier line, so assigning
+        // text to it is reported — advisory, matching the `wfl <file>` pipeline,
+        // so the command still runs.
+        let mut repl = ReplState::new();
+        assert_eq!(repl.process_line("store n as 5").await.unwrap(), None);
+        let out = repl
+            .process_line("change n to \"hello\"")
+            .await
+            .unwrap()
+            .expect("a cross-line type mismatch must be surfaced");
+        assert!(
+            out.contains("incompatible") && out.contains("Number"),
+            "expected an incompatible-assignment type error, got: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn re_storing_a_variable_is_allowed() {
+        // Re-defining a name is normal in a REPL (the interpreter reassigns), so
+        // the file-only "already defined" error must not block continuation.
+        let mut repl = ReplState::new();
+        assert_eq!(repl.process_line("store x as 5").await.unwrap(), None);
+        assert_eq!(repl.process_line("store x as 10").await.unwrap(), None);
+        assert_eq!(
+            repl.process_line("x").await.unwrap(),
+            Some("10".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn syntax_error_is_reported() {
+        let mut repl = ReplState::new();
+        let out = repl.process_line("store as 5").await.unwrap();
+        assert!(out.is_some(), "a syntax error must be surfaced");
+    }
+
+    #[test]
+    fn render_diagnostic_snaps_span_to_char_boundaries() {
+        // A label-less diagnostic whose position falls on a multi-byte
+        // character must not make codespan slice a non-char-boundary range
+        // (which panics). "café" is 5 bytes; column 4 is the start of the 2-byte
+        // 'é', so a naive `start + 1` span would split it.
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", "café");
+        let diag = WflDiagnostic::new(
+            Severity::Warning,
+            "unreachable code",
+            None::<String>,
+            "ANALYZE-UNREACHABLE",
+            file_id,
+            1,
+            4,
+            None,
+        );
+        // Must not panic, must carry the message, and must render the caret
+        // (the source-location header) rather than the caret-less fallback.
+        let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
+        assert!(
+            rendered.contains("unreachable code") && rendered.contains("repl:1:"),
+            "expected a caret-rendered diagnostic, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_diagnostic_snaps_preexisting_label_span_to_char_boundaries() {
+        // Parse/type/runtime diagnostics arrive with a span already attached
+        // (from the `convert_*` helpers, typically `start..start + 1`). If that
+        // end lands mid-codepoint on multi-byte source, codespan panics — so the
+        // normalization must apply to pre-existing labels too, not only
+        // synthesized ones. "café" is 5 bytes; a 3..4 span splits the 2-byte 'é'.
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", "café");
+        let diag =
+            WflDiagnostic::error("boom").with_primary_label(Span { start: 3, end: 4 }, "here");
+        // Must not panic and must still carry the message.
+        let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
+        assert!(
+            rendered.contains("boom"),
+            "expected the message in the rendered diagnostic, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_diagnostic_points_at_source_even_at_eof() {
+        // A diagnostic whose column lands at EOF (one past the last byte) must
+        // still get a caret on the last character, not render caret-less.
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", "hi");
+        let diag = WflDiagnostic::new(
+            Severity::Warning,
+            "watch out",
+            None::<String>,
+            "ANALYZE-SHADOW",
+            file_id,
+            1,
+            3, // column past the last character of "hi"
+            None,
+        );
+        let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
+        // A caret label makes codespan emit the source-location header
+        // (`repl:1:2`, pointing at the last character); without a label the
+        // message would render alone with no location.
+        assert!(
+            rendered.contains("repl:1:"),
+            "expected a caret pointing at the source at EOF, got: {rendered}"
+        );
+    }
+
+    // --- Expression echo uses WFL's own value spelling --------------------
+
+    #[tokio::test]
+    async fn expression_result_is_echoed() {
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("2 plus 3").await.unwrap(),
+            Some("5".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn boolean_echo_uses_yes_no_not_true_false() {
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("5 is greater than 3").await.unwrap(),
+            Some("yes".to_string())
+        );
+    }
+
+    // --- Multiline block detection ----------------------------------------
+    // Every `end`-terminated block must be recognised as "keep reading" so it
+    // can be typed across several lines (previously only some were).
+
+    #[test]
+    fn incomplete_blocks_request_more_input() {
+        let repl = ReplState::new();
+        for opener in [
+            "check if yes:",
+            "count from 1 to 3:",
+            "for each item in items:",
+            "repeat while yes:",
+            "define action called f with n:",
+        ] {
+            assert!(
+                repl.is_input_incomplete(&tokens_of(opener)),
+                "`{opener}` should be treated as incomplete (awaiting its `end`)"
+            );
+        }
+    }
+
+    #[test]
+    fn complete_statements_are_not_treated_as_incomplete() {
+        let repl = ReplState::new();
+        for complete in ["store x as 5", "display \"hi\"", "2 plus 3"] {
+            assert!(
+                !repl.is_input_incomplete(&tokens_of(complete)),
+                "`{complete}` is a complete statement and should run immediately"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn multiline_if_block_buffers_across_lines_and_runs_on_close() {
+        let mut repl = ReplState::new();
+        // Opener and body are buffered — the REPL waits and runs nothing yet.
+        assert_eq!(repl.process_line("check if yes:").await.unwrap(), None);
+        assert!(repl.in_multiline, "REPL should be waiting for more input");
+        assert_eq!(
+            repl.process_line("store inside_block as 7").await.unwrap(),
+            None
+        );
+        assert!(repl.in_multiline);
+        assert!(
+            !repl.interpreter.global_env().borrow().has("inside_block"),
+            "the buffered block must not run before it is closed"
+        );
+        // Closing the block completes the buffered input and runs it once,
+        // cleanly (no error → `Ok(None)`), which defines the block's variable.
+        assert_eq!(repl.process_line("end check").await.unwrap(), None);
+        assert!(!repl.in_multiline, "block is closed, multiline should end");
+        assert!(
+            repl.interpreter.global_env().borrow().has("inside_block"),
+            "closing the block should execute its body exactly once"
+        );
     }
 }
