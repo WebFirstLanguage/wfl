@@ -593,15 +593,15 @@ impl ReplState {
             return self.static_check_isolated(program, reporter, file_id, messages);
         };
 
-        // A scratch file over the combined source. Diagnostics reference it, but
-        // are rendered against the caller's submission `reporter`/`file_id`
-        // after their line numbers are shifted back by `base_line`.
-        let mut combined_reporter = DiagnosticReporter::new();
-        let combined_file = combined_reporter.add_file("repl", &combined);
-
+        // `analyze_static` only needs a `file_id` to tag its diagnostics; it does
+        // not read source through a reporter. Diagnostics are rendered against the
+        // caller's submission `reporter`/`file_id` after their line numbers are
+        // shifted back by `base_line`, so pass the caller's `file_id` directly
+        // rather than cloning the whole combined source into a scratch reporter
+        // just for an id (an O(combined) copy on every submission).
         let mut analyzer = Analyzer::new();
         let mut fatal = false;
-        for diagnostic in &analyzer.analyze_static(&combined_program, combined_file) {
+        for diagnostic in &analyzer.analyze_static(&combined_program, file_id) {
             if !Self::belongs_to_submission(diagnostic.line, base_line)
                 || Self::is_repl_ignorable_semantic(diagnostic)
             {
