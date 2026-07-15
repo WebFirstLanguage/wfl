@@ -365,11 +365,16 @@ impl ReplState {
             }
         }
 
-        // This submission passed static analysis and was executed, so it is now
-        // part of the session's static context for later submissions. (Kept even
-        // if execution hit a runtime error: the definitions it introduced were
-        // statically valid, and re-analysing them keeps later lines' references
-        // resolvable — a stray runtime failure still surfaces at run time.)
+        // This submission passed static analysis and was executed, so it joins
+        // the session's static context for later submissions. It is recorded on
+        // execution *attempt*, not only on success, on purpose: recording only
+        // fully-successful submissions would drop the bindings a partially-run
+        // construct DID establish in the interpreter, so a later reference to
+        // one would be wrongly reported as "undefined" — reintroducing exactly
+        // the false-positive blocking this change removes. The opposite drift (a
+        // fully-failed `store` whose binding never took effect is still "known"
+        // to later analysis) is benign: the reference simply raises a clear
+        // undefined error at run time rather than being blocked.
         self.session_inputs.push(input.to_string());
 
         if messages.is_empty() {
@@ -398,8 +403,10 @@ impl ReplState {
         file_id: usize,
         messages: &mut Vec<String>,
     ) -> bool {
-        // Build the accumulated source and the line at which `input` begins in
-        // it (0 when this is the first submission).
+        // Build the accumulated source. `base_line` is the number of lines in
+        // the prefix (0 for the first submission), so the new submission's first
+        // line sits at `base_line + 1` in the combined source — the offset used
+        // to keep only this submission's diagnostics and shift them back.
         let prefix = self.session_inputs.join("\n");
         let (combined, base_line) = if prefix.is_empty() {
             (input.to_string(), 0usize)
@@ -409,6 +416,16 @@ impl ReplState {
                 prefix.matches('\n').count() + 1,
             )
         };
+
+        // Re-analysing the whole session each command is O(n²) over its length.
+        // A per-command budget deadline already bounds the work, but cap the
+        // accumulated source at a generous size so a pathologically long session
+        // degrades to analysing just this submission (warnings only) instead of
+        // getting slow. Realistic interactive sessions never approach this.
+        const MAX_SESSION_ANALYSIS_BYTES: usize = 256 * 1024;
+        if combined.len() > MAX_SESSION_ANALYSIS_BYTES {
+            return self.static_check_isolated(input, reporter, file_id, messages);
+        }
 
         // Each prior submission parsed on its own, so the concatenation parses
         // too; if it somehow does not, fall back to analysing this submission
