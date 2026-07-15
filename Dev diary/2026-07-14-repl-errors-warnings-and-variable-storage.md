@@ -46,30 +46,38 @@ positives about the live session.
 The implementation change is entirely in `src/repl.rs`; the REPL guide
 (`Docs/02-getting-started/repl-guide.md`) and this diary are updated alongside it.
 
-- **The interpreter is the source of truth, and static analysis is filtered by
-  diagnostic code — not blanket-dropped.** The REPL no longer lets the stateless
-  analyzer/type-checker reject valid session code, but it still preserves the
-  diagnostics that are genuinely valid line-by-line:
-  - `ANALYZE-SEMANTIC` (context-dependent name resolution: undefined name, "not
-    an action", already-defined, undefined-inside-`try`) is dropped — a name
-    defined on an earlier line looks undefined to the per-line analyzer. The
-    interpreter re-checks these against the real environment and reports genuine
-    ones at run time. This fixes causes #1 and #2: `store` stores and later lines
-    can use what earlier lines defined.
-  - `ANALYZE-UNUSED` is dropped — a stored binding is available to the next line,
-    so "unused" is always a false positive interactively.
-  - **everything else is kept exactly as `wfl <file>` treats it.** Advisory
-    warnings (unreachable code, dead branch, shadowing, inconsistent returns) are
-    shown, and any self-contained **error** — notably the `ANALYZE-SECURITY` lint
-    that blocks seeding the RNG (`random_seed`) inside crypto/auth code — is shown
-    **and blocks execution**. These lints depend only on the current line's own
-    code, never on session state, so weakening them would be wrong. (An earlier
-    revision of this fix incorrectly filtered on `Severity::Warning`, which
-    silently discarded the fatal `ANALYZE-SECURITY` lint in the REPL; caught in
-    review and corrected to the code-based filter above.)
-  - The type checker is skipped: its diagnostics are the same context-dependent
-    name/type kind that would be noise on every line referring back to the
-    session.
+- **Session-aware static analysis (accumulated program).** The REPL keeps one
+  persistent interpreter but the analyzer/type-checker are whole-program tools;
+  running them on a single line makes earlier-line names look "undefined". The
+  fix runs the *same* `analyze → type-check → execute` pipeline `wfl <file>`
+  uses, but over `session_inputs + this submission` as one program, then reports
+  only the diagnostics that fall inside the new submission (their line numbers
+  translated back to the submission's own coordinates). Only the new submission
+  is executed — earlier ones already ran against the persistent interpreter.
+  - A name/action defined on an earlier line is in scope, so cross-line
+    references resolve (fixes the core bug) — but the checks the interpreter
+    *cannot* do still run: the insecure-RNG `ANALYZE-SECURITY` lint (even when the
+    submission references an earlier-line variable — previously the analyzer bailed
+    on the "undefined" session symbol before the lint ran), undefined references
+    inside a not-yet-called action body (caught at definition time, not deferred
+    to invocation), and cross-line type mismatches (e.g. `store n as 5` then
+    `change n to "text"`).
+  - Semantic **errors are fatal** (they abort a file too); **type diagnostics are
+    advisory** — shown but non-blocking, exactly as `wfl <file>` treats them.
+  - Two file-only diagnostics are intentionally suppressed in the REPL:
+    `ANALYZE-UNUSED` (a binding is available to a *future* submission) and
+    "already defined" (re-`store`/re-defining a name is normal interactively — the
+    interpreter reassigns).
+  - *Design history:* the first version of this PR disabled the static gates and
+    relied on the interpreter alone. Maintainer review showed that dropped three
+    real safeguards (the security lint, definition-time reference checks, and
+    cross-line type contracts). This accumulated-program approach restores them
+    while keeping cross-line references working.
+  - *Known limitation:* the security lint is evaluated per submission's
+    accumulated view, so seeding the RNG in one command and doing crypto in a
+    *separate later* command is not flagged (the seed already executed; flagging
+    the prior line would wrongly block every later command). Doing both in one
+    submission — the file-equivalent case — is caught.
 
 - **Robust multi-line detection.** `error_means_more_input_needed` replaces the
   fragile string match with two case-insensitive signals: the parser ran out of
@@ -101,14 +109,32 @@ Added regression tests in `src/repl.rs`:
 - `variable_defined_on_an_earlier_line_is_usable_later`,
   `action_defined_earlier_can_be_called_later_without_null_echo` — cross-line
   references and calls work, and void calls don't echo `null`.
-- `undefined_variable_is_reported_as_a_runtime_error`, `syntax_error_is_reported`
-  — genuine mistakes are still surfaced.
+- `undefined_variable_is_reported`, `syntax_error_is_reported` — genuine mistakes
+  are still surfaced.
 - `expression_result_is_echoed`, `boolean_echo_uses_yes_no_not_true_false` — echo
   format.
 - `incomplete_blocks_request_more_input`,
   `complete_statements_are_not_treated_as_incomplete`,
-  `multiline_if_block_runs_only_once_closed` — multi-line detection across block
-  forms.
+  `multiline_if_block_buffers_across_lines_and_runs_on_close` — multi-line
+  detection across block forms.
+- `render_diagnostic_snaps_span_to_char_boundaries`,
+  `render_diagnostic_points_at_source_even_at_eof` — the synthesized caret span
+  stays on UTF-8 boundaries and still points at the source at EOF.
+
+Session-aware analysis (from the maintainer review):
+
+- `insecure_rng_is_blocked_even_when_referencing_an_earlier_line_variable`,
+  `self_contained_security_lint_still_blocks` — the `ANALYZE-SECURITY` lint fires
+  and blocks, including when the submission references an earlier-line variable.
+- `undefined_reference_inside_an_action_body_is_blocked_at_definition` — a typo
+  inside a deferred action body is caught when defined, not at invocation.
+- `earlier_session_variable_is_usable_inside_a_definition`,
+  `self_recursive_action_is_accepted` — valid earlier-session and self references
+  resolve.
+- `cross_line_type_mismatch_is_surfaced` — an incompatible assignment against an
+  earlier-line variable is reported (advisory).
+- `re_storing_a_variable_is_allowed` — re-`store` is not blocked by the file-only
+  "already defined" error.
 
 `cargo test --lib`, `cargo fmt --all -- --check`, and
 `cargo clippy --all-targets --all-features -- -D warnings` are green.

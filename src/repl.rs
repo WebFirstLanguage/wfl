@@ -6,6 +6,7 @@ use crate::interpreter::Interpreter;
 use crate::interpreter::value::Value;
 use crate::lexer::{lex_wfl_with_positions_checked, token::TokenWithPosition};
 use crate::parser::{Parser, ast::Statement};
+use crate::typechecker::{TypeCheckError, TypeChecker, TypeError};
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
@@ -25,6 +26,13 @@ pub struct ReplState {
     input_buffer: String,
     in_multiline: bool,
     history: Vec<String>,
+    /// Every submission that passed static analysis and was executed this
+    /// session, in order. Re-analysing `session_inputs + new submission` as one
+    /// program is what lets the (otherwise whole-program) analyzer and type
+    /// checker see names, actions, and their declared types from earlier lines,
+    /// so cross-line references resolve and cross-line type/security contracts
+    /// are still enforced — the interpreter alone cannot do the latter.
+    session_inputs: Vec<String>,
 }
 
 impl Default for ReplState {
@@ -57,6 +65,7 @@ impl ReplState {
             input_buffer: String::new(),
             in_multiline: false,
             history: Vec::new(),
+            session_inputs: Vec::new(),
         }
     }
 
@@ -310,57 +319,25 @@ impl ReplState {
         // Messages accumulated across the analysis and run phases.
         let mut messages: Vec<String> = Vec::new();
 
-        // --- Static analysis -------------------------------------------------
-        // The REPL keeps ONE persistent interpreter for the whole session, but
-        // the analyzer and type checker are whole-program tools that only ever
-        // see this single line. Some of their diagnostics are false positives
-        // against the live session; others are perfectly valid. So they are
-        // filtered by diagnostic code, not blanket-dropped:
-        //
-        //   * `ANALYZE-SEMANTIC` — context-dependent name resolution (undefined
-        //     name, "not an action", already-defined, undefined-inside-`try`).
-        //     A name defined on an earlier line looks undefined here, so these
-        //     are dropped: the interpreter, which owns the real environment,
-        //     re-checks them at run time and reports genuine ones (this is what
-        //     made `display x` after `store x as 5` wrongly fail).
-        //   * `ANALYZE-UNUSED` — a stored binding is available to the next line,
-        //     so "unused" is always a false positive interactively. Dropped.
-        //   * everything else is *self-contained* within the single line and is
-        //     kept exactly as `wfl <file>` treats it: advisory warnings
-        //     (unreachable code, dead branch, shadowing, inconsistent returns)
-        //     are shown, and any error — notably the `ANALYZE-SECURITY` lint for
-        //     seeding the RNG in crypto/auth code — is shown AND blocks
-        //     execution. Such lints depend only on this line's own code, never
-        //     on session state, so there is no reason to weaken them.
-        //
-        // The type checker is skipped because its diagnostics are the same
-        // context-dependent name/type kind that would be noise on every line
-        // referring back to the session.
-        let mut analyzer = Analyzer::new();
-        let mut has_fatal_error = false;
-        for diagnostic in &analyzer.analyze_static(&program, file_id) {
-            if matches!(
-                diagnostic.code.as_str(),
-                "ANALYZE-SEMANTIC" | "ANALYZE-UNUSED"
-            ) {
-                continue;
-            }
-            messages.push(Self::render_diagnostic(&mut reporter, file_id, diagnostic));
-            if diagnostic.severity == Severity::Error {
-                has_fatal_error = true;
-            }
-        }
-        // A self-contained fatal analysis error (e.g. a security-policy
-        // violation) must stop the command before it runs, just like the CLI.
-        if has_fatal_error {
+        // --- Session-aware static analysis -----------------------------------
+        // Run the SAME analyze -> type-check -> execute pipeline `wfl <file>`
+        // uses, but over `session_inputs + this submission` as one program, so
+        // names/actions/types defined on earlier lines are in scope. Only this
+        // submission's diagnostics are reported (see `static_check_submission`).
+        // A genuine semantic error (undefined name, insecure `random_seed`
+        // seeding, an undefined reference inside an action body) blocks
+        // execution just as it aborts a file; type diagnostics are advisory, as
+        // in the file pipeline.
+        if self.static_check_submission(input, &mut reporter, file_id, &mut messages) {
             return Ok(Some(messages.join("\n")));
         }
 
         // --- Execution -------------------------------------------------------
-        // Run the WHOLE program (so every statement's side effects happen), and
-        // echo the final value only when the last statement is a bare
-        // expression — `interpret` returns the value of the last executed
-        // statement. `store`/`change`/`display` statements produce no echo.
+        // Execute ONLY this submission — the earlier submissions already ran
+        // against the persistent interpreter, so re-running them would repeat
+        // their output and side effects. Echo the final value only when the last
+        // statement is a bare expression (`interpret` returns the value of the
+        // last executed statement); `store`/`change`/`display` produce no echo.
         let echo_value = matches!(
             program.statements.last(),
             Some(Statement::ExpressionStatement { .. })
@@ -388,11 +365,185 @@ impl ReplState {
             }
         }
 
+        // This submission passed static analysis and was executed, so it is now
+        // part of the session's static context for later submissions. (Kept even
+        // if execution hit a runtime error: the definitions it introduced were
+        // statically valid, and re-analysing them keeps later lines' references
+        // resolvable — a stray runtime failure still surfaces at run time.)
+        self.session_inputs.push(input.to_string());
+
         if messages.is_empty() {
             Ok(None)
         } else {
             Ok(Some(messages.join("\n")))
         }
+    }
+
+    /// Analyse `session_inputs + submission` as a single program and report only
+    /// the diagnostics that fall inside the new submission, translated back to
+    /// the submission's own line numbers. Returns `true` when a fatal error was
+    /// found (the submission must not run).
+    ///
+    /// This is what makes REPL static analysis session-aware: a variable/action
+    /// defined on an earlier line is in scope, so it is not a false "undefined";
+    /// and self-contained contracts the interpreter cannot enforce — the
+    /// insecure-RNG security lint, undefined references inside a not-yet-called
+    /// action body, cross-line type mismatches — are still checked. Semantic
+    /// errors are fatal (as they abort a file); type diagnostics are advisory
+    /// (as the file pipeline prints them and continues).
+    fn static_check_submission(
+        &self,
+        input: &str,
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+        messages: &mut Vec<String>,
+    ) -> bool {
+        // Build the accumulated source and the line at which `input` begins in
+        // it (0 when this is the first submission).
+        let prefix = self.session_inputs.join("\n");
+        let (combined, base_line) = if prefix.is_empty() {
+            (input.to_string(), 0usize)
+        } else {
+            (
+                format!("{prefix}\n{input}"),
+                prefix.matches('\n').count() + 1,
+            )
+        };
+
+        // Each prior submission parsed on its own, so the concatenation parses
+        // too; if it somehow does not, fall back to analysing this submission
+        // alone (no earlier-line context, warnings only — never a false fatal).
+        let Ok(tokens) = lex_wfl_with_positions_checked(&combined) else {
+            return self.static_check_isolated(input, reporter, file_id, messages);
+        };
+        let mut parser = Parser::new(&tokens);
+        let Ok(combined_program) = parser.parse() else {
+            return self.static_check_isolated(input, reporter, file_id, messages);
+        };
+
+        // A scratch file over the combined source. Diagnostics reference it, but
+        // are rendered against the caller's submission `reporter`/`file_id`
+        // after their line numbers are shifted back by `base_line`.
+        let mut combined_reporter = DiagnosticReporter::new();
+        let combined_file = combined_reporter.add_file("repl", &combined);
+
+        let mut analyzer = Analyzer::new();
+        let mut fatal = false;
+        for diagnostic in &analyzer.analyze_static(&combined_program, combined_file) {
+            if !Self::belongs_to_submission(diagnostic.line, base_line)
+                || Self::is_repl_ignorable_semantic(diagnostic)
+            {
+                continue;
+            }
+            let mut adjusted = diagnostic.clone();
+            adjusted.line = adjusted.line.saturating_sub(base_line);
+            messages.push(Self::render_diagnostic(reporter, file_id, &adjusted));
+            if adjusted.severity == Severity::Error {
+                fatal = true;
+            }
+        }
+        // A fatal semantic error aborts before type checking, exactly as a file.
+        if fatal {
+            return true;
+        }
+
+        // Type checking is advisory in the file pipeline (`wfl <file>` prints
+        // type diagnostics and keeps going); mirror that here. A shared-budget
+        // breach is still fatal.
+        let mut type_checker = TypeChecker::with_analyzer(analyzer);
+        if let Err(failure) = type_checker.check_types(&combined_program) {
+            match failure {
+                TypeCheckError::Budget(exceeded) => {
+                    messages.push(format!("Error: {}", exceeded.message()));
+                    return true;
+                }
+                TypeCheckError::Types(errors) => {
+                    let action_params = type_checker.get_action_parameters().clone();
+                    for error in &errors {
+                        if !Self::belongs_to_submission(error.line, base_line)
+                            || Self::is_repl_ignorable_type_error(error, &action_params)
+                        {
+                            continue;
+                        }
+                        let mut adjusted = error.clone();
+                        adjusted.line = adjusted.line.saturating_sub(base_line);
+                        let diagnostic = reporter.convert_type_error(file_id, &adjusted);
+                        messages.push(Self::render_diagnostic(reporter, file_id, &diagnostic));
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Fallback used only if the accumulated source unexpectedly fails to parse:
+    /// analyse the submission alone. Without earlier-line context every
+    /// cross-line reference would look undefined, so this reports advisory
+    /// warnings only and never blocks — the interpreter still catches genuine
+    /// errors at run time. Returns `false` (never fatal).
+    fn static_check_isolated(
+        &self,
+        input: &str,
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+        messages: &mut Vec<String>,
+    ) -> bool {
+        let Ok(tokens) = lex_wfl_with_positions_checked(input) else {
+            return false;
+        };
+        let mut parser = Parser::new(&tokens);
+        let Ok(program) = parser.parse() else {
+            return false;
+        };
+        let mut scratch = DiagnosticReporter::new();
+        let scratch_file = scratch.add_file("repl", input);
+        let mut analyzer = Analyzer::new();
+        for diagnostic in &analyzer.analyze_static(&program, scratch_file) {
+            if diagnostic.severity == Severity::Warning
+                && !Self::is_repl_ignorable_semantic(diagnostic)
+            {
+                messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
+            }
+        }
+        false
+    }
+
+    /// A diagnostic belongs to the new submission when it sits on a line after
+    /// the accumulated prefix. Position-less diagnostics (line 0) are kept so a
+    /// genuine but unlocated error is never silently dropped.
+    fn belongs_to_submission(line: usize, base_line: usize) -> bool {
+        line == 0 || line > base_line
+    }
+
+    /// Semantic diagnostics that are correct for a file but wrong to enforce in
+    /// an interactive session.
+    fn is_repl_ignorable_semantic(diagnostic: &WflDiagnostic) -> bool {
+        // "Unused" is a false positive interactively — a binding is available to
+        // a *future* submission. Re-`store`/re-defining a name is allowed in the
+        // REPL (the interpreter reassigns), so "already defined" must not block
+        // continuing the session.
+        diagnostic.code == "ANALYZE-UNUSED"
+            || diagnostic.message.contains("already been defined")
+            || diagnostic.message.contains("already defined")
+    }
+
+    /// Type diagnostics to drop in the REPL: the same action-parameter and
+    /// duplicate-symbol false positives `wfl <file>` filters, plus re-definition
+    /// (allowed interactively).
+    fn is_repl_ignorable_type_error(
+        error: &TypeError,
+        action_params: &std::collections::HashSet<String>,
+    ) -> bool {
+        if error.message.starts_with("Variable '") && error.message.ends_with("' is not defined") {
+            let name = error
+                .message
+                .trim_start_matches("Variable '")
+                .trim_end_matches("' is not defined");
+            if action_params.contains(name) {
+                return true;
+            }
+        }
+        error.message.contains("already been defined") || error.message.contains("already defined")
     }
 }
 
@@ -604,7 +755,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn undefined_variable_is_reported_as_a_runtime_error() {
+    async fn undefined_variable_is_reported() {
         let mut repl = ReplState::new();
         let out = repl
             .process_line("display genuinely_missing")
@@ -614,6 +765,137 @@ mod tests {
         assert!(
             out.contains("genuinely_missing") && out.to_lowercase().contains("defined"),
             "expected an undefined-variable error, got: {out}"
+        );
+    }
+
+    // --- Session-aware static analysis (maintainer review on PR #617) ------
+    // The REPL analyses `earlier submissions + this one` as one program, so the
+    // static checks the interpreter cannot do (security lint, definition-time
+    // reference checks, cross-line type contracts) still run, while genuine
+    // session definitions are not false "undefined".
+
+    #[tokio::test]
+    async fn insecure_rng_is_blocked_even_when_referencing_an_earlier_line_variable() {
+        // The security lint runs against the whole session, so referencing a
+        // variable defined on an earlier line no longer makes the analyzer bail
+        // before the lint (which was the reported gap).
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store note as \"session\"")
+                .await
+                .unwrap(),
+            None
+        );
+        for line in [
+            "define action called mk:",
+            "display note", // references the earlier-line variable
+            "random_seed of 1",
+            "give back secure_random_bytes of 16",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("the security lint must still fire");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("mk"));
+    }
+
+    #[tokio::test]
+    async fn undefined_reference_inside_an_action_body_is_blocked_at_definition() {
+        // Defining an action stores its body without running it, so without
+        // definition-time validation a typo would only surface when the action
+        // is finally called. The analyzer must catch it now.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called broken:",
+            "display misspelled_variable",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("an undefined reference in the body must be reported");
+        assert!(
+            out.contains("misspelled_variable") && out.to_lowercase().contains("defined"),
+            "expected an undefined-variable error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("broken"));
+    }
+
+    #[tokio::test]
+    async fn earlier_session_variable_is_usable_inside_a_definition() {
+        // The converse of the previous test: a reference that *is* defined on an
+        // earlier line must resolve, so the definition is accepted and runs.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store greeting as \"hello\"")
+                .await
+                .unwrap(),
+            None
+        );
+        for line in [
+            "define action called sayit:",
+            "display greeting",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(repl.interpreter.global_env().borrow().has("sayit"));
+        // And calling it runs cleanly (no "not defined").
+        assert_eq!(repl.process_line("call sayit").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn self_recursive_action_is_accepted() {
+        // The action's own name is in scope inside its body (signature pass), so
+        // a self-reference is not a false "undefined" at definition time.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called countdown with n:",
+            "call countdown with n",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(repl.interpreter.global_env().borrow().has("countdown"));
+    }
+
+    #[tokio::test]
+    async fn cross_line_type_mismatch_is_surfaced() {
+        // The type checker sees `n: Number` from the earlier line, so assigning
+        // text to it is reported — advisory, matching the `wfl <file>` pipeline,
+        // so the command still runs.
+        let mut repl = ReplState::new();
+        assert_eq!(repl.process_line("store n as 5").await.unwrap(), None);
+        let out = repl
+            .process_line("change n to \"hello\"")
+            .await
+            .unwrap()
+            .expect("a cross-line type mismatch must be surfaced");
+        assert!(
+            out.contains("incompatible") && out.contains("Number"),
+            "expected an incompatible-assignment type error, got: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn re_storing_a_variable_is_allowed() {
+        // Re-defining a name is normal in a REPL (the interpreter reassigns), so
+        // the file-only "already defined" error must not block continuation.
+        let mut repl = ReplState::new();
+        assert_eq!(repl.process_line("store x as 5").await.unwrap(), None);
+        assert_eq!(repl.process_line("store x as 10").await.unwrap(), None);
+        assert_eq!(
+            repl.process_line("x").await.unwrap(),
+            Some("10".to_string())
         );
     }
 
