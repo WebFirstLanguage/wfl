@@ -7,7 +7,10 @@ use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
 use crate::interpreter::value::Value;
 use crate::lexer::{lex_wfl_with_positions_checked, token::TokenWithPosition};
-use crate::parser::{Parser, ast::Statement};
+use crate::parser::{
+    Parser,
+    ast::{Program, Statement},
+};
 use crate::typechecker::{TypeCheckError, TypeChecker, TypeError};
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
@@ -396,7 +399,7 @@ impl ReplState {
         // seeding, an undefined reference inside an action body) blocks
         // execution just as it aborts a file; type diagnostics are advisory, as
         // in the file pipeline.
-        if self.static_check_submission(input, &mut reporter, file_id, &mut messages) {
+        if self.static_check_submission(input, &program, &mut reporter, file_id, &mut messages) {
             return Ok(Some(messages.join("\n")));
         }
 
@@ -529,6 +532,7 @@ impl ReplState {
     fn static_check_submission(
         &self,
         input: &str,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
         messages: &mut Vec<String>,
@@ -550,7 +554,7 @@ impl ReplState {
         // exactly `sum(len_i + 1) + input.len()` when the session is non-empty.
         let prefix_bytes: usize = self.session_inputs.iter().map(|s| s.len() + 1).sum();
         if prefix_bytes + input.len() > self.max_session_analysis_bytes {
-            return self.static_check_isolated(input, reporter, file_id, messages);
+            return self.static_check_isolated(program, reporter, file_id, messages);
         }
 
         // Build the accumulated source. `base_line` is the number of lines in
@@ -573,11 +577,11 @@ impl ReplState {
         // advisory — never blocking, so a dropped cross-line contract can't turn
         // into a false fatal).
         let Ok(tokens) = lex_wfl_with_positions_checked(&combined) else {
-            return self.static_check_isolated(input, reporter, file_id, messages);
+            return self.static_check_isolated(program, reporter, file_id, messages);
         };
         let mut parser = Parser::new(&tokens);
         let Ok(combined_program) = parser.parse() else {
-            return self.static_check_isolated(input, reporter, file_id, messages);
+            return self.static_check_isolated(program, reporter, file_id, messages);
         };
 
         // A scratch file over the combined source. Diagnostics reference it, but
@@ -640,6 +644,13 @@ impl ReplState {
     /// this submission alone (the analyzer's semantic pass only — type checking is
     /// discussed below). Every non-ignorable diagnostic is still *reported*.
     ///
+    /// It operates on the submission's already-parsed `program` (the same AST
+    /// `process_complete_input` produced and will execute) rather than re-lexing
+    /// the source: the input was lexed under the command budget once at entry —
+    /// where a `BudgetExceeded` is already surfaced fatally — so re-lexing here
+    /// would only duplicate work and risk *swallowing* a second budget breach by
+    /// treating it as an ordinary "couldn't analyse" skip.
+    ///
     /// A performance/parse fallback must not become a correctness mode switch, so
     /// blocking is decided per diagnostic, not relaxed wholesale:
     /// - **Self-contained fatal errors still block** (returns `true`). They are
@@ -663,23 +674,17 @@ impl ReplState {
     /// avoids. The session-aware path (`static_check_submission`) runs it normally.
     fn static_check_isolated(
         &self,
-        input: &str,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
         messages: &mut Vec<String>,
     ) -> bool {
-        let Ok(tokens) = lex_wfl_with_positions_checked(input) else {
-            return false;
-        };
-        let mut parser = Parser::new(&tokens);
-        let Ok(program) = parser.parse() else {
-            return false;
-        };
-        let mut scratch = DiagnosticReporter::new();
-        let scratch_file = scratch.add_file("repl", input);
+        // `file_id` already refers to this submission's source, so analyse
+        // against it directly — no scratch reporter, and diagnostics render with
+        // the submission's own line/column.
         let mut analyzer = Analyzer::new();
         let mut fatal = false;
-        for diagnostic in &analyzer.analyze_static(&program, scratch_file) {
+        for diagnostic in &analyzer.analyze_static(program, file_id) {
             if Self::is_repl_ignorable_semantic(diagnostic) {
                 continue;
             }
