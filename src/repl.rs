@@ -580,14 +580,23 @@ impl ReplState {
             )
         };
 
+        // The checked lexer only fails on a budget breach (deadline /
+        // cancellation / operation ceiling), never on a token error — so a lex
+        // failure here is fatal for the command, exactly as it is at entry in
+        // `process_complete_input`. Surface it instead of falling through to
+        // execute the submission with the budget already spent.
+        let tokens = match lex_wfl_with_positions_checked(&combined) {
+            Ok(tokens) => tokens,
+            Err(exceeded) => {
+                messages.push(format!("Error: {}", exceeded.message()));
+                return true;
+            }
+        };
         // Each prior submission parsed on its own, so the concatenation parses
         // too; if it somehow does not, fall back to analysing this submission
         // alone (no earlier-line context; its diagnostics are reported but
         // advisory — never blocking, so a dropped cross-line contract can't turn
         // into a false fatal).
-        let Ok(tokens) = lex_wfl_with_positions_checked(&combined) else {
-            return self.static_check_isolated(program, reporter, file_id, messages);
-        };
         let mut parser = Parser::new(&tokens);
         let Ok(combined_program) = parser.parse() else {
             return self.static_check_isolated(program, reporter, file_id, messages);
