@@ -261,7 +261,7 @@ confused with WFL code. Type `.help` at any time to list them:
 |---------|--------------|
 | `.help` | Show the list of REPL commands |
 | `.history` | List the WFL inputs you've run this session (dot-commands are not included) |
-| `.clear` | Clear the screen |
+| `.clear` | Clear the screen (via ANSI escape codes; see note below) |
 | `.exit` | Exit the REPL |
 
 ### Display Variables
@@ -284,6 +284,12 @@ Alice
 ```wfl
 > .clear
 ```
+
+`.clear` works by writing standard ANSI escape sequences. In most terminals it
+clears the screen and moves the cursor to the top; in a terminal or environment
+that does not interpret ANSI escapes (or when output is redirected), it may print
+the escape characters instead of clearing. Your session state is unaffected
+either way — `.clear` only touches the display.
 
 ### Exit the REPL
 

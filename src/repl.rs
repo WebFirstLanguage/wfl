@@ -552,8 +552,17 @@ impl ReplState {
         // command. `join("\n")` over the prefix is `sum(len) + (count - 1)` bytes,
         // and the combined source adds a separator plus `input`, so its length is
         // exactly `sum(len_i + 1) + input.len()` when the session is non-empty.
+        //
+        // Also never lex a combined source larger than the user's configured
+        // `max_source_bytes`: that ceiling bounds how much source any one program
+        // may process, and the accumulated session IS the program being analysed
+        // here. The isolated fallback only sees this submission, which already
+        // passed the `max_source_bytes` check in `process_complete_input`.
+        let cap = self
+            .max_session_analysis_bytes
+            .min(self.interpreter.budget().max_source_bytes());
         let prefix_bytes: usize = self.session_inputs.iter().map(|s| s.len() + 1).sum();
-        if prefix_bytes + input.len() > self.max_session_analysis_bytes {
+        if prefix_bytes + input.len() > cap {
             return self.static_check_isolated(program, reporter, file_id, messages);
         }
 
