@@ -73,11 +73,36 @@ The implementation change is entirely in `src/repl.rs`; the REPL guide
     real safeguards (the security lint, definition-time reference checks, and
     cross-line type contracts). This accumulated-program approach restores them
     while keeping cross-line references working.
-  - *Known limitation:* the security lint is evaluated per submission's
-    accumulated view, so seeding the RNG in one command and doing crypto in a
-    *separate later* command is not flagged (the seed already executed; flagging
-    the prior line would wrongly block every later command). Doing both in one
-    submission — the file-equivalent case — is caught.
+
+- **Session-level security gate (owns `ANALYZE-SECURITY`).** The insecure-RNG
+  seeding control is *not* left to the accumulated-source analysis, because that
+  analysis has two blind spots the maintainer's second review flagged:
+  1. It reports only diagnostics whose line falls inside the *new* submission, so
+     an `ANALYZE-SECURITY` attached to a `random_seed` on an *earlier* line was
+     filtered out — seeding in one command and doing crypto in a separate later
+     command slipped through.
+  2. When the accumulated source exceeds the size cap, or the combined source
+     fails to lex/parse, analysis falls back to the current submission alone,
+     which returned "advisory, never blocks" — downgrading even self-contained
+     fatal errors, so a long session could execute what a short one would block.
+  The fix tracks the two ingredients of the lint — an insecure `random_seed` and
+  any [security-sensitive builtin](../src/analyzer/static_analyzer.rs) — as
+  session state (`rng_insecurely_seeded`, `security_builtin_used`), folded in
+  after each executed submission. Before running any submission, the REPL blocks
+  when the session (state + this submission) has *both* ingredients. This runs on
+  every path, independent of the capped combined analysis, so:
+  - Seeding then crypto in **separate** submissions is blocked (either order); the
+    completing submission is fatal, so it is not recorded, and the session never
+    accumulates both ingredients — a later *innocent* command is not over-blocked.
+  - The **fallback** path (over-cap or lex/parse failure) still blocks the
+    combination: the security control is a separate pass, not a source-size mode
+    switch. Only context-dependent name-resolution stays advisory in the fallback
+    (it genuinely can't be judged without the earlier lines).
+  - Seeding **without** any security-sensitive builtin remains allowed
+    (reproducible simulations), matching the file lint.
+  The scan (`rng_security_ingredients`) reuses the analyzer's own call collector
+  and `SECURITY_SENSITIVE_BUILTINS` list, so REPL and `wfl <file>` agree on what
+  counts as seeding and as security-sensitive.
 
 - **Robust multi-line detection.** `error_means_more_input_needed` replaces the
   fragile string match with two case-insensitive signals: the parser ran out of
@@ -135,6 +160,23 @@ Session-aware analysis (from the maintainer review):
   earlier-line variable is reported (advisory).
 - `re_storing_a_variable_is_allowed` — re-`store` is not blocked by the file-only
   "already defined" error.
+
+Session-level security gate (second maintainer review):
+
+- `insecure_seed_then_crypto_in_separate_submissions_is_blocked`,
+  `crypto_then_insecure_seed_in_separate_submissions_is_blocked` — the seed +
+  crypto combination is blocked when split across separate submissions, in either
+  order (the whole-program lint could not see this).
+- `innocent_command_after_a_blocked_crypto_op_is_not_over_blocked` — the blocked
+  (completing) submission is not recorded, so a later unrelated command still runs.
+- `insecure_seed_alone_is_still_allowed` — seeding without any crypto/auth op is
+  not blocked.
+- `fallback_path_still_blocks_insecure_seeding` — forcing the isolated fallback
+  (tiny `max_session_analysis_bytes`) still blocks the combination, same-submission
+  and cross-submission; the performance fallback is not a security mode switch.
+- `rng_security_ingredients_reports_each_half_independently` (analyzer) — the
+  ingredient scan reports seeding and security-builtin use independently and
+  captures call sites.
 
 `cargo test --lib`, `cargo fmt --all -- --check`, and
 `cargo clippy --all-targets --all-features -- -D warnings` are green.

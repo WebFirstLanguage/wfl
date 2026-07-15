@@ -1,5 +1,7 @@
 use crate::analyzer::Analyzer;
-use crate::analyzer::static_analyzer::StaticAnalyzer;
+use crate::analyzer::static_analyzer::{
+    RngSecurityIngredients, StaticAnalyzer, rng_security_ingredients,
+};
 use crate::diagnostics::{DiagnosticReporter, Severity, Span, WflDiagnostic};
 use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
@@ -33,7 +35,27 @@ pub struct ReplState {
     /// so cross-line references resolve and cross-line type/security contracts
     /// are still enforced — the interpreter alone cannot do the latter.
     session_inputs: Vec<String>,
+    /// Session-level state for the insecure-RNG-seeding security control
+    /// (`ANALYZE-SECURITY`). The file lint sees only one program, so it cannot
+    /// catch a `random_seed` entered in one submission and a crypto/auth op in
+    /// another. These record whether *any* executed submission has seeded the
+    /// RNG (`rng_insecurely_seeded`) and whether any has used a security-sensitive
+    /// builtin (`security_builtin_used`), so the insecure combination is blocked
+    /// however it is split across submissions — and independently of the capped
+    /// combined-source analysis, which the performance fallback skips.
+    rng_insecurely_seeded: bool,
+    security_builtin_used: bool,
+    /// Byte cap on the accumulated source that session-aware analysis will build
+    /// before falling back to analysing this submission alone. A field (not a
+    /// hard-coded constant) so tests can force the fallback without constructing
+    /// a multi-hundred-kilobyte session; production always uses the default.
+    max_session_analysis_bytes: usize,
 }
+
+/// Default cap on the accumulated session source before analysis falls back to
+/// the current submission alone. Generous — realistic interactive sessions stay
+/// far below it.
+const DEFAULT_MAX_SESSION_ANALYSIS_BYTES: usize = 256 * 1024;
 
 impl Default for ReplState {
     fn default() -> Self {
@@ -66,6 +88,9 @@ impl ReplState {
             in_multiline: false,
             history: Vec::new(),
             session_inputs: Vec::new(),
+            rng_insecurely_seeded: false,
+            security_builtin_used: false,
+            max_session_analysis_bytes: DEFAULT_MAX_SESSION_ANALYSIS_BYTES,
         }
     }
 
@@ -339,6 +364,23 @@ impl ReplState {
         // Messages accumulated across the analysis and run phases.
         let mut messages: Vec<String> = Vec::new();
 
+        // --- Session-aware security gate -------------------------------------
+        // Owns the insecure-RNG-seeding control (`ANALYZE-SECURITY`) at the
+        // *session* level: a `random_seed` and a crypto/auth op can be entered as
+        // separate submissions, which neither the whole-program file lint nor the
+        // capped combined-source analysis below can see together. This runs on
+        // EVERY submission regardless of the analysis path, so the security
+        // control is never relaxed by the performance fallback. Blocking here is
+        // fatal and, like any fatal, does not record the submission — so the
+        // session never accumulates both ingredients, and a later innocent
+        // command is not blocked.
+        let security_ingredients = rng_security_ingredients(&program);
+        if let Some(rendered) =
+            self.insecure_seed_block(&security_ingredients, &mut reporter, file_id)
+        {
+            return Ok(Some(rendered));
+        }
+
         // --- Session-aware static analysis -----------------------------------
         // Run the SAME analyze -> type-check -> execute pipeline `wfl <file>`
         // uses, but over `session_inputs + this submission` as one program, so
@@ -395,6 +437,14 @@ impl ReplState {
         // fully-failed `store` whose binding never took effect is still "known"
         // to later analysis) is benign: the reference simply raises a clear
         // undefined error at run time rather than being blocked.
+        //
+        // Fold this submission's security ingredients into the session state
+        // (only reached when the security gate did NOT block) so a later
+        // submission supplying the missing half is blocked. Detection is
+        // syntactic, so it is recorded even if the submission errored at run
+        // time — matching `session_inputs`' record-on-attempt rule above.
+        self.rng_insecurely_seeded |= security_ingredients.seeds_rng();
+        self.security_builtin_used |= security_ingredients.uses_security_builtin();
         self.session_inputs.push(input.to_string());
 
         if messages.is_empty() {
@@ -402,6 +452,60 @@ impl ReplState {
         } else {
             Ok(Some(messages.join("\n")))
         }
+    }
+
+    /// The insecure-RNG-seeding security control, evaluated at the session level.
+    /// Returns a rendered fatal `ANALYZE-SECURITY` diagnostic when — combining
+    /// this submission's ingredients with the session state — the RNG has been
+    /// seeded with `random_seed` AND a security-sensitive builtin is used
+    /// somewhere in the session; otherwise `None`.
+    ///
+    /// This is the REPL's single owner of `ANALYZE-SECURITY`. The whole-program
+    /// file lint (`check_insecure_rng_seeding`) cannot see the two ingredients
+    /// when they are split across submissions, and the analysis fallback skips
+    /// the combined source entirely — so a source-driven check would let a long
+    /// or lex-failing session bypass the control. Running here, before and
+    /// independent of that analysis, keeps the control in force on every path.
+    ///
+    /// Because a completing submission is blocked (fatal) and therefore not
+    /// recorded, the session never holds both ingredients at once; so whenever
+    /// this fires, at least one site is in the *current* submission. The caret
+    /// points at the crypto op here if present (the operation just made
+    /// predictable), otherwise at the `random_seed` entered here against an
+    /// earlier crypto op.
+    fn insecure_seed_block(
+        &self,
+        ingredients: &RngSecurityIngredients,
+        reporter: &mut DiagnosticReporter,
+        file_id: usize,
+    ) -> Option<String> {
+        let seeded = self.rng_insecurely_seeded || ingredients.seeds_rng();
+        let uses_security = self.security_builtin_used || ingredients.uses_security_builtin();
+        if !(seeded && uses_security) {
+            return None;
+        }
+        let (line, column) = ingredients
+            .security_site
+            .or(ingredients.seed_site)
+            .unwrap_or((1, 1));
+        let diagnostic = WflDiagnostic::new(
+            Severity::Error,
+            "random_seed must not be used in authentication, session, or cryptographic code"
+                .to_string(),
+            Some(
+                "Seeding the random number generator makes its output predictable, which \
+                 undermines salts, session IDs, and tokens. Remove the random_seed call; \
+                 use secure_random_bytes for cryptographic randomness. Seeding is only for \
+                 reproducible non-security code such as simulations or tests."
+                    .to_string(),
+            ),
+            "ANALYZE-SECURITY".to_string(),
+            file_id,
+            line,
+            column,
+            None,
+        );
+        Some(Self::render_diagnostic(reporter, file_id, &diagnostic))
     }
 
     /// Analyse `session_inputs + submission` as a single program and report only
@@ -428,16 +532,18 @@ impl ReplState {
         // accumulated source at a generous size so a pathologically long session
         // degrades to analysing just this submission (whose diagnostics are then
         // advisory — reported but non-blocking) instead of getting slow.
-        // Realistic interactive sessions never approach this.
+        // Realistic interactive sessions never approach this. The self-contained
+        // security control is NOT relaxed by this fallback: it is enforced ahead
+        // of here by the session-level `insecure_seed_block`, which does not
+        // depend on the combined source.
         //
         // Size the cap check off `session_inputs` directly so a very long session
         // falls back without first paying an O(n) `join`/`format!` copy every
         // command. `join("\n")` over the prefix is `sum(len) + (count - 1)` bytes,
         // and the combined source adds a separator plus `input`, so its length is
         // exactly `sum(len_i + 1) + input.len()` when the session is non-empty.
-        const MAX_SESSION_ANALYSIS_BYTES: usize = 256 * 1024;
         let prefix_bytes: usize = self.session_inputs.iter().map(|s| s.len() + 1).sum();
-        if prefix_bytes + input.len() > MAX_SESSION_ANALYSIS_BYTES {
+        if prefix_bytes + input.len() > self.max_session_analysis_bytes {
             return self.static_check_isolated(input, reporter, file_id, messages);
         }
 
@@ -523,13 +629,20 @@ impl ReplState {
         false
     }
 
-    /// Fallback used only if the accumulated source unexpectedly fails to parse:
-    /// analyse the submission alone. Without earlier-line context a cross-line
-    /// reference can look undefined, so this NEVER blocks (returns `false`) — the
-    /// interpreter catches genuine errors at run time. It still *reports* every
-    /// non-ignorable diagnostic (advisory, any severity) rather than silently
-    /// dropping errors; a stray false positive here is only reachable in the
-    /// near-impossible case where the concatenated session does not parse.
+    /// Fallback used when the accumulated source exceeds
+    /// `max_session_analysis_bytes` or unexpectedly fails to lex/parse: analyse
+    /// the submission alone. Without earlier-line context a cross-line reference
+    /// can look undefined, so this NEVER blocks on the *name-resolution* checks
+    /// (returns `false`) — the interpreter catches genuine name errors at run
+    /// time. It still *reports* every non-ignorable diagnostic (advisory, any
+    /// severity) rather than silently dropping errors.
+    ///
+    /// This relaxation is limited to context-dependent name resolution — the one
+    /// self-contained fatal control, insecure RNG seeding (`ANALYZE-SECURITY`),
+    /// is enforced ahead of this by `insecure_seed_block`, which does not depend
+    /// on the combined source. So reaching this fallback is not a security mode
+    /// switch: a long or lex-failing session cannot execute a `random_seed` +
+    /// crypto combination it would have blocked at full length.
     fn static_check_isolated(
         &self,
         input: &str,
@@ -851,6 +964,153 @@ mod tests {
             "expected the insecure-RNG error, got: {out}"
         );
         assert!(!repl.interpreter.global_env().borrow().has("mk"));
+    }
+
+    // --- Cross-submission insecure-RNG-seeding gate (maintainer review) -----
+    // A `random_seed` and a crypto/auth op can be entered as SEPARATE
+    // submissions. The whole-program file lint cannot see the two together, so
+    // the REPL tracks them at the session level and blocks the combination
+    // however it is split — and independently of the analysis fallback.
+
+    #[tokio::test]
+    async fn insecure_seed_then_crypto_in_separate_submissions_is_blocked() {
+        let mut repl = ReplState::new();
+        // Seeding alone is legitimate (reproducible simulations) and executes.
+        assert_eq!(
+            repl.process_line("store s as random_seed of 1234")
+                .await
+                .unwrap(),
+            None
+        );
+        // A later, separate crypto op must be blocked: the RNG is now predictable.
+        let out = repl
+            .process_line("store token as secure_random_bytes of 32")
+            .await
+            .unwrap()
+            .expect("the later crypto op must be blocked once the RNG is seeded");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        // Blocked: it never executed nor joined the session context.
+        assert!(!repl.interpreter.global_env().borrow().has("token"));
+        assert!(
+            !repl
+                .session_inputs
+                .iter()
+                .any(|s| s.contains("secure_random_bytes"))
+        );
+    }
+
+    #[tokio::test]
+    async fn crypto_then_insecure_seed_in_separate_submissions_is_blocked() {
+        // The reverse split: a clean crypto op first, then a `random_seed` in a
+        // later submission. Seeding after security-sensitive code is in the
+        // session is equally insecure and must be blocked.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store token as secure_random_bytes of 32")
+                .await
+                .unwrap(),
+            None
+        );
+        let out = repl
+            .process_line("store s as random_seed of 1234")
+            .await
+            .unwrap()
+            .expect("seeding after crypto is in the session must be blocked");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("s"));
+    }
+
+    #[tokio::test]
+    async fn innocent_command_after_a_blocked_crypto_op_is_not_over_blocked() {
+        // The completing (blocked) submission is not recorded, so the session
+        // never holds both ingredients: a later innocent command must still run.
+        // The gate must not latch into "block everything".
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store s as random_seed of 1234")
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(
+            repl.process_line("store token as secure_random_bytes of 32")
+                .await
+                .unwrap()
+                .expect("blocked")
+                .contains("random_seed must not be used")
+        );
+        // An unrelated command runs normally and joins the session.
+        assert_eq!(
+            repl.process_line("store greeting as \"hi\"").await.unwrap(),
+            None
+        );
+        assert!(repl.interpreter.global_env().borrow().has("greeting"));
+        assert_eq!(
+            repl.process_line("greeting").await.unwrap().as_deref(),
+            Some("hi")
+        );
+    }
+
+    #[tokio::test]
+    async fn insecure_seed_alone_is_still_allowed() {
+        // Seeding without any security-sensitive builtin is legitimate (e.g. a
+        // reproducible simulation) and must NOT be blocked.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store s as random_seed of 42")
+                .await
+                .unwrap(),
+            None,
+            "seeding without crypto must be allowed"
+        );
+        assert!(repl.interpreter.global_env().borrow().has("s"));
+    }
+
+    #[tokio::test]
+    async fn fallback_path_still_blocks_insecure_seeding() {
+        // Reaching the isolated fallback (source over the cap, or a combined-source
+        // lex/parse failure) must not relax the security control. Force the
+        // fallback with a tiny cap and verify the seed+crypto combination — same
+        // submission AND split across submissions — is still fatal.
+        let mut repl = ReplState::new();
+        repl.max_session_analysis_bytes = 1; // any non-empty submission falls back
+
+        // Same-submission seed+crypto, taken down the isolated path.
+        let out = repl
+            .process_line("store t as secure_random_bytes of 16\nstore s as random_seed of 1")
+            .await
+            .unwrap()
+            .expect("the fallback must still block a self-contained security violation");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG error on the fallback path, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("t"));
+
+        // Cross-submission on the isolated path: seed first (clean, runs under the
+        // fallback), then a separate crypto op — still blocked by the session gate.
+        assert_eq!(
+            repl.process_line("store seed_val as random_seed of 7")
+                .await
+                .unwrap(),
+            None
+        );
+        let out = repl
+            .process_line("store tok as secure_random_bytes of 8")
+            .await
+            .unwrap()
+            .expect("cross-submission seeding must be blocked even on the fallback path");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG error on the fallback path, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("tok"));
     }
 
     #[tokio::test]

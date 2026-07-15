@@ -133,6 +133,55 @@ const SECURITY_SENSITIVE_BUILTINS: &[&str] = &[
     "wflmac256",
 ];
 
+/// The two ingredients of the insecure-RNG-seeding lint found in a single
+/// program: whether it seeds the RNG (`random_seed`) and whether it performs an
+/// authentication/session/cryptographic operation ([`SECURITY_SENSITIVE_BUILTINS`]),
+/// each with its first call site (1-based line, column).
+///
+/// [`Analyzer::check_insecure_rng_seeding`] flags a *file* that contains both at
+/// once. The REPL, however, receives one submission at a time, so the seed and
+/// the crypto operation can arrive on separate lines. It uses this to track the
+/// two ingredients across submissions — and independently of the capped
+/// combined-source analysis — so the insecure combination is still blocked no
+/// matter how it is split.
+pub struct RngSecurityIngredients {
+    /// Line/column of the first `random_seed` call, if any.
+    pub seed_site: Option<(usize, usize)>,
+    /// Line/column of the first security-sensitive builtin call, if any.
+    pub security_site: Option<(usize, usize)>,
+}
+
+impl RngSecurityIngredients {
+    /// The program seeds the RNG with `random_seed`.
+    pub fn seeds_rng(&self) -> bool {
+        self.seed_site.is_some()
+    }
+
+    /// The program calls an authentication/session/cryptographic builtin.
+    pub fn uses_security_builtin(&self) -> bool {
+        self.security_site.is_some()
+    }
+}
+
+/// Scan a single program for the two insecure-RNG-seeding ingredients (see
+/// [`RngSecurityIngredients`]). Recurses into action bodies, loops, and blocks
+/// exactly as [`Analyzer::check_insecure_rng_seeding`] does, since both use the
+/// same call collector.
+pub fn rng_security_ingredients(program: &Program) -> RngSecurityIngredients {
+    let mut calls = Vec::new();
+    collect_calls_in_statements(&program.statements, &mut calls);
+    RngSecurityIngredients {
+        seed_site: calls
+            .iter()
+            .find(|call| call.name == "random_seed")
+            .map(|call| (call.line, call.column)),
+        security_site: calls
+            .iter()
+            .find(|call| SECURITY_SENSITIVE_BUILTINS.contains(&call.name.as_str()))
+            .map(|call| (call.line, call.column)),
+    }
+}
+
 /// Record of a builtin call site discovered while walking the AST.
 struct CallSite {
     name: String,
@@ -2487,5 +2536,35 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "ANALYZE-SECURITY");
+    }
+
+    #[test]
+    fn rng_security_ingredients_reports_each_half_independently() {
+        // The REPL blocks the seed+crypto combination across separate submissions
+        // by tracking each half on its own, so the ingredient scan must report the
+        // two independently (unlike the file lint, which only fires on both).
+        let seed_only = rng_security_ingredients(&parse_program("store s as random_seed of 42"));
+        assert!(seed_only.seeds_rng());
+        assert!(!seed_only.uses_security_builtin());
+
+        let crypto_only =
+            rng_security_ingredients(&parse_program("store t as secure_random_bytes of 16"));
+        assert!(!crypto_only.seeds_rng());
+        assert!(crypto_only.uses_security_builtin());
+
+        // General-purpose hashes are not "security-sensitive" (matching the lint's
+        // SECURITY_SENSITIVE_BUILTINS), so hashing + seeding is not an ingredient pair.
+        let checksum = rng_security_ingredients(&parse_program(
+            "store c as sha256 of \"data\"\nstore s as random_seed of 1",
+        ));
+        assert!(checksum.seeds_rng());
+        assert!(!checksum.uses_security_builtin());
+
+        // Call sites are captured (used to place the caret at the current line).
+        let both = rng_security_ingredients(&parse_program(
+            "store t as secure_random_bytes of 16\nstore s as random_seed of 1",
+        ));
+        assert!(both.seed_site.is_some());
+        assert!(both.security_site.is_some());
     }
 }
