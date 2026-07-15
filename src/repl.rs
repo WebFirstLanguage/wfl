@@ -208,15 +208,44 @@ impl ReplState {
             || (message.contains("expected 'end") && !message.contains("found"))
     }
 
+    /// Clamp a byte-offset span onto valid UTF-8 char boundaries within
+    /// `source`. Spans index the source `String`; a `start + 1` end (produced by
+    /// the `convert_*` helpers and the synthesized-label path alike) can land in
+    /// the middle of a multi-byte character, and codespan then slices a
+    /// non-char-boundary range and panics. This snaps `start` down and `end` up
+    /// to the enclosing character (widening never shrinking), covering the last
+    /// character when the offset was at EOF.
+    fn snap_span_to_char_boundaries(source: &str, span: Span) -> Span {
+        let len = source.len();
+        let mut start = span.start.min(len);
+        let mut end = span.end.min(len).max(start);
+        if start == end {
+            // Empty span: cover one character so the caret is visible. At EOF
+            // there is nothing to the right, so step back onto the last char.
+            if start == len && len > 0 {
+                start -= 1;
+            } else if end < len {
+                end += 1;
+            }
+        }
+        while start > 0 && !source.is_char_boundary(start) {
+            start -= 1;
+        }
+        while end < len && !source.is_char_boundary(end) {
+            end += 1;
+        }
+        Span { start, end }
+    }
+
     /// Render one WFL diagnostic to a coloured, Elm-style block (source
     /// snippet, caret, and note), returning the string the REPL prints.
     ///
-    /// Parse/type/runtime diagnostics already carry a labelled span, so they
-    /// render with a caret as-is. Analyzer diagnostics only carry a
-    /// line/column, so a one-character span is synthesized from it here — that
-    /// way *every* REPL diagnostic follows the same "point at the source"
-    /// convention (WFL Fundamental #4: clear, actionable errors) instead of
-    /// some showing a bare message with no location.
+    /// Parse/type/runtime diagnostics already carry a labelled span; analyzer
+    /// diagnostics only carry a line/column, so a span is synthesized from it —
+    /// that way *every* REPL diagnostic follows the same "point at the source"
+    /// convention (WFL Fundamental #4: clear, actionable errors). Every label
+    /// span (synthesized or pre-existing) is then snapped to UTF-8 char
+    /// boundaries so codespan never slices mid-codepoint on multi-byte source.
     fn render_diagnostic(
         reporter: &mut DiagnosticReporter,
         file_id: usize,
@@ -226,35 +255,26 @@ impl ReplState {
         if diag.labels.is_empty()
             && diag.line >= 1
             && let Some(offset) = reporter.line_col_to_offset(file_id, diag.line, diag.column)
-            && let Ok(file) = reporter.files.get(file_id)
         {
-            // Build a one-character span that stays on UTF-8 char boundaries.
-            // Spans are byte offsets into the source `String`; a `start + 1`
-            // (or an EOF clamp) can land in the middle of a multi-byte
-            // character, and codespan then slices a non-char-boundary range and
-            // panics. Snap `start` down and `end` up to the enclosing character
-            // so the caret always underlines a whole char.
+            diag.labels.push((
+                Span {
+                    start: offset,
+                    end: offset + 1,
+                },
+                "here".to_string(),
+            ));
+        }
+
+        // Normalize ALL label spans (synthesized or from `convert_*`) to valid
+        // char boundaries, then drop any that collapse to empty (e.g. an empty
+        // source) so they never render a zero-width caret.
+        if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
-            let len = source.len();
-            let mut start = offset.min(len);
-            // `line_col_to_offset` may return an offset at EOF (one past the
-            // last byte). There is no character to the right there, so step back
-            // onto the last character so the caret still points at the source
-            // instead of vanishing.
-            if start == len && len > 0 {
-                start -= 1;
-            }
-            while start > 0 && !source.is_char_boundary(start) {
-                start -= 1;
-            }
-            let mut end = (start + 1).min(len);
-            while end < len && !source.is_char_boundary(end) {
-                end += 1;
-            }
-            if start < end {
-                diag.labels.push((Span { start, end }, "here".to_string()));
+            for (span, _) in diag.labels.iter_mut() {
+                *span = Self::snap_span_to_char_boundaries(source, *span);
             }
         }
+        diag.labels.retain(|(span, _)| span.start < span.end);
 
         let mut buffer = Buffer::ansi();
         let config = term::Config::default();
@@ -947,6 +967,25 @@ mod tests {
         assert!(
             rendered.contains("unreachable code") && rendered.contains("repl:1:"),
             "expected a caret-rendered diagnostic, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn render_diagnostic_snaps_preexisting_label_span_to_char_boundaries() {
+        // Parse/type/runtime diagnostics arrive with a span already attached
+        // (from the `convert_*` helpers, typically `start..start + 1`). If that
+        // end lands mid-codepoint on multi-byte source, codespan panics — so the
+        // normalization must apply to pre-existing labels too, not only
+        // synthesized ones. "café" is 5 bytes; a 3..4 span splits the 2-byte 'é'.
+        let mut reporter = DiagnosticReporter::new();
+        let file_id = reporter.add_file("repl", "café");
+        let diag =
+            WflDiagnostic::error("boom").with_primary_label(Span { start: 3, end: 4 }, "here");
+        // Must not panic and must still carry the message.
+        let rendered = ReplState::render_diagnostic(&mut reporter, file_id, &diag);
+        assert!(
+            rendered.contains("boom"),
+            "expected the message in the rendered diagnostic, got: {rendered}"
         );
     }
 
