@@ -174,9 +174,26 @@ Session-level security gate (second maintainer review):
 - `fallback_path_still_blocks_insecure_seeding` — forcing the isolated fallback
   (tiny `max_session_analysis_bytes`) still blocks the combination, same-submission
   and cross-submission; the performance fallback is not a security mode switch.
+- `fallback_downgrades_earlier_session_reference_but_does_not_block` — in the same
+  forced fallback, a reference to an earlier-session variable is downgraded to
+  advisory (not blocked), so cross-line references keep working in the degraded path.
 - `rng_security_ingredients_reports_each_half_independently` (analyzer) — the
   ingredient scan reports seeding and security-builtin use independently and
   captures call sites.
+
+The isolated fallback (`static_check_isolated`) blocks per diagnostic rather than
+relaxing wholesale: **self-contained fatal errors still block**, while only
+**context-dependent name resolution** (an undefined variable/action/handler/list
+reference, which may name an earlier-session symbol we can't see when analysing
+the submission alone) is downgraded to advisory. Type checking is intentionally
+skipped in the fallback: its diagnostics are advisory (never block), and without
+the earlier-session symbols it would emit false-positive "undefined" type
+diagnostics for valid earlier-session references. Today the analyzer's only fatal
+semantic diagnostics are duplicate-definition (ignored interactively) and those
+name-resolution errors, so this changes no current behavior — it keeps the
+fallback correct-by-construction if a self-contained fatal semantic check is
+added later, and the insecure-RNG control is enforced regardless by the session
+gate above.
 
 `cargo test --lib`, `cargo fmt --all -- --check`, and
 `cargo clippy --all-targets --all-features -- -D warnings` are green.

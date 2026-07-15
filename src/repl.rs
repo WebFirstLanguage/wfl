@@ -38,11 +38,17 @@ pub struct ReplState {
     /// Session-level state for the insecure-RNG-seeding security control
     /// (`ANALYZE-SECURITY`). The file lint sees only one program, so it cannot
     /// catch a `random_seed` entered in one submission and a crypto/auth op in
-    /// another. These record whether *any* executed submission has seeded the
-    /// RNG (`rng_insecurely_seeded`) and whether any has used a security-sensitive
-    /// builtin (`security_builtin_used`), so the insecure combination is blocked
-    /// however it is split across submissions — and independently of the capped
+    /// another. These record whether any submission the REPL has *run* seeded the
+    /// RNG (`rng_insecurely_seeded`) or used a security-sensitive builtin
+    /// (`security_builtin_used`), so the insecure combination is blocked however
+    /// it is split across submissions — and independently of the capped
     /// combined-source analysis, which the performance fallback skips.
+    ///
+    /// "Run" means recorded on execution *attempt* (the same rule as
+    /// `session_inputs`), and detection is syntactic — so an ingredient counts
+    /// even if the submission later errored at run time. That is deliberately
+    /// conservative: it matches the file lint, which flags the *presence* of
+    /// `random_seed` in security-sensitive code, not its execution.
     rng_insecurely_seeded: bool,
     security_builtin_used: bool,
     /// Byte cap on the accumulated source that session-aware analysis will build
@@ -631,18 +637,30 @@ impl ReplState {
 
     /// Fallback used when the accumulated source exceeds
     /// `max_session_analysis_bytes` or unexpectedly fails to lex/parse: analyse
-    /// the submission alone. Without earlier-line context a cross-line reference
-    /// can look undefined, so this NEVER blocks on the *name-resolution* checks
-    /// (returns `false`) — the interpreter catches genuine name errors at run
-    /// time. It still *reports* every non-ignorable diagnostic (advisory, any
-    /// severity) rather than silently dropping errors.
+    /// this submission alone (the analyzer's semantic pass only — type checking is
+    /// discussed below). Every non-ignorable diagnostic is still *reported*.
     ///
-    /// This relaxation is limited to context-dependent name resolution — the one
-    /// self-contained fatal control, insecure RNG seeding (`ANALYZE-SECURITY`),
-    /// is enforced ahead of this by `insecure_seed_block`, which does not depend
-    /// on the combined source. So reaching this fallback is not a security mode
-    /// switch: a long or lex-failing session cannot execute a `random_seed` +
-    /// crypto combination it would have blocked at full length.
+    /// A performance/parse fallback must not become a correctness mode switch, so
+    /// blocking is decided per diagnostic, not relaxed wholesale:
+    /// - **Self-contained fatal errors still block** (returns `true`). They are
+    ///   present in the submission regardless of the earlier lines we can't see.
+    /// - **Context-dependent name resolution is downgraded** to advisory (does not
+    ///   block): without the earlier session lines a reference to an
+    ///   earlier-defined name looks "undefined", so it may be a false positive —
+    ///   the interpreter resolves it against the live session, and a genuine typo
+    ///   still errors at run time.
+    ///
+    /// The one self-contained fatal that does *not* rely on the analyzer here —
+    /// insecure RNG seeding (`ANALYZE-SECURITY`) — is enforced ahead of this by
+    /// `insecure_seed_block`, independent of the combined source; so a long or
+    /// lex-failing session cannot execute a `random_seed` + crypto combination it
+    /// would have blocked at full length.
+    ///
+    /// Type checking is intentionally *not* run here: its diagnostics are advisory
+    /// (they never block, so no safety is lost), and without the earlier session
+    /// symbols it would emit false-positive "undefined" type diagnostics for valid
+    /// earlier-session references — exactly the noise the session-aware path
+    /// avoids. The session-aware path (`static_check_submission`) runs it normally.
     fn static_check_isolated(
         &self,
         input: &str,
@@ -660,12 +678,38 @@ impl ReplState {
         let mut scratch = DiagnosticReporter::new();
         let scratch_file = scratch.add_file("repl", input);
         let mut analyzer = Analyzer::new();
+        let mut fatal = false;
         for diagnostic in &analyzer.analyze_static(&program, scratch_file) {
-            if !Self::is_repl_ignorable_semantic(diagnostic) {
-                messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
+            if Self::is_repl_ignorable_semantic(diagnostic) {
+                continue;
+            }
+            messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
+            if diagnostic.severity == Severity::Error
+                && !Self::is_context_dependent_name_resolution(diagnostic)
+            {
+                fatal = true;
             }
         }
-        false
+        fatal
+    }
+
+    /// A semantic diagnostic whose validity depends on names defined earlier in
+    /// the session: an undefined variable/action/handler/list reference. When a
+    /// submission is analysed alone (the isolated fallback), such a name may be
+    /// defined on an earlier line we cannot see, so the "undefined" is potentially
+    /// a false positive and must not block. Every *other* semantic error is
+    /// self-contained — present regardless of the earlier lines — and stays fatal.
+    ///
+    /// In `static_check_submission` the earlier lines ARE in scope, so an
+    /// undefined name there is genuine and blocks; this downgrade is specific to
+    /// the isolated fallback.
+    fn is_context_dependent_name_resolution(diagnostic: &WflDiagnostic) -> bool {
+        diagnostic.code == "ANALYZE-SEMANTIC"
+            && ((diagnostic.message.starts_with("Variable '")
+                && diagnostic.message.ends_with("' is not defined"))
+                || diagnostic.message.starts_with("Undefined action '")
+                || diagnostic.message.starts_with("Undefined signal handler '")
+                || diagnostic.message.starts_with("Undefined list reference '"))
     }
 
     /// A diagnostic belongs to the new submission when it sits on a line after
@@ -1111,6 +1155,29 @@ mod tests {
             "expected the insecure-RNG error on the fallback path, got: {out}"
         );
         assert!(!repl.interpreter.global_env().borrow().has("tok"));
+    }
+
+    #[tokio::test]
+    async fn fallback_downgrades_earlier_session_reference_but_does_not_block() {
+        // In the isolated fallback we can't see earlier submissions, so a
+        // reference to an earlier-session variable looks "undefined". That is
+        // context-dependent, so it must be downgraded to advisory (not block) —
+        // the interpreter resolves it against the live session. This keeps
+        // cross-line references working even in the degraded fallback, while
+        // self-contained fatal errors (see the security tests) still block.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store greeting as \"hi\"").await.unwrap(),
+            None
+        );
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        // Referencing the earlier-session variable must still execute (the
+        // name-resolution diagnostic is advisory, not a block).
+        let _ = repl.process_line("store echoed as greeting").await.unwrap();
+        assert!(
+            repl.interpreter.global_env().borrow().has("echoed"),
+            "an earlier-session reference must not block in the isolated fallback"
+        );
     }
 
     #[tokio::test]
