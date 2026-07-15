@@ -423,6 +423,23 @@ impl ReplState {
         file_id: usize,
         messages: &mut Vec<String>,
     ) -> bool {
+        // Re-analysing the whole session each command is O(n²) over its length.
+        // A per-command budget deadline already bounds the work, but cap the
+        // accumulated source at a generous size so a pathologically long session
+        // degrades to analysing just this submission (warnings only) instead of
+        // getting slow. Realistic interactive sessions never approach this.
+        //
+        // Size the cap check off `session_inputs` directly so a very long session
+        // falls back without first paying an O(n) `join`/`format!` copy every
+        // command. `join("\n")` over the prefix is `sum(len) + (count - 1)` bytes,
+        // and the combined source adds a separator plus `input`, so its length is
+        // exactly `sum(len_i + 1) + input.len()` when the session is non-empty.
+        const MAX_SESSION_ANALYSIS_BYTES: usize = 256 * 1024;
+        let prefix_bytes: usize = self.session_inputs.iter().map(|s| s.len() + 1).sum();
+        if prefix_bytes + input.len() > MAX_SESSION_ANALYSIS_BYTES {
+            return self.static_check_isolated(input, reporter, file_id, messages);
+        }
+
         // Build the accumulated source. `base_line` is the number of lines in
         // the prefix (0 for the first submission), so the new submission's first
         // line sits at `base_line + 1` in the combined source — the offset used
@@ -436,16 +453,6 @@ impl ReplState {
                 prefix.matches('\n').count() + 1,
             )
         };
-
-        // Re-analysing the whole session each command is O(n²) over its length.
-        // A per-command budget deadline already bounds the work, but cap the
-        // accumulated source at a generous size so a pathologically long session
-        // degrades to analysing just this submission (warnings only) instead of
-        // getting slow. Realistic interactive sessions never approach this.
-        const MAX_SESSION_ANALYSIS_BYTES: usize = 256 * 1024;
-        if combined.len() > MAX_SESSION_ANALYSIS_BYTES {
-            return self.static_check_isolated(input, reporter, file_id, messages);
-        }
 
         // Each prior submission parsed on its own, so the concatenation parses
         // too; if it somehow does not, fall back to analysing this submission
