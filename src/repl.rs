@@ -1280,6 +1280,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fallback_blocks_undefined_action_call_inside_a_deferred_body() {
+        // The same guarantee for an undefined *action call* (not just a variable
+        // reference) inside a stored action body: the env check keys on the name,
+        // not on its syntactic role, so a call to a nonexistent action in a body
+        // is fatal at definition time even on the fallback path.
+        let mut repl = ReplState::new();
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in ["define action called caller:", "call ghost_action"] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out = repl
+            .process_line("end action")
+            .await
+            .unwrap()
+            .expect("an undefined action call in a deferred body must block in the fallback");
+        assert!(
+            out.contains("ghost_action"),
+            "expected an undefined-action error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("caller"));
+    }
+
+    #[tokio::test]
+    async fn fallback_allows_earlier_session_action_call_inside_a_deferred_body() {
+        // The valid companion: a body that CALLS an action defined on an earlier
+        // line is accepted in the fallback — the callee is a live session binding,
+        // so the "undefined action" false positive is dropped, not blocked.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called helper:",
+            "display \"hi\"",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(repl.interpreter.global_env().borrow().has("helper"));
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in ["define action called caller:", "call helper", "end action"] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(
+            repl.interpreter.global_env().borrow().has("caller"),
+            "a body calling a live earlier-session action must be accepted in the fallback"
+        );
+    }
+
+    #[tokio::test]
     async fn undefined_reference_inside_an_action_body_is_blocked_at_definition() {
         // Defining an action stores its body without running it, so without
         // definition-time validation a typo would only surface when the action

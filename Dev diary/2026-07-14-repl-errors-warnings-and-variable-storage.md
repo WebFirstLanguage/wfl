@@ -182,6 +182,13 @@ Session-level security gate (second maintainer review):
   fallback (the name is absent from the live session).
 - `fallback_allows_action_referencing_a_valid_earlier_session_binding` — the
   companion: an action body referencing a live earlier-session binding is accepted.
+- `fallback_blocks_undefined_action_call_inside_a_deferred_body`,
+  `fallback_allows_earlier_session_action_call_inside_a_deferred_body` — the same
+  guarantee for an undefined *action call* (a second undefined-name shape) inside a
+  stored body: a call to a nonexistent action is fatal at definition time, while a
+  call to an action defined on an earlier line is accepted. The env check keys on
+  the *name*, not its syntactic role or position, so it covers every deferred body
+  (action/handler/route/event) by construction.
 - `rng_security_ingredients_reports_each_half_independently` (analyzer) — the
   ingredient scan reports seeding and security-builtin use independently and
   captures call sites.
