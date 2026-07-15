@@ -664,11 +664,17 @@ impl ReplState {
     /// blocking is decided per diagnostic, not relaxed wholesale:
     /// - **Self-contained fatal errors still block** (returns `true`). They are
     ///   present in the submission regardless of the earlier lines we can't see.
-    /// - **Context-dependent name resolution is downgraded** to advisory (does not
-    ///   block): without the earlier session lines a reference to an
-    ///   earlier-defined name looks "undefined", so it may be a false positive —
-    ///   the interpreter resolves it against the live session, and a genuine typo
-    ///   still errors at run time.
+    /// - **An undefined-name error is dropped only when the name is a live
+    ///   earlier-session binding.** Without the earlier lines a reference to an
+    ///   earlier-defined name looks "undefined"; the live interpreter environment
+    ///   is the source of truth for what the session actually holds, so if the
+    ///   name is bound there the diagnostic is a false positive — skip it. If the
+    ///   name is NOT in the session, it is a genuine undefined reference and stays
+    ///   fatal. This is what preserves definition-time checking for undefined
+    ///   references inside deferred bodies (a not-yet-called action/handler stores
+    ///   its body without evaluating it, so execution would not catch the typo);
+    ///   it also keeps the fallback consistent with the full-analysis path, which
+    ///   likewise treats a name absent from the session as a genuine error.
     ///
     /// The one self-contained fatal that does *not* rely on the analyzer here —
     /// insecure RNG seeding (`ANALYZE-SECURITY`) — is enforced ahead of this by
@@ -697,33 +703,55 @@ impl ReplState {
             if Self::is_repl_ignorable_semantic(diagnostic) {
                 continue;
             }
-            messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
-            if diagnostic.severity == Severity::Error
-                && !Self::is_context_dependent_name_resolution(diagnostic)
+            // Drop an undefined-name diagnostic only when that name is actually a
+            // live earlier-session binding (a false positive from losing the
+            // prefix): don't report noise, don't block. A name NOT in the session
+            // is a genuine undefined reference and falls through to fatal — which
+            // keeps a typo inside a not-yet-called action/handler body caught at
+            // definition time, since execution won't validate a stored-but-unrun
+            // body.
+            if let Some(name) = Self::undefined_name_of(diagnostic)
+                && self.interpreter.global_env().borrow().has(name)
             {
+                continue;
+            }
+            messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
+            if diagnostic.severity == Severity::Error {
                 fatal = true;
             }
         }
         fatal
     }
 
-    /// A semantic diagnostic whose validity depends on names defined earlier in
-    /// the session: an undefined variable/action/handler/list reference. When a
-    /// submission is analysed alone (the isolated fallback), such a name may be
-    /// defined on an earlier line we cannot see, so the "undefined" is potentially
-    /// a false positive and must not block. Every *other* semantic error is
-    /// self-contained — present regardless of the earlier lines — and stays fatal.
-    ///
-    /// In `static_check_submission` the earlier lines ARE in scope, so an
-    /// undefined name there is genuine and blocks; this downgrade is specific to
-    /// the isolated fallback.
-    fn is_context_dependent_name_resolution(diagnostic: &WflDiagnostic) -> bool {
-        diagnostic.code == "ANALYZE-SEMANTIC"
-            && ((diagnostic.message.starts_with("Variable '")
-                && diagnostic.message.ends_with("' is not defined"))
-                || diagnostic.message.starts_with("Undefined action '")
-                || diagnostic.message.starts_with("Undefined signal handler '")
-                || diagnostic.message.starts_with("Undefined list reference '"))
+    /// If `diagnostic` is a context-dependent undefined-name error (an undefined
+    /// variable/action/handler/list reference), return the referenced name;
+    /// otherwise `None`. The isolated fallback uses this to check the name against
+    /// the live session environment: a name the session actually holds is a false
+    /// positive (skip it), while any other name — or any non-name-resolution
+    /// error — stays fatal.
+    fn undefined_name_of(diagnostic: &WflDiagnostic) -> Option<&str> {
+        if diagnostic.code != "ANALYZE-SEMANTIC" {
+            return None;
+        }
+        let message = diagnostic.message.as_str();
+        message
+            .strip_prefix("Variable '")
+            .and_then(|rest| rest.strip_suffix("' is not defined"))
+            .or_else(|| {
+                message
+                    .strip_prefix("Undefined action '")
+                    .and_then(|rest| rest.strip_suffix('\''))
+            })
+            .or_else(|| {
+                message
+                    .strip_prefix("Undefined signal handler '")
+                    .and_then(|rest| rest.strip_suffix('\''))
+            })
+            .or_else(|| {
+                message
+                    .strip_prefix("Undefined list reference '")
+                    .and_then(|rest| rest.strip_suffix("' in pattern"))
+            })
     }
 
     /// A diagnostic belongs to the new submission when it sits on a line after
@@ -1172,25 +1200,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fallback_downgrades_earlier_session_reference_but_does_not_block() {
+    async fn fallback_does_not_block_reference_to_a_live_earlier_session_binding() {
         // In the isolated fallback we can't see earlier submissions, so a
-        // reference to an earlier-session variable looks "undefined". That is
-        // context-dependent, so it must be downgraded to advisory (not block) —
-        // the interpreter resolves it against the live session. This keeps
-        // cross-line references working even in the degraded fallback, while
-        // self-contained fatal errors (see the security tests) still block.
+        // reference to an earlier-session variable looks "undefined". But the name
+        // IS a live session binding, so the diagnostic is a false positive: it is
+        // dropped (no noise, no block) and cross-line references keep working even
+        // in the degraded fallback, while self-contained fatal errors (see the
+        // security tests) and genuine typos still block.
         let mut repl = ReplState::new();
         assert_eq!(
             repl.process_line("store greeting as \"hi\"").await.unwrap(),
             None
         );
         repl.max_session_analysis_bytes = 1; // force the isolated fallback
-        // Referencing the earlier-session variable must still execute (the
-        // name-resolution diagnostic is advisory, not a block).
-        let _ = repl.process_line("store echoed as greeting").await.unwrap();
+        // Referencing the earlier-session variable must run cleanly with no error.
+        assert_eq!(
+            repl.process_line("store echoed as greeting").await.unwrap(),
+            None,
+            "a live earlier-session reference must not error in the isolated fallback"
+        );
+        assert!(repl.interpreter.global_env().borrow().has("echoed"));
+    }
+
+    #[tokio::test]
+    async fn fallback_blocks_undefined_reference_inside_a_deferred_action_body() {
+        // Maintainer review (head 52c16b2): defining an action stores its body
+        // WITHOUT running it, so a genuine typo inside the body is not validated
+        // by execution. In the isolated fallback the undefined name must therefore
+        // still be fatal at definition time — the name is absent from the live
+        // session, so it is a real error, not a lost cross-line reference.
+        let mut repl = ReplState::new();
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in ["define action called broken:", "display genuinely_missing"] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        let out =
+            repl.process_line("end action").await.unwrap().expect(
+                "an undefined reference in a deferred body must block, even in the fallback",
+            );
         assert!(
-            repl.interpreter.global_env().borrow().has("echoed"),
-            "an earlier-session reference must not block in the isolated fallback"
+            out.contains("genuinely_missing") && out.to_lowercase().contains("defined"),
+            "expected an undefined-name error, got: {out}"
+        );
+        // Blocked: the invalid definition was not accepted.
+        assert!(!repl.interpreter.global_env().borrow().has("broken"));
+    }
+
+    #[tokio::test]
+    async fn fallback_allows_action_referencing_a_valid_earlier_session_binding() {
+        // The companion to the previous test: an action body that references a
+        // name defined on an EARLIER line is valid — the live session holds it, so
+        // the fallback must accept the definition rather than block it.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store greeting as \"hi\"").await.unwrap(),
+            None
+        );
+        repl.max_session_analysis_bytes = 1; // force the isolated fallback
+        for line in [
+            "define action called sayit:",
+            "display greeting",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert!(
+            repl.interpreter.global_env().borrow().has("sayit"),
+            "an action referencing a live earlier-session binding must be accepted in the fallback"
         );
     }
 

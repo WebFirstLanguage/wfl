@@ -174,26 +174,43 @@ Session-level security gate (second maintainer review):
 - `fallback_path_still_blocks_insecure_seeding` — forcing the isolated fallback
   (tiny `max_session_analysis_bytes`) still blocks the combination, same-submission
   and cross-submission; the performance fallback is not a security mode switch.
-- `fallback_downgrades_earlier_session_reference_but_does_not_block` — in the same
-  forced fallback, a reference to an earlier-session variable is downgraded to
-  advisory (not blocked), so cross-line references keep working in the degraded path.
+- `fallback_does_not_block_reference_to_a_live_earlier_session_binding` — in the same
+  forced fallback, a reference to a live earlier-session variable is dropped (no
+  error, not blocked), so cross-line references keep working in the degraded path.
+- `fallback_blocks_undefined_reference_inside_a_deferred_action_body` — a genuine
+  typo inside a not-yet-called action body is still fatal at definition time in the
+  fallback (the name is absent from the live session).
+- `fallback_allows_action_referencing_a_valid_earlier_session_binding` — the
+  companion: an action body referencing a live earlier-session binding is accepted.
 - `rng_security_ingredients_reports_each_half_independently` (analyzer) — the
   ingredient scan reports seeding and security-builtin use independently and
   captures call sites.
 
 The isolated fallback (`static_check_isolated`) blocks per diagnostic rather than
-relaxing wholesale: **self-contained fatal errors still block**, while only
-**context-dependent name resolution** (an undefined variable/action/handler/list
-reference, which may name an earlier-session symbol we can't see when analysing
-the submission alone) is downgraded to advisory. Type checking is intentionally
-skipped in the fallback: its diagnostics are advisory (never block), and without
-the earlier-session symbols it would emit false-positive "undefined" type
-diagnostics for valid earlier-session references. Today the analyzer's only fatal
-semantic diagnostics are duplicate-definition (ignored interactively) and those
-name-resolution errors, so this changes no current behavior — it keeps the
-fallback correct-by-construction if a self-contained fatal semantic check is
-added later, and the insecure-RNG control is enforced regardless by the session
-gate above.
+relaxing wholesale: **self-contained fatal errors still block**. For an
+**undefined-name** diagnostic (variable/action/handler/list reference) the fallback
+consults the **live interpreter environment** — the source of truth for what the
+session actually holds — to decide:
+
+- Name **is** a live earlier-session binding → the "undefined" is a false positive
+  from losing the prefix; drop it (no noise, no block), so cross-line references
+  keep working in the degraded path.
+- Name is **not** in the session → a genuine undefined reference; keep it fatal.
+
+The second case is what a maintainer review (head `52c16b2`) required: defining an
+action stores its body *without running it*, so a genuine typo inside a not-yet-called
+action/handler body is not validated by execution. An earlier version downgraded
+*all* undefined-name diagnostics to advisory, which let a broken deferred definition
+through at the cap boundary — re-opening the "caught at definition time" invariant
+specifically after the fallback. Keying the decision on live-env membership (rather
+than diagnostic position) preserves that invariant, avoids false blocks for valid
+earlier-session references, and keeps the fallback consistent with the full-analysis
+path (which likewise treats a name absent from the session as a genuine error).
+
+Type checking is intentionally skipped in the fallback: its diagnostics are advisory
+(never block), and without the earlier-session symbols it would emit false-positive
+"undefined" type diagnostics for valid earlier-session references. The insecure-RNG
+control is enforced regardless by the session gate above.
 
 `cargo test --lib`, `cargo fmt --all -- --check`, and
 `cargo clippy --all-targets --all-features -- -D warnings` are green.
