@@ -494,10 +494,12 @@ impl ReplState {
     }
 
     /// Fallback used only if the accumulated source unexpectedly fails to parse:
-    /// analyse the submission alone. Without earlier-line context every
-    /// cross-line reference would look undefined, so this reports advisory
-    /// warnings only and never blocks — the interpreter still catches genuine
-    /// errors at run time. Returns `false` (never fatal).
+    /// analyse the submission alone. Without earlier-line context a cross-line
+    /// reference can look undefined, so this NEVER blocks (returns `false`) — the
+    /// interpreter catches genuine errors at run time. It still *reports* every
+    /// non-ignorable diagnostic (advisory, any severity) rather than silently
+    /// dropping errors; a stray false positive here is only reachable in the
+    /// near-impossible case where the concatenated session does not parse.
     fn static_check_isolated(
         &self,
         input: &str,
@@ -516,9 +518,7 @@ impl ReplState {
         let scratch_file = scratch.add_file("repl", input);
         let mut analyzer = Analyzer::new();
         for diagnostic in &analyzer.analyze_static(&program, scratch_file) {
-            if diagnostic.severity == Severity::Warning
-                && !Self::is_repl_ignorable_semantic(diagnostic)
-            {
+            if !Self::is_repl_ignorable_semantic(diagnostic) {
                 messages.push(Self::render_diagnostic(reporter, file_id, diagnostic));
             }
         }

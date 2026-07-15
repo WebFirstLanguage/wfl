@@ -129,7 +129,7 @@ Session-aware analysis (from the maintainer review):
 - `undefined_reference_inside_an_action_body_is_blocked_at_definition` — a typo
   inside a deferred action body is caught when defined, not at invocation.
 - `earlier_session_variable_is_usable_inside_a_definition`,
-  `self_recursive_action_is_accepted` — valid earlier-session and self references
+  `self_recursive_action_is_accepted` — valid earlier-session and self-references
   resolve.
 - `cross_line_type_mismatch_is_surfaced` — an incompatible assignment against an
   earlier-line variable is reported (advisory).
