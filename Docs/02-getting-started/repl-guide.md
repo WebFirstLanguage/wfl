@@ -352,15 +352,17 @@ defined points right at the problem:
 
 ```wfl
 > display total
-error: Undefined variable 'total'
+error: Variable 'total' is not defined
   ┌─ repl:1:9
   │
 1 │ display total
-  │         ^ Runtime error occurred here
+  │         ^ here
 ```
 
-Error messages in the REPL use the same clear, source-highlighting format as
-running a file, so they help you understand exactly what went wrong.
+Because the REPL analyses your input the same way `wfl <file>` does, an
+undefined name is caught up front by static analysis (the line is not run), and
+the error uses the same clear, source-highlighting format as running a file — so
+it points right at the problem and helps you understand exactly what went wrong.
 
 ### 5. Prototype Functions
 

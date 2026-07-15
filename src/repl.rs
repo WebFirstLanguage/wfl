@@ -426,8 +426,9 @@ impl ReplState {
         // Re-analysing the whole session each command is O(n²) over its length.
         // A per-command budget deadline already bounds the work, but cap the
         // accumulated source at a generous size so a pathologically long session
-        // degrades to analysing just this submission (warnings only) instead of
-        // getting slow. Realistic interactive sessions never approach this.
+        // degrades to analysing just this submission (whose diagnostics are then
+        // advisory — reported but non-blocking) instead of getting slow.
+        // Realistic interactive sessions never approach this.
         //
         // Size the cap check off `session_inputs` directly so a very long session
         // falls back without first paying an O(n) `join`/`format!` copy every
@@ -456,7 +457,9 @@ impl ReplState {
 
         // Each prior submission parsed on its own, so the concatenation parses
         // too; if it somehow does not, fall back to analysing this submission
-        // alone (no earlier-line context, warnings only — never a false fatal).
+        // alone (no earlier-line context; its diagnostics are reported but
+        // advisory — never blocking, so a dropped cross-line contract can't turn
+        // into a false fatal).
         let Ok(tokens) = lex_wfl_with_positions_checked(&combined) else {
             return self.static_check_isolated(input, reporter, file_id, messages);
         };
