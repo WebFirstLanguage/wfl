@@ -1307,9 +1307,7 @@ impl IoClient {
             use futures_util::StreamExt;
 
             let response = request.send().await.map_err(|e| {
-                HttpClientError::Request(format!(
-                    "Failed to send HTTP {method} request: {e}"
-                ))
+                HttpClientError::Request(format!("Failed to send HTTP {method} request: {e}"))
             })?;
 
             let status = response.status().as_u16();
@@ -1379,13 +1377,7 @@ impl IoClient {
                     max_response_bytes,
                 )?;
             }
-            Self::decode_http_chunk(
-                &mut decoder,
-                &[],
-                true,
-                &mut body,
-                max_response_bytes,
-            )?;
+            Self::decode_http_chunk(&mut decoder, &[], true, &mut body, max_response_bytes)?;
 
             Ok((status, response_headers, body))
         };
@@ -1406,11 +1398,7 @@ impl IoClient {
                 let (name, value) = parameter.trim().split_once('=')?;
                 name.trim()
                     .eq_ignore_ascii_case("charset")
-                    .then(|| {
-                        value
-                            .trim()
-                            .trim_matches(|ch| ch == '\'' || ch == '"')
-                    })
+                    .then(|| value.trim().trim_matches(|ch| ch == '\'' || ch == '"'))
             })
         });
         charset
@@ -1466,10 +1454,7 @@ impl IoClient {
 
         if budget.is_deadline_exempt() {
             return Ok(OutboundHttpDeadline::MainLoop {
-                duration: budget
-                    .limits()
-                    .max_duration
-                    .unwrap_or(configured_timeout),
+                duration: budget.limits().max_duration.unwrap_or(configured_timeout),
             });
         }
 

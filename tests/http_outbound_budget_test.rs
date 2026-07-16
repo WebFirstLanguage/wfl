@@ -13,8 +13,8 @@ use tokio::sync::oneshot;
 
 use wfl::config::WflConfig;
 use wfl::exec::budget::{BudgetLimits, ExecutionBudget};
-use wfl::interpreter::error::ErrorKind;
 use wfl::interpreter::Interpreter;
+use wfl::interpreter::error::ErrorKind;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 

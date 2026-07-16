@@ -47,8 +47,8 @@
 //! rewrite of the interpreter" rule — it is exactly how `Arc<WflConfig>` is
 //! already shared.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::config::WflConfig;
