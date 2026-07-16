@@ -102,9 +102,8 @@ fn max_operations_zero_means_unlimited() {
 #[test]
 fn zero_and_garbage_budget_values_keep_defaults() {
     // The positive-integer keys reject 0 and non-numeric input, keeping defaults.
-    let cfg = load_with_cfg(
-        "max_call_depth = 0\nmax_pattern_states = nope\nmax_file_read_size = 0\n",
-    );
+    let cfg =
+        load_with_cfg("max_call_depth = 0\nmax_pattern_states = nope\nmax_file_read_size = 0\n");
     assert_eq!(cfg.max_call_depth, 1_000);
     assert_eq!(cfg.max_pattern_states, 10_000);
     assert_eq!(cfg.max_file_read_size, 50 * 1024 * 1024);

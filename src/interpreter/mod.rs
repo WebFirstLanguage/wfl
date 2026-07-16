@@ -1022,9 +1022,9 @@ fn expr_type(expr: &Expression) -> String {
     }
 }
 
-use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
@@ -1428,7 +1428,11 @@ impl IoClient {
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(FileReadError::Io(format!("Failed to clone file handle: {e}"))),
+            Err(e) => {
+                return Err(FileReadError::Io(format!(
+                    "Failed to clone file handle: {e}"
+                )));
+            }
         };
 
         drop(file_handles);
@@ -1547,12 +1551,18 @@ impl IoClient {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            return Err(FileReadError::Io(format!("Invalid file handle: {handle_id}")));
+            return Err(FileReadError::Io(format!(
+                "Invalid file handle: {handle_id}"
+            )));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(FileReadError::Io(format!("Failed to clone file handle: {e}"))),
+            Err(e) => {
+                return Err(FileReadError::Io(format!(
+                    "Failed to clone file handle: {e}"
+                )));
+            }
         };
 
         drop(file_handles);
@@ -1579,12 +1589,18 @@ impl IoClient {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            return Err(FileReadError::Io(format!("Invalid file handle: {handle_id}")));
+            return Err(FileReadError::Io(format!(
+                "Invalid file handle: {handle_id}"
+            )));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(FileReadError::Io(format!("Failed to clone file handle: {e}"))),
+            Err(e) => {
+                return Err(FileReadError::Io(format!(
+                    "Failed to clone file handle: {e}"
+                )));
+            }
         };
 
         drop(file_handles);
@@ -1595,7 +1611,9 @@ impl IoClient {
                 buf.truncate(n);
                 Ok(buf)
             }
-            Err(e) => Err(FileReadError::Io(format!("Failed to read binary bytes: {e}"))),
+            Err(e) => Err(FileReadError::Io(format!(
+                "Failed to read binary bytes: {e}"
+            ))),
         }
     }
 
@@ -3997,11 +4015,7 @@ impl Interpreter {
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
                 } else {
-                    match self
-                        .io_client
-                        .read_file(&path_str, &self.budget)
-                        .await
-                    {
+                    match self.io_client.read_file(&path_str, &self.budget).await {
                         Ok(content) => {
                             match env
                                 .borrow_mut()
@@ -4899,39 +4913,35 @@ impl Interpreter {
 
                         if is_file_path {
                             match self.io_client.open_file(&path_str).await {
-                                Ok(handle) => match self
-                                    .io_client
-                                    .read_file(&handle, &self.budget)
-                                    .await
-                                {
-                                    Ok(content) => {
-                                        match env
-                                            .borrow_mut()
-                                            .define(variable_name, Value::Text(content.into()))
-                                        {
-                                            Ok(_) => {
-                                                let _ = self.io_client.close_file(&handle).await;
-                                                Ok((Value::Null, ControlFlow::None))
-                                            }
-                                            Err(msg) => {
-                                                let _ = self.io_client.close_file(&handle).await;
-                                                Err(RuntimeError::new(msg, *line, *column))
+                                Ok(handle) => {
+                                    match self.io_client.read_file(&handle, &self.budget).await {
+                                        Ok(content) => {
+                                            match env
+                                                .borrow_mut()
+                                                .define(variable_name, Value::Text(content.into()))
+                                            {
+                                                Ok(_) => {
+                                                    let _ =
+                                                        self.io_client.close_file(&handle).await;
+                                                    Ok((Value::Null, ControlFlow::None))
+                                                }
+                                                Err(msg) => {
+                                                    let _ =
+                                                        self.io_client.close_file(&handle).await;
+                                                    Err(RuntimeError::new(msg, *line, *column))
+                                                }
                                             }
                                         }
+                                        Err(e) => {
+                                            let _ = self.io_client.close_file(&handle).await;
+                                            Err(self.file_read_error(e, *line, *column))
+                                        }
                                     }
-                                    Err(e) => {
-                                        let _ = self.io_client.close_file(&handle).await;
-                                        Err(self.file_read_error(e, *line, *column))
-                                    }
-                                },
+                                }
                                 Err(e) => Err(RuntimeError::new(e, *line, *column)),
                             }
                         } else {
-                            match self
-                                .io_client
-                                .read_file(&path_str, &self.budget)
-                                .await
-                            {
+                            match self.io_client.read_file(&path_str, &self.budget).await {
                                 Ok(content) => {
                                     match env
                                         .borrow_mut()
@@ -9813,11 +9823,7 @@ impl Interpreter {
                     }
                 };
 
-                match self
-                    .io_client
-                    .read_file(&handle_str, &self.budget)
-                    .await
-                {
+                match self.io_client.read_file(&handle_str, &self.budget).await {
                     Ok(content) => Ok(Value::Text(content.into())),
                     Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
@@ -9844,11 +9850,7 @@ impl Interpreter {
                     }
                 };
 
-                match self
-                    .io_client
-                    .read_binary(&handle_str, &self.budget)
-                    .await
-                {
+                match self.io_client.read_binary(&handle_str, &self.budget).await {
                     Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
                     Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
