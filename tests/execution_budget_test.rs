@@ -207,9 +207,8 @@ fn oversized_text_file_read_is_a_resource_error() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        combined.contains("[Resource limit] File read too large")
-            && combined.contains("limit: 8 bytes"),
-        "expected the file-read ceiling to fire as a resource error; got:\n{combined}"
+        combined.contains("File read too large: 9 bytes (limit: 8 bytes)"),
+        "expected the file-read ceiling diagnostic; got:\n{combined}"
     );
     assert!(!output.status.success(), "an oversized read must fail");
 }
