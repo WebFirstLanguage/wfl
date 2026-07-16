@@ -312,9 +312,7 @@ impl CommandSanitizer {
 
     fn has_path_syntax(program: &str) -> bool {
         let trimmed = program.trim().trim_matches('"').trim_matches('\'');
-        trimmed.contains('/')
-            || trimmed.contains('\\')
-            || trimmed.as_bytes().get(1) == Some(&b':')
+        trimmed.contains('/') || trimmed.contains('\\') || trimmed.as_bytes().get(1) == Some(&b':')
     }
 
     /// Extract the first whitespace-separated token from a command string
