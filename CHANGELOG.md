@@ -7,6 +7,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- **WFL package publishing now keeps credentials registry-scoped.** A
+  project-controlled `registry` setting can no longer redirect a saved token to
+  another origin; registry URLs are canonicalized and must use HTTPS without
+  userinfo, paths, queries, or fragments.
+- **Package archives are created in private external temporary files** and
+  cleaned up automatically. Archive creation refuses existing output paths, so
+  a project-supplied symlink can no longer redirect `wfl share` into truncating
+  another file.
+- **Published packages now honor root and nested `.gitignore` rules.** Ignored
+  logs, debug reports, `.env` files, and other local-only content are excluded
+  from both the archive and its checksum instead of being uploaded silently.
+- **Registry credentials are written atomically with private permissions.** On
+  Unix, the auth directory is mode `0700` and the token file is mode `0600`
+  before any secret bytes are written.
+- **Package integrity checks now use an explicitly versioned
+  `wflhash:v2:` transcript.** File records include domain, path, and content
+  lengths; paths use portable `/` separators; verification hashes every
+  extracted regular file; and publishing derives the digest from the completed
+  archive instead of re-reading a mutable source tree.
+- **Package publishing now fails closed on unsafe inputs and resource abuse.**
+  Manifests and entry points must be in-project regular files, unsupported
+  filesystem objects and ambiguous `.gitignore` patterns are rejected, package
+  traversal is bounded, archives upload as bounded streams, and registry
+  response bodies are capped at 1 MiB.
+- **Registry login supports an explicit registry address.** `wfl login
+  [registry]` scopes a token to that HTTPS origin, mismatched logins are
+  rejected, and `wfl logout` can recover malformed or incomplete credentials.
 - **Subprocess policy is enforced on every process launch** (shell path and
   direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
   related checks ran only when the engine believed a shell was required, so
