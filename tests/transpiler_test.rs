@@ -632,11 +632,54 @@ fn test_wait_for_request_header_access() {
     // Verify header access handles the { request, response } wrapper properly
     assert_contains(
         &js,
-        "(() => { const __req = req; return (__req.request || __req).headers['user-agent']; })()",
+        "(() => { const __req = req; return (__req.request || __req).headers[\"user-agent\"]; })()",
     );
     // Verify respond handles the { request, response } wrapper properly
     assert_contains(
         &js,
         "void (() => { const __req = req; const __res = __req.response || __req; __res.writeHead(200, { 'Content-Type': 'text/html' }); __res.end(\"OK\"); })();",
     );
+}
+
+#[test]
+fn test_untrusted_header_name_cannot_escape_generated_javascript_string() {
+    let source = r#"
+        display header "x']; globalThis.pwned=true; // \"" of req
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+    assert_contains(
+        &js,
+        "headers[\"x']; globalthis.pwned=true; // \\\"\"]",
+    );
+    assert!(!js.contains("headers['x']; globalthis.pwned=true"));
+}
+
+#[test]
+fn test_untrusted_time_format_cannot_escape_generated_javascript_string() {
+    let source = r#"
+        display current time formatted as "'); globalThis.pwned=true; // \""
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+    assert_contains(
+        &js,
+        "WFL.time.format(new Date(), \"'); globalThis.pwned=true; // \\\"\")",
+    );
+    assert!(!js.contains("format(new Date(), ''); globalThis.pwned=true"));
+}
+
+#[test]
+fn test_describe_and_test_descriptions_are_javascript_string_literals() {
+    let source = r#"
+        describe "quoted \"suite\"":
+            test "quoted \"case\"":
+                expect yes to be yes
+            end test
+        end describe
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+    assert_contains(&js, "describe(\"quoted \\\"suite\\\"\", function()");
+    assert_contains(&js, "it(\"quoted \\\"case\\\"\", function()");
 }
