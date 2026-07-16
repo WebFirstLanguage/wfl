@@ -648,10 +648,7 @@ fn test_untrusted_header_name_cannot_escape_generated_javascript_string() {
     "#;
 
     let js = transpile_wfl(source).unwrap();
-    assert_contains(
-        &js,
-        "headers[\"x']; globalthis.pwned=true; // \\\"\"]",
-    );
+    assert_contains(&js, "headers[\"x']; globalthis.pwned=true; // \\\"\"]");
     assert!(!js.contains("headers['x']; globalthis.pwned=true"));
 }
 
