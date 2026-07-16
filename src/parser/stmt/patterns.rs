@@ -29,10 +29,7 @@ fn token_to_char_class(token: &Token) -> Option<CharClass> {
 
 /// Convert a lexer integer to the representation used by pattern quantifiers
 /// without allowing signed or oversized values to wrap during conversion.
-fn checked_quantifier_count(
-    value: i64,
-    token: &TokenWithPosition,
-) -> Result<u32, ParseError> {
+fn checked_quantifier_count(value: i64, token: &TokenWithPosition) -> Result<u32, ParseError> {
     u32::try_from(value).map_err(|_| {
         ParseError::from_token(
             format!(
@@ -55,9 +52,7 @@ fn checked_quantifier_range(
 ) -> Result<(u32, u32), ParseError> {
     if min > max {
         Err(ParseError::from_token(
-            format!(
-                "Pattern quantifier lower bound ({min}) cannot exceed upper bound ({max})"
-            ),
+            format!("Pattern quantifier lower bound ({min}) cannot exceed upper bound ({max})"),
             token,
         ))
     } else {
@@ -604,16 +599,12 @@ impl<'a> PatternParser<'a> for Parser<'a> {
 
                 // Check if this is a range pattern "N to M"
                 if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordTo {
-                    let min_val =
-                        checked_quantifier_count(min_value, &tokens[min_token_index])?;
+                    let min_val = checked_quantifier_count(min_value, &tokens[min_token_index])?;
                     *i += 1; // Skip "to"
                     if let Token::IntLiteral(max) = tokens[*i].token {
                         let max_val = checked_quantifier_count(max, &tokens[*i])?;
-                        let (min_val, max_val) = checked_quantifier_range(
-                            min_val,
-                            max_val,
-                            &tokens[*i],
-                        )?;
+                        let (min_val, max_val) =
+                            checked_quantifier_range(min_val, max_val, &tokens[*i])?;
                         *i += 1; // Skip the max number
 
                         // Optionally consume "of" keyword
@@ -1182,8 +1173,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     {
                         let min = checked_quantifier_count(*min, &tokens[*i + 1])?;
                         let max = checked_quantifier_count(*max, &tokens[*i + 3])?;
-                        let (min, max) =
-                            checked_quantifier_range(min, max, &tokens[*i + 3])?;
+                        let (min, max) = checked_quantifier_range(min, max, &tokens[*i + 3])?;
                         *i += 4;
                         Ok(PatternExpression::Quantified {
                             pattern: Box::new(base_pattern),
