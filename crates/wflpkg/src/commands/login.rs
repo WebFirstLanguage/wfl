@@ -1,5 +1,5 @@
 use crate::error::PackageError;
-use crate::registry::auth::AuthManager;
+use crate::registry::auth::{AuthManager, normalize_registry_origin};
 
 /// Default token reader that uses rpassword to hide input.
 fn default_token_reader(prompt: &str) -> Result<String, PackageError> {
@@ -21,24 +21,31 @@ fn login_with_reader<F>(
 where
     F: FnOnce(&str) -> Result<String, PackageError>,
 {
-    if auth.is_authenticated() {
-        println!("You are already logged in.");
+    let registry_origin = normalize_registry_origin(registry_url)?;
+    if let Some(credentials) = auth.get_credentials()? {
+        if credentials.registry_origin() != registry_origin {
+            return Err(PackageError::General(format!(
+                "You are logged in to {}, not {}. Run `wfl logout`, verify the registry address, then log in again.",
+                credentials.registry_origin(),
+                registry_origin
+            )));
+        }
+        println!(
+            "You are already logged in to {}.",
+            credentials.registry_origin()
+        );
         println!("To log out first, run: wfl logout");
         return Ok(());
     }
 
-    let bare_host = registry_url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://");
-
-    println!("Logging in to {}...", bare_host);
+    println!("Logging in to {}...", registry_origin);
     println!();
 
     // For now, use a simple token-based login via CLI prompt.
     // In the future, this will use browser-based OAuth.
     println!(
-        "Visit https://{}/settings/tokens to generate an API token.",
-        bare_host
+        "Visit {}/settings/tokens to generate an API token.",
+        registry_origin
     );
     println!();
 
@@ -49,8 +56,8 @@ where
         return Err(PackageError::General("No token provided.".to_string()));
     }
 
-    auth.store_token(token, registry_url)?;
-    println!("Logged in successfully to {}.", bare_host);
+    auth.store_token(token, &registry_origin)?;
+    println!("Logged in successfully to {}.", registry_origin);
 
     Ok(())
 }
@@ -58,8 +65,11 @@ where
 /// Log out from the registry.
 pub fn logout() -> Result<(), PackageError> {
     let auth = AuthManager::new()?;
+    logout_with_auth(&auth)
+}
 
-    if !auth.is_authenticated() {
+fn logout_with_auth(auth: &AuthManager) -> Result<(), PackageError> {
+    if !auth.credentials_file_exists()? {
         println!("You are not currently logged in.");
         return Ok(());
     }
@@ -149,6 +159,43 @@ mod tests {
 
         let result = login_with_reader("https://registry.example.com", &auth, reader);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_login_rejects_different_authenticated_registry() {
+        let (auth, _dir) = temp_auth();
+        auth.store_token("existing-token", "https://registry.example.com")
+            .unwrap();
+
+        let result = login_with_reader("https://other.example.com", &auth, |_| {
+            panic!("reader should not be called for existing credentials")
+        });
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not https://other.example.com")
+        );
+    }
+
+    #[test]
+    fn test_logout_recovers_malformed_auth_then_allows_login() {
+        let (auth, dir) = temp_auth();
+        let path = dir.path().join("credentials.json");
+
+        for malformed in [
+            "not json",
+            r#"{"token":"secret"}"#,
+            r#"{"token":"secret","registry":"http://registry.example"}"#,
+        ] {
+            std::fs::write(&path, malformed).unwrap();
+            logout_with_auth(&auth).unwrap();
+            assert!(!path.exists());
+            login_with_reader("registry.example", &auth, |_| Ok("replacement".to_string()))
+                .unwrap();
+            auth.clear_token().unwrap();
+        }
     }
 
     #[test]
