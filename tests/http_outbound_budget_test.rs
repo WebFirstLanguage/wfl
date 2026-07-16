@@ -107,8 +107,10 @@ Connection: close\r\n\
 0123456789abcdef0123456789abcdef";
     let (url, server, _response_attempted) = spawn_http_peer(response, false).await;
 
-    let mut config = WflConfig::default();
-    config.web_server_max_response_size = 8;
+    let config = WflConfig {
+        web_server_max_response_size: 8,
+        ..Default::default()
+    };
     let mut interpreter = Interpreter::with_config(Arc::new(config));
     let program = parse(&format!(
         r#"open url at "{url}" and read content as content"#
@@ -137,8 +139,10 @@ Connection: close\r\n\
 0\r\n\r\n";
     let (url, server, _response_attempted) = spawn_http_peer(response, false).await;
 
-    let mut config = WflConfig::default();
-    config.web_server_max_response_size = 8;
+    let config = WflConfig {
+        web_server_max_response_size: 8,
+        ..Default::default()
+    };
     let mut interpreter = Interpreter::with_config(Arc::new(config));
     let program = parse(&format!(
         r#"open url at "{url}" and read response as reply"#
@@ -165,8 +169,10 @@ Connection: close\r\n\
 \xff\xff\xff\xff";
     let (url, server, _response_attempted) = spawn_http_peer(response, false).await;
 
-    let mut config = WflConfig::default();
-    config.web_server_max_response_size = 4;
+    let config = WflConfig {
+        web_server_max_response_size: 4,
+        ..Default::default()
+    };
     let mut interpreter = Interpreter::with_config(Arc::new(config));
     let program = parse(&format!(
         r#"open url at "{url}" and read content as content"#
