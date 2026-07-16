@@ -158,6 +158,35 @@ fn test_keyword_case_sensitivity() {
     }
 }
 
+#[test]
+fn oversized_integer_literal_is_a_lex_error_instead_of_a_panic() {
+    use logos::Logos;
+
+    // One above i64::MAX. The old `parse::<i64>().unwrap()` callback panicked
+    // here, allowing an untrusted source file to abort CLI/LSP processing.
+    let mut lexer = Token::lexer("9223372036854775808");
+    assert!(matches!(lexer.next(), Some(Err(_))));
+    assert!(lexer.next().is_none());
+
+    // Exercise both public collection paths as regression protection: neither
+    // may unwind when the malformed literal appears inside an otherwise valid
+    // statement.
+    let source = "store value as 9223372036854775808\n";
+    assert!(std::panic::catch_unwind(|| lex_wfl(source)).is_ok());
+    assert!(std::panic::catch_unwind(|| lex_wfl_with_positions(source)).is_ok());
+}
+
+#[test]
+fn overflowing_float_literal_is_rejected_as_non_finite() {
+    use logos::Logos;
+
+    let source = format!("{}.0", "9".repeat(400));
+    let mut lexer = Token::lexer(&source);
+    assert!(matches!(lexer.next(), Some(Err(_))));
+    assert!(lexer.next().is_none());
+    assert!(std::panic::catch_unwind(|| lex_wfl_with_positions(&source)).is_ok());
+}
+
 // Escape sequence tests
 #[test]
 fn test_parse_string_newline_escape() {

@@ -460,10 +460,10 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\.)*""#, |lex| parse_string(lex).ok())] // captures content inside quotes
     StringLiteral(String),
 
-    #[regex("[0-9]+\\.[0-9]+", |lex| lex.slice().parse::<f64>().unwrap())]
+    #[regex("[0-9]+\\.[0-9]+", parse_float_literal)]
     FloatLiteral(f64),
 
-    #[regex("[0-9]+", |lex| lex.slice().parse::<i64>().unwrap())]
+    #[regex("[0-9]+", parse_int_literal)]
     IntLiteral(i64),
 
     #[regex("[A-Za-z][A-Za-z0-9_]*", |lex| lex.slice().to_string())]
@@ -476,6 +476,23 @@ pub enum Token {
     RightParen,
 
     Error,
+}
+
+/// Parse a decimal integer without letting attacker-controlled source panic the
+/// lexer. Logos treats `None` as a normal lexing error, which the positioned
+/// lexer reports with the literal's span and the parser then rejects.
+fn parse_int_literal(lex: &mut logos::Lexer<Token>) -> Option<i64> {
+    lex.slice().parse::<i64>().ok()
+}
+
+/// WFL numbers must be finite. Rust accepts very large decimal floats as
+/// positive infinity, so reject both parse failures and non-finite results at
+/// the token boundary instead of injecting an infinity value into the runtime.
+fn parse_float_literal(lex: &mut logos::Lexer<Token>) -> Option<f64> {
+    lex.slice()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
 }
 
 fn parse_string(lex: &mut logos::Lexer<Token>) -> Result<String, ()> {
