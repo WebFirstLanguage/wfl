@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- **Cyclic values no longer abort the interpreter during display, diagnostics,
+  or isolated-module cloning.** List/object formatting now detects cycles and
+  caps nesting depth, while deep clones preserve cycles and shared references
+  inside the cloned graph.
 - **Subprocess policy is enforced on every process launch** (shell path and
   direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
   related checks ran only when the engine believed a shell was required, so

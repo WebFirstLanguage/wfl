@@ -156,6 +156,32 @@ pub struct ActionSignature {
     pub column: usize,
 }
 
+/// Keep value formatting comfortably below the native stack limit even when a
+/// program builds a very deeply nested (but acyclic) container graph.
+const MAX_VALUE_FORMAT_DEPTH: usize = 64;
+
+type ListStorage = RefCell<Vec<Value>>;
+type ObjectStorage = RefCell<HashMap<String, Value>>;
+type ContainerInstanceStorage = RefCell<ContainerInstanceValue>;
+
+#[derive(Default)]
+struct ValueFormatState {
+    active_lists: HashSet<*const ListStorage>,
+    active_objects: HashSet<*const ObjectStorage>,
+}
+
+/// Memoized mutable containers created during one deep-clone operation.
+///
+/// The placeholder is inserted before its contents are cloned. That both
+/// breaks cycles and preserves aliases: two references to one source container
+/// become two references to one cloned container.
+#[derive(Default)]
+struct DeepCloneMemo {
+    lists: HashMap<*const ListStorage, Rc<ListStorage>>,
+    objects: HashMap<*const ObjectStorage, Rc<ObjectStorage>>,
+    container_instances: HashMap<*const ContainerInstanceStorage, Rc<ContainerInstanceStorage>>,
+}
+
 impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -207,86 +233,169 @@ impl Value {
     /// Deep clone a value, creating independent copies of reference-counted containers.
     /// This is used for module isolation to prevent mutations from affecting parent scopes.
     pub fn deep_clone(&self) -> Self {
+        self.deep_clone_with_memo(&mut DeepCloneMemo::default())
+    }
+
+    fn deep_clone_with_memo(&self, memo: &mut DeepCloneMemo) -> Self {
         match self {
-            // For List, create a new Rc<RefCell<>> with recursively cloned elements
             Value::List(list) => {
-                let cloned_vec = list
+                let source_id = Rc::as_ptr(list);
+                if let Some(cloned) = memo.lists.get(&source_id) {
+                    return Value::List(Rc::clone(cloned));
+                }
+
+                let cloned = Rc::new(RefCell::new(Vec::new()));
+                memo.lists.insert(source_id, Rc::clone(&cloned));
+
+                let cloned_items = list
                     .borrow()
                     .iter()
-                    .map(|v| v.deep_clone())
+                    .map(|value| value.deep_clone_with_memo(memo))
                     .collect::<Vec<_>>();
-                Value::List(Rc::new(RefCell::new(cloned_vec)))
+                *cloned.borrow_mut() = cloned_items;
+
+                Value::List(cloned)
             }
-            // For Object, create a new Rc<RefCell<>> with recursively cloned values
             Value::Object(obj) => {
-                let cloned_map = obj
+                let source_id = Rc::as_ptr(obj);
+                if let Some(cloned) = memo.objects.get(&source_id) {
+                    return Value::Object(Rc::clone(cloned));
+                }
+
+                let cloned = Rc::new(RefCell::new(HashMap::new()));
+                memo.objects.insert(source_id, Rc::clone(&cloned));
+
+                let cloned_entries = obj
                     .borrow()
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.deep_clone()))
+                    .map(|(key, value)| (key.clone(), value.deep_clone_with_memo(memo)))
                     .collect::<HashMap<_, _>>();
-                Value::Object(Rc::new(RefCell::new(cloned_map)))
+                *cloned.borrow_mut() = cloned_entries;
+
+                Value::Object(cloned)
             }
-            // For ContainerInstance, create a new Rc<RefCell<>> with deep cloned properties
             Value::ContainerInstance(instance) => {
-                let inst = instance.borrow();
-                let cloned_properties = inst
-                    .properties
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.deep_clone()))
-                    .collect::<HashMap<_, _>>();
-                let cloned_parent = inst.parent.as_ref().map(|p| {
-                    // Clone the parent reference, not deep clone (to avoid infinite recursion)
-                    Rc::clone(p)
-                });
-                Value::ContainerInstance(Rc::new(RefCell::new(ContainerInstanceValue {
-                    container_type: inst.container_type.clone(),
-                    properties: cloned_properties,
-                    parent: cloned_parent,
-                    line: inst.line,
-                    column: inst.column,
-                })))
+                Value::ContainerInstance(Self::deep_clone_container_instance(instance, memo))
             }
             // For all other types, use regular clone (they're either primitives or immutable Rc types)
             _ => self.clone(),
         }
     }
-}
 
-impl fmt::Debug for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn deep_clone_container_instance(
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+        memo: &mut DeepCloneMemo,
+    ) -> Rc<RefCell<ContainerInstanceValue>> {
+        let source_id = Rc::as_ptr(instance);
+        if let Some(cloned) = memo.container_instances.get(&source_id) {
+            return Rc::clone(cloned);
+        }
+
+        let cloned = Rc::new(RefCell::new(ContainerInstanceValue {
+            container_type: String::new(),
+            properties: HashMap::new(),
+            parent: None,
+            line: 0,
+            column: 0,
+        }));
+        memo
+            .container_instances
+            .insert(source_id, Rc::clone(&cloned));
+
+        let source = instance.borrow();
+        let cloned_properties = source
+            .properties
+            .iter()
+            .map(|(key, value)| (key.clone(), value.deep_clone_with_memo(memo)))
+            .collect();
+        let cloned_parent = source
+            .parent
+            .as_ref()
+            .map(|parent| Self::deep_clone_container_instance(parent, memo));
+
+        *cloned.borrow_mut() = ContainerInstanceValue {
+            container_type: source.container_type.clone(),
+            properties: cloned_properties,
+            parent: cloned_parent,
+            line: source.line,
+            column: source.column,
+        };
+
+        cloned
+    }
+
+    fn fmt_debug_with_state(
+        &self,
+        f: &mut fmt::Formatter,
+        state: &mut ValueFormatState,
+        depth: usize,
+    ) -> fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{n}"),
             Value::Text(s) => write!(f, "\"{s}\""),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Nothing => write!(f, "nothing"),
-            Value::List(l) => {
-                let values = l.borrow();
-                write!(f, "[")?;
-                for (i, v) in values.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{v:?}")?;
+            Value::List(list) => {
+                if depth >= MAX_VALUE_FORMAT_DEPTH {
+                    return write!(f, "<max-depth>");
                 }
-                write!(f, "]")
+
+                let id = Rc::as_ptr(list);
+                if !state.active_lists.insert(id) {
+                    return write!(f, "<cycle>");
+                }
+
+                let result = (|| {
+                    let values = match list.try_borrow() {
+                        Ok(values) => values,
+                        Err(_) => return write!(f, "<borrowed list>"),
+                    };
+
+                    write!(f, "[")?;
+                    for (index, value) in values.iter().enumerate() {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        value.fmt_debug_with_state(f, state, depth + 1)?;
+                    }
+                    write!(f, "]")
+                })();
+
+                state.active_lists.remove(&id);
+                result
             }
-            Value::Object(o) => {
-                let map = o.borrow();
-                write!(f, "{{")?;
-                for (i, (k, v)) in map.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{k}: {v:?}")?;
+            Value::Object(obj) => {
+                if depth >= MAX_VALUE_FORMAT_DEPTH {
+                    return write!(f, "<max-depth>");
                 }
-                write!(f, "}}")
+
+                let id = Rc::as_ptr(obj);
+                if !state.active_objects.insert(id) {
+                    return write!(f, "<cycle>");
+                }
+
+                let result = (|| {
+                    let map = match obj.try_borrow() {
+                        Ok(map) => map,
+                        Err(_) => return write!(f, "<borrowed object>"),
+                    };
+
+                    write!(f, "{{")?;
+                    for (index, (key, value)) in map.iter().enumerate() {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{key}: ")?;
+                        value.fmt_debug_with_state(f, state, depth + 1)?;
+                    }
+                    write!(f, "}}")
+                })();
+
+                state.active_objects.remove(&id);
+                result
             }
             Value::Function(func) => {
-                write!(
-                    f,
-                    "Function({})",
-                    func.name.as_ref().unwrap_or(&"anonymous".to_string())
-                )
+                write!(f, "Function({})", func.name.as_deref().unwrap_or("anonymous"))
             }
             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
             Value::Future(_) => write!(f, "[Future]"),
@@ -306,54 +415,92 @@ impl fmt::Debug for Value {
             Value::InterfaceDefinition(interface) => write!(f, "<interface {}>", interface.name),
         }
     }
-}
 
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_display_with_state(
+        &self,
+        f: &mut fmt::Formatter,
+        state: &mut ValueFormatState,
+        depth: usize,
+    ) -> fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{n}"),
             Value::Text(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "yes" } else { "no" }),
             Value::Nothing => write!(f, "nothing"),
             Value::List(list) => {
-                let items = list.borrow();
-                write!(f, "[")?;
-                for (i, v) in items.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{v}")?;
+                if depth >= MAX_VALUE_FORMAT_DEPTH {
+                    return write!(f, "<max-depth>");
                 }
-                write!(f, "]")
-            }
-            Value::Object(o) => {
-                let map = o.borrow();
-                if map.len() == 1 {
-                    if let Some((_, value)) = map.iter().next() {
-                        write!(f, "{value}")
-                    } else {
-                        write!(f, "[Object]")
-                    }
-                } else if map.is_empty() {
-                    write!(f, "[Object]")
-                } else {
-                    write!(f, "{{")?;
-                    for (i, (k, v)) in map.iter().enumerate() {
-                        if i > 0 {
+
+                let id = Rc::as_ptr(list);
+                if !state.active_lists.insert(id) {
+                    return write!(f, "<cycle>");
+                }
+
+                let result = (|| {
+                    let items = match list.try_borrow() {
+                        Ok(items) => items,
+                        Err(_) => return write!(f, "<borrowed list>"),
+                    };
+
+                    write!(f, "[")?;
+                    for (index, value) in items.iter().enumerate() {
+                        if index > 0 {
                             write!(f, ", ")?;
                         }
-                        write!(f, "{k}: {v}")?;
+                        value.fmt_display_with_state(f, state, depth + 1)?;
                     }
-                    write!(f, "}}")
+                    write!(f, "]")
+                })();
+
+                state.active_lists.remove(&id);
+                result
+            }
+            Value::Object(obj) => {
+                if depth >= MAX_VALUE_FORMAT_DEPTH {
+                    return write!(f, "<max-depth>");
                 }
+
+                let id = Rc::as_ptr(obj);
+                if !state.active_objects.insert(id) {
+                    return write!(f, "<cycle>");
+                }
+
+                let result = (|| {
+                    let map = match obj.try_borrow() {
+                        Ok(map) => map,
+                        Err(_) => return write!(f, "<borrowed object>"),
+                    };
+
+                    if map.len() == 1 {
+                        if let Some((_, value)) = map.iter().next() {
+                            value.fmt_display_with_state(f, state, depth + 1)
+                        } else {
+                            write!(f, "[Object]")
+                        }
+                    } else if map.is_empty() {
+                        write!(f, "[Object]")
+                    } else {
+                        write!(f, "{{")?;
+                        for (index, (key, value)) in map.iter().enumerate() {
+                            if index > 0 {
+                                write!(f, ", ")?;
+                            }
+                            write!(f, "{key}: ")?;
+                            value.fmt_display_with_state(f, state, depth + 1)?;
+                        }
+                        write!(f, "}}")
+                    }
+                })();
+
+                state.active_objects.remove(&id);
+                result
             }
-            Value::Function(func) => {
-                write!(
-                    f,
-                    "action {}",
-                    func.name.as_ref().unwrap_or(&"anonymous".to_string())
-                )
-            }
+            Value::Function(func) => write!(
+                f,
+                "action {}",
+                func.name.as_deref().unwrap_or("anonymous")
+            ),
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
@@ -371,6 +518,18 @@ impl fmt::Display for Value {
             Value::ContainerEvent(event) => write!(f, "event {}", event.name),
             Value::InterfaceDefinition(interface) => write!(f, "interface {}", interface.name),
         }
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_debug_with_state(f, &mut ValueFormatState::default(), 0)
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_display_with_state(f, &mut ValueFormatState::default(), 0)
     }
 }
 
