@@ -3192,6 +3192,7 @@ dependencies = [
  "bytes",
  "chrono",
  "codespan-reporting",
+ "encoding_rs",
  "futures-util",
  "glob",
  "hkdf 0.12.4",
