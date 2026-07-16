@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- Unsupported database URL errors no longer echo the full connection URL,
+  preventing embedded credentials from being disclosed in diagnostics.
 - **Subprocess policy is enforced on every process launch** (shell path and
   direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
   related checks ran only when the engine believed a shell was required, so
