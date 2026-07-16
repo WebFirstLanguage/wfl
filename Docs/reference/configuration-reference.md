@@ -389,7 +389,7 @@ Applied to every launch, not only shell metacharacter forms.
 - **Default:** `forbidden`
 - **Options:**
   - `forbidden` — no process execution allowed (most secure)
-  - `allowlist_only` — only programs whose basename is in `allowed_shell_commands` may run
+  - `allowlist_only` — only direct-exec programs in `allowed_shell_commands` may run; shell features are rejected
   - `sanitized` — any program may run; shell features produce warnings
   - `unrestricted` — any program may run with shell; not recommended for production
 - **Example:** `shell_execution_mode = allowlist_only`
@@ -414,6 +414,13 @@ allowed_shell_commands = echo, ls, git
 Comma-separated list of allowed **program basenames** when using
 `allowlist_only` mode. Matching uses the basename of the program path
 (`/bin/echo` matches `echo`). On Windows, comparison is case-insensitive.
+
+`allowlist_only` never invokes a shell. Commands containing pipes, redirects,
+expansion, command chaining, or other shell features are rejected even when
+their first program is allowlisted. Pass data through `with arguments`; opt in
+to `sanitized` or `unrestricted` only when shell syntax is genuinely required.
+Do not allowlist a shell or interpreter (`sh`, `cmd.exe`, PowerShell, Python,
+and similar) unless you intend its arguments to be able to execute code.
 
 - **Type:** Comma-separated strings
 - **Default:** *(empty)*

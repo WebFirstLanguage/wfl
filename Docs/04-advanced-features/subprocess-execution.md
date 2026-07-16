@@ -23,6 +23,11 @@ shell_execution_mode = sanitized
 - Policy applies to **both** the shell form and the `with arguments` form.
   Passing arguments is safer against injection *after* a program is allowed;
   it is not a bypass of the policy.
+- `allowlist_only` permits direct execution only. Shell chaining, pipes,
+  redirects, expansion, and other shell features are blocked even when the
+  first command is listed.
+- Avoid allowlisting shells and interpreters such as `sh`, `cmd.exe`,
+  PowerShell, or Python: their ordinary arguments can execute additional code.
 
 See [Configuration Reference](../reference/configuration-reference.md#security-settings)
 for full option details.
