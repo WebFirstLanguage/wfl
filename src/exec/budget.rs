@@ -27,8 +27,9 @@
 //! * **Pattern transitions and active states** —
 //!   [`ExecutionBudget::check_pattern_steps`] /
 //!   [`ExecutionBudget::check_pattern_states`].
-//! * **Source, body, and response bytes** —
+//! * **Source, file-read, body, and response bytes** —
 //!   [`ExecutionBudget::check_source_bytes`],
+//!   [`ExecutionBudget::check_file_read_bytes`],
 //!   [`ExecutionBudget::check_request_body_bytes`],
 //!   [`ExecutionBudget::check_response_bytes`].
 //! * **Pending HTTP requests** — [`ExecutionBudget::max_pending_requests`].
@@ -97,6 +98,9 @@ pub struct BudgetLimits {
     /// Maximum WFL source-file size in bytes. Mapped from `.wflcfg`
     /// `max_source_size`.
     pub max_source_bytes: usize,
+    /// Maximum bytes buffered by one text or binary file read. Mapped from
+    /// `.wflcfg` `max_file_read_size`.
+    pub max_file_read_bytes: usize,
     /// Maximum accepted HTTP request body size in bytes. Mapped from `.wflcfg`
     /// `web_server_max_body_size`.
     pub max_request_body_bytes: usize,
@@ -152,6 +156,9 @@ impl Default for BudgetLimits {
             max_pattern_states: 10_000,
             // Source size was unchecked before; 64 MiB clears any real program.
             max_source_bytes: 64 * 1024 * 1024,
+            // Preserve the file-I/O guide's existing 50 MiB per-read policy,
+            // now enforced for both text and binary reads while streaming.
+            max_file_read_bytes: 50 * 1024 * 1024,
             // Preserves the previous `web_server_max_body_size` default (1 MiB).
             max_request_body_bytes: 1_048_576,
             // Response size was unchecked before; 64 MiB clears any real payload.
@@ -191,6 +198,7 @@ impl BudgetLimits {
             max_pattern_steps: config.max_pattern_steps,
             max_pattern_states: config.max_pattern_states,
             max_source_bytes: config.max_source_size,
+            max_file_read_bytes: config.max_file_read_size,
             max_request_body_bytes: config.web_server_max_body_size,
             max_response_bytes: config.web_server_max_response_size,
             max_pending_requests: config.web_server_request_queue_bound.max(1),
@@ -219,6 +227,7 @@ impl BudgetLimits {
             max_pattern_steps: 5_000_000,
             max_pattern_states: 10_000,
             max_source_bytes: usize::MAX,
+            max_file_read_bytes: usize::MAX,
             max_request_body_bytes: usize::MAX,
             max_response_bytes: usize::MAX,
             max_pending_requests: usize::MAX,
@@ -253,6 +262,8 @@ pub enum BudgetExceeded {
     PatternStates { limit: usize },
     /// A source file exceeded the byte ceiling.
     SourceBytes { limit: usize, actual: usize },
+    /// A text or binary file read exceeded its per-operation byte ceiling.
+    FileReadBytes { limit: usize, actual: usize },
     /// An HTTP request body exceeded the byte ceiling.
     RequestBodyBytes { limit: usize, actual: usize },
     /// An HTTP response body exceeded the byte ceiling.
@@ -293,6 +304,9 @@ impl BudgetExceeded {
             }
             BudgetExceeded::SourceBytes { limit, actual } => {
                 format!("Source file too large: {actual} bytes (limit: {limit} bytes)")
+            }
+            BudgetExceeded::FileReadBytes { limit, actual } => {
+                format!("File read too large: {actual} bytes (limit: {limit} bytes)")
             }
             BudgetExceeded::RequestBodyBytes { limit, actual } => {
                 format!("Request body too large: {actual} bytes (limit: {limit} bytes)")
@@ -605,6 +619,23 @@ impl ExecutionBudget {
         if len > self.limits.max_source_bytes {
             Err(BudgetExceeded::SourceBytes {
                 limit: self.limits.max_source_bytes,
+                actual: len,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The per-operation ceiling for buffered text and binary file reads.
+    pub fn max_file_read_bytes(&self) -> usize {
+        self.limits.max_file_read_bytes
+    }
+
+    /// Fail if a text or binary file read exceeds its byte ceiling.
+    pub fn check_file_read_bytes(&self, len: usize) -> Result<(), BudgetExceeded> {
+        if len > self.limits.max_file_read_bytes {
+            Err(BudgetExceeded::FileReadBytes {
+                limit: self.limits.max_file_read_bytes,
                 actual: len,
             })
         } else {
@@ -1063,6 +1094,7 @@ mod tests {
             max_pattern_steps: 5,
             max_pattern_states: 4,
             max_source_bytes: 8,
+            max_file_read_bytes: 8,
             max_request_body_bytes: 8,
             max_response_bytes: 8,
             max_pending_requests: 2,
@@ -1272,6 +1304,14 @@ mod tests {
                 actual: 9
             })
         );
+        assert!(budget.check_file_read_bytes(8).is_ok());
+        assert_eq!(
+            budget.check_file_read_bytes(9),
+            Err(BudgetExceeded::FileReadBytes {
+                limit: 8,
+                actual: 9
+            })
+        );
         assert_eq!(
             budget.check_request_body_bytes(100),
             Err(BudgetExceeded::RequestBodyBytes {
@@ -1339,12 +1379,14 @@ mod tests {
             timeout_seconds: 42,
             web_server_max_body_size: 4096,
             web_server_request_queue_bound: 7,
+            max_file_read_size: 123,
             ..Default::default()
         };
         let limits = BudgetLimits::from_config(&config);
         assert_eq!(limits.max_duration, Some(Duration::from_secs(42)));
         assert_eq!(limits.max_request_body_bytes, 4096);
         assert_eq!(limits.max_pending_requests, 7);
+        assert_eq!(limits.max_file_read_bytes, 123);
     }
 
     #[test]

@@ -235,6 +235,7 @@ clean, catchable error instead of a crash or unbounded memory growth.
 | `max_pattern_steps` | integer ≥ 1 | `5000000` | Max pattern-matching transitions per match (ReDoS guard) |
 | `max_pattern_states` | integer ≥ 1 | `10000` | Max simultaneously-active pattern states per match |
 | `max_source_size` | integer ≥ 1 | `67108864` (64 MiB) | Max WFL source-file size (bytes) |
+| `max_file_read_size` | integer ≥ 1 | `52428800` (50 MiB) | Max bytes buffered by one text or binary file read |
 
 The wall-clock deadline (`timeout_seconds`), request body/response ceilings, and
 the HTTP/WebSocket queue and connection bounds above are all part of the same
@@ -640,6 +641,18 @@ Maximum size, in bytes, of a WFL source file. A larger file is refused before it
 - **Type:** Integer (bytes, at least 1)
 - **Default:** `67108864` (64 MiB)
 - **Example:** `max_source_size = 1048576`  # 1 MiB
+
+#### `max_file_read_size`
+
+Maximum bytes one `read content`, `read binary`, or `read N bytes` operation may
+buffer. The ceiling is enforced while the file is read, so streams and special
+files whose metadata has no useful length cannot grow memory without bound. A
+larger read fails with a catchable resource-limit error; exact-limit reads are
+accepted.
+
+- **Type:** Integer (bytes, at least 1)
+- **Default:** `52428800` (50 MiB)
+- **Example:** `max_file_read_size = 10485760`  # 10 MiB
 
 Each of these positive-integer keys rejects `0` and non-numeric values, keeping the default and logging a warning.
 

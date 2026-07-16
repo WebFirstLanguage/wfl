@@ -1,10 +1,12 @@
 use super::helpers::{
     check_arg_count, check_arg_range, expect_text, unary_path_bool_op, unary_path_string_op,
 };
-use crate::interpreter::error::RuntimeError;
+use crate::exec::budget::ExecutionBudget;
+use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -238,8 +240,31 @@ pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
         ));
     }
 
-    let content = fs::read_to_string(path)
+    let budget = ExecutionBudget::current_or_default();
+    let limit = budget.max_file_read_bytes();
+    let probe_size = limit.saturating_add(1);
+    let probe_size_u64 = u64::try_from(probe_size).unwrap_or(u64::MAX);
+    let file = fs::File::open(path)
         .map_err(|e| RuntimeError::new(format!("Failed to read file '{path_str}': {e}"), 0, 0))?;
+    let mut bytes = Vec::with_capacity(limit.min(8 * 1024));
+    file.take(probe_size_u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| RuntimeError::new(format!("Failed to read file '{path_str}': {e}"), 0, 0))?;
+    budget
+        .check_file_read_bytes(bytes.len())
+        .map_err(|exceeded| {
+            RuntimeError::with_kind(exceeded.message(), 0, 0, ErrorKind::ResourceLimit)
+        })?;
+    let content = String::from_utf8(bytes).map_err(|e| {
+        RuntimeError::new(
+            format!(
+                "Failed to read file '{path_str}': stream did not contain valid UTF-8: {}",
+                e.utf8_error()
+            ),
+            0,
+            0,
+        )
+    })?;
 
     // Count lines by splitting on newline characters
     // Handle edge case: empty file has 0 lines
@@ -816,6 +841,27 @@ mod tests {
         let result = native_count_lines(args);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("not a file"));
+    }
+
+    #[test]
+    fn test_native_count_lines_obeys_file_read_budget() {
+        use crate::exec::budget::BudgetLimits;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file_path = temp_dir.path().join("too_large.txt");
+        std::fs::write(&test_file_path, b"123456789").unwrap();
+
+        let mut limits = BudgetLimits::default();
+        limits.max_file_read_bytes = 8;
+        let budget = Arc::new(ExecutionBudget::new(limits));
+        let _guard = ExecutionBudget::enter(budget);
+        let result = native_count_lines(vec![Value::Text(Arc::from(
+            test_file_path.to_string_lossy().as_ref(),
+        ))]);
+
+        let error = result.expect_err("count_lines must share the file-read ceiling");
+        assert_eq!(error.kind, ErrorKind::ResourceLimit);
+        assert!(error.message.contains("File read too large"));
     }
 
     // Tests for path_extension

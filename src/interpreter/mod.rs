@@ -1022,7 +1022,7 @@ fn expr_type(expr: &Expression) -> String {
     }
 }
 
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -1143,6 +1143,49 @@ pub struct IoClient {
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
     config: Arc<WflConfig>,
+}
+
+#[derive(Debug)]
+enum FileReadError {
+    Io(String),
+    Budget(BudgetExceeded),
+}
+
+impl std::fmt::Display for FileReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(message) => f.write_str(message),
+            Self::Budget(exceeded) => std::fmt::Display::fmt(exceeded, f),
+        }
+    }
+}
+
+/// Buffer one file read under the run's file-byte ceiling. Reading through a
+/// `Take` capped at `limit + 1` is intentional: metadata is not reliable for
+/// special files and streams (for example `/dev/zero`), so the limit must be
+/// enforced while bytes arrive rather than after an unbounded `read_to_end`.
+async fn read_to_end_capped<R>(
+    reader: &mut R,
+    budget: &ExecutionBudget,
+    operation: &str,
+) -> Result<Vec<u8>, FileReadError>
+where
+    R: AsyncRead + Unpin,
+{
+    let limit = budget.max_file_read_bytes();
+    let probe_size = limit.saturating_add(1);
+    let probe_size_u64 = u64::try_from(probe_size).unwrap_or(u64::MAX);
+    let mut bytes = Vec::with_capacity(limit.min(8 * 1024));
+    let mut bounded = reader.take(probe_size_u64);
+    bounded
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|e| FileReadError::Io(format!("{operation}: {e}")))?;
+
+    budget
+        .check_file_read_bytes(bytes.len())
+        .map_err(FileReadError::Budget)?;
+    Ok(bytes)
 }
 
 impl IoClient {
@@ -1357,7 +1400,11 @@ impl IoClient {
     }
 
     #[allow(dead_code)]
-    async fn read_file(&self, handle_id: &str) -> Result<String, String> {
+    async fn read_file(
+        &self,
+        handle_id: &str,
+        budget: &ExecutionBudget,
+    ) -> Result<String, FileReadError> {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
@@ -1366,27 +1413,33 @@ impl IoClient {
             match self.open_file(handle_id).await {
                 Ok(new_handle) => {
                     // Now read from the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.read_file(&new_handle));
+                    let future = Box::pin(self.read_file(&new_handle, budget));
                     let result = future.await;
                     let _ = self.close_file(&new_handle).await;
                     return result;
                 }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
+                Err(e) => {
+                    return Err(FileReadError::Io(format!(
+                        "Invalid file handle or path: {handle_id}: {e}"
+                    )));
+                }
             }
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+            Err(e) => return Err(FileReadError::Io(format!("Failed to clone file handle: {e}"))),
         };
 
         drop(file_handles);
 
-        let mut contents = String::new();
-        match AsyncReadExt::read_to_string(&mut file_clone, &mut contents).await {
-            Ok(_) => Ok(contents),
-            Err(e) => Err(format!("Failed to read file: {e}")),
-        }
+        let bytes = read_to_end_capped(&mut file_clone, budget, "Failed to read file").await?;
+        String::from_utf8(bytes).map_err(|e| {
+            FileReadError::Io(format!(
+                "Failed to read file: stream did not contain valid UTF-8: {}",
+                e.utf8_error()
+            ))
+        })
     }
 
     /// Syncs file to disk with Windows-specific error handling.
@@ -1486,16 +1539,20 @@ impl IoClient {
         }
     }
 
-    async fn read_binary(&self, handle_id: &str) -> Result<Vec<u8>, String> {
+    async fn read_binary(
+        &self,
+        handle_id: &str,
+        budget: &ExecutionBudget,
+    ) -> Result<Vec<u8>, FileReadError> {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
+            return Err(FileReadError::Io(format!("Invalid file handle: {handle_id}")));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+            Err(e) => return Err(FileReadError::Io(format!("Failed to clone file handle: {e}"))),
         };
 
         drop(file_handles);
@@ -1503,26 +1560,31 @@ impl IoClient {
         // Seek to start before reading all
         match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
             Ok(_) => {}
-            Err(e) => return Err(format!("Failed to seek in file: {e}")),
+            Err(e) => return Err(FileReadError::Io(format!("Failed to seek in file: {e}"))),
         }
 
-        let mut contents = Vec::new();
-        match AsyncReadExt::read_to_end(&mut file_clone, &mut contents).await {
-            Ok(_) => Ok(contents),
-            Err(e) => Err(format!("Failed to read binary file: {e}")),
-        }
+        read_to_end_capped(&mut file_clone, budget, "Failed to read binary file").await
     }
 
-    async fn read_binary_n(&self, handle_id: &str, count: usize) -> Result<Vec<u8>, String> {
+    async fn read_binary_n(
+        &self,
+        handle_id: &str,
+        count: usize,
+        budget: &ExecutionBudget,
+    ) -> Result<Vec<u8>, FileReadError> {
+        budget
+            .check_file_read_bytes(count)
+            .map_err(FileReadError::Budget)?;
+
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
+            return Err(FileReadError::Io(format!("Invalid file handle: {handle_id}")));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+            Err(e) => return Err(FileReadError::Io(format!("Failed to clone file handle: {e}"))),
         };
 
         drop(file_handles);
@@ -1533,7 +1595,7 @@ impl IoClient {
                 buf.truncate(n);
                 Ok(buf)
             }
-            Err(e) => Err(format!("Failed to read binary bytes: {e}")),
+            Err(e) => Err(FileReadError::Io(format!("Failed to read binary bytes: {e}"))),
         }
     }
 
@@ -2612,6 +2674,15 @@ impl Interpreter {
             _ => ErrorKind::ResourceLimit,
         };
         RuntimeError::with_kind(exceeded.message(), line, column, kind)
+    }
+
+    /// Preserve ordinary file I/O failures while classifying byte-ceiling
+    /// breaches as catchable execution-budget resource errors.
+    fn file_read_error(&self, error: FileReadError, line: usize, column: usize) -> RuntimeError {
+        match error {
+            FileReadError::Io(message) => RuntimeError::new(message, line, column),
+            FileReadError::Budget(exceeded) => self.budget_error(exceeded, line, column),
+        }
     }
 
     /// Map a pattern-VM error onto a `RuntimeError`. Budget breaches (step/state
@@ -3902,7 +3973,7 @@ impl Interpreter {
 
                 if is_file_path {
                     match self.io_client.open_file(&path_str).await {
-                        Ok(handle) => match self.io_client.read_file(&handle).await {
+                        Ok(handle) => match self.io_client.read_file(&handle, &self.budget).await {
                             Ok(content) => {
                                 match env
                                     .borrow_mut()
@@ -3920,13 +3991,17 @@ impl Interpreter {
                             }
                             Err(e) => {
                                 let _ = self.io_client.close_file(&handle).await;
-                                Err(RuntimeError::new(e, *line, *column))
+                                Err(self.file_read_error(e, *line, *column))
                             }
                         },
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
                 } else {
-                    match self.io_client.read_file(&path_str).await {
+                    match self
+                        .io_client
+                        .read_file(&path_str, &self.budget)
+                        .await
+                    {
                         Ok(content) => {
                             match env
                                 .borrow_mut()
@@ -3936,7 +4011,7 @@ impl Interpreter {
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                             }
                         }
-                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                        Err(e) => Err(self.file_read_error(e, *line, *column)),
                     }
                 }
             }
@@ -4824,7 +4899,11 @@ impl Interpreter {
 
                         if is_file_path {
                             match self.io_client.open_file(&path_str).await {
-                                Ok(handle) => match self.io_client.read_file(&handle).await {
+                                Ok(handle) => match self
+                                    .io_client
+                                    .read_file(&handle, &self.budget)
+                                    .await
+                                {
                                     Ok(content) => {
                                         match env
                                             .borrow_mut()
@@ -4842,13 +4921,17 @@ impl Interpreter {
                                     }
                                     Err(e) => {
                                         let _ = self.io_client.close_file(&handle).await;
-                                        Err(RuntimeError::new(e, *line, *column))
+                                        Err(self.file_read_error(e, *line, *column))
                                     }
                                 },
                                 Err(e) => Err(RuntimeError::new(e, *line, *column)),
                             }
                         } else {
-                            match self.io_client.read_file(&path_str).await {
+                            match self
+                                .io_client
+                                .read_file(&path_str, &self.budget)
+                                .await
+                            {
                                 Ok(content) => {
                                     match env
                                         .borrow_mut()
@@ -4858,7 +4941,7 @@ impl Interpreter {
                                         Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                                     }
                                 }
-                                Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                                Err(e) => Err(self.file_read_error(e, *line, *column)),
                             }
                         }
                     }
@@ -9730,9 +9813,13 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_file(&handle_str).await {
+                match self
+                    .io_client
+                    .read_file(&handle_str, &self.budget)
+                    .await
+                {
                     Ok(content) => Ok(Value::Text(content.into())),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Expression::ReadBinaryContent {
@@ -9757,9 +9844,13 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_binary(&handle_str).await {
+                match self
+                    .io_client
+                    .read_binary(&handle_str, &self.budget)
+                    .await
+                {
                     Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Expression::ReadBinaryN {
@@ -9796,20 +9887,7 @@ impl Interpreter {
                                 *column,
                             ));
                         }
-                        let count = *n as usize;
-                        // 50MB limit to prevent memory exhaustion
-                        const MAX_READ_BYTES: usize = 50 * 1024 * 1024;
-                        if count > MAX_READ_BYTES {
-                            return Err(RuntimeError::new(
-                                format!(
-                                    "Byte count {} exceeds maximum allowed ({})",
-                                    count, MAX_READ_BYTES
-                                ),
-                                *line,
-                                *column,
-                            ));
-                        }
-                        count
+                        *n as usize
                     }
                     _ => {
                         return Err(RuntimeError::new(
@@ -9823,9 +9901,13 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_binary_n(&handle_str, n).await {
+                match self
+                    .io_client
+                    .read_binary_n(&handle_str, n, &self.budget)
+                    .await
+                {
                     Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Expression::FileSizeOf {
@@ -10736,6 +10818,95 @@ mod header_lookup_tests {
     fn empty_headers_map_returns_none() {
         let headers = HashMap::new();
         assert!(lookup_header_case_insensitive(&headers, "User-Agent").is_none());
+    }
+}
+
+#[cfg(test)]
+mod file_read_tests {
+    use super::*;
+    use crate::exec::budget::BudgetLimits;
+
+    fn budget_with_file_limit(limit: usize) -> ExecutionBudget {
+        let mut limits = BudgetLimits::default();
+        limits.max_file_read_bytes = limit;
+        ExecutionBudget::new(limits)
+    }
+
+    #[tokio::test]
+    async fn capped_read_stops_an_infinite_source_at_limit_plus_one() {
+        let budget = budget_with_file_limit(8);
+        let mut source = tokio::io::repeat(0xA5);
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            read_to_end_capped(&mut source, &budget, "test read"),
+        )
+        .await
+        .expect("bounded read must not wait for EOF from an infinite source");
+
+        assert!(matches!(
+            result,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes {
+                limit: 8,
+                actual: 9
+            }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn capped_read_allows_a_payload_exactly_at_the_limit() {
+        let budget = budget_with_file_limit(8);
+        let mut source = std::io::Cursor::new(b"12345678".to_vec());
+        let bytes = read_to_end_capped(&mut source, &budget, "test read")
+            .await
+            .expect("an exact-limit payload is valid");
+        assert_eq!(bytes, b"12345678");
+    }
+
+    #[tokio::test]
+    async fn text_and_binary_read_all_share_the_budget_ceiling() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("oversized.dat");
+        std::fs::write(&path, b"123456789").expect("fixture");
+        let path = path.to_string_lossy();
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        let budget = budget_with_file_limit(8);
+
+        let text_handle = client
+            .open_file_with_mode(&path, FileOpenMode::Read)
+            .await
+            .expect("open text fixture");
+        assert!(matches!(
+            client.read_file(&text_handle, &budget).await,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes { .. }))
+        ));
+        client.close_file(&text_handle).await.expect("close text");
+
+        let binary_handle = client
+            .open_file_with_mode(&path, FileOpenMode::ReadBinary)
+            .await
+            .expect("open binary fixture");
+        assert!(matches!(
+            client.read_binary(&binary_handle, &budget).await,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes { .. }))
+        ));
+        client
+            .close_file(&binary_handle)
+            .await
+            .expect("close binary");
+    }
+
+    #[tokio::test]
+    async fn explicit_binary_count_is_checked_before_allocation() {
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        let budget = budget_with_file_limit(8);
+        let result = client.read_binary_n("not-open", 9, &budget).await;
+        assert!(matches!(
+            result,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes {
+                limit: 8,
+                actual: 9
+            }))
+        ));
     }
 }
 
