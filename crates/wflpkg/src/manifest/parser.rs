@@ -161,7 +161,7 @@ fn parse_dependency(s: &str, line_num: usize) -> Result<Dependency, PackageError
 }
 
 /// Validate a package name.
-fn validate_package_name(name: &str) -> Result<(), PackageError> {
+pub(crate) fn validate_package_name(name: &str) -> Result<(), PackageError> {
     if name.is_empty() || name.len() > 64 {
         return Err(PackageError::InvalidPackageName(name.to_string()));
     }

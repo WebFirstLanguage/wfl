@@ -128,6 +128,41 @@ fn test_extract_archive_rejects_hardlink_entry() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn test_extract_archive_rejects_preexisting_symlink_ancestor() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let archive_path = temp.path().join("bad.wflpkg");
+    build_malicious_archive(
+        &archive_path,
+        tar::EntryType::Regular,
+        b"linked/escaped.txt",
+        b"",
+        b"escape",
+    );
+
+    let dest = temp.path().join("output");
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(&dest).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let sentinel = outside.join("sentinel.txt");
+    fs::write(&sentinel, "must survive").unwrap();
+    symlink(&outside, dest.join("linked")).unwrap();
+
+    let result = wflpkg::archive::extract_archive(&archive_path, &dest);
+    assert!(
+        result.is_err(),
+        "a pre-existing symlink ancestor must be rejected"
+    );
+    assert!(sentinel.exists(), "outside content must survive extraction");
+    assert!(
+        !outside.join("escaped.txt").exists(),
+        "archive content must not escape the destination"
+    );
+}
+
 #[test]
 fn test_create_archive_excludes_expected_dirs() {
     let temp = TempDir::new().unwrap();
@@ -229,8 +264,8 @@ fn test_resolve_package_rejects_slash_in_name() {
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("Invalid package name"),
-        "expected 'Invalid package name', got: {msg}"
+        msg.contains("not valid"),
+        "expected exact package-name validation, got: {msg}"
     );
 }
 
@@ -241,8 +276,8 @@ fn test_resolve_package_rejects_backslash_in_name() {
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("Invalid package name"),
-        "expected 'Invalid package name', got: {msg}"
+        msg.contains("not valid"),
+        "expected exact package-name validation, got: {msg}"
     );
 }
 
@@ -253,8 +288,8 @@ fn test_resolve_package_rejects_dotdot_in_name() {
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("Invalid package name"),
-        "expected 'Invalid package name', got: {msg}"
+        msg.contains("not valid"),
+        "expected exact package-name validation, got: {msg}"
     );
 }
 
@@ -265,8 +300,70 @@ fn test_resolve_package_rejects_empty_name() {
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("Invalid package name"),
-        "expected 'Invalid package name', got: {msg}"
+        msg.contains("not valid"),
+        "expected exact package-name validation, got: {msg}"
+    );
+}
+
+#[test]
+fn test_resolve_package_rejects_windows_path_prefix() {
+    let temp = TempDir::new().unwrap();
+    let result = wflpkg::resolver::package_path::resolve_package_entry("c:escape", temp.path());
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains("not valid"),
+        "drive-prefixed names must fail the manifest's package-name rules"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_resolve_package_rejects_symlinked_packages_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let outside = temp.path().join("outside");
+    let package = outside.join("my-lib");
+    fs::create_dir_all(&package).unwrap();
+    fs::write(package.join("main.wfl"), "// outside").unwrap();
+    symlink(&outside, temp.path().join("packages")).unwrap();
+
+    let result = wflpkg::resolver::package_path::resolve_package_entry("my-lib", temp.path());
+    assert!(
+        result.is_err(),
+        "a symlinked packages root must be rejected"
+    );
+    assert!(
+        result.unwrap_err().to_string().contains("symbolic link"),
+        "the error should identify the unsafe package boundary"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_resolve_package_rejects_symlinked_manifest() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let package = temp.path().join("packages/my-lib");
+    fs::create_dir_all(package.join("src")).unwrap();
+    fs::write(package.join("src/main.wfl"), "// entry").unwrap();
+    let outside_manifest = temp.path().join("outside-project.wfl");
+    fs::write(
+        &outside_manifest,
+        "name is my-lib\nversion is 26.1.1\ndescription is Outside",
+    )
+    .unwrap();
+    symlink(&outside_manifest, package.join("project.wfl")).unwrap();
+
+    let result = wflpkg::resolver::package_path::resolve_package_entry("my-lib", temp.path());
+    assert!(
+        result.is_err(),
+        "a symlinked package manifest must be rejected"
+    );
+    assert!(
+        result.unwrap_err().to_string().contains("symbolic link"),
+        "the error should identify the unsafe manifest"
     );
 }
 
@@ -556,4 +653,98 @@ fn test_cache_install_not_cached_fails() {
         msg.contains("not in the cache"),
         "expected 'not in the cache', got: {msg}"
     );
+}
+
+#[test]
+fn test_cache_rejects_invalid_package_names() {
+    let temp = TempDir::new().unwrap();
+    let cache = wflpkg::cache::PackageCache::with_dir(temp.path().join("cache")).unwrap();
+    let version = wflpkg::Version::new(26, 1, Some(0));
+    let invalid_name = temp.path().join("outside").to_string_lossy().into_owned();
+
+    let src = temp.path().join("src-pkg");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("main.wfl"), "display \"hi\"").unwrap();
+    assert!(!cache.is_cached(&invalid_name, &version));
+    assert!(cache.store(&invalid_name, &version, &src).is_err());
+    assert!(cache.list_versions(&invalid_name).is_err());
+
+    let project = temp.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    assert!(
+        cache
+            .install_to_project(&invalid_name, &version, &project)
+            .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cache_rejects_symlinked_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let outside = temp.path().join("outside-cache");
+    fs::create_dir_all(&outside).unwrap();
+    let cache_link = temp.path().join("cache-link");
+    symlink(&outside, &cache_link).unwrap();
+
+    match wflpkg::cache::PackageCache::with_dir(cache_link) {
+        Err(error) => assert!(error.to_string().contains("symbolic link")),
+        Ok(_) => panic!("a symlinked package cache root must be rejected"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cache_store_rejects_symlinked_package_target() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let cache = wflpkg::cache::PackageCache::with_dir(temp.path().join("cache")).unwrap();
+    let version = wflpkg::Version::new(26, 1, Some(0));
+    let outside = temp.path().join("outside-package");
+    let outside_version = outside.join(version.to_string());
+    fs::create_dir_all(&outside_version).unwrap();
+    let sentinel = outside_version.join("sentinel.txt");
+    fs::write(&sentinel, "must survive").unwrap();
+    symlink(&outside, cache.cache_dir().join("my-pkg")).unwrap();
+
+    let src = temp.path().join("src-pkg");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("main.wfl"), "display \"hi\"").unwrap();
+    assert!(!cache.is_cached("my-pkg", &version));
+    let result = cache.store("my-pkg", &version, &src);
+    assert!(result.is_err(), "a symlinked cache target must be rejected");
+    assert!(sentinel.exists(), "outside cached content must survive");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cache_install_rejects_symlinked_packages_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let cache = wflpkg::cache::PackageCache::with_dir(temp.path().join("cache")).unwrap();
+    let version = wflpkg::Version::new(26, 1, Some(0));
+    let src = temp.path().join("src-pkg");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("main.wfl"), "display \"hi\"").unwrap();
+    cache.store("my-pkg", &version, &src).unwrap();
+
+    let project = temp.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let outside = temp.path().join("outside-packages");
+    let outside_package = outside.join("my-pkg");
+    fs::create_dir_all(&outside_package).unwrap();
+    let sentinel = outside_package.join("sentinel.txt");
+    fs::write(&sentinel, "must survive").unwrap();
+    symlink(&outside, project.join("packages")).unwrap();
+
+    let result = cache.install_to_project("my-pkg", &version, &project);
+    assert!(
+        result.is_err(),
+        "a symlinked project packages root must be rejected"
+    );
+    assert!(sentinel.exists(), "outside installed content must survive");
 }

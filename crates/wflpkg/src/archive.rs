@@ -122,14 +122,15 @@ pub fn extract_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), Packa
             )));
         }
 
-        // Create parent directories as needed
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        entry.unpack(&target).map_err(|e| {
+        let unpacked = entry.unpack_in(&dest_canonical).map_err(|e| {
             PackageError::General(format!("Failed to extract {}: {}", entry_path.display(), e))
         })?;
+        if !unpacked {
+            return Err(PackageError::General(format!(
+                "Archive entry escapes destination: {}",
+                entry_path.display()
+            )));
+        }
     }
 
     Ok(())

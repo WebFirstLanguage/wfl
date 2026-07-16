@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- Package filesystem operations now enforce the manifest's package-name rules,
+  reject symlinked cache/install roots and targets, verify canonical directory
+  containment before recursive deletion, and prevent archive extraction through
+  pre-existing symlink ancestors.
 - **Subprocess policy is enforced on every process launch** (shell path and
   direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
   related checks ran only when the engine believed a shell was required, so

@@ -154,6 +154,108 @@ fn test_remove_dependency_cleans_packages_dir() {
 }
 
 #[test]
+fn test_remove_dependency_rejects_invalid_name() {
+    let (_temp, project_dir) = create_test_project("remove-name-test");
+    let result = wflpkg::commands::remove::remove_dependency("../outside", &project_dir);
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains("not valid"),
+        "path-like dependency names must be rejected before path construction"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_remove_dependency_rejects_symlinked_packages_root() {
+    use std::os::unix::fs::symlink;
+
+    let (temp, project_dir) = create_test_project("remove-root-link-test");
+    wflpkg::commands::add::add_dependency(&["http-client".to_string()], &project_dir).unwrap();
+
+    let outside = temp.path().join("outside-packages");
+    let outside_package = outside.join("http-client");
+    fs::create_dir_all(&outside_package).unwrap();
+    let sentinel = outside_package.join("sentinel.txt");
+    fs::write(&sentinel, "must survive").unwrap();
+    symlink(&outside, project_dir.join("packages")).unwrap();
+
+    let result = wflpkg::commands::remove::remove_dependency("http-client", &project_dir);
+    assert!(
+        result.is_err(),
+        "a symlinked packages root must be rejected"
+    );
+    assert!(
+        result.unwrap_err().to_string().contains("symbolic link"),
+        "the error should explain why recursive removal was refused"
+    );
+    assert!(sentinel.exists(), "outside package content must survive");
+
+    let manifest = wflpkg::ProjectManifest::load(&project_dir.join("project.wfl")).unwrap();
+    assert!(
+        manifest.find_dependency("http-client").is_some(),
+        "a refused removal must not change the manifest"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_remove_dependency_rejects_symlinked_package_target() {
+    use std::os::unix::fs::symlink;
+
+    let (temp, project_dir) = create_test_project("remove-target-link-test");
+    wflpkg::commands::add::add_dependency(&["http-client".to_string()], &project_dir).unwrap();
+
+    let outside = temp.path().join("outside-package");
+    fs::create_dir_all(&outside).unwrap();
+    let sentinel = outside.join("sentinel.txt");
+    fs::write(&sentinel, "must survive").unwrap();
+    fs::create_dir_all(project_dir.join("packages")).unwrap();
+    symlink(&outside, project_dir.join("packages/http-client")).unwrap();
+
+    let result = wflpkg::commands::remove::remove_dependency("http-client", &project_dir);
+    assert!(
+        result.is_err(),
+        "a symlinked package target must be rejected"
+    );
+    assert!(
+        result.unwrap_err().to_string().contains("symbolic link"),
+        "the error should explain why recursive removal was refused"
+    );
+    assert!(sentinel.exists(), "outside package content must survive");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_remove_dependency_rejects_symlinked_project_manifest() {
+    use std::os::unix::fs::symlink;
+
+    let (temp, project_dir) = create_test_project("remove-manifest-link-test");
+    wflpkg::commands::add::add_dependency(&["http-client".to_string()], &project_dir).unwrap();
+
+    let project_manifest = project_dir.join("project.wfl");
+    let outside_manifest = temp.path().join("outside-project.wfl");
+    let original = fs::read_to_string(&project_manifest).unwrap();
+    fs::write(&outside_manifest, &original).unwrap();
+    fs::remove_file(&project_manifest).unwrap();
+    symlink(&outside_manifest, &project_manifest).unwrap();
+
+    let result = wflpkg::commands::remove::remove_dependency("http-client", &project_dir);
+    assert!(
+        result.is_err(),
+        "a symlinked project manifest must be rejected"
+    );
+    assert!(
+        result.unwrap_err().to_string().contains("symbolic link"),
+        "the error should identify the unsafe manifest"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside_manifest).unwrap(),
+        original,
+        "a refused removal must not rewrite an outside manifest"
+    );
+}
+
+#[test]
 fn test_remove_dependency_not_found() {
     let (_temp, project_dir) = create_test_project("remove-nf-test");
     let result = wflpkg::commands::remove::remove_dependency("nonexistent", &project_dir);
