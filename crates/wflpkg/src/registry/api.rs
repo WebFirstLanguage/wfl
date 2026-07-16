@@ -5,6 +5,10 @@ use crate::manifest::version::Version;
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Default request timeout for registry requests (5 minutes).
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+/// Maximum compressed package accepted for one publish request (100 MiB).
+const MAX_PUBLISH_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
+/// Maximum registry response body retained by the client (1 MiB).
+const MAX_REGISTRY_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// A client for communicating with the WFL package registry.
 pub struct RegistryClient {
@@ -69,9 +73,8 @@ impl RegistryClient {
             )));
         }
 
-        let body: serde_json::Value = response
-            .json()
-            .await
+        let bytes = read_response_bounded(response).await?;
+        let body: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|e| PackageError::Http(format!("Failed to parse response: {}", e)))?;
 
         let results = body
@@ -113,9 +116,8 @@ impl RegistryClient {
             )));
         }
 
-        let body: serde_json::Value = response
-            .json()
-            .await
+        let bytes = read_response_bounded(response).await?;
+        let body: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|e| PackageError::Http(format!("Failed to parse response: {}", e)))?;
 
         let versions: Vec<Version> = body["versions"]
@@ -162,9 +164,7 @@ impl RegistryClient {
             .ok_or(PackageError::NotAuthenticated)?;
 
         let url = format!("{}/api/v1/packages", self.base_url);
-        let archive_data = tokio::fs::read(archive_path)
-            .await
-            .map_err(PackageError::Io)?;
+        let (archive_file, archive_len) = open_publish_archive(archive_path).await?;
 
         let form = reqwest::multipart::Form::new()
             .text("name", name.to_string())
@@ -172,7 +172,7 @@ impl RegistryClient {
             .text("checksum", checksum.to_string())
             .part(
                 "archive",
-                reqwest::multipart::Part::bytes(archive_data)
+                reqwest::multipart::Part::stream_with_length(archive_file, archive_len)
                     .file_name(format!("{}-{}.wflpkg", name, version)),
             );
 
@@ -186,7 +186,8 @@ impl RegistryClient {
             .map_err(|e| PackageError::RegistryUnreachable(format!("{}: {}", self.base_url, e)))?;
 
         if !response.status().is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = read_response_bounded(response).await?;
+            let body = String::from_utf8_lossy(&body);
             return Err(PackageError::Http(format!("Failed to publish: {}", body)));
         }
 
@@ -197,6 +198,75 @@ impl RegistryClient {
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
+}
+
+async fn open_publish_archive(
+    archive_path: &std::path::Path,
+) -> Result<(tokio::fs::File, u64), PackageError> {
+    let metadata = tokio::fs::symlink_metadata(archive_path)
+        .await
+        .map_err(PackageError::Io)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(PackageError::General(
+            "The upload archive is not a regular file.".to_string(),
+        ));
+    }
+    if metadata.len() > MAX_PUBLISH_ARCHIVE_BYTES {
+        return Err(PackageError::General(format!(
+            "The compressed package exceeds the {} MiB publish limit.",
+            MAX_PUBLISH_ARCHIVE_BYTES / (1024 * 1024)
+        )));
+    }
+    let file = tokio::fs::File::open(archive_path)
+        .await
+        .map_err(PackageError::Io)?;
+    let opened_metadata = file.metadata().await.map_err(PackageError::Io)?;
+    if !opened_metadata.is_file() || opened_metadata.len() != metadata.len() {
+        return Err(PackageError::General(
+            "The upload archive changed while it was being opened.".to_string(),
+        ));
+    }
+    Ok((file, opened_metadata.len()))
+}
+
+async fn read_response_bounded(mut response: reqwest::Response) -> Result<Vec<u8>, PackageError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_REGISTRY_RESPONSE_BYTES as u64)
+    {
+        return Err(response_too_large_error());
+    }
+
+    let mut body = Vec::with_capacity(
+        response
+            .content_length()
+            .unwrap_or(0)
+            .min(MAX_REGISTRY_RESPONSE_BYTES as u64) as usize,
+    );
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| PackageError::Http(format!("Failed to read response: {}", error)))?
+    {
+        append_response_chunk(&mut body, &chunk)?;
+    }
+    Ok(body)
+}
+
+fn append_response_chunk(body: &mut Vec<u8>, chunk: &[u8]) -> Result<(), PackageError> {
+    let next_len = body
+        .len()
+        .checked_add(chunk.len())
+        .ok_or_else(response_too_large_error)?;
+    if next_len > MAX_REGISTRY_RESPONSE_BYTES {
+        return Err(response_too_large_error());
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
+}
+
+fn response_too_large_error() -> PackageError {
+    PackageError::Http("Registry response exceeded the 1 MiB safety limit.".to_string())
 }
 
 /// Percent-encode a string for use as a URL path segment (RFC 3986).
@@ -239,6 +309,22 @@ mod tests {
     use super::*;
 
     const BASE: &str = "https://registry.example.com";
+
+    #[tokio::test]
+    async fn oversized_publish_archive_is_rejected_before_upload() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive = temp.path().join("oversized.wflpkg");
+        let file = std::fs::File::create(&archive).unwrap();
+        file.set_len(MAX_PUBLISH_ARCHIVE_BYTES + 1).unwrap();
+        assert!(open_publish_archive(&archive).await.is_err());
+    }
+
+    #[test]
+    fn oversized_registry_response_is_rejected() {
+        let mut body = vec![0; MAX_REGISTRY_RESPONSE_BYTES];
+        assert!(append_response_chunk(&mut body, &[1]).is_err());
+        assert_eq!(body.len(), MAX_REGISTRY_RESPONSE_BYTES);
+    }
 
     // --- search URL tests ---
 

@@ -74,7 +74,7 @@ fn print_help() {
     println!("    share                              Publish to the registry");
     println!("    search <query>                     Search for packages");
     println!("    info <package>                     Show package details");
-    println!("    login / logout                     Registry authentication");
+    println!("    login [registry] / logout          Registry authentication");
     println!("    check security                     Audit for vulnerabilities");
     println!("    check compatibility                Check API compatibility");
     println!();
@@ -304,7 +304,12 @@ async fn run() -> io::Result<()> {
                     }
                 }
             }
-            "login" => match wflpkg::commands::login::login(DEFAULT_REGISTRY) {
+            "login" => match wflpkg::commands::login::login(
+                sub_args
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or(DEFAULT_REGISTRY),
+            ) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     eprintln!("{}", e);
