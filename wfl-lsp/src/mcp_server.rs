@@ -1006,7 +1006,11 @@ impl WflMcpServer {
         if !requested_path.starts_with(&workspace_root) {
             return Self::file_resource_error(id, "File resource is outside the workspace");
         }
-        if requested_path.extension().and_then(|extension| extension.to_str()) != Some("wfl") {
+        if requested_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("wfl")
+        {
             return Self::file_resource_error(id, "Only WFL source files are readable resources");
         }
 
@@ -1352,10 +1356,8 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock")
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "wfl-mcp-{label}-{}-{nonce}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("wfl-mcp-{label}-{}-{nonce}", std::process::id()));
             fs::create_dir(&path).expect("test workspace");
             Self(path)
         }
@@ -1517,8 +1519,11 @@ mod tests {
     fn file_resource_rejects_oversized_source() {
         let root = TestWorkspace::new("oversized-resource");
         let source_path = root.path().join("large.wfl");
-        fs::write(&source_path, vec![b'a'; MAX_MCP_RESOURCE_BYTES as usize + 1])
-            .expect("oversized source");
+        fs::write(
+            &source_path,
+            vec![b'a'; MAX_MCP_RESOURCE_BYTES as usize + 1],
+        )
+        .expect("oversized source");
         let uri = Url::from_file_path(&source_path)
             .expect("file URI")
             .to_string();
