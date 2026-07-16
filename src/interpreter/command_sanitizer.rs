@@ -184,8 +184,6 @@ impl CommandSanitizer {
             });
         }
 
-        let program_base = Self::program_basename(program);
-
         match self.config.shell_execution_mode {
             ShellExecutionMode::Forbidden => Ok(ValidationResult::Blocked {
                 reason: "Subprocess execution is disabled by security policy \
@@ -208,13 +206,13 @@ impl CommandSanitizer {
                     });
                 }
 
-                if self.is_program_allowlisted(&program_base) {
+                if self.is_program_allowlisted(program) {
                     Ok(ValidationResult::Safe)
                 } else {
                     Ok(ValidationResult::Blocked {
                         reason: format!(
                             "Program '{}' is not in the allowlist (allowed_shell_commands)",
-                            program_base
+                            program
                         ),
                     })
                 }
@@ -262,22 +260,61 @@ impl CommandSanitizer {
         if Self::contains_shell_metacharacters(command) {
             return false;
         }
-        let base_command = Self::program_basename(&self.get_command_base(command));
-        self.is_program_allowlisted(&base_command)
+        let program = Self::parse_command(command)
+            .map(|(program, _)| program)
+            .unwrap_or_else(|_| self.get_command_base(command));
+        self.is_program_allowlisted(&program)
     }
 
-    fn is_program_allowlisted(&self, program_base: &str) -> bool {
+    fn is_program_allowlisted(&self, program: &str) -> bool {
+        let program_has_path = Self::has_path_syntax(program);
         self.config.allowed_shell_commands.iter().any(|allowed| {
+            let allowed_has_path = Self::has_path_syntax(allowed);
+
+            // A name-only entry delegates resolution to the trusted process
+            // environment's PATH. It must not also authorize a caller-selected
+            // executable at `./name`, `/tmp/name`, or another explicit path.
+            if program_has_path != allowed_has_path {
+                return false;
+            }
+            if program_has_path {
+                let Ok(program_path) = std::fs::canonicalize(program) else {
+                    return false;
+                };
+                let Ok(allowed_path) = std::fs::canonicalize(allowed) else {
+                    return false;
+                };
+
+                #[cfg(windows)]
+                {
+                    return program_path
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&allowed_path.to_string_lossy());
+                }
+                #[cfg(not(windows))]
+                {
+                    return program_path == allowed_path;
+                }
+            }
+
+            let program_base = Self::program_basename(program);
             let allowed_base = Self::program_basename(allowed);
             #[cfg(windows)]
             {
-                allowed_base.eq_ignore_ascii_case(program_base)
+                allowed_base.eq_ignore_ascii_case(&program_base)
             }
             #[cfg(not(windows))]
             {
                 allowed_base == program_base
             }
         })
+    }
+
+    fn has_path_syntax(program: &str) -> bool {
+        let trimmed = program.trim().trim_matches('"').trim_matches('\'');
+        trimmed.contains('/')
+            || trimmed.contains('\\')
+            || trimmed.as_bytes().get(1) == Some(&b':')
     }
 
     /// Extract the first whitespace-separated token from a command string
@@ -575,11 +612,44 @@ mod tests {
             .unwrap();
         assert!(matches!(blocked, ValidationResult::Blocked { .. }));
 
-        // Path basename matching
-        let path_ok = sanitizer
+        // A name-only entry must not authorize a caller-selected path merely
+        // because the basename is the same.
+        let path_blocked = sanitizer
             .authorize_process_execution("/bin/echo", false, "/bin/echo")
             .unwrap();
-        assert_eq!(path_ok, ValidationResult::Safe);
+        assert!(matches!(path_blocked, ValidationResult::Blocked { .. }));
+    }
+
+    #[test]
+    fn test_allowlist_path_requires_the_same_executable() {
+        let current_executable = std::env::current_exe().expect("current test executable");
+        let current_executable = current_executable
+            .to_str()
+            .expect("test executable path is UTF-8")
+            .to_string();
+        let config = WflConfig {
+            allow_shell_execution: true,
+            shell_execution_mode: ShellExecutionMode::AllowlistOnly,
+            allowed_shell_commands: vec![current_executable.clone()],
+            ..Default::default()
+        };
+        let sanitizer = CommandSanitizer::new(Arc::new(config));
+
+        assert_eq!(
+            sanitizer
+                .authorize_process_execution(&current_executable, false, &current_executable)
+                .unwrap(),
+            ValidationResult::Safe
+        );
+        let substituted = format!(
+            "{}/{}",
+            std::env::temp_dir().display(),
+            CommandSanitizer::program_basename(&current_executable)
+        );
+        let result = sanitizer
+            .authorize_process_execution(&substituted, false, &substituted)
+            .unwrap();
+        assert!(matches!(result, ValidationResult::Blocked { .. }));
     }
 
     #[test]

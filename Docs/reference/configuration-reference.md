@@ -192,7 +192,7 @@ All keys currently loaded from config files, with defaults.
 |---|---|---|---|
 | `allow_shell_execution` | bool | `false` | Master switch for all process launches |
 | `shell_execution_mode` | string | `forbidden` | `forbidden` / `allowlist_only` / `sanitized` / `unrestricted` |
-| `allowed_shell_commands` | comma-list | *(empty)* | Program basenames allowed in `allowlist_only` mode |
+| `allowed_shell_commands` | comma-list | *(empty)* | Program names or explicit paths allowed in `allowlist_only` mode |
 | `warn_on_shell_execution` | bool | `true` | Warn whenever a shell command runs |
 
 ### Subprocess resources
@@ -411,9 +411,12 @@ allowed_shell_commands = echo, ls, git
 
 #### `allowed_shell_commands`
 
-Comma-separated list of allowed **program basenames** when using
-`allowlist_only` mode. Matching uses the basename of the program path
-(`/bin/echo` matches `echo`). On Windows, comparison is case-insensitive.
+Comma-separated list of allowed program names or explicit executable paths when
+using `allowlist_only` mode. A name such as `echo` authorizes only a name-only
+invocation resolved through the host process's `PATH`; it does not authorize
+`./echo`, `/tmp/echo`, or another caller-selected path with the same basename.
+Path-bearing commands require a path-bearing allowlist entry resolving to the
+same executable. On Windows, comparison is case-insensitive.
 
 `allowlist_only` never invokes a shell. Commands containing pipes, redirects,
 expansion, command chaining, or other shell features are rejected even when

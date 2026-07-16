@@ -26,6 +26,8 @@ shell_execution_mode = sanitized
 - `allowlist_only` permits direct execution only. Shell chaining, pipes,
   redirects, expansion, and other shell features are blocked even when the
   first command is listed.
+- Name-only allowlist entries do not authorize explicit paths with the same
+  basename. Allow an executable path explicitly when a script must use one.
 - Avoid allowlisting shells and interpreters such as `sh`, `cmd.exe`,
   PowerShell, or Python: their ordinary arguments can execute additional code.
 
