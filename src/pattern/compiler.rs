@@ -6,7 +6,6 @@
 
 use super::PatternError;
 use super::instruction::{CharClassType, Instruction, Program};
-use crate::exec::ExecutionBudget;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::value::Value;
 use crate::parser::ast::{Anchor, CharClass, PatternExpression, Quantifier};
@@ -71,8 +70,7 @@ pub struct PatternCompiler {
     capture_map: HashMap<String, usize>,
     /// Counter for save slots (currently unused but preserved for future use)
     save_counter: usize,
-    /// Maximum number of instructions this compilation may emit. This is
-    /// capped by both the hard compilation ceiling and the active run budget.
+    /// Maximum number of instructions this compilation may emit.
     max_instructions: usize,
     /// Instructions emitted across the root program and embedded lookbehind
     /// programs. Lookbehind compilers share this counter with their parent.
@@ -85,10 +83,7 @@ impl PatternCompiler {
     /// The compiler starts with an empty program and no capture groups.
     /// Each compiler instance should only be used to compile a single pattern.
     pub fn new() -> Self {
-        let max_instructions = ExecutionBudget::current_or_default()
-            .pattern_step_limit()
-            .min(MAX_COMPILED_PATTERN_INSTRUCTIONS);
-        Self::with_instruction_limit(max_instructions)
+        Self::with_instruction_limit(MAX_COMPILED_PATTERN_INSTRUCTIONS)
     }
 
     fn with_instruction_limit(max_instructions: usize) -> Self {
@@ -980,7 +975,6 @@ impl Default for PatternCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exec::BudgetLimits;
     use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
 
     #[test]
@@ -1193,23 +1187,5 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(range.instructions.len(), 7); // Two required, two optional, Match.
-    }
-
-    #[test]
-    fn compiler_ceiling_honors_the_active_pattern_step_budget() {
-        let mut limits = BudgetLimits::default();
-        limits.max_pattern_steps = 3;
-        let _budget_guard =
-            ExecutionBudget::enter(std::sync::Arc::new(ExecutionBudget::new(limits)));
-
-        let mut compiler = PatternCompiler::new();
-        let error = compiler
-            .compile(&quantified(
-                PatternExpression::CharacterClass(CharClass::Digit),
-                Quantifier::Exactly(3),
-            ))
-            .expect_err("three classes plus Match exceed a three-step budget");
-
-        assert!(error.to_string().contains("instruction limit (3)"));
     }
 }
