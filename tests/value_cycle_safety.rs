@@ -46,10 +46,7 @@ fn mutual_cycle_preserves_cycles_and_shared_identity_in_the_clone() {
     let source = Value::List(Rc::clone(&source_list));
 
     assert_eq!(source.to_string(), "[<cycle>, <cycle>]");
-    assert_eq!(
-        format!("{source:?}"),
-        "[{back: <cycle>}, {back: <cycle>}]"
-    );
+    assert_eq!(format!("{source:?}"), "[{back: <cycle>}, {back: <cycle>}]");
 
     let Value::List(cloned_list) = source.deep_clone() else {
         panic!("a cloned list must remain a list");

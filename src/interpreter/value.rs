@@ -298,8 +298,7 @@ impl Value {
             line: 0,
             column: 0,
         }));
-        memo
-            .container_instances
+        memo.container_instances
             .insert(source_id, Rc::clone(&cloned));
 
         let source = instance.borrow();
@@ -395,7 +394,11 @@ impl Value {
                 result
             }
             Value::Function(func) => {
-                write!(f, "Function({})", func.name.as_deref().unwrap_or("anonymous"))
+                write!(
+                    f,
+                    "Function({})",
+                    func.name.as_deref().unwrap_or("anonymous")
+                )
             }
             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
             Value::Future(_) => write!(f, "[Future]"),
@@ -496,11 +499,9 @@ impl Value {
                 state.active_objects.remove(&id);
                 result
             }
-            Value::Function(func) => write!(
-                f,
-                "action {}",
-                func.name.as_deref().unwrap_or("anonymous")
-            ),
+            Value::Function(func) => {
+                write!(f, "action {}", func.name.as_deref().unwrap_or("anonymous"))
+            }
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
