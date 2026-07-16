@@ -439,7 +439,13 @@ Maximum number of subprocesses that can run simultaneously.
 
 #### `max_buffer_size_bytes`
 
-Maximum size of output buffers for subprocess stdout/stderr, in bytes.
+Maximum number of raw stream bytes retained in each stdout/stderr output
+buffer. This limit applies to both foreground `execute command` capture and
+background `spawn command` capture. If a stream exceeds the limit, WFL drains
+it without growing memory, keeps the most recent bytes, and emits a truncation
+warning. A value of `0` discards all captured output. Converting malformed
+UTF-8 to WFL text may expand the returned text, but remains a bounded multiple
+of this raw-byte ceiling.
 
 - **Type:** Integer
 - **Default:** `10485760` (10 MiB)

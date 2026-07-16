@@ -1133,6 +1133,194 @@ pub struct ProcessHandle {
     stderr_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
 }
 
+/// Failure from a foreground `execute command`. Budget breaches stay typed so
+/// the interpreter can preserve timeout/resource-limit error kinds instead of
+/// flattening them into a generic subprocess error.
+#[derive(Debug)]
+enum ExecuteCommandError {
+    Budget(BudgetExceeded),
+    Timeout { seconds: u64 },
+    Other(String),
+}
+
+impl std::fmt::Display for ExecuteCommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Budget(exceeded) => std::fmt::Display::fmt(exceeded, formatter),
+            Self::Timeout { seconds } => {
+                write!(formatter, "Subprocess execution exceeded timeout ({seconds}s)")
+            }
+            Self::Other(message) => formatter.write_str(message),
+        }
+    }
+}
+
+/// Bytes retained from one subprocess stream plus the amount discarded after
+/// the configured per-stream ceiling was reached.
+struct CapturedProcessStream {
+    bytes: Vec<u8>,
+    bytes_dropped: usize,
+}
+
+/// Abort detached pipe readers on every non-success path, including external
+/// cancellation that drops the whole `execute_command` future before its
+/// explicit interruption branch can run.
+struct ProcessCaptureAbortGuard {
+    handles: [tokio::task::AbortHandle; 2],
+    armed: bool,
+}
+
+impl ProcessCaptureAbortGuard {
+    fn new(stdout: tokio::task::AbortHandle, stderr: tokio::task::AbortHandle) -> Self {
+        Self {
+            handles: [stdout, stderr],
+            armed: true,
+        }
+    }
+
+    fn abort(&mut self) {
+        if self.armed {
+            for handle in &self.handles {
+                handle.abort();
+            }
+            self.armed = false;
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ProcessCaptureAbortGuard {
+    fn drop(&mut self) {
+        self.abort();
+    }
+}
+
+/// Which wall-clock rule applies to one foreground command. Long-lived
+/// `main loop`s remain exempt from the run-wide deadline, but each blocking
+/// subprocess operation still receives a fresh configured timeout.
+#[derive(Debug, Clone, Copy)]
+enum ForegroundCommandDeadline {
+    None,
+    Execution,
+    MainLoop {
+        started: Instant,
+        timeout: Duration,
+    },
+}
+
+const SUBPROCESS_BUDGET_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Drain one subprocess pipe without ever retaining more than `max_size`
+/// bytes. Keeping the most recent bytes matches background-process capture.
+async fn capture_process_stream<R>(
+    mut stream: R,
+    max_size: usize,
+) -> io::Result<CapturedProcessStream>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buffer = bounded_buffer::BoundedBuffer::new(max_size);
+    let mut chunk = [0_u8; 8192];
+
+    loop {
+        let read = stream.read(&mut chunk).await?;
+        if read == 0 {
+            break;
+        }
+        buffer.push(&chunk[..read]);
+    }
+
+    let bytes_dropped = buffer.stats().bytes_dropped;
+    Ok(CapturedProcessStream {
+        bytes: buffer.read_all(),
+        bytes_dropped,
+    })
+}
+
+/// Select the finite wall-clock rule for one foreground execution and reject a
+/// launch when its shared budget is already expired or cancelled.
+fn foreground_command_deadline(
+    budget: &ExecutionBudget,
+    configured_timeout: Duration,
+) -> Result<ForegroundCommandDeadline, ExecuteCommandError> {
+    budget
+        .check_cancelled()
+        .map_err(ExecuteCommandError::Budget)?;
+
+    if budget.is_deadline_exempt() {
+        return Ok(ForegroundCommandDeadline::MainLoop {
+            started: Instant::now(),
+            timeout: configured_timeout,
+        });
+    }
+
+    budget
+        .check_deadline()
+        .map_err(ExecuteCommandError::Budget)?;
+    if budget.limits().max_duration.is_some() {
+        Ok(ForegroundCommandDeadline::Execution)
+    } else {
+        Ok(ForegroundCommandDeadline::None)
+    }
+}
+
+/// Wait until cancellation or the applicable deadline interrupts the complete
+/// foreground operation. This monitor remains active after the direct child
+/// exits because descendants can inherit its pipes and withhold EOF forever.
+async fn foreground_command_interrupt(
+    budget: &ExecutionBudget,
+    deadline: ForegroundCommandDeadline,
+) -> ExecuteCommandError {
+    loop {
+        if let Err(exceeded) = budget.check_cancelled() {
+            return ExecuteCommandError::Budget(exceeded);
+        }
+
+        match deadline {
+            ForegroundCommandDeadline::None => {}
+            ForegroundCommandDeadline::Execution => {
+                if let Err(exceeded) = budget.check_deadline() {
+                    return ExecuteCommandError::Budget(exceeded);
+                }
+            }
+            ForegroundCommandDeadline::MainLoop { started, timeout } => {
+                if started.elapsed() >= timeout {
+                    return ExecuteCommandError::Timeout {
+                        seconds: timeout.as_secs(),
+                    };
+                }
+            }
+        }
+
+        tokio::time::sleep(SUBPROCESS_BUDGET_POLL_INTERVAL).await;
+    }
+}
+
+/// Kill and reap the direct child unless it has already completed. A second
+/// status check handles the normal race where it exits between inspection and
+/// the kill request.
+async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result<(), String> {
+    match child.try_wait() {
+        Ok(Some(_)) => return Ok(()),
+        Ok(None) => {}
+        Err(error) => return Err(format!("failed to inspect subprocess: {error}")),
+    }
+
+    match child.kill().await {
+        Ok(()) => Ok(()),
+        Err(kill_error) => match child.try_wait() {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(format!("failed to terminate subprocess: {kill_error}")),
+            Err(wait_error) => Err(format!(
+                "failed to terminate subprocess: {kill_error}; status check failed: {wait_error}"
+            )),
+        },
+    }
+}
+
 #[allow(dead_code)]
 pub struct IoClient {
     http_client: reqwest::Client,
@@ -1737,11 +1925,17 @@ impl IoClient {
         use_shell: bool,
         line: usize,
         column: usize,
-    ) -> Result<(String, String, i32), String> {
+    ) -> Result<(String, String, i32), ExecuteCommandError> {
         use crate::interpreter::command_sanitizer::CommandSanitizer;
         use tokio::process::Command;
 
-        let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
+        let needs_shell = self
+            .authorize_subprocess(command, args, use_shell, line, column)
+            .map_err(ExecuteCommandError::Other)?;
+
+        let budget = ExecutionBudget::current_or_default();
+        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let deadline = foreground_command_deadline(&budget, configured_timeout)?;
 
         // Build the command
         let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
@@ -1762,7 +1956,7 @@ impl IoClient {
         } else {
             // Direct-exec path (still policy-gated above)
             let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
+                CommandSanitizer::parse_command(command).map_err(ExecuteCommandError::Other)?
             } else {
                 (
                     command.to_string(),
@@ -1775,15 +1969,125 @@ impl IoClient {
             cmd
         };
 
-        // Execute the command
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
+        // `Command::output` accumulates both streams into unbounded Vecs and
+        // cannot observe WFL's cooperative cancellation while the child is
+        // stalled. Pipe and drain both streams concurrently under the existing
+        // per-stream buffer ceiling instead. `kill_on_drop` is a final safety
+        // net if this future itself is abandoned by its caller.
+        let mut child = cmd
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                ExecuteCommandError::Other(format!(
+                    "Failed to execute command '{}': {}",
+                    command, e
+                ))
+            })?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let exit_code = output.status.code().unwrap_or(-1);
+        let stdout_pipe = child.stdout.take().ok_or_else(|| {
+            ExecuteCommandError::Other("Failed to capture command stdout".to_string())
+        })?;
+        let stderr_pipe = child.stderr.take().ok_or_else(|| {
+            ExecuteCommandError::Other("Failed to capture command stderr".to_string())
+        })?;
+        let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
+
+        let stdout_task = tokio::spawn(capture_process_stream(stdout_pipe, buffer_size));
+        let stderr_task = tokio::spawn(capture_process_stream(stderr_pipe, buffer_size));
+        let mut capture_abort = ProcessCaptureAbortGuard::new(
+            stdout_task.abort_handle(),
+            stderr_task.abort_handle(),
+        );
+
+        // The guarded operation includes pipe EOF, not just direct-child exit.
+        // A command can spawn a descendant that inherits stdout/stderr and then
+        // exit; without this wider guard, collectors would await that
+        // descendant forever even though `child.wait()` already succeeded.
+        let completed = {
+            let operation_child = &mut child;
+            let operation = async move {
+                let status = operation_child.wait().await.map_err(|error| {
+                    ExecuteCommandError::Other(format!("Failed to wait for command: {error}"))
+                })?;
+                let (stdout_result, stderr_result) = tokio::join!(stdout_task, stderr_task);
+                let stdout_capture = stdout_result
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to join stdout collector: {error}"
+                        ))
+                    })?
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to read command stdout: {error}"
+                        ))
+                    })?;
+                let stderr_capture = stderr_result
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to join stderr collector: {error}"
+                        ))
+                    })?
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to read command stderr: {error}"
+                        ))
+                    })?;
+
+                Ok((status, stdout_capture, stderr_capture))
+            };
+            let interrupt = foreground_command_interrupt(&budget, deadline);
+            tokio::pin!(operation);
+            tokio::pin!(interrupt);
+
+            tokio::select! {
+                biased;
+                result = &mut operation => Ok(result),
+                error = &mut interrupt => Err(error),
+            }
+        };
+
+        let (status, stdout_capture, stderr_capture) = match completed {
+            Ok(Ok(result)) => {
+                capture_abort.disarm();
+                result
+            }
+            Ok(Err(interruption)) | Err(interruption) => {
+                // Stop retaining output immediately, then kill/reap the direct
+                // child if it is still alive. Closing its readers also prevents
+                // a chatty child from blocking forever on a full pipe.
+                capture_abort.abort();
+                let termination = terminate_foreground_child(&mut child).await;
+
+                if let Err(termination_error) = termination {
+                    return Err(ExecuteCommandError::Other(format!(
+                        "{interruption}; {termination_error}"
+                    )));
+                }
+                return Err(interruption);
+            }
+        };
+
+        if stdout_capture.bytes_dropped > 0 {
+            eprintln!(
+                "⚠️  WARNING: Command stdout exceeded max_buffer_size_bytes; \
+                 {} oldest byte(s) were discarded.",
+                stdout_capture.bytes_dropped
+            );
+        }
+        if stderr_capture.bytes_dropped > 0 {
+            eprintln!(
+                "⚠️  WARNING: Command stderr exceeded max_buffer_size_bytes; \
+                 {} oldest byte(s) were discarded.",
+                stderr_capture.bytes_dropped
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&stdout_capture.bytes).to_string();
+        let stderr = String::from_utf8_lossy(&stderr_capture.bytes).to_string();
+        let exit_code = status.code().unwrap_or(-1);
 
         Ok((stdout, stderr, exit_code))
     }
@@ -7528,19 +7832,31 @@ impl Interpreter {
                     .io_client
                     .execute_command(cmd_str, &args_refs, *use_shell, *line, *column)
                     .await
-                    .map_err(|e| {
-                        // Determine error kind based on error message
-                        let kind = if e.contains("program not found")
-                            || e.contains("cannot find")
-                            || e.contains("not recognized")
-                        {
-                            ErrorKind::CommandNotFound
-                        } else if e.contains("spawn") {
-                            ErrorKind::ProcessSpawnFailed
-                        } else {
-                            ErrorKind::General
-                        };
-                        RuntimeError::with_kind(e, *line, *column, kind)
+                    .map_err(|e| match e {
+                        ExecuteCommandError::Budget(exceeded) => {
+                            self.budget_error(exceeded, *line, *column)
+                        }
+                        ExecuteCommandError::Timeout { seconds } => RuntimeError::with_kind(
+                            format!("Subprocess execution exceeded timeout ({seconds}s)"),
+                            *line,
+                            *column,
+                            ErrorKind::Timeout,
+                        ),
+                        ExecuteCommandError::Other(message) => {
+                            // Preserve the existing subprocess error
+                            // classification for non-budget failures.
+                            let kind = if message.contains("program not found")
+                                || message.contains("cannot find")
+                                || message.contains("not recognized")
+                            {
+                                ErrorKind::CommandNotFound
+                            } else if message.contains("spawn") {
+                                ErrorKind::ProcessSpawnFailed
+                            } else {
+                                ErrorKind::General
+                            };
+                            RuntimeError::with_kind(message, *line, *column, kind)
+                        }
                     })?;
 
                 // Build result object
@@ -10743,6 +11059,7 @@ mod header_lookup_tests {
 mod process_tests {
     use super::*;
     use crate::config::ShellExecutionMode;
+    use crate::exec::budget::BudgetLimits;
 
     /// Config that permits subprocesses for lifecycle tests (not the secure default).
     fn permissive_process_config() -> Arc<WflConfig> {
@@ -10752,6 +11069,72 @@ mod process_tests {
             warn_on_shell_execution: false,
             ..Default::default()
         })
+    }
+
+    /// Invoke one ignored helper test in a fresh copy of this test binary. This
+    /// is cross-platform and avoids depending on optional shell utilities in CI.
+    fn test_helper_command(filter: &str) -> (String, Vec<String>) {
+        let executable = std::env::current_exe()
+            .expect("current test executable")
+            .to_string_lossy()
+            .into_owned();
+        let arguments = vec![
+            filter.to_string(),
+            "--ignored".to_string(),
+            "--nocapture".to_string(),
+            "--test-threads=1".to_string(),
+        ];
+        (executable, arguments)
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_floods_stdout_and_stderr() {
+        use std::io::Write as _;
+
+        let stdout_writer = std::thread::spawn(|| {
+            let chunk = [b'O'; 8192];
+            let mut stdout = std::io::stdout().lock();
+            for _ in 0..64 {
+                stdout.write_all(&chunk).expect("write helper stdout");
+            }
+            stdout.flush().expect("flush helper stdout");
+        });
+        let stderr_writer = std::thread::spawn(|| {
+            let chunk = [b'E'; 8192];
+            let mut stderr = std::io::stderr().lock();
+            for _ in 0..64 {
+                stderr.write_all(&chunk).expect("write helper stderr");
+            }
+            stderr.flush().expect("flush helper stderr");
+        });
+
+        stdout_writer.join().expect("stdout helper thread");
+        stderr_writer.join().expect("stderr helper thread");
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_stalls() {
+        std::thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_short_stall() {
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_leaves_inherited_pipes_open() {
+        let (command, arguments) = test_helper_command("subprocess_test_helper_short_stall");
+        let _descendant = std::process::Command::new(command)
+            .args(arguments)
+            .spawn()
+            .expect("spawn descendant that inherits stdout/stderr");
+        // Drop the handle and return. The descendant deliberately outlives this
+        // direct child while retaining its inherited stdout/stderr handles.
     }
 
     #[tokio::test]
@@ -10766,6 +11149,7 @@ mod process_tests {
             result
         );
         let err = result.unwrap_err();
+        let err = err.to_string();
         assert!(
             err.contains("security policy") || err.contains("blocked") || err.contains("disabled"),
             "Error should mention policy: {}",
@@ -10813,6 +11197,151 @@ mod process_tests {
             stderr.is_empty() || stderr.trim().is_empty(),
             "Stderr should be empty"
         );
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_bounds_stdout_and_stderr() {
+        const STREAM_LIMIT: usize = 1024;
+
+        let mut config = (*permissive_process_config()).clone();
+        config.subprocess_config.max_buffer_size_bytes = STREAM_LIMIT;
+        let client = IoClient::new(Arc::new(config));
+        let (command, arguments) =
+            test_helper_command("subprocess_test_helper_floods_stdout_and_stderr");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+
+        let (stdout, stderr, exit_code) = tokio::time::timeout(
+            Duration::from_secs(10),
+            client.execute_command(&command, &argument_refs, false, 0, 0),
+        )
+        .await
+        .expect("chatty helper must not deadlock")
+        .expect("chatty helper should execute");
+
+        assert_eq!(exit_code, 0);
+        assert!(
+            stdout.len() <= STREAM_LIMIT,
+            "stdout retained {} bytes, limit is {STREAM_LIMIT}",
+            stdout.len()
+        );
+        assert!(
+            stderr.len() <= STREAM_LIMIT,
+            "stderr retained {} bytes, limit is {STREAM_LIMIT}",
+            stderr.len()
+        );
+        assert!(!stdout.is_empty(), "the bounded stdout tail should be retained");
+        assert!(!stderr.is_empty(), "the bounded stderr tail should be retained");
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_kills_stalled_child_on_cancellation() {
+        let client = IoClient::new(permissive_process_config());
+        let (command, arguments) = test_helper_command("subprocess_test_helper_stalls");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let budget = Arc::new(ExecutionBudget::unlimited());
+        let cancellation_budget = Arc::clone(&budget);
+
+        let execution = ExecutionBudget::scope(
+            Arc::clone(&budget),
+            client.execute_command(&command, &argument_refs, false, 0, 0),
+        );
+        let cancel = async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancellation_budget.cancel();
+        };
+
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(execution, cancel)
+        })
+        .await
+        .expect("cancellation must terminate and reap the stalled child");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Budget(BudgetExceeded::Cancelled))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_kills_stalled_child_at_deadline() {
+        let client = IoClient::new(permissive_process_config());
+        let (command, arguments) = test_helper_command("subprocess_test_helper_stalls");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_duration = Some(Duration::from_millis(100));
+        let budget = Arc::new(ExecutionBudget::new(limits));
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ExecutionBudget::scope(
+                Arc::clone(&budget),
+                client.execute_command(&command, &argument_refs, false, 0, 0),
+            ),
+        )
+        .await
+        .expect("deadline must terminate and reap the stalled child");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Budget(
+                BudgetExceeded::Deadline { .. }
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_has_finite_timeout_inside_main_loop() {
+        let mut config = (*permissive_process_config()).clone();
+        config.timeout_seconds = 1;
+        let config = Arc::new(config);
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let _main_loop = budget.enter_main_loop();
+        let (command, arguments) = test_helper_command("subprocess_test_helper_stalls");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ExecutionBudget::scope(
+                Arc::clone(&budget),
+                client.execute_command(&command, &argument_refs, false, 0, 0),
+            ),
+        )
+        .await
+        .expect("a main-loop command must retain a finite per-operation timeout");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Timeout { seconds: 1 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_deadline_covers_inherited_pipe_drain() {
+        let client = IoClient::new(permissive_process_config());
+        let (command, arguments) =
+            test_helper_command("subprocess_test_helper_leaves_inherited_pipes_open");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_duration = Some(Duration::from_millis(300));
+        let budget = Arc::new(ExecutionBudget::new(limits));
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ExecutionBudget::scope(
+                Arc::clone(&budget),
+                client.execute_command(&command, &argument_refs, false, 0, 0),
+            ),
+        )
+        .await
+        .expect("inherited pipes must not outlive the execution deadline");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Budget(
+                BudgetExceeded::Deadline { .. }
+            ))
+        ));
     }
 
     #[cfg(unix)]

@@ -133,6 +133,18 @@ wait for read output from process proc as output_data
 display "Output: " with output_data
 ```
 
+Captured stdout and stderr each retain at most `max_buffer_size_bytes` raw
+stream bytes (10 MiB by default) for both `execute command` and
+`spawn command`. When a command produces more, WFL continues draining the
+stream so the child cannot deadlock, retains only its most recent bytes, and
+prints a truncation warning. Malformed UTF-8 replacement can make the returned
+WFL text larger than the raw-byte count, but only by a bounded factor.
+Foreground commands also observe the run's `timeout_seconds` deadline and
+cooperative cancellation through both process execution and pipe draining; WFL
+terminates and reaps a child that stalls past either one. A long-lived
+`main loop` is exempt from the run-wide deadline, but each foreground command
+inside it still receives a fresh `timeout_seconds` window.
+
 ## Executing WFL Files In-Process
 
 `execute command` starts a separate program. To run another **WFL file**
