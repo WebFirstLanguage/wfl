@@ -17,8 +17,9 @@ use wfl::interpreter::Interpreter;
 use wfl::interpreter::error::ErrorKind;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
+use wfl::parser::ast::{Expression, Literal, Program, Statement};
 
-fn parse(source: &str) -> wfl::parser::ast::Program {
+fn parse(source: &str) -> Program {
     let tokens = lex_wfl_with_positions(source);
     Parser::new(&tokens)
         .parse()
@@ -140,7 +141,7 @@ Connection: close\r\n\
     config.web_server_max_response_size = 8;
     let mut interpreter = Interpreter::with_config(Arc::new(config));
     let program = parse(&format!(
-        r#"open url at "{url}" and read response as response"#
+        r#"open url at "{url}" and read response as reply"#
     ));
 
     let errors = interpreter
@@ -192,9 +193,18 @@ Connection: close\r\n\
 
     let mut interpreter = Interpreter::new();
     let budget = interpreter.budget();
-    let program = parse(&format!(
-        r#"open url at "{url}" with data "x=1" and read content as content"#
-    ));
+    // Construct the legacy node directly: `with data` is no longer accepted by
+    // the current grammar, but embedded/previously parsed programs still reach
+    // the dedicated HttpPostStatement execution path.
+    let program = Program {
+        statements: vec![Statement::HttpPostStatement {
+            url: Expression::Literal(Literal::String(url.into()), 1, 1),
+            data: Expression::Literal(Literal::String("x=1".into()), 1, 1),
+            variable_name: "reply".to_string(),
+            line: 1,
+            column: 1,
+        }],
+    };
     let interpret = interpreter.interpret(&program);
     tokio::pin!(interpret);
     tokio::time::timeout(Duration::from_secs(1), async {
