@@ -5,6 +5,7 @@ pub mod commands;
 pub mod error;
 pub mod lockfile;
 pub mod manifest;
+mod package_files;
 pub mod permissions;
 pub mod registry;
 pub mod resolver;
