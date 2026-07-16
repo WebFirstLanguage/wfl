@@ -253,12 +253,7 @@ Connection: close\r\n\
     let (url, server, _response_attempted) = spawn_http_peer(response, true).await;
 
     let config = Arc::new(WflConfig::default());
-    let limits = BudgetLimits {
-        max_duration: Some(Duration::from_millis(50)),
-        ..BudgetLimits::from_config(&config)
-    };
-    let budget = Arc::new(ExecutionBudget::new(limits));
-    let mut interpreter = Interpreter::with_config_and_budget(config, budget);
+    let mut interpreter = Interpreter::with_config(Arc::clone(&config));
     let program = parse(&format!(
         r#"
 main loop:
@@ -268,7 +263,18 @@ end loop
 "#
     ));
 
-    let errors = tokio::time::timeout(Duration::from_secs(1), interpreter.interpret(&program))
+    // Install the deliberately short budget only after building the HTTP
+    // client and parsing the fixture. The budget's start instant covers the
+    // whole run, so including unrelated setup here can exhaust it before the
+    // interpreter enters the main loop on slower CI hosts. This test is about
+    // the fresh per-request deadline applied *inside* that loop.
+    let limits = BudgetLimits {
+        max_duration: Some(Duration::from_millis(250)),
+        ..BudgetLimits::from_config(&config)
+    };
+    interpreter.set_budget(Arc::new(ExecutionBudget::new(limits)));
+
+    let errors = tokio::time::timeout(Duration::from_secs(2), interpreter.interpret(&program))
         .await
         .expect("main-loop request should have a finite timeout")
         .expect_err("stalled main-loop request must time out");
