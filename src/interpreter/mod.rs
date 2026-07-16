@@ -11125,6 +11125,9 @@ mod process_tests {
 
     #[test]
     #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    // This fixture must drop the descendant handle: waiting would close the
+    // inherited-pipe window that the foreground cleanup regression exercises.
+    #[allow(clippy::zombie_processes)]
     fn subprocess_test_helper_leaves_inherited_pipes_open() {
         let (command, arguments) = test_helper_command("subprocess_test_helper_short_stall");
         let _descendant = std::process::Command::new(command)
