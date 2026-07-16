@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- **MCP file resources are restricted to bounded WFL sources inside the configured
+  workspace.** `resources/read` now canonicalizes file URIs, rejects traversal and
+  symlink escapes (including `.wflcfg`), caps returned source at 4 MiB, and no
+  longer echoes request or response bodies into diagnostic logs.
 - **Subprocess policy is enforced on every process launch** (shell path and
   direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
   related checks ran only when the engine believed a shell was required, so
