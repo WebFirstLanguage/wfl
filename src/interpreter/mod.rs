@@ -10829,8 +10829,10 @@ mod file_read_tests {
     use crate::exec::budget::BudgetLimits;
 
     fn budget_with_file_limit(limit: usize) -> ExecutionBudget {
-        let mut limits = BudgetLimits::default();
-        limits.max_file_read_bytes = limit;
+        let limits = BudgetLimits {
+            max_file_read_bytes: limit,
+            ..BudgetLimits::default()
+        };
         ExecutionBudget::new(limits)
     }
 

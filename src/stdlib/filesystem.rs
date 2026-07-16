@@ -851,8 +851,10 @@ mod tests {
         let test_file_path = temp_dir.path().join("too_large.txt");
         std::fs::write(&test_file_path, b"123456789").unwrap();
 
-        let mut limits = BudgetLimits::default();
-        limits.max_file_read_bytes = 8;
+        let limits = BudgetLimits {
+            max_file_read_bytes: 8,
+            ..BudgetLimits::default()
+        };
         let budget = Arc::new(ExecutionBudget::new(limits));
         let _guard = ExecutionBudget::enter(budget);
         let result = native_count_lines(vec![Value::Text(Arc::from(
