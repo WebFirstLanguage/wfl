@@ -190,7 +190,7 @@ fn oversized_text_file_read_is_a_resource_error() {
         format!(
             concat!(
                 "open file at \"{}\" for reading as reader\n",
-                "wait for store content as read content from reader\n"
+                "wait for store file_text as read content from reader\n"
             ),
             wfl_path(&payload)
         ),
