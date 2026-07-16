@@ -83,7 +83,7 @@ async fn run_command(args: &[String], cwd: &Path) -> Result<(), wflpkg::PackageE
             wflpkg::commands::info::show_package_info(&args[1], DEFAULT_REGISTRY).await?;
         }
         "login" => {
-            wflpkg::commands::login::login(DEFAULT_REGISTRY)?;
+            wflpkg::commands::login::login(login_registry_arg(&args[1..]))?;
         }
         "logout" => {
             wflpkg::commands::login::logout()?;
@@ -160,11 +160,15 @@ fn print_help() {
     println!("    share                               Share (publish) to the registry");
     println!("    search <query>                      Search for packages");
     println!("    info <package>                      Show package details");
-    println!("    login                               Log in to the registry");
+    println!("    login [registry]                    Log in to a registry");
     println!("    logout                              Log out from the registry");
     println!("    check security                      Check for security advisories");
     println!("    check compatibility                 Check API compatibility");
     println!("    help                                Show this help message");
+}
+
+fn login_registry_arg(args: &[String]) -> &str {
+    args.first().map(String::as_str).unwrap_or(DEFAULT_REGISTRY)
 }
 
 #[cfg(test)]
@@ -205,6 +209,15 @@ mod tests {
     fn test_parse_create_args_called_without_name() {
         let args = vec![s("project"), s("called")];
         assert_eq!(parse_create_args(&args), None);
+    }
+
+    #[test]
+    fn test_login_registry_arg() {
+        assert_eq!(login_registry_arg(&[]), DEFAULT_REGISTRY);
+        assert_eq!(
+            login_registry_arg(&[s("registry.example")]),
+            "registry.example"
+        );
     }
 
     // --- run_command tests ---
