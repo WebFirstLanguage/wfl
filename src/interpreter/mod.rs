@@ -1148,7 +1148,10 @@ impl std::fmt::Display for ExecuteCommandError {
         match self {
             Self::Budget(exceeded) => std::fmt::Display::fmt(exceeded, formatter),
             Self::Timeout { seconds } => {
-                write!(formatter, "Subprocess execution exceeded timeout ({seconds}s)")
+                write!(
+                    formatter,
+                    "Subprocess execution exceeded timeout ({seconds}s)"
+                )
             }
             Self::Other(message) => formatter.write_str(message),
         }
@@ -1205,10 +1208,7 @@ impl Drop for ProcessCaptureAbortGuard {
 enum ForegroundCommandDeadline {
     None,
     Execution,
-    MainLoop {
-        started: Instant,
-        timeout: Duration,
-    },
+    MainLoop { started: Instant, timeout: Duration },
 }
 
 const SUBPROCESS_BUDGET_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -1997,10 +1997,8 @@ impl IoClient {
 
         let stdout_task = tokio::spawn(capture_process_stream(stdout_pipe, buffer_size));
         let stderr_task = tokio::spawn(capture_process_stream(stderr_pipe, buffer_size));
-        let mut capture_abort = ProcessCaptureAbortGuard::new(
-            stdout_task.abort_handle(),
-            stderr_task.abort_handle(),
-        );
+        let mut capture_abort =
+            ProcessCaptureAbortGuard::new(stdout_task.abort_handle(), stderr_task.abort_handle());
 
         // The guarded operation includes pipe EOF, not just direct-child exit.
         // A command can spawn a descendant that inherits stdout/stderr and then
@@ -11229,8 +11227,14 @@ mod process_tests {
             "stderr retained {} bytes, limit is {STREAM_LIMIT}",
             stderr.len()
         );
-        assert!(!stdout.is_empty(), "the bounded stdout tail should be retained");
-        assert!(!stderr.is_empty(), "the bounded stderr tail should be retained");
+        assert!(
+            !stdout.is_empty(),
+            "the bounded stdout tail should be retained"
+        );
+        assert!(
+            !stderr.is_empty(),
+            "the bounded stderr tail should be retained"
+        );
     }
 
     #[tokio::test]
@@ -11283,9 +11287,7 @@ mod process_tests {
 
         assert!(matches!(
             result,
-            Err(ExecuteCommandError::Budget(
-                BudgetExceeded::Deadline { .. }
-            ))
+            Err(ExecuteCommandError::Budget(BudgetExceeded::Deadline { .. }))
         ));
     }
 
@@ -11338,9 +11340,7 @@ mod process_tests {
 
         assert!(matches!(
             result,
-            Err(ExecuteCommandError::Budget(
-                BudgetExceeded::Deadline { .. }
-            ))
+            Err(ExecuteCommandError::Budget(BudgetExceeded::Deadline { .. }))
         ));
     }
 
