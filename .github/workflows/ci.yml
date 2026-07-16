@@ -52,7 +52,14 @@ jobs:
     name: Build, Test, Clippy
     runs-on: ubuntu-latest
     needs: fmt
-    timeout-minutes: 15
+    # This job compiles the workspace three times (debug, release, and a third
+    # release build for the panic=abort assert), runs the full workspace test
+    # suite, builds the LSP binary, and runs Clippy. That real work now lands
+    # right at ~15 minutes even with a warm cache, so a 15-minute limit was
+    # firing mid-Clippy / during the cache-save step and marking the whole job
+    # `cancelled` (which also skips bump-version). 30 minutes gives headroom for
+    # cold-cache builds without letting a genuinely hung job run unbounded.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
