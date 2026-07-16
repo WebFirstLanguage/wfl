@@ -6,10 +6,19 @@
 
 use super::PatternError;
 use super::instruction::{CharClassType, Instruction, Program};
+use crate::exec::ExecutionBudget;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::value::Value;
 use crate::parser::ast::{Anchor, CharClass, PatternExpression, Quantifier};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// A second line of defense beyond the VM's transition budget. Bytecode
+/// compilation expands bounded quantifiers, so it must have a substantially
+/// smaller ceiling of its own to keep hostile source from allocating millions
+/// of instructions before the VM starts.
+const MAX_COMPILED_PATTERN_INSTRUCTIONS: usize = 100_000;
 
 /// Compiler that converts PatternExpression AST into executable bytecode.
 ///
@@ -62,6 +71,12 @@ pub struct PatternCompiler {
     capture_map: HashMap<String, usize>,
     /// Counter for save slots (currently unused but preserved for future use)
     save_counter: usize,
+    /// Maximum number of instructions this compilation may emit. This is
+    /// capped by both the hard compilation ceiling and the active run budget.
+    max_instructions: usize,
+    /// Instructions emitted across the root program and embedded lookbehind
+    /// programs. Lookbehind compilers share this counter with their parent.
+    emitted_instructions: Arc<AtomicUsize>,
 }
 
 impl PatternCompiler {
@@ -70,12 +85,64 @@ impl PatternCompiler {
     /// The compiler starts with an empty program and no capture groups.
     /// Each compiler instance should only be used to compile a single pattern.
     pub fn new() -> Self {
+        let max_instructions = ExecutionBudget::current_or_default()
+            .pattern_step_limit()
+            .min(MAX_COMPILED_PATTERN_INSTRUCTIONS);
+        Self::with_instruction_limit(max_instructions)
+    }
+
+    fn with_instruction_limit(max_instructions: usize) -> Self {
+        Self::with_shared_instruction_limit(max_instructions, Arc::new(AtomicUsize::new(0)))
+    }
+
+    fn with_shared_instruction_limit(
+        max_instructions: usize,
+        emitted_instructions: Arc<AtomicUsize>,
+    ) -> Self {
         Self {
             program: Program::new(),
             capture_names: Vec::new(),
             capture_map: HashMap::new(),
             save_counter: 0,
+            max_instructions,
+            emitted_instructions,
         }
+    }
+
+    fn instruction_limit_error(&self) -> PatternError {
+        PatternError::CompileError(format!(
+            "Pattern bytecode exceeds the compilation instruction limit ({})",
+            self.max_instructions
+        ))
+    }
+
+    fn checked_instruction_add(&self, left: usize, right: usize) -> Result<usize, PatternError> {
+        left.checked_add(right)
+            .filter(|total| *total <= self.max_instructions)
+            .ok_or_else(|| self.instruction_limit_error())
+    }
+
+    fn checked_instruction_mul(&self, left: usize, right: usize) -> Result<usize, PatternError> {
+        left.checked_mul(right)
+            .filter(|total| *total <= self.max_instructions)
+            .ok_or_else(|| self.instruction_limit_error())
+    }
+
+    fn ensure_instruction_capacity(&self, additional: usize) -> Result<(), PatternError> {
+        self.emitted_instructions
+            .load(Ordering::Relaxed)
+            .checked_add(additional)
+            .filter(|total| *total <= self.max_instructions)
+            .map(|_| ())
+            .ok_or_else(|| self.instruction_limit_error())
+    }
+
+    fn emit_instruction(&mut self, instruction: Instruction) -> Result<(), PatternError> {
+        self.ensure_instruction_capacity(1)?;
+        self.program.push(instruction);
+        let previous = self.emitted_instructions.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(previous < self.max_instructions);
+        Ok(())
     }
 
     /// Compile a PatternExpression AST into executable bytecode.
@@ -110,8 +177,9 @@ impl PatternCompiler {
     /// # }
     /// ```
     pub fn compile(&mut self, pattern: &PatternExpression) -> Result<Program, PatternError> {
+        self.ensure_pattern_fits(pattern)?;
         self.compile_expression(pattern)?;
-        self.program.push(Instruction::Match);
+        self.emit_instruction(Instruction::Match)?;
 
         // Set metadata
         self.program.set_num_captures(self.capture_names.len());
@@ -152,8 +220,10 @@ impl PatternCompiler {
         pattern: &PatternExpression,
         env: &Environment,
     ) -> Result<Program, PatternError> {
-        self.compile_expression_with_env(pattern, env)?;
-        self.program.push(Instruction::Match);
+        let resolved_pattern = self.resolve_list_references(pattern, env)?;
+        self.ensure_pattern_fits(&resolved_pattern)?;
+        self.compile_expression(&resolved_pattern)?;
+        self.emit_instruction(Instruction::Match)?;
 
         // Set metadata
         self.program.set_num_captures(self.capture_names.len());
@@ -171,6 +241,105 @@ impl PatternCompiler {
     /// * `Vec<String>` - Names of all capture groups found during compilation
     pub fn capture_names(&self) -> Vec<String> {
         self.capture_names.clone()
+    }
+
+    /// Preflight bytecode growth before entering any quantifier loop. All
+    /// arithmetic is checked, so even multiply-nested `u32::MAX` counts become
+    /// a normal compile error rather than wrapping or iterating to exhaustion.
+    fn ensure_pattern_fits(&self, pattern: &PatternExpression) -> Result<(), PatternError> {
+        let body_instructions = self.estimate_pattern_instructions(pattern)?;
+        let total_instructions = self.checked_instruction_add(body_instructions, 1)?; // Match
+        self.ensure_instruction_capacity(total_instructions)
+    }
+
+    fn estimate_pattern_instructions(
+        &self,
+        pattern: &PatternExpression,
+    ) -> Result<usize, PatternError> {
+        match pattern {
+            PatternExpression::Literal(text) => Ok(if text.is_empty() { 0 } else { 1 }),
+            PatternExpression::CharacterClass(_)
+            | PatternExpression::Backreference(_)
+            | PatternExpression::Anchor(_) => Ok(1),
+            PatternExpression::ListReference(_) => Ok(0),
+            PatternExpression::Sequence(patterns) => {
+                let mut total = 0;
+                for pattern in patterns {
+                    total = self.checked_instruction_add(
+                        total,
+                        self.estimate_pattern_instructions(pattern)?,
+                    )?;
+                }
+                Ok(total)
+            }
+            PatternExpression::Alternative(patterns) => {
+                let mut total = 0;
+                for pattern in patterns {
+                    total = self.checked_instruction_add(
+                        total,
+                        self.estimate_pattern_instructions(pattern)?,
+                    )?;
+                }
+                let branch_instructions =
+                    self.checked_instruction_mul(patterns.len().saturating_sub(1), 2)?;
+                self.checked_instruction_add(total, branch_instructions)
+            }
+            PatternExpression::Quantified {
+                pattern,
+                quantifier,
+            } => {
+                if let Quantifier::Between(min, max) = quantifier
+                    && min > max
+                {
+                    return Err(Self::invalid_range_error(*min, *max));
+                }
+                let inner = self.estimate_pattern_instructions(pattern)?;
+                // Repeating an empty expression still performs one compiler
+                // iteration per count, so charge at least one expansion unit.
+                let expansion_unit = inner.max(1);
+                match quantifier {
+                    Quantifier::Optional => self.checked_instruction_add(inner, 1),
+                    Quantifier::ZeroOrMore => self.checked_instruction_add(inner, 2),
+                    Quantifier::OneOrMore => {
+                        let repeated = self.checked_instruction_mul(inner, 2)?;
+                        self.checked_instruction_add(repeated, 2)
+                    }
+                    Quantifier::Exactly(count) => {
+                        self.checked_instruction_mul(expansion_unit, *count as usize)
+                    }
+                    Quantifier::Between(min, max) => {
+                        let repeated =
+                            self.checked_instruction_mul(expansion_unit, *max as usize)?;
+                        self.checked_instruction_add(repeated, (*max - *min) as usize)
+                    }
+                    Quantifier::AtLeast(count) => {
+                        let repetitions = (*count as usize)
+                            .checked_add(1)
+                            .ok_or_else(|| self.instruction_limit_error())?;
+                        let repeated = self.checked_instruction_mul(expansion_unit, repetitions)?;
+                        self.checked_instruction_add(repeated, 2)
+                    }
+                    Quantifier::AtMost(count) => {
+                        let one_optional = self.checked_instruction_add(inner, 1)?;
+                        self.checked_instruction_mul(one_optional, *count as usize)
+                    }
+                }
+            }
+            PatternExpression::Capture { pattern, .. }
+            | PatternExpression::Lookahead(pattern)
+            | PatternExpression::NegativeLookahead(pattern)
+            | PatternExpression::Lookbehind(pattern)
+            | PatternExpression::NegativeLookbehind(pattern) => {
+                let inner = self.estimate_pattern_instructions(pattern)?;
+                self.checked_instruction_add(inner, 2)
+            }
+        }
+    }
+
+    fn invalid_range_error(min: u32, max: u32) -> PatternError {
+        PatternError::CompileError(format!(
+            "Pattern quantifier lower bound ({min}) cannot exceed upper bound ({max})"
+        ))
     }
 
     /// Compile a single pattern expression node recursively.
@@ -241,38 +410,6 @@ impl PatternCompiler {
                 return Err(PatternError::CompileError(
                     "List references require environment context for compilation. Use compile_with_env() instead.".to_string(),
                 ));
-            }
-        }
-        Ok(())
-    }
-
-    /// Compile a single pattern expression node recursively with environment access.
-    ///
-    /// This is similar to `compile_expression` but allows resolving list references
-    /// from the provided environment. List references are resolved at compile time
-    /// and converted to alternative patterns.
-    ///
-    /// # Arguments
-    /// * `pattern` - The AST node to compile
-    /// * `env` - Environment containing variable definitions
-    ///
-    /// # Returns
-    /// * `Ok(())` - Node compiled successfully
-    /// * `Err(PatternError)` - Compilation failed or list not found
-    fn compile_expression_with_env(
-        &mut self,
-        pattern: &PatternExpression,
-        env: &Environment,
-    ) -> Result<(), PatternError> {
-        match pattern {
-            PatternExpression::ListReference(name) => {
-                self.compile_list_reference(name, env)?;
-            }
-
-            // For all other patterns, recursively handle any nested list references
-            _ => {
-                let resolved_pattern = self.resolve_list_references(pattern, env)?;
-                self.compile_expression(&resolved_pattern)?;
             }
         }
         Ok(())
@@ -393,17 +530,6 @@ impl PatternCompiler {
         }
     }
 
-    /// Compile a list reference by resolving it from the environment.
-    fn compile_list_reference(
-        &mut self,
-        name: &str,
-        env: &Environment,
-    ) -> Result<(), PatternError> {
-        let resolved =
-            self.resolve_list_references(&PatternExpression::ListReference(name.to_string()), env)?;
-        self.compile_expression(&resolved)
-    }
-
     /// Compile a literal string into matching instructions.
     ///
     /// Optimizes single characters to use `Char` instruction for efficiency.
@@ -419,10 +545,10 @@ impl PatternCompiler {
         if text.len() == 1 {
             // Single character - use Char instruction
             let ch = text.chars().next().unwrap();
-            self.program.push(Instruction::Char(ch));
+            self.emit_instruction(Instruction::Char(ch))?;
         } else {
             // Multi-character string - use Literal instruction
-            self.program.push(Instruction::Literal(text.to_string()));
+            self.emit_instruction(Instruction::Literal(text.to_string()))?;
         }
         Ok(())
     }
@@ -449,7 +575,7 @@ impl PatternCompiler {
                 CharClassType::UnicodeProperty(property.clone())
             }
         };
-        self.program.push(Instruction::CharClass(class_type));
+        self.emit_instruction(Instruction::CharClass(class_type))?;
         Ok(())
     }
 
@@ -498,13 +624,13 @@ impl PatternCompiler {
             } else {
                 // Not the last - emit split and compile pattern
                 let split_addr = self.program.len();
-                self.program.push(Instruction::Split(0, 0)); // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
                 // Jump to end after this alternative succeeds
                 let jump_addr = self.program.len();
-                self.program.push(Instruction::Jump(0)); // Will be patched
+                self.emit_instruction(Instruction::Jump(0))?; // Will be patched
                 jump_to_end.push(jump_addr);
 
                 // Patch the split to point to the next alternative
@@ -543,7 +669,7 @@ impl PatternCompiler {
                 // L2: (continue)
 
                 let split_addr = self.program.len();
-                self.program.push(Instruction::Split(0, 0)); // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -566,12 +692,12 @@ impl PatternCompiler {
                 // L3: (continue)
 
                 let loop_start = self.program.len();
-                self.program.push(Instruction::Split(0, 0)); // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
                 // Jump back to loop start
-                self.program.push(Instruction::Jump(loop_start));
+                self.emit_instruction(Instruction::Jump(loop_start))?;
 
                 let end_addr = self.program.len();
 
@@ -595,12 +721,12 @@ impl PatternCompiler {
                 self.compile_expression(pattern)?;
 
                 let loop_start = self.program.len();
-                self.program.push(Instruction::Split(0, 0)); // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
                 // Jump back to loop start
-                self.program.push(Instruction::Jump(loop_start));
+                self.emit_instruction(Instruction::Jump(loop_start))?;
 
                 let end_addr = self.program.len();
 
@@ -623,16 +749,20 @@ impl PatternCompiler {
             Quantifier::Between(min, max) => {
                 // Between min and max: first min required, then up to (max-min) optional
 
+                if min > max {
+                    return Err(Self::invalid_range_error(*min, *max));
+                }
+
                 // Required repetitions
                 for _ in 0..*min {
                     self.compile_expression(pattern)?;
                 }
 
                 // Optional repetitions
-                let optional_count = max - min;
+                let optional_count = *max - *min;
                 for _ in 0..optional_count {
                     let split_addr = self.program.len();
-                    self.program.push(Instruction::Split(0, 0)); // Will be patched
+                    self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                     self.compile_expression(pattern)?;
 
@@ -658,12 +788,12 @@ impl PatternCompiler {
 
                 // Then zero or more (same as ZeroOrMore logic)
                 let loop_start = self.program.len();
-                self.program.push(Instruction::Split(0, 0)); // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
                 // Jump back to loop start
-                self.program.push(Instruction::Jump(loop_start));
+                self.emit_instruction(Instruction::Jump(loop_start))?;
 
                 let end_addr = self.program.len();
 
@@ -681,7 +811,7 @@ impl PatternCompiler {
 
                 for _ in 0..*n {
                     let split_addr = self.program.len();
-                    self.program.push(Instruction::Split(0, 0)); // Will be patched
+                    self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
 
                     self.compile_expression(pattern)?;
 
@@ -718,13 +848,13 @@ impl PatternCompiler {
         };
 
         // Start capture
-        self.program.push(Instruction::StartCapture(capture_index));
+        self.emit_instruction(Instruction::StartCapture(capture_index))?;
 
         // Compile the pattern
         self.compile_expression(pattern)?;
 
         // End capture
-        self.program.push(Instruction::EndCapture(capture_index));
+        self.emit_instruction(Instruction::EndCapture(capture_index))?;
 
         Ok(())
     }
@@ -733,7 +863,7 @@ impl PatternCompiler {
     fn compile_backreference(&mut self, name: &str) -> Result<(), PatternError> {
         // Look up the capture index by name
         if let Some(&capture_index) = self.capture_map.get(name) {
-            self.program.push(Instruction::Backreference(capture_index));
+            self.emit_instruction(Instruction::Backreference(capture_index))?;
             Ok(())
         } else {
             Err(PatternError::CompileError(format!(
@@ -746,10 +876,10 @@ impl PatternCompiler {
     fn compile_anchor(&mut self, anchor: &Anchor) -> Result<(), PatternError> {
         match anchor {
             Anchor::StartOfText => {
-                self.program.push(Instruction::StartAnchor);
+                self.emit_instruction(Instruction::StartAnchor)?;
             }
             Anchor::EndOfText => {
-                self.program.push(Instruction::EndAnchor);
+                self.emit_instruction(Instruction::EndAnchor)?;
             }
         }
         Ok(())
@@ -761,9 +891,9 @@ impl PatternCompiler {
         // 1. Begin lookahead (saves position)
         // 2. Compile the pattern to check
         // 3. End lookahead (restores position if pattern matched)
-        self.program.push(Instruction::BeginLookahead);
+        self.emit_instruction(Instruction::BeginLookahead)?;
         self.compile_expression(pattern)?;
-        self.program.push(Instruction::EndLookahead);
+        self.emit_instruction(Instruction::EndLookahead)?;
         Ok(())
     }
 
@@ -776,23 +906,26 @@ impl PatternCompiler {
         // 1. Begin negative lookahead (saves position)
         // 2. Compile the pattern to check
         // 3. End negative lookahead (restores position if pattern didn't match)
-        self.program.push(Instruction::BeginNegativeLookahead);
+        self.emit_instruction(Instruction::BeginNegativeLookahead)?;
         self.compile_expression(pattern)?;
-        self.program.push(Instruction::EndNegativeLookahead);
+        self.emit_instruction(Instruction::EndNegativeLookahead)?;
         Ok(())
     }
 
     /// Compile a positive lookbehind
     fn compile_lookbehind(&mut self, pattern: &PatternExpression) -> Result<(), PatternError> {
         // Create a separate program for the lookbehind pattern
-        let mut lookbehind_compiler = PatternCompiler::new();
+        let mut lookbehind_compiler = PatternCompiler::with_shared_instruction_limit(
+            self.max_instructions,
+            Arc::clone(&self.emitted_instructions),
+        );
         lookbehind_compiler.compile_expression(pattern)?;
-        lookbehind_compiler.program.push(Instruction::Match);
+        lookbehind_compiler.emit_instruction(Instruction::Match)?;
 
         // Embed the lookbehind program in the instruction
-        self.program.push(Instruction::CheckLookbehind(Box::new(
+        self.emit_instruction(Instruction::CheckLookbehind(Box::new(
             lookbehind_compiler.program,
-        )));
+        )))?;
 
         Ok(())
     }
@@ -803,15 +936,17 @@ impl PatternCompiler {
         pattern: &PatternExpression,
     ) -> Result<(), PatternError> {
         // Create a separate program for the negative lookbehind pattern
-        let mut lookbehind_compiler = PatternCompiler::new();
+        let mut lookbehind_compiler = PatternCompiler::with_shared_instruction_limit(
+            self.max_instructions,
+            Arc::clone(&self.emitted_instructions),
+        );
         lookbehind_compiler.compile_expression(pattern)?;
-        lookbehind_compiler.program.push(Instruction::Match);
+        lookbehind_compiler.emit_instruction(Instruction::Match)?;
 
         // Embed the lookbehind program in the instruction
-        self.program
-            .push(Instruction::CheckNegativeLookbehind(Box::new(
-                lookbehind_compiler.program,
-            )));
+        self.emit_instruction(Instruction::CheckNegativeLookbehind(Box::new(
+            lookbehind_compiler.program,
+        )))?;
 
         Ok(())
     }
@@ -845,6 +980,7 @@ impl Default for PatternCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::BudgetLimits;
     use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
 
     #[test]
@@ -957,5 +1093,123 @@ mod tests {
         }
         assert_eq!(program.instructions[2], Instruction::EndCapture(0));
         assert_eq!(program.instructions[3], Instruction::Match);
+    }
+
+    fn quantified(pattern: PatternExpression, quantifier: Quantifier) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(pattern),
+            quantifier,
+        }
+    }
+
+    fn assert_compile_error_without_panic(pattern: PatternExpression, expected: &str) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut compiler = PatternCompiler::with_instruction_limit(64);
+            compiler.compile(&pattern)
+        }));
+        let compile_result = result.expect("invalid quantifier must not panic");
+        let error = compile_result.expect_err("invalid quantifier must not compile");
+        assert!(
+            error.to_string().contains(expected),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn descending_between_quantifier_returns_compile_error_without_panicking() {
+        assert_compile_error_without_panic(
+            quantified(
+                PatternExpression::CharacterClass(CharClass::Digit),
+                Quantifier::Between(10, 1),
+            ),
+            "lower bound",
+        );
+    }
+
+    #[test]
+    fn huge_quantifiers_hit_compile_limit_before_expansion() {
+        for quantifier in [
+            Quantifier::Exactly(u32::MAX),
+            Quantifier::Between(u32::MAX - 1, u32::MAX),
+            Quantifier::AtLeast(u32::MAX),
+            Quantifier::AtMost(u32::MAX),
+        ] {
+            assert_compile_error_without_panic(
+                quantified(
+                    PatternExpression::CharacterClass(CharClass::Digit),
+                    quantifier,
+                ),
+                "instruction limit",
+            );
+        }
+
+        assert_compile_error_without_panic(
+            quantified(
+                PatternExpression::Literal(String::new()),
+                Quantifier::Exactly(u32::MAX),
+            ),
+            "instruction limit",
+        );
+    }
+
+    #[test]
+    fn quantifier_instruction_estimate_overflow_is_a_compile_error() {
+        let repeated = quantified(
+            quantified(
+                quantified(
+                    PatternExpression::CharacterClass(CharClass::Digit),
+                    Quantifier::Exactly(u32::MAX),
+                ),
+                Quantifier::Exactly(u32::MAX),
+            ),
+            Quantifier::Exactly(u32::MAX),
+        );
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut compiler = PatternCompiler::with_instruction_limit(usize::MAX);
+            compiler.compile(&repeated)
+        }));
+        let compile_result = result.expect("instruction estimate overflow must not panic");
+        let error = compile_result.expect_err("overflowing instruction estimate must be rejected");
+        assert!(error.to_string().contains("instruction limit"));
+    }
+
+    #[test]
+    fn normal_exact_and_range_quantifiers_keep_their_bytecode_shape() {
+        let mut exact_compiler = PatternCompiler::with_instruction_limit(64);
+        let exact = exact_compiler
+            .compile(&quantified(
+                PatternExpression::CharacterClass(CharClass::Digit),
+                Quantifier::Exactly(3),
+            ))
+            .unwrap();
+        assert_eq!(exact.instructions.len(), 4); // Three classes + Match.
+
+        let mut range_compiler = PatternCompiler::with_instruction_limit(64);
+        let range = range_compiler
+            .compile(&quantified(
+                PatternExpression::CharacterClass(CharClass::Digit),
+                Quantifier::Between(2, 4),
+            ))
+            .unwrap();
+        assert_eq!(range.instructions.len(), 7); // Two required, two optional, Match.
+    }
+
+    #[test]
+    fn compiler_ceiling_honors_the_active_pattern_step_budget() {
+        let mut limits = BudgetLimits::default();
+        limits.max_pattern_steps = 3;
+        let _budget_guard =
+            ExecutionBudget::enter(std::sync::Arc::new(ExecutionBudget::new(limits)));
+
+        let mut compiler = PatternCompiler::new();
+        let error = compiler
+            .compile(&quantified(
+                PatternExpression::CharacterClass(CharClass::Digit),
+                Quantifier::Exactly(3),
+            ))
+            .expect_err("three classes plus Match exceed a three-step budget");
+
+        assert!(error.to_string().contains("instruction limit (3)"));
     }
 }

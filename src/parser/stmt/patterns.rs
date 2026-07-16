@@ -27,6 +27,44 @@ fn token_to_char_class(token: &Token) -> Option<CharClass> {
     }
 }
 
+/// Convert a lexer integer to the representation used by pattern quantifiers
+/// without allowing signed or oversized values to wrap during conversion.
+fn checked_quantifier_count(
+    value: i64,
+    token: &TokenWithPosition,
+) -> Result<u32, ParseError> {
+    u32::try_from(value).map_err(|_| {
+        ParseError::from_token(
+            format!(
+                "Pattern quantifier count must be between 0 and {}",
+                u32::MAX
+            ),
+            token,
+        )
+    })
+}
+
+/// Validate a bounded quantifier before constructing its AST node. Keeping
+/// this invariant at the parser boundary prevents `max - min` underflow in
+/// downstream consumers, while the compiler repeats the check defensively for
+/// ASTs constructed through the public Rust API.
+fn checked_quantifier_range(
+    min: u32,
+    max: u32,
+    token: &TokenWithPosition,
+) -> Result<(u32, u32), ParseError> {
+    if min > max {
+        Err(ParseError::from_token(
+            format!(
+                "Pattern quantifier lower bound ({min}) cannot exceed upper bound ({max})"
+            ),
+            token,
+        ))
+    } else {
+        Ok((min, max))
+    }
+}
+
 pub(crate) trait PatternParser<'a>: ExprParser<'a> {
     fn parse_create_pattern_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_pattern_tokens(tokens: &[TokenWithPosition]) -> Result<PatternExpression, ParseError>;
@@ -451,6 +489,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 *i += 1; // Skip "exactly"
                 if *i < tokens.len() {
                     if let Token::IntLiteral(n) = tokens[*i].token {
+                        let count = checked_quantifier_count(n, &tokens[*i])?;
                         *i += 1; // Skip the number
 
                         // Optionally consume "of" keyword
@@ -461,7 +500,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         let base_element = Self::parse_pattern_element(tokens, i)?;
                         PatternExpression::Quantified {
                             pattern: Box::new(base_element),
-                            quantifier: Quantifier::Exactly(n as u32),
+                            quantifier: Quantifier::Exactly(count),
                         }
                     } else {
                         return Err(ParseError::from_token(
@@ -486,6 +525,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                             *i += 1; // Skip "least"
                             if *i < tokens.len() {
                                 if let Token::IntLiteral(n) = tokens[*i].token {
+                                    let count = checked_quantifier_count(n, &tokens[*i])?;
                                     *i += 1; // Skip the number
 
                                     // Optionally consume "of" keyword
@@ -496,7 +536,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                     let base_element = Self::parse_pattern_element(tokens, i)?;
                                     PatternExpression::Quantified {
                                         pattern: Box::new(base_element),
-                                        quantifier: Quantifier::AtLeast(n as u32),
+                                        quantifier: Quantifier::AtLeast(count),
                                     }
                                 } else {
                                     return Err(ParseError::from_token(
@@ -515,6 +555,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                             *i += 1; // Skip "most"
                             if *i < tokens.len() {
                                 if let Token::IntLiteral(n) = tokens[*i].token {
+                                    let count = checked_quantifier_count(n, &tokens[*i])?;
                                     *i += 1; // Skip the number
 
                                     // Optionally consume "of" keyword
@@ -525,7 +566,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                     let base_element = Self::parse_pattern_element(tokens, i)?;
                                     PatternExpression::Quantified {
                                         pattern: Box::new(base_element),
-                                        quantifier: Quantifier::AtMost(n as u32),
+                                        quantifier: Quantifier::AtMost(count),
                                     }
                                 } else {
                                     return Err(ParseError::from_token(
@@ -557,13 +598,22 @@ impl<'a> PatternParser<'a> for Parser<'a> {
 
             // Handle "N to M" syntax for numeric ranges
             Token::IntLiteral(min) => {
-                let min_val = *min as u32;
+                let min_value = *min;
+                let min_token_index = *i;
                 *i += 1; // Skip the number
 
                 // Check if this is a range pattern "N to M"
                 if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordTo {
+                    let min_val =
+                        checked_quantifier_count(min_value, &tokens[min_token_index])?;
                     *i += 1; // Skip "to"
                     if let Token::IntLiteral(max) = tokens[*i].token {
+                        let max_val = checked_quantifier_count(max, &tokens[*i])?;
+                        let (min_val, max_val) = checked_quantifier_range(
+                            min_val,
+                            max_val,
+                            &tokens[*i],
+                        )?;
                         *i += 1; // Skip the max number
 
                         // Optionally consume "of" keyword
@@ -574,7 +624,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         let base_element = Self::parse_pattern_element(tokens, i)?;
                         PatternExpression::Quantified {
                             pattern: Box::new(base_element),
-                            quantifier: Quantifier::Between(min_val, max as u32),
+                            quantifier: Quantifier::Between(min_val, max_val),
                         }
                     } else {
                         return Err(ParseError::from_token(
@@ -584,7 +634,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     }
                 } else {
                     // It's just a number literal, treat it as a literal pattern
-                    PatternExpression::Literal(min.to_string())
+                    PatternExpression::Literal(min_value.to_string())
                 }
             }
 
@@ -1112,10 +1162,11 @@ impl<'a> PatternParser<'a> for Parser<'a> {
             Token::KeywordExactly => {
                 if *i + 1 < tokens.len() {
                     if let Token::IntLiteral(n) = tokens[*i + 1].token {
+                        let count = checked_quantifier_count(n, &tokens[*i + 1])?;
                         *i += 2;
                         Ok(PatternExpression::Quantified {
                             pattern: Box::new(base_pattern),
-                            quantifier: Quantifier::Exactly(n as u32),
+                            quantifier: Quantifier::Exactly(count),
                         })
                     } else {
                         Ok(base_pattern)
@@ -1129,10 +1180,14 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     if let (Token::IntLiteral(min), Token::IntLiteral(max)) =
                         (&tokens[*i + 1].token, &tokens[*i + 3].token)
                     {
+                        let min = checked_quantifier_count(*min, &tokens[*i + 1])?;
+                        let max = checked_quantifier_count(*max, &tokens[*i + 3])?;
+                        let (min, max) =
+                            checked_quantifier_range(min, max, &tokens[*i + 3])?;
                         *i += 4;
                         Ok(PatternExpression::Quantified {
                             pattern: Box::new(base_pattern),
-                            quantifier: Quantifier::Between(*min as u32, *max as u32),
+                            quantifier: Quantifier::Between(min, max),
                         })
                     } else {
                         Ok(base_pattern)
@@ -1142,6 +1197,21 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 }
             }
             _ => Ok(base_pattern),
+        }
+    }
+}
+
+#[cfg(test)]
+mod quantifier_validation_tests {
+    use super::*;
+
+    #[test]
+    fn checked_quantifier_count_rejects_negative_and_out_of_range_values() {
+        for value in [-1, i64::from(u32::MAX) + 1, i64::MAX] {
+            let token = TokenWithPosition::new(Token::IntLiteral(value), 1, 1, 1);
+            let error = checked_quantifier_count(value, &token)
+                .expect_err("invalid quantifier count must be rejected");
+            assert!(error.message.contains("between 0 and"));
         }
     }
 }
