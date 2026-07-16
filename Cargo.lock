@@ -3996,6 +3996,7 @@ dependencies = [
  "codespan-reporting",
  "criterion",
  "dhat",
+ "encoding_rs",
  "futures-util",
  "glob",
  "hkdf 0.12.4",

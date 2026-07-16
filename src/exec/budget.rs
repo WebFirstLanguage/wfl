@@ -47,8 +47,8 @@
 //! rewrite of the interpreter" rule — it is exactly how `Arc<WflConfig>` is
 //! already shared.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config::WflConfig;
@@ -100,7 +100,8 @@ pub struct BudgetLimits {
     /// Maximum accepted HTTP request body size in bytes. Mapped from `.wflcfg`
     /// `web_server_max_body_size`.
     pub max_request_body_bytes: usize,
-    /// Maximum HTTP response body size in bytes. Mapped from `.wflcfg`
+    /// Maximum HTTP response body size in bytes, for both handler responses and
+    /// bodies read by outbound `open url` statements. Mapped from `.wflcfg`
     /// `web_server_max_response_size`.
     pub max_response_bytes: usize,
     /// Maximum accepted-but-unhandled HTTP requests held in the transport

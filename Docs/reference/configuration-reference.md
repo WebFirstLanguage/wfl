@@ -211,7 +211,7 @@ All keys currently loaded from config files, with defaults.
 | `web_server_tls_cert_file` | path | *(none)* | Default PEM cert for bare `listen … secured` |
 | `web_server_tls_key_file` | path | *(none)* | Default PEM key for bare `listen … secured` |
 | `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes); enforced while streaming (chunked-safe) |
-| `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max HTTP response body size (bytes) |
+| `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max handler or outbound HTTP response body size (bytes) |
 | `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
 | `web_server_response_timeout_seconds` | integer ≥ 0 | `300` | Seconds to await a handler before shedding with 504; `0` disables |
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
@@ -248,7 +248,11 @@ budget.
 
 #### `timeout_seconds`
 
-Maximum execution time for a WFL script in seconds. The script terminates if it exceeds this limit.
+Maximum execution time for a WFL script in seconds. Outside a `main loop`, an
+outbound `open url` request (connection, headers, and response body) consumes
+the run's remaining time. A `main loop` remains exempt from the lifetime limit,
+but each outbound request inside it gets this duration as a fresh finite timeout
+so a stalled remote peer cannot wedge the server indefinitely.
 
 - **Type:** Integer (minimum: 1)
 - **Default:** `60`
@@ -524,7 +528,12 @@ Because request handlers run one at a time (see [Web Servers → Limitations](..
 
 #### `web_server_max_response_size`
 
-Maximum HTTP response body a handler may `respond with`, in bytes. A larger response is refused (the handler gets a runtime error) rather than streaming an unbounded payload to the client.
+Maximum HTTP response body size, in bytes, for both directions: content a
+handler may `respond with`, and content an outbound `open url` statement may
+read. A larger handler response is refused; a larger outbound response is
+stopped when either its received bytes or decoded UTF-8 text reaches this
+limit. This applies even when the remote server uses chunked transfer encoding
+or omits `Content-Length`.
 
 - **Type:** Integer (bytes, at least 1)
 - **Default:** `67108864` (64 MiB)

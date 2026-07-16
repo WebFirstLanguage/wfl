@@ -53,9 +53,10 @@ pub struct WflConfig {
     /// server sheds new requests with a 503 instead of growing memory without
     /// bound. Default 256; must be at least 1.
     pub web_server_request_queue_bound: usize,
-    /// Maximum HTTP response body size in bytes. A handler that tries to send a
-    /// larger body is refused with a 500 rather than streaming an unbounded
-    /// payload. Feeds `ExecutionBudget`. Default 64 MiB.
+    /// Maximum HTTP response body size in bytes, for both handler responses and
+    /// bodies read by outbound `open url` statements. A larger body is refused
+    /// rather than buffered/streamed without bound. Feeds `ExecutionBudget`.
+    /// Default 64 MiB.
     pub web_server_max_response_size: usize,
     /// Maximum seconds the transport waits for a handler to answer an accepted
     /// HTTP request before shedding it with 504 and releasing its in-flight
