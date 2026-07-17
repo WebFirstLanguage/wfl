@@ -8,6 +8,9 @@ const MAX_TOKEN_BYTES: usize = 16 * 1024;
 /// Manages authentication tokens for registry access.
 pub struct AuthManager {
     auth_file: PathBuf,
+    // Only consulted when tightening directory permissions, which is a
+    // Unix-only concern. On non-Unix targets the field is intentionally unread.
+    #[cfg_attr(not(unix), allow(dead_code))]
     manage_parent_permissions: bool,
 }
 
@@ -117,21 +120,23 @@ impl AuthManager {
                 .parent()
                 .filter(|path| !path.as_os_str().is_empty())
                 .unwrap_or_else(|| std::path::Path::new("."));
-            let mut created_parent = false;
-            match std::fs::symlink_metadata(parent) {
+            // Whether we just created the directory. Only read on Unix, where a
+            // freshly created credentials directory is locked down to 0o700.
+            #[cfg_attr(not(unix), allow(unused_variables))]
+            let created_parent = match std::fs::symlink_metadata(parent) {
                 Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
                     return Err(PackageError::General(
                         "The credentials directory must be a real directory, not a symlink."
                             .to_string(),
                     ));
                 }
-                Ok(_) => {}
+                Ok(_) => false,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     std::fs::create_dir_all(parent)?;
-                    created_parent = true;
+                    true
                 }
                 Err(error) => return Err(PackageError::Io(error)),
-            }
+            };
 
             #[cfg(unix)]
             if created_parent || self.manage_parent_permissions {
