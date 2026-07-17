@@ -608,6 +608,12 @@ impl ConfigChecker {
                 "Execution Budget",
                 "Maximum WFL source-file size in bytes (default 64 MiB, min 1)",
             );
+            int_setting(
+                "max_file_read_size",
+                "52428800",
+                "Execution Budget",
+                "Maximum bytes buffered by one text or binary file read (default 50 MiB, min 1)",
+            );
         }
 
         Self { expected_settings }
@@ -1109,7 +1115,8 @@ fn integer_min_for_key(key: &str) -> Option<u64> {
         | "max_execute_file_depth"
         | "max_pattern_steps"
         | "max_pattern_states"
-        | "max_source_size" => Some(1),
+        | "max_source_size"
+        | "max_file_read_size" => Some(1),
         _ => None,
     }
 }
@@ -1163,6 +1170,7 @@ max_line_length = 80
             "max_pattern_steps",
             "max_pattern_states",
             "max_source_size",
+            "max_file_read_size",
             "web_server_max_response_size",
             "web_server_response_timeout_seconds",
             "web_server_request_queue_bound",
@@ -1182,6 +1190,7 @@ max_execute_file_depth = 6
 max_pattern_steps = 250000
 max_pattern_states = 5000
 max_source_size = 1048576
+max_file_read_size = 2097152
 web_server_max_response_size = 5242880
 web_server_response_timeout_seconds = 30
 web_server_request_queue_bound = 512
@@ -1219,7 +1228,10 @@ web_socket_max_queued_bytes = 33554432
         let config_path = temp_dir.path().join(".wflcfg");
         fs::write(
             &config_path,
-            "max_operations = -1\nmax_call_depth = 0\nmax_source_size = 4096\n",
+            concat!(
+                "max_operations = -1\nmax_call_depth = 0\n",
+                "max_source_size = 4096\nmax_file_read_size = 0\n"
+            ),
         )
         .unwrap();
 
@@ -1239,6 +1251,10 @@ web_socket_max_queued_bytes = 33554432
         assert!(
             !bad.contains("max_source_size"),
             "a valid max_source_size must not be flagged; issues: {issues:?}"
+        );
+        assert!(
+            bad.contains("max_file_read_size"),
+            "zero max_file_read_size must be rejected; issues: {issues:?}"
         );
 
         // The pre-existing positive-only keys the loader clamps/rejects at 0 are

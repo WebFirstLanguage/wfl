@@ -53,9 +53,10 @@ pub struct WflConfig {
     /// server sheds new requests with a 503 instead of growing memory without
     /// bound. Default 256; must be at least 1.
     pub web_server_request_queue_bound: usize,
-    /// Maximum HTTP response body size in bytes. A handler that tries to send a
-    /// larger body is refused with a 500 rather than streaming an unbounded
-    /// payload. Feeds `ExecutionBudget`. Default 64 MiB.
+    /// Maximum HTTP response body size in bytes, for both handler responses and
+    /// bodies read by outbound `open url` statements. A larger body is refused
+    /// rather than buffered/streamed without bound. Feeds `ExecutionBudget`.
+    /// Default 64 MiB.
     pub web_server_max_response_size: usize,
     /// Maximum seconds the transport waits for a handler to answer an accepted
     /// HTTP request before shedding it with 504 and releasing its in-flight
@@ -84,6 +85,9 @@ pub struct WflConfig {
     /// Maximum WFL source-file size in bytes. Feeds `ExecutionBudget`.
     /// Default 64 MiB.
     pub max_source_size: usize,
+    /// Maximum bytes a single text or binary file-read operation may buffer.
+    /// Feeds `ExecutionBudget`. Default 50 MiB.
+    pub max_file_read_size: usize,
     /// Maximum queued frames/events per WebSocket channel before shedding.
     /// Feeds `ExecutionBudget`. Default 1024; must be at least 1.
     pub web_socket_queue_bound: usize,
@@ -198,6 +202,9 @@ impl Default for WflConfig {
             max_pattern_steps: 5_000_000,
             max_pattern_states: 10_000,
             max_source_size: 64 * 1024 * 1024,
+            // Preserve the documented per-operation binary-read ceiling and
+            // extend the same OOM protection to text reads.
+            max_file_read_size: 50 * 1024 * 1024,
             web_socket_queue_bound: 1_024,
             web_socket_max_connections: 1_024,
             web_socket_max_message_size: 1_048_576,
@@ -858,6 +865,12 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                 "max_source_size" => {
                     set_positive_usize(&mut config.max_source_size, "max_source_size", value, file)
                 }
+                "max_file_read_size" => set_positive_usize(
+                    &mut config.max_file_read_size,
+                    "max_file_read_size",
+                    value,
+                    file,
+                ),
                 "web_socket_queue_bound" => set_positive_usize(
                     &mut config.web_socket_queue_bound,
                     "web_socket_queue_bound",

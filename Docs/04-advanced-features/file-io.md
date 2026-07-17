@@ -213,7 +213,12 @@ close file <handle>
 > [`reserved-keywords.md`](../reference/reserved-keywords.md) for the full list
 > and the always-reserved vs. contextual distinction.
 
-Binary reads and writes are capped at 50 MB per operation as a safety limit.
+Text and binary reads are capped at 50 MiB per operation by default. The cap is
+enforced as bytes stream in (including for special files without a finite
+metadata length), and applies to `read N bytes` before its buffer is allocated.
+Set `max_file_read_size` in `.wflcfg` to tune the limit; an oversized read raises
+a catchable resource-limit error. Binary byte-list writes retain their existing
+50 MiB safety check.
 
 ## Directory Operations
 

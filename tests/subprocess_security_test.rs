@@ -43,12 +43,13 @@ allowed_shell_commands = echo
 warn_on_shell_execution = false
 "#;
 
-// Windows has no standalone echo.exe; allowlist cmd.exe for opt-in tests.
+// Windows has no standalone echo.exe. Use a non-shell executable so the
+// allowlist fixture does not itself grant arbitrary `/C` command execution.
 #[cfg(windows)]
 const ALLOWLIST_PROGRAM_CONFIG: &str = r#"
 allow_shell_execution = true
 shell_execution_mode = allowlist_only
-allowed_shell_commands = cmd.exe
+allowed_shell_commands = where.exe
 warn_on_shell_execution = false
 "#;
 
@@ -283,7 +284,7 @@ fn test_allowlist_only_allows_listed_program() {
     "#;
     #[cfg(windows)]
     let code = r#"
-        wait for execute command "cmd.exe" with arguments ["/C", "echo allowlisted"] as result
+        wait for execute command "where.exe" with arguments ["cmd.exe"] as result
         display result
     "#;
 
@@ -293,7 +294,31 @@ fn test_allowlist_only_allows_listed_program() {
         "Allowlisted program should run: {:?}",
         result
     );
+    #[cfg(not(windows))]
     assert!(result.unwrap().contains("allowlisted"));
+    #[cfg(windows)]
+    assert!(result.unwrap().to_ascii_lowercase().contains("cmd.exe"));
+}
+
+#[test]
+fn test_allowlist_only_blocks_shell_chaining_after_allowlisted_program() {
+    #[cfg(not(windows))]
+    let code = r#"
+        execute command "echo allowlisted; echo injected" as result
+    "#;
+    #[cfg(windows)]
+    let code = r#"
+        execute command "where.exe cmd.exe & echo injected" as result
+    "#;
+
+    let result = run_wfl_with_config(code, Some(ALLOWLIST_PROGRAM_CONFIG));
+    assert_blocked(result.clone(), "Shell chaining after allowlisted program");
+    if let Err(err) = result {
+        assert!(
+            !err.lines().any(|line| line.trim() == "injected"),
+            "The unlisted chained payload must not execute: {err}"
+        );
+    }
 }
 
 #[test]

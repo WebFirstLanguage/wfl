@@ -1,14 +1,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tower_lsp::lsp_types::Url;
 
 use crate::core::WflLanguageCore;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
+
+/// Maximum source size returned by a single MCP resource read.
+const MAX_MCP_RESOURCE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// JSON-RPC 2.0 Request
 #[derive(Debug, Deserialize)]
@@ -934,35 +938,98 @@ impl WflMcpServer {
         }
     }
 
-    /// Handle file:///{path} resource
-    fn handle_file_resource(&self, id: Option<Value>, uri: &str) -> JsonRpcResponse {
-        // Extract path from file:/// URI
-        let path_str = uri.strip_prefix("file:///").unwrap_or(uri);
-        let path = Path::new(path_str);
+    fn file_resource_error(id: Option<Value>, message: impl Into<String>) -> JsonRpcResponse {
+        JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32602,
+                message: message.into(),
+                data: None,
+            }),
+        }
+    }
 
-        match fs::read_to_string(path) {
-            Ok(content) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({
-                    "contents": [{
-                        "uri": uri,
-                        "mimeType": "text/x-wfl",
-                        "text": content
-                    }]
-                })),
-                error: None,
-            },
-            Err(e) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(JsonRpcError {
-                    code: -32603,
-                    message: format!("Failed to read file: {}", e),
-                    data: None,
-                }),
-            },
+    fn read_bounded_text_file(path: &Path) -> Result<String, String> {
+        let metadata = path
+            .metadata()
+            .map_err(|_| "File resource is not readable".to_string())?;
+        if !metadata.is_file() {
+            return Err("File resource is not a regular file".to_string());
+        }
+        if metadata.len() > MAX_MCP_RESOURCE_BYTES {
+            return Err(format!(
+                "File resource exceeds the {} byte limit",
+                MAX_MCP_RESOURCE_BYTES
+            ));
+        }
+
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .and_then(|file| {
+                file.take(MAX_MCP_RESOURCE_BYTES + 1)
+                    .read_to_end(&mut bytes)
+            })
+            .map_err(|_| "Failed to read file resource".to_string())?;
+        if bytes.len() as u64 > MAX_MCP_RESOURCE_BYTES {
+            return Err(format!(
+                "File resource exceeds the {} byte limit",
+                MAX_MCP_RESOURCE_BYTES
+            ));
+        }
+        String::from_utf8(bytes).map_err(|_| "File resource is not valid UTF-8".to_string())
+    }
+
+    /// Handle a workspace-owned `file:///` WFL resource.
+    fn handle_file_resource(&self, id: Option<Value>, uri: &str) -> JsonRpcResponse {
+        let workspace_root = match self
+            .workspace_root
+            .as_ref()
+            .and_then(|root| root.canonicalize().ok())
+        {
+            Some(root) => root,
+            None => return Self::file_resource_error(id, "No readable workspace root configured"),
+        };
+
+        let requested_path = match Url::parse(uri).ok().and_then(|url| url.to_file_path().ok()) {
+            Some(path) => path,
+            None => return Self::file_resource_error(id, "Invalid local file resource URI"),
+        };
+        let requested_path = match requested_path.canonicalize() {
+            Ok(path) => path,
+            Err(_) => return Self::file_resource_error(id, "File resource does not exist"),
+        };
+
+        // Canonicalize both sides before comparing so `..` and symlinks cannot
+        // redirect a resource read outside the configured workspace.
+        if !requested_path.starts_with(&workspace_root) {
+            return Self::file_resource_error(id, "File resource is outside the workspace");
+        }
+        if requested_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("wfl")
+        {
+            return Self::file_resource_error(id, "Only WFL source files are readable resources");
+        }
+
+        let content = match Self::read_bounded_text_file(&requested_path) {
+            Ok(content) => content,
+            Err(message) => return Self::file_resource_error(id, message),
+        };
+
+        JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: Some(json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "text/x-wfl",
+                    "text": content
+                }]
+            })),
+            error: None,
         }
     }
 
@@ -994,7 +1061,7 @@ impl WflMcpServer {
                 {
                     let path = entry.path();
                     if path.extension().and_then(|s| s.to_str()) == Some("wfl")
-                        && let Ok(content) = fs::read_to_string(&path)
+                        && let Ok(content) = Self::read_bounded_text_file(&path)
                     {
                         let tokens = lex_wfl_with_positions(&content);
                         let mut parser = Parser::new(&tokens);
@@ -1044,9 +1111,30 @@ impl WflMcpServer {
             }
         };
 
+        let workspace_root = match workspace_root.canonicalize() {
+            Ok(root) => root,
+            Err(_) => {
+                return Self::file_resource_error(id, "No readable workspace root configured");
+            }
+        };
         let config_path = workspace_root.join(".wflcfg");
         let config_content = if config_path.exists() {
-            fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string())
+            let config_path = match config_path.canonicalize() {
+                Ok(path) if path.starts_with(&workspace_root) => path,
+                Ok(_) => {
+                    return Self::file_resource_error(
+                        id,
+                        "Workspace configuration resolves outside the workspace",
+                    );
+                }
+                Err(_) => {
+                    return Self::file_resource_error(id, "Workspace configuration is unreadable");
+                }
+            };
+            match Self::read_bounded_text_file(&config_path) {
+                Ok(content) => content,
+                Err(message) => return Self::file_resource_error(id, message),
+            }
         } else {
             json!({
                 "message": "No .wflcfg file found in workspace",
@@ -1097,7 +1185,7 @@ impl WflMcpServer {
                 {
                     let path = entry.path();
                     if path.extension().and_then(|s| s.to_str()) == Some("wfl")
-                        && let Ok(content) = fs::read_to_string(&path)
+                        && let Ok(content) = Self::read_bounded_text_file(&path)
                     {
                         let diagnostics = self.core.analyze_document(&content);
                         if !diagnostics.is_empty() {
@@ -1218,7 +1306,7 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        eprintln!("[MCP] Received request: {}", line);
+        eprintln!("[MCP] Received request");
 
         // Parse JSON-RPC request
         let request: JsonRpcRequest = match serde_json::from_str(&line) {
@@ -1246,7 +1334,7 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
         let response = server.process_request(request);
         let response_json = serde_json::to_string(&response)?;
 
-        eprintln!("[MCP] Sending response: {}", response_json);
+        eprintln!("[MCP] Sending response");
         writeln!(stdout, "{}", response_json)?;
         stdout.flush()?;
     }
@@ -1258,6 +1346,32 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestWorkspace(PathBuf);
+
+    impl TestWorkspace {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("wfl-mcp-{label}-{}-{nonce}", std::process::id()));
+            fs::create_dir(&path).expect("test workspace");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn test_server_creation() {
@@ -1329,5 +1443,125 @@ mod tests {
 
         let result = response.result.unwrap();
         assert_eq!(result["isError"], true);
+    }
+
+    #[test]
+    fn file_resource_reads_workspace_wfl_source() {
+        let root = TestWorkspace::new("valid-resource");
+        let source_path = root.path().join("program.wfl");
+        fs::write(&source_path, "display \"hello\"").expect("source file");
+        let uri = Url::from_file_path(&source_path)
+            .expect("file URI")
+            .to_string();
+        let server = WflMcpServer::with_workspace(root.path().to_path_buf());
+
+        let response = server.handle_file_resource(Some(json!(10)), &uri);
+
+        assert!(response.error.is_none());
+        assert_eq!(
+            response.result.expect("resource")["contents"][0]["text"],
+            "display \"hello\""
+        );
+    }
+
+    #[test]
+    fn file_resource_rejects_paths_outside_workspace() {
+        let root = TestWorkspace::new("outside-resource");
+        let workspace = root.path().join("workspace");
+        fs::create_dir(&workspace).expect("workspace");
+        let secret_path = root.path().join("secret.wfl");
+        fs::write(&secret_path, "sensitive").expect("outside file");
+        let uri = Url::from_file_path(&secret_path)
+            .expect("file URI")
+            .to_string();
+        let server = WflMcpServer::with_workspace(workspace);
+
+        let response = server.handle_file_resource(Some(json!(11)), &uri);
+
+        assert!(response.result.is_none());
+        assert!(
+            response
+                .error
+                .expect("outside-workspace error")
+                .message
+                .contains("outside the workspace")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_resource_rejects_symlink_escape() {
+        let root = TestWorkspace::new("symlink-resource");
+        let workspace = root.path().join("workspace");
+        fs::create_dir(&workspace).expect("workspace");
+        let secret_path = root.path().join("secret.wfl");
+        fs::write(&secret_path, "sensitive").expect("outside file");
+        let link_path = workspace.join("linked.wfl");
+        std::os::unix::fs::symlink(&secret_path, &link_path).expect("symlink");
+        let uri = Url::from_file_path(&link_path)
+            .expect("file URI")
+            .to_string();
+        let server = WflMcpServer::with_workspace(workspace);
+
+        let response = server.handle_file_resource(Some(json!(12)), &uri);
+
+        assert!(response.result.is_none());
+        assert!(
+            response
+                .error
+                .expect("symlink error")
+                .message
+                .contains("outside the workspace")
+        );
+    }
+
+    #[test]
+    fn file_resource_rejects_oversized_source() {
+        let root = TestWorkspace::new("oversized-resource");
+        let source_path = root.path().join("large.wfl");
+        fs::write(
+            &source_path,
+            vec![b'a'; MAX_MCP_RESOURCE_BYTES as usize + 1],
+        )
+        .expect("oversized source");
+        let uri = Url::from_file_path(&source_path)
+            .expect("file URI")
+            .to_string();
+        let server = WflMcpServer::with_workspace(root.path().to_path_buf());
+
+        let response = server.handle_file_resource(Some(json!(13)), &uri);
+
+        assert!(response.result.is_none());
+        assert!(
+            response
+                .error
+                .expect("oversized error")
+                .message
+                .contains("exceeds")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_config_rejects_symlink_escape() {
+        let root = TestWorkspace::new("config-symlink");
+        let workspace = root.path().join("workspace");
+        fs::create_dir(&workspace).expect("workspace");
+        let secret_path = root.path().join("secret.txt");
+        fs::write(&secret_path, "sensitive").expect("outside file");
+        std::os::unix::fs::symlink(&secret_path, workspace.join(".wflcfg"))
+            .expect("config symlink");
+        let server = WflMcpServer::with_workspace(workspace);
+
+        let response = server.handle_workspace_config(Some(json!(14)));
+
+        assert!(response.result.is_none());
+        assert!(
+            response
+                .error
+                .expect("config symlink error")
+                .message
+                .contains("outside the workspace")
+        );
     }
 }

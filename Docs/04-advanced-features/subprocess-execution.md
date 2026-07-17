@@ -23,6 +23,13 @@ shell_execution_mode = sanitized
 - Policy applies to **both** the shell form and the `with arguments` form.
   Passing arguments is safer against injection *after* a program is allowed;
   it is not a bypass of the policy.
+- `allowlist_only` permits direct execution only. Shell chaining, pipes,
+  redirects, expansion, and other shell features are blocked even when the
+  first command is listed.
+- Name-only allowlist entries do not authorize explicit paths with the same
+  basename. Allow an executable path explicitly when a script must use one.
+- Avoid allowlisting shells and interpreters such as `sh`, `cmd.exe`,
+  PowerShell, or Python: their ordinary arguments can execute additional code.
 
 See [Configuration Reference](../reference/configuration-reference.md#security-settings)
 for full option details.
@@ -132,6 +139,18 @@ wait for 100 milliseconds
 wait for read output from process proc as output_data
 display "Output: " with output_data
 ```
+
+Captured stdout and stderr each retain at most `max_buffer_size_bytes` raw
+stream bytes (10 MiB by default) for both `execute command` and
+`spawn command`. When a command produces more, WFL continues draining the
+stream so the child cannot deadlock, retains only its most recent bytes, and
+prints a truncation warning. Malformed UTF-8 replacement can make the returned
+WFL text larger than the raw-byte count, but only by a bounded factor.
+Foreground commands also observe the run's `timeout_seconds` deadline and
+cooperative cancellation through both process execution and pipe draining; WFL
+terminates and reaps a child that stalls past either one. A long-lived
+`main loop` is exempt from the run-wide deadline, but each foreground command
+inside it still receives a fresh `timeout_seconds` window.
 
 ## Executing WFL Files In-Process
 

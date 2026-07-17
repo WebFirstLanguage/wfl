@@ -23,12 +23,20 @@ impl BoundedBuffer {
 
     /// Push bytes into the buffer. If the buffer is full, oldest bytes are dropped.
     pub fn push(&mut self, bytes: &[u8]) {
-        self.bytes_written += bytes.len();
+        self.bytes_written = self.bytes_written.saturating_add(bytes.len());
+
+        // A zero-sized buffer means "discard all output". Without this special
+        // case the loop below would pop from an empty deque and then push one
+        // byte, violating the configured ceiling.
+        if self.max_size == 0 {
+            self.bytes_dropped = self.bytes_dropped.saturating_add(bytes.len());
+            return;
+        }
 
         for &byte in bytes {
             if self.data.len() >= self.max_size {
                 self.data.pop_front();
-                self.bytes_dropped += 1;
+                self.bytes_dropped = self.bytes_dropped.saturating_add(1);
             }
             self.data.push_back(byte);
         }
@@ -155,5 +163,16 @@ mod tests {
         let data = buf.read_all();
         assert_eq!(data.len(), 100);
         assert!(data.iter().all(|&b| b == b'X'));
+    }
+
+    #[test]
+    fn test_zero_sized_buffer_discards_everything() {
+        let mut buf = BoundedBuffer::new(0);
+
+        buf.push(b"must not be retained");
+
+        assert!(buf.is_empty());
+        assert_eq!(buf.stats().bytes_written, 20);
+        assert_eq!(buf.stats().bytes_dropped, 20);
     }
 }

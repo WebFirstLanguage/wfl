@@ -192,7 +192,7 @@ All keys currently loaded from config files, with defaults.
 |---|---|---|---|
 | `allow_shell_execution` | bool | `false` | Master switch for all process launches |
 | `shell_execution_mode` | string | `forbidden` | `forbidden` / `allowlist_only` / `sanitized` / `unrestricted` |
-| `allowed_shell_commands` | comma-list | *(empty)* | Program basenames allowed in `allowlist_only` mode |
+| `allowed_shell_commands` | comma-list | *(empty)* | Program names or explicit paths allowed in `allowlist_only` mode |
 | `warn_on_shell_execution` | bool | `true` | Warn whenever a shell command runs |
 
 ### Subprocess resources
@@ -211,7 +211,7 @@ All keys currently loaded from config files, with defaults.
 | `web_server_tls_cert_file` | path | *(none)* | Default PEM cert for bare `listen … secured` |
 | `web_server_tls_key_file` | path | *(none)* | Default PEM key for bare `listen … secured` |
 | `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes); enforced while streaming (chunked-safe) |
-| `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max HTTP response body size (bytes) |
+| `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max handler or outbound HTTP response body size (bytes) |
 | `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
 | `web_server_response_timeout_seconds` | integer ≥ 0 | `300` | Seconds to await a handler before shedding with 504; `0` disables |
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
@@ -235,6 +235,7 @@ clean, catchable error instead of a crash or unbounded memory growth.
 | `max_pattern_steps` | integer ≥ 1 | `5000000` | Max pattern-matching transitions per match (ReDoS guard) |
 | `max_pattern_states` | integer ≥ 1 | `10000` | Max simultaneously-active pattern states per match |
 | `max_source_size` | integer ≥ 1 | `67108864` (64 MiB) | Max WFL source-file size (bytes) |
+| `max_file_read_size` | integer ≥ 1 | `52428800` (50 MiB) | Max bytes buffered by one text or binary file read |
 
 The wall-clock deadline (`timeout_seconds`), request body/response ceilings, and
 the HTTP/WebSocket queue and connection bounds above are all part of the same
@@ -248,7 +249,11 @@ budget.
 
 #### `timeout_seconds`
 
-Maximum execution time for a WFL script in seconds. The script terminates if it exceeds this limit.
+Maximum execution time for a WFL script in seconds. Outside a `main loop`, an
+outbound `open url` request (connection, headers, and response body) consumes
+the run's remaining time. A `main loop` remains exempt from the lifetime limit,
+but each outbound request inside it gets this duration as a fresh finite timeout
+so a stalled remote peer cannot wedge the server indefinitely.
 
 - **Type:** Integer (minimum: 1)
 - **Default:** `60`
@@ -389,7 +394,7 @@ Applied to every launch, not only shell metacharacter forms.
 - **Default:** `forbidden`
 - **Options:**
   - `forbidden` — no process execution allowed (most secure)
-  - `allowlist_only` — only programs whose basename is in `allowed_shell_commands` may run
+  - `allowlist_only` — only direct-exec programs in `allowed_shell_commands` may run; shell features are rejected
   - `sanitized` — any program may run; shell features produce warnings
   - `unrestricted` — any program may run with shell; not recommended for production
 - **Example:** `shell_execution_mode = allowlist_only`
@@ -411,9 +416,19 @@ allowed_shell_commands = echo, ls, git
 
 #### `allowed_shell_commands`
 
-Comma-separated list of allowed **program basenames** when using
-`allowlist_only` mode. Matching uses the basename of the program path
-(`/bin/echo` matches `echo`). On Windows, comparison is case-insensitive.
+Comma-separated list of allowed program names or explicit executable paths when
+using `allowlist_only` mode. A name such as `echo` authorizes only a name-only
+invocation resolved through the host process's `PATH`; it does not authorize
+`./echo`, `/tmp/echo`, or another caller-selected path with the same basename.
+Path-bearing commands require a path-bearing allowlist entry resolving to the
+same executable. On Windows, comparison is case-insensitive.
+
+`allowlist_only` never invokes a shell. Commands containing pipes, redirects,
+expansion, command chaining, or other shell features are rejected even when
+their first program is allowlisted. Pass data through `with arguments`; opt in
+to `sanitized` or `unrestricted` only when shell syntax is genuinely required.
+Do not allowlist a shell or interpreter (`sh`, `cmd.exe`, PowerShell, Python,
+and similar) unless you intend its arguments to be able to execute code.
 
 - **Type:** Comma-separated strings
 - **Default:** *(empty)*
@@ -439,7 +454,13 @@ Maximum number of subprocesses that can run simultaneously.
 
 #### `max_buffer_size_bytes`
 
-Maximum size of output buffers for subprocess stdout/stderr, in bytes.
+Maximum number of raw stream bytes retained in each stdout/stderr output
+buffer. This limit applies to both foreground `execute command` capture and
+background `spawn command` capture. If a stream exceeds the limit, WFL drains
+it without growing memory, keeps the most recent bytes, and emits a truncation
+warning. A value of `0` discards all captured output. Converting malformed
+UTF-8 to WFL text may expand the returned text, but remains a bounded multiple
+of this raw-byte ceiling.
 
 - **Type:** Integer
 - **Default:** `10485760` (10 MiB)
@@ -524,7 +545,12 @@ Because request handlers run one at a time (see [Web Servers → Limitations](..
 
 #### `web_server_max_response_size`
 
-Maximum HTTP response body a handler may `respond with`, in bytes. A larger response is refused (the handler gets a runtime error) rather than streaming an unbounded payload to the client.
+Maximum HTTP response body size, in bytes, for both directions: content a
+handler may `respond with`, and content an outbound `open url` statement may
+read. A larger handler response is refused; a larger outbound response is
+stopped when either its received bytes or decoded UTF-8 text reaches this
+limit. This applies even when the remote server uses chunked transfer encoding
+or omits `Content-Length`.
 
 - **Type:** Integer (bytes, at least 1)
 - **Default:** `67108864` (64 MiB)
@@ -640,6 +666,18 @@ Maximum size, in bytes, of a WFL source file. A larger file is refused before it
 - **Type:** Integer (bytes, at least 1)
 - **Default:** `67108864` (64 MiB)
 - **Example:** `max_source_size = 1048576`  # 1 MiB
+
+#### `max_file_read_size`
+
+Maximum bytes one `read content`, `read binary`, or `read N bytes` operation may
+buffer. The ceiling is enforced while the file is read, so streams and special
+files whose metadata has no useful length cannot grow memory without bound. A
+larger read fails with a catchable resource-limit error; exact-limit reads are
+accepted.
+
+- **Type:** Integer (bytes, at least 1)
+- **Default:** `52428800` (50 MiB)
+- **Example:** `max_file_read_size = 10485760`  # 10 MiB
 
 Each of these positive-integer keys rejects `0` and non-numeric values, keeping the default and logging a warning.
 

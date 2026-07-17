@@ -583,3 +583,28 @@ async fn test_header_access_case_insensitive_via_request_object() {
         "absent header should be nothing, got {result:?}"
     );
 }
+
+/// A WFL program can insert a list into itself through `push`. Displaying that
+/// value used to recurse on the native stack until the whole process aborted.
+#[tokio::test]
+async fn test_display_self_referential_list_is_cycle_safe() {
+    let source = r#"
+create list items:
+end list
+push with items and items
+display items
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("parse self-referential list program");
+    let mut interpreter = Interpreter::new();
+
+    let output = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+    let result = {
+        let _capture = super::io_capture::push_capture(std::rc::Rc::clone(&output));
+        interpreter.interpret(&program).await
+    };
+
+    result.expect("displaying a self-referential list must not abort or error");
+    assert_eq!(&*output.borrow(), "[<cycle>]\n");
+}

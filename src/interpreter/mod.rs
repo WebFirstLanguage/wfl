@@ -1022,9 +1022,9 @@ fn expr_type(expr: &Expression) -> String {
     }
 }
 
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
@@ -1133,6 +1133,194 @@ pub struct ProcessHandle {
     stderr_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
 }
 
+/// Failure from a foreground `execute command`. Budget breaches stay typed so
+/// the interpreter can preserve timeout/resource-limit error kinds instead of
+/// flattening them into a generic subprocess error.
+#[derive(Debug)]
+enum ExecuteCommandError {
+    Budget(BudgetExceeded),
+    Timeout { seconds: u64 },
+    Other(String),
+}
+
+impl std::fmt::Display for ExecuteCommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Budget(exceeded) => std::fmt::Display::fmt(exceeded, formatter),
+            Self::Timeout { seconds } => {
+                write!(
+                    formatter,
+                    "Subprocess execution exceeded timeout ({seconds}s)"
+                )
+            }
+            Self::Other(message) => formatter.write_str(message),
+        }
+    }
+}
+
+/// Bytes retained from one subprocess stream plus the amount discarded after
+/// the configured per-stream ceiling was reached.
+struct CapturedProcessStream {
+    bytes: Vec<u8>,
+    bytes_dropped: usize,
+}
+
+/// Abort detached pipe readers on every non-success path, including external
+/// cancellation that drops the whole `execute_command` future before its
+/// explicit interruption branch can run.
+struct ProcessCaptureAbortGuard {
+    handles: [tokio::task::AbortHandle; 2],
+    armed: bool,
+}
+
+impl ProcessCaptureAbortGuard {
+    fn new(stdout: tokio::task::AbortHandle, stderr: tokio::task::AbortHandle) -> Self {
+        Self {
+            handles: [stdout, stderr],
+            armed: true,
+        }
+    }
+
+    fn abort(&mut self) {
+        if self.armed {
+            for handle in &self.handles {
+                handle.abort();
+            }
+            self.armed = false;
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ProcessCaptureAbortGuard {
+    fn drop(&mut self) {
+        self.abort();
+    }
+}
+
+/// Which wall-clock rule applies to one foreground command. Long-lived
+/// `main loop`s remain exempt from the run-wide deadline, but each blocking
+/// subprocess operation still receives a fresh configured timeout.
+#[derive(Debug, Clone, Copy)]
+enum ForegroundCommandDeadline {
+    None,
+    Execution,
+    MainLoop { started: Instant, timeout: Duration },
+}
+
+const SUBPROCESS_BUDGET_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Drain one subprocess pipe without ever retaining more than `max_size`
+/// bytes. Keeping the most recent bytes matches background-process capture.
+async fn capture_process_stream<R>(
+    mut stream: R,
+    max_size: usize,
+) -> io::Result<CapturedProcessStream>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buffer = bounded_buffer::BoundedBuffer::new(max_size);
+    let mut chunk = [0_u8; 8192];
+
+    loop {
+        let read = stream.read(&mut chunk).await?;
+        if read == 0 {
+            break;
+        }
+        buffer.push(&chunk[..read]);
+    }
+
+    let bytes_dropped = buffer.stats().bytes_dropped;
+    Ok(CapturedProcessStream {
+        bytes: buffer.read_all(),
+        bytes_dropped,
+    })
+}
+
+/// Select the finite wall-clock rule for one foreground execution and reject a
+/// launch when its shared budget is already expired or cancelled.
+fn foreground_command_deadline(
+    budget: &ExecutionBudget,
+    configured_timeout: Duration,
+) -> Result<ForegroundCommandDeadline, ExecuteCommandError> {
+    budget
+        .check_cancelled()
+        .map_err(ExecuteCommandError::Budget)?;
+
+    if budget.is_deadline_exempt() {
+        return Ok(ForegroundCommandDeadline::MainLoop {
+            started: Instant::now(),
+            timeout: configured_timeout,
+        });
+    }
+
+    budget
+        .check_deadline()
+        .map_err(ExecuteCommandError::Budget)?;
+    if budget.limits().max_duration.is_some() {
+        Ok(ForegroundCommandDeadline::Execution)
+    } else {
+        Ok(ForegroundCommandDeadline::None)
+    }
+}
+
+/// Wait until cancellation or the applicable deadline interrupts the complete
+/// foreground operation. This monitor remains active after the direct child
+/// exits because descendants can inherit its pipes and withhold EOF forever.
+async fn foreground_command_interrupt(
+    budget: &ExecutionBudget,
+    deadline: ForegroundCommandDeadline,
+) -> ExecuteCommandError {
+    loop {
+        if let Err(exceeded) = budget.check_cancelled() {
+            return ExecuteCommandError::Budget(exceeded);
+        }
+
+        match deadline {
+            ForegroundCommandDeadline::None => {}
+            ForegroundCommandDeadline::Execution => {
+                if let Err(exceeded) = budget.check_deadline() {
+                    return ExecuteCommandError::Budget(exceeded);
+                }
+            }
+            ForegroundCommandDeadline::MainLoop { started, timeout } => {
+                if started.elapsed() >= timeout {
+                    return ExecuteCommandError::Timeout {
+                        seconds: timeout.as_secs(),
+                    };
+                }
+            }
+        }
+
+        tokio::time::sleep(SUBPROCESS_BUDGET_POLL_INTERVAL).await;
+    }
+}
+
+/// Kill and reap the direct child unless it has already completed. A second
+/// status check handles the normal race where it exits between inspection and
+/// the kill request.
+async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result<(), String> {
+    match child.try_wait() {
+        Ok(Some(_)) => return Ok(()),
+        Ok(None) => {}
+        Err(error) => return Err(format!("failed to inspect subprocess: {error}")),
+    }
+
+    match child.kill().await {
+        Ok(()) => Ok(()),
+        Err(kill_error) => match child.try_wait() {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(format!("failed to terminate subprocess: {kill_error}")),
+            Err(wait_error) => Err(format!(
+                "failed to terminate subprocess: {kill_error}; status check failed: {wait_error}"
+            )),
+        },
+    }
+}
+
 #[allow(dead_code)]
 pub struct IoClient {
     http_client: reqwest::Client,
@@ -1143,6 +1331,90 @@ pub struct IoClient {
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
     config: Arc<WflConfig>,
+}
+
+/// Errors raised while an outbound HTTP request is in flight.
+///
+/// Budget failures stay structured until the interpreter can attach source
+/// location and the appropriate [`ErrorKind`]. Keeping them out of strings is
+/// important for `try`/`when` handlers that distinguish timeouts from resource
+/// limits.
+#[derive(Debug)]
+enum HttpClientError {
+    Request(String),
+    Budget(BudgetExceeded),
+    Timeout { seconds: u64 },
+}
+
+impl From<BudgetExceeded> for HttpClientError {
+    fn from(exceeded: BudgetExceeded) -> Self {
+        Self::Budget(exceeded)
+    }
+}
+
+/// Which finite wall-clock limit applies to an outbound request.
+#[derive(Debug, Clone, Copy)]
+enum OutboundHttpDeadline {
+    /// An explicitly-unlimited non-server run has no wall-clock deadline.
+    None,
+    /// Outside a `main loop`, an outbound request consumes the run's remaining
+    /// global execution time.
+    Execution {
+        remaining: Duration,
+        limit_secs: u64,
+    },
+    /// A `main loop` is lifetime-exempt, but each individual outbound request
+    /// still gets a fresh finite timeout so a stalled peer cannot wedge the
+    /// server forever.
+    MainLoop { duration: Duration },
+}
+
+/// Polling is used because cooperative cancellation is represented by an
+/// atomic flag rather than a notification primitive. This interval bounds how
+/// quickly an in-flight socket operation observes `ExecutionBudget::cancel()`.
+const HTTP_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+#[derive(Debug)]
+enum FileReadError {
+    Io(String),
+    Budget(BudgetExceeded),
+}
+
+impl std::fmt::Display for FileReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(message) => f.write_str(message),
+            Self::Budget(exceeded) => std::fmt::Display::fmt(exceeded, f),
+        }
+    }
+}
+
+/// Buffer one file read under the run's file-byte ceiling. Reading through a
+/// `Take` capped at `limit + 1` is intentional: metadata is not reliable for
+/// special files and streams (for example `/dev/zero`), so the limit must be
+/// enforced while bytes arrive rather than after an unbounded `read_to_end`.
+async fn read_to_end_capped<R>(
+    reader: &mut R,
+    budget: &ExecutionBudget,
+    operation: &str,
+) -> Result<Vec<u8>, FileReadError>
+where
+    R: AsyncRead + Unpin,
+{
+    let limit = budget.max_file_read_bytes();
+    let probe_size = limit.saturating_add(1);
+    let probe_size_u64 = u64::try_from(probe_size).unwrap_or(u64::MAX);
+    let mut bytes = Vec::with_capacity(limit.min(8 * 1024));
+    let mut bounded = reader.take(probe_size_u64);
+    bounded
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|e| FileReadError::Io(format!("{operation}: {e}")))?;
+
+    budget
+        .check_file_read_bytes(bytes.len())
+        .map_err(FileReadError::Budget)?;
+    Ok(bytes)
 }
 
 impl IoClient {
@@ -1197,31 +1469,32 @@ impl IoClient {
     }
 
     #[allow(dead_code)]
-    async fn http_get(&self, url: &str) -> Result<String, String> {
-        match self.http_client.get(url).send().await {
-            Ok(response) => match response.text().await {
-                Ok(text) => Ok(text),
-                Err(e) => Err(format!("Failed to read response body: {e}")),
-            },
-            Err(e) => Err(format!("Failed to send HTTP GET request: {e}")),
-        }
+    async fn http_get(
+        &self,
+        url: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<String, HttpClientError> {
+        let (_, _, body) = self
+            .send_http_request(self.http_client.get(url), "GET", budget)
+            .await?;
+        Ok(body)
     }
 
     #[allow(dead_code)]
-    async fn http_post(&self, url: &str, data: &str) -> Result<String, String> {
-        match self
-            .http_client
-            .post(url)
-            .body(data.to_string())
-            .send()
-            .await
-        {
-            Ok(response) => match response.text().await {
-                Ok(text) => Ok(text),
-                Err(e) => Err(format!("Failed to read response body: {e}")),
-            },
-            Err(e) => Err(format!("Failed to send HTTP POST request: {e}")),
-        }
+    async fn http_post(
+        &self,
+        url: &str,
+        data: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<String, HttpClientError> {
+        let (_, _, body) = self
+            .send_http_request(
+                self.http_client.post(url).body(data.to_string()),
+                "POST",
+                budget,
+            )
+            .await?;
+        Ok(body)
     }
 
     /// Perform an HTTP request with an arbitrary method, optional headers,
@@ -1233,9 +1506,10 @@ impl IoClient {
         url: &str,
         headers: &[(String, String)],
         body: Option<String>,
-    ) -> Result<(u16, Vec<(String, String)>, String), String> {
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<(u16, Vec<(String, String)>, String), HttpClientError> {
         let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
-            .map_err(|_| format!("Invalid HTTP method: {method}"))?;
+            .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
 
         let mut request = self.http_client.request(parsed_method, url);
         for (name, value) in headers {
@@ -1245,28 +1519,244 @@ impl IoClient {
             request = request.body(body);
         }
 
-        match request.send().await {
-            Ok(response) => {
-                let status = response.status().as_u16();
-                // Header names are normalized to lowercase for consistent
-                // access from WFL (e.g. resp.headers["content-type"]), and
-                // non-UTF8 values are converted lossily instead of dropped.
-                let response_headers = response
-                    .headers()
-                    .iter()
-                    .map(|(name, value)| {
-                        (
-                            name.as_str().to_ascii_lowercase(),
-                            String::from_utf8_lossy(value.as_bytes()).into_owned(),
-                        )
-                    })
-                    .collect();
-                match response.text().await {
-                    Ok(text) => Ok((status, response_headers, text)),
-                    Err(e) => Err(format!("Failed to read response body: {e}")),
+        self.send_http_request(request, method, budget).await
+    }
+
+    /// Send a request and consume its body without ever buffering more than the
+    /// configured response ceiling. The budget passed here is deliberately the
+    /// interpreter's *live* budget, not construction-time IoClient state: the
+    /// REPL replaces its budget for every command.
+    async fn send_http_request(
+        &self,
+        request: reqwest::RequestBuilder,
+        method: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<(u16, Vec<(String, String)>, String), HttpClientError> {
+        let method = method.to_string();
+        let operation_budget = Arc::clone(&budget);
+        let operation = async move {
+            use futures_util::StreamExt;
+
+            let response = request.send().await.map_err(|e| {
+                HttpClientError::Request(format!("Failed to send HTTP {method} request: {e}"))
+            })?;
+
+            let status = response.status().as_u16();
+            // Header names are normalized to lowercase for consistent access
+            // from WFL (e.g. resp.headers["content-type"]), and non-UTF8
+            // values are converted lossily instead of dropped.
+            let response_headers = response
+                .headers()
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.as_str().to_ascii_lowercase(),
+                        String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                    )
+                })
+                .collect();
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+
+            let max_response_bytes = operation_budget.limits().max_response_bytes;
+            if let Some(content_length) = response.content_length() {
+                let max_as_u64 = u64::try_from(max_response_bytes).unwrap_or(u64::MAX);
+                if content_length > max_as_u64 {
+                    return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                        limit: max_response_bytes,
+                        actual: usize::try_from(content_length).unwrap_or(usize::MAX),
+                    }));
                 }
             }
-            Err(e) => Err(format!("Failed to send HTTP {method} request: {e}")),
+
+            // Do not retain a full raw byte buffer and then allocate a second,
+            // potentially larger UTF-8 string. Decode each network chunk into
+            // bounded scratch space, and enforce the same ceiling on both wire
+            // bytes and decoded UTF-8 bytes. Invalid UTF-8 alone can expand 3x
+            // when replaced with U+FFFD.
+            let initial_capacity = response
+                .content_length()
+                .and_then(|len| usize::try_from(len).ok())
+                .unwrap_or(0)
+                .min(max_response_bytes)
+                .min(64 * 1024);
+            let encoding = Self::http_text_encoding(content_type.as_deref());
+            let mut decoder = encoding.new_decoder();
+            let mut body = String::with_capacity(initial_capacity);
+            let mut wire_bytes = 0_usize;
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| {
+                    HttpClientError::Request(format!("Failed to read response body: {e}"))
+                })?;
+                let actual = wire_bytes.saturating_add(chunk.len());
+                if chunk.len() > max_response_bytes.saturating_sub(wire_bytes) {
+                    return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                        limit: max_response_bytes,
+                        actual,
+                    }));
+                }
+                wire_bytes = actual;
+                Self::decode_http_chunk(
+                    &mut decoder,
+                    &chunk,
+                    false,
+                    &mut body,
+                    max_response_bytes,
+                )?;
+            }
+            Self::decode_http_chunk(&mut decoder, &[], true, &mut body, max_response_bytes)?;
+
+            Ok((status, response_headers, body))
+        };
+
+        // A custom live budget may deliberately have no run-wide deadline. In
+        // a lifetime-exempt main loop, fall back to the interpreter's
+        // configured `timeout_seconds` (minimum one second) so the individual
+        // network operation is still finite and user-configurable.
+        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        Self::run_http_with_budget(budget, configured_timeout, operation).await
+    }
+
+    /// Select the response encoding while preserving reqwest's text behavior:
+    /// honor a declared charset and default to UTF-8.
+    fn http_text_encoding(content_type: Option<&str>) -> &'static encoding_rs::Encoding {
+        let charset = content_type.and_then(|value| {
+            value.split(';').skip(1).find_map(|parameter| {
+                let (name, value) = parameter.trim().split_once('=')?;
+                name.trim()
+                    .eq_ignore_ascii_case("charset")
+                    .then(|| value.trim().trim_matches(|ch| ch == '\'' || ch == '"'))
+            })
+        });
+        charset
+            .and_then(|name| encoding_rs::Encoding::for_label(name.as_bytes()))
+            .unwrap_or(encoding_rs::UTF_8)
+    }
+
+    /// Incrementally decode one response chunk into caller-owned text. The
+    /// decoder writes only into fixed scratch storage; the destination reserves
+    /// exactly the accepted addition before appending, avoiding Vec/String
+    /// geometric-growth spikes near the configured ceiling.
+    fn decode_http_chunk(
+        decoder: &mut encoding_rs::Decoder,
+        mut input: &[u8],
+        last: bool,
+        output: &mut String,
+        max_response_bytes: usize,
+    ) -> Result<(), HttpClientError> {
+        let mut decoded = [0_u8; 8 * 1024];
+        loop {
+            let (result, read, written, _) = decoder.decode_to_utf8(input, &mut decoded, last);
+            let actual = output.len().saturating_add(written);
+            if written > max_response_bytes.saturating_sub(output.len()) {
+                return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                    limit: max_response_bytes,
+                    actual,
+                }));
+            }
+            if written > 0 {
+                output.try_reserve_exact(written).map_err(|error| {
+                    HttpClientError::Request(format!(
+                        "Failed to allocate bounded HTTP response buffer: {error}"
+                    ))
+                })?;
+                let text = std::str::from_utf8(&decoded[..written])
+                    .expect("encoding_rs must emit valid UTF-8");
+                output.push_str(text);
+            }
+            input = &input[read..];
+
+            match result {
+                encoding_rs::CoderResult::InputEmpty => return Ok(()),
+                encoding_rs::CoderResult::OutputFull => {}
+            }
+        }
+    }
+
+    fn outbound_http_deadline(
+        budget: &ExecutionBudget,
+        configured_timeout: Duration,
+    ) -> Result<OutboundHttpDeadline, HttpClientError> {
+        budget.check_cancelled()?;
+
+        if budget.is_deadline_exempt() {
+            return Ok(OutboundHttpDeadline::MainLoop {
+                duration: budget.limits().max_duration.unwrap_or(configured_timeout),
+            });
+        }
+
+        let Some(limit) = budget.limits().max_duration else {
+            return Ok(OutboundHttpDeadline::None);
+        };
+        let Some(remaining) = limit.checked_sub(budget.elapsed()) else {
+            return Err(HttpClientError::Budget(BudgetExceeded::Deadline {
+                limit_secs: limit.as_secs(),
+            }));
+        };
+        if remaining.is_zero() {
+            return Err(HttpClientError::Budget(BudgetExceeded::Deadline {
+                limit_secs: limit.as_secs(),
+            }));
+        }
+        Ok(OutboundHttpDeadline::Execution {
+            remaining,
+            limit_secs: limit.as_secs(),
+        })
+    }
+
+    /// Race the complete network operation (connect, headers, and streamed
+    /// body) against both cooperative cancellation and the applicable finite
+    /// deadline. Dropping reqwest's future closes/cancels the in-flight work.
+    async fn run_http_with_budget<T, F>(
+        budget: Arc<ExecutionBudget>,
+        configured_timeout: Duration,
+        operation: F,
+    ) -> Result<T, HttpClientError>
+    where
+        F: std::future::Future<Output = Result<T, HttpClientError>>,
+    {
+        let deadline = Self::outbound_http_deadline(&budget, configured_timeout)?;
+        let timeout_duration = match deadline {
+            OutboundHttpDeadline::None => None,
+            OutboundHttpDeadline::Execution { remaining, .. } => Some(remaining),
+            OutboundHttpDeadline::MainLoop { duration } => Some(duration),
+        };
+
+        let cancellation_budget = Arc::clone(&budget);
+        let cancellation = async move {
+            loop {
+                if cancellation_budget.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(HTTP_CANCELLATION_POLL_INTERVAL).await;
+            }
+        };
+        let timeout = async move {
+            match timeout_duration {
+                Some(duration) => tokio::time::sleep(duration).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+
+        tokio::pin!(operation);
+        tokio::pin!(cancellation);
+        tokio::pin!(timeout);
+        tokio::select! {
+            result = &mut operation => result,
+            _ = &mut cancellation => Err(HttpClientError::Budget(BudgetExceeded::Cancelled)),
+            _ = &mut timeout => match deadline {
+                OutboundHttpDeadline::Execution { limit_secs, .. } => {
+                    Err(HttpClientError::Budget(BudgetExceeded::Deadline { limit_secs }))
+                }
+                OutboundHttpDeadline::MainLoop { duration } => {
+                    Err(HttpClientError::Timeout { seconds: duration.as_secs() })
+                }
+                OutboundHttpDeadline::None => unreachable!("disabled timeout cannot complete"),
+            },
         }
     }
 
@@ -1357,7 +1847,11 @@ impl IoClient {
     }
 
     #[allow(dead_code)]
-    async fn read_file(&self, handle_id: &str) -> Result<String, String> {
+    async fn read_file(
+        &self,
+        handle_id: &str,
+        budget: &ExecutionBudget,
+    ) -> Result<String, FileReadError> {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
@@ -1366,27 +1860,37 @@ impl IoClient {
             match self.open_file(handle_id).await {
                 Ok(new_handle) => {
                     // Now read from the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.read_file(&new_handle));
+                    let future = Box::pin(self.read_file(&new_handle, budget));
                     let result = future.await;
                     let _ = self.close_file(&new_handle).await;
                     return result;
                 }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
+                Err(e) => {
+                    return Err(FileReadError::Io(format!(
+                        "Invalid file handle or path: {handle_id}: {e}"
+                    )));
+                }
             }
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+            Err(e) => {
+                return Err(FileReadError::Io(format!(
+                    "Failed to clone file handle: {e}"
+                )));
+            }
         };
 
         drop(file_handles);
 
-        let mut contents = String::new();
-        match AsyncReadExt::read_to_string(&mut file_clone, &mut contents).await {
-            Ok(_) => Ok(contents),
-            Err(e) => Err(format!("Failed to read file: {e}")),
-        }
+        let bytes = read_to_end_capped(&mut file_clone, budget, "Failed to read file").await?;
+        String::from_utf8(bytes).map_err(|e| {
+            FileReadError::Io(format!(
+                "Failed to read file: stream did not contain valid UTF-8: {}",
+                e.utf8_error()
+            ))
+        })
     }
 
     /// Syncs file to disk with Windows-specific error handling.
@@ -1486,16 +1990,26 @@ impl IoClient {
         }
     }
 
-    async fn read_binary(&self, handle_id: &str) -> Result<Vec<u8>, String> {
+    async fn read_binary(
+        &self,
+        handle_id: &str,
+        budget: &ExecutionBudget,
+    ) -> Result<Vec<u8>, FileReadError> {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
+            return Err(FileReadError::Io(format!(
+                "Invalid file handle: {handle_id}"
+            )));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+            Err(e) => {
+                return Err(FileReadError::Io(format!(
+                    "Failed to clone file handle: {e}"
+                )));
+            }
         };
 
         drop(file_handles);
@@ -1503,26 +2017,37 @@ impl IoClient {
         // Seek to start before reading all
         match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
             Ok(_) => {}
-            Err(e) => return Err(format!("Failed to seek in file: {e}")),
+            Err(e) => return Err(FileReadError::Io(format!("Failed to seek in file: {e}"))),
         }
 
-        let mut contents = Vec::new();
-        match AsyncReadExt::read_to_end(&mut file_clone, &mut contents).await {
-            Ok(_) => Ok(contents),
-            Err(e) => Err(format!("Failed to read binary file: {e}")),
-        }
+        read_to_end_capped(&mut file_clone, budget, "Failed to read binary file").await
     }
 
-    async fn read_binary_n(&self, handle_id: &str, count: usize) -> Result<Vec<u8>, String> {
+    async fn read_binary_n(
+        &self,
+        handle_id: &str,
+        count: usize,
+        budget: &ExecutionBudget,
+    ) -> Result<Vec<u8>, FileReadError> {
+        budget
+            .check_file_read_bytes(count)
+            .map_err(FileReadError::Budget)?;
+
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
+            return Err(FileReadError::Io(format!(
+                "Invalid file handle: {handle_id}"
+            )));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+            Err(e) => {
+                return Err(FileReadError::Io(format!(
+                    "Failed to clone file handle: {e}"
+                )));
+            }
         };
 
         drop(file_handles);
@@ -1533,7 +2058,9 @@ impl IoClient {
                 buf.truncate(n);
                 Ok(buf)
             }
-            Err(e) => Err(format!("Failed to read binary bytes: {e}")),
+            Err(e) => Err(FileReadError::Io(format!(
+                "Failed to read binary bytes: {e}"
+            ))),
         }
     }
 
@@ -1737,11 +2264,17 @@ impl IoClient {
         use_shell: bool,
         line: usize,
         column: usize,
-    ) -> Result<(String, String, i32), String> {
+    ) -> Result<(String, String, i32), ExecuteCommandError> {
         use crate::interpreter::command_sanitizer::CommandSanitizer;
         use tokio::process::Command;
 
-        let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
+        let needs_shell = self
+            .authorize_subprocess(command, args, use_shell, line, column)
+            .map_err(ExecuteCommandError::Other)?;
+
+        let budget = ExecutionBudget::current_or_default();
+        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let deadline = foreground_command_deadline(&budget, configured_timeout)?;
 
         // Build the command
         let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
@@ -1762,7 +2295,7 @@ impl IoClient {
         } else {
             // Direct-exec path (still policy-gated above)
             let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
+                CommandSanitizer::parse_command(command).map_err(ExecuteCommandError::Other)?
             } else {
                 (
                     command.to_string(),
@@ -1775,15 +2308,123 @@ impl IoClient {
             cmd
         };
 
-        // Execute the command
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
+        // `Command::output` accumulates both streams into unbounded Vecs and
+        // cannot observe WFL's cooperative cancellation while the child is
+        // stalled. Pipe and drain both streams concurrently under the existing
+        // per-stream buffer ceiling instead. `kill_on_drop` is a final safety
+        // net if this future itself is abandoned by its caller.
+        let mut child = cmd
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                ExecuteCommandError::Other(format!(
+                    "Failed to execute command '{}': {}",
+                    command, e
+                ))
+            })?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let exit_code = output.status.code().unwrap_or(-1);
+        let stdout_pipe = child.stdout.take().ok_or_else(|| {
+            ExecuteCommandError::Other("Failed to capture command stdout".to_string())
+        })?;
+        let stderr_pipe = child.stderr.take().ok_or_else(|| {
+            ExecuteCommandError::Other("Failed to capture command stderr".to_string())
+        })?;
+        let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
+
+        let stdout_task = tokio::spawn(capture_process_stream(stdout_pipe, buffer_size));
+        let stderr_task = tokio::spawn(capture_process_stream(stderr_pipe, buffer_size));
+        let mut capture_abort =
+            ProcessCaptureAbortGuard::new(stdout_task.abort_handle(), stderr_task.abort_handle());
+
+        // The guarded operation includes pipe EOF, not just direct-child exit.
+        // A command can spawn a descendant that inherits stdout/stderr and then
+        // exit; without this wider guard, collectors would await that
+        // descendant forever even though `child.wait()` already succeeded.
+        let completed = {
+            let operation_child = &mut child;
+            let operation = async move {
+                let status = operation_child.wait().await.map_err(|error| {
+                    ExecuteCommandError::Other(format!("Failed to wait for command: {error}"))
+                })?;
+                let (stdout_result, stderr_result) = tokio::join!(stdout_task, stderr_task);
+                let stdout_capture = stdout_result
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to join stdout collector: {error}"
+                        ))
+                    })?
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to read command stdout: {error}"
+                        ))
+                    })?;
+                let stderr_capture = stderr_result
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to join stderr collector: {error}"
+                        ))
+                    })?
+                    .map_err(|error| {
+                        ExecuteCommandError::Other(format!(
+                            "Failed to read command stderr: {error}"
+                        ))
+                    })?;
+
+                Ok((status, stdout_capture, stderr_capture))
+            };
+            let interrupt = foreground_command_interrupt(&budget, deadline);
+            tokio::pin!(operation);
+            tokio::pin!(interrupt);
+
+            tokio::select! {
+                biased;
+                result = &mut operation => Ok(result),
+                error = &mut interrupt => Err(error),
+            }
+        };
+
+        let (status, stdout_capture, stderr_capture) = match completed {
+            Ok(Ok(result)) => {
+                capture_abort.disarm();
+                result
+            }
+            Ok(Err(interruption)) | Err(interruption) => {
+                // Stop retaining output immediately, then kill/reap the direct
+                // child if it is still alive. Closing its readers also prevents
+                // a chatty child from blocking forever on a full pipe.
+                capture_abort.abort();
+                let termination = terminate_foreground_child(&mut child).await;
+
+                if let Err(termination_error) = termination {
+                    return Err(ExecuteCommandError::Other(format!(
+                        "{interruption}; {termination_error}"
+                    )));
+                }
+                return Err(interruption);
+            }
+        };
+
+        if stdout_capture.bytes_dropped > 0 {
+            eprintln!(
+                "⚠️  WARNING: Command stdout exceeded max_buffer_size_bytes; \
+                 {} oldest byte(s) were discarded.",
+                stdout_capture.bytes_dropped
+            );
+        }
+        if stderr_capture.bytes_dropped > 0 {
+            eprintln!(
+                "⚠️  WARNING: Command stderr exceeded max_buffer_size_bytes; \
+                 {} oldest byte(s) were discarded.",
+                stderr_capture.bytes_dropped
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&stdout_capture.bytes).to_string();
+        let stderr = String::from_utf8_lossy(&stderr_capture.bytes).to_string();
+        let exit_code = status.code().unwrap_or(-1);
 
         Ok((stdout, stderr, exit_code))
     }
@@ -2612,6 +3253,35 @@ impl Interpreter {
             _ => ErrorKind::ResourceLimit,
         };
         RuntimeError::with_kind(exceeded.message(), line, column, kind)
+    }
+
+    /// Attach WFL source information to an outbound HTTP error while
+    /// preserving structured timeout/resource-limit kinds for `try`/`when`.
+    fn http_client_error(
+        &self,
+        error: HttpClientError,
+        line: usize,
+        column: usize,
+    ) -> RuntimeError {
+        match error {
+            HttpClientError::Request(message) => RuntimeError::new(message, line, column),
+            HttpClientError::Budget(exceeded) => self.budget_error(exceeded, line, column),
+            HttpClientError::Timeout { seconds } => RuntimeError::with_kind(
+                format!("Outbound HTTP request exceeded timeout ({seconds}s)"),
+                line,
+                column,
+                ErrorKind::Timeout,
+            ),
+        }
+    }
+
+    /// Preserve ordinary file I/O failures while classifying byte-ceiling
+    /// breaches as catchable execution-budget resource errors.
+    fn file_read_error(&self, error: FileReadError, line: usize, column: usize) -> RuntimeError {
+        match error {
+            FileReadError::Io(message) => RuntimeError::new(message, line, column),
+            FileReadError::Budget(exceeded) => self.budget_error(exceeded, line, column),
+        }
     }
 
     /// Map a pattern-VM error onto a `RuntimeError`. Budget breaches (step/state
@@ -3902,7 +4572,7 @@ impl Interpreter {
 
                 if is_file_path {
                     match self.io_client.open_file(&path_str).await {
-                        Ok(handle) => match self.io_client.read_file(&handle).await {
+                        Ok(handle) => match self.io_client.read_file(&handle, &self.budget).await {
                             Ok(content) => {
                                 match env
                                     .borrow_mut()
@@ -3920,13 +4590,13 @@ impl Interpreter {
                             }
                             Err(e) => {
                                 let _ = self.io_client.close_file(&handle).await;
-                                Err(RuntimeError::new(e, *line, *column))
+                                Err(self.file_read_error(e, *line, *column))
                             }
                         },
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
                 } else {
-                    match self.io_client.read_file(&path_str).await {
+                    match self.io_client.read_file(&path_str, &self.budget).await {
                         Ok(content) => {
                             match env
                                 .borrow_mut()
@@ -3936,7 +4606,7 @@ impl Interpreter {
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                             }
                         }
-                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                        Err(e) => Err(self.file_read_error(e, *line, *column)),
                     }
                 }
             }
@@ -4824,31 +5494,35 @@ impl Interpreter {
 
                         if is_file_path {
                             match self.io_client.open_file(&path_str).await {
-                                Ok(handle) => match self.io_client.read_file(&handle).await {
-                                    Ok(content) => {
-                                        match env
-                                            .borrow_mut()
-                                            .define(variable_name, Value::Text(content.into()))
-                                        {
-                                            Ok(_) => {
-                                                let _ = self.io_client.close_file(&handle).await;
-                                                Ok((Value::Null, ControlFlow::None))
-                                            }
-                                            Err(msg) => {
-                                                let _ = self.io_client.close_file(&handle).await;
-                                                Err(RuntimeError::new(msg, *line, *column))
+                                Ok(handle) => {
+                                    match self.io_client.read_file(&handle, &self.budget).await {
+                                        Ok(content) => {
+                                            match env
+                                                .borrow_mut()
+                                                .define(variable_name, Value::Text(content.into()))
+                                            {
+                                                Ok(_) => {
+                                                    let _ =
+                                                        self.io_client.close_file(&handle).await;
+                                                    Ok((Value::Null, ControlFlow::None))
+                                                }
+                                                Err(msg) => {
+                                                    let _ =
+                                                        self.io_client.close_file(&handle).await;
+                                                    Err(RuntimeError::new(msg, *line, *column))
+                                                }
                                             }
                                         }
+                                        Err(e) => {
+                                            let _ = self.io_client.close_file(&handle).await;
+                                            Err(self.file_read_error(e, *line, *column))
+                                        }
                                     }
-                                    Err(e) => {
-                                        let _ = self.io_client.close_file(&handle).await;
-                                        Err(RuntimeError::new(e, *line, *column))
-                                    }
-                                },
+                                }
                                 Err(e) => Err(RuntimeError::new(e, *line, *column)),
                             }
                         } else {
-                            match self.io_client.read_file(&path_str).await {
+                            match self.io_client.read_file(&path_str, &self.budget).await {
                                 Ok(content) => {
                                     match env
                                         .borrow_mut()
@@ -4858,7 +5532,7 @@ impl Interpreter {
                                         Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                                     }
                                 }
-                                Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                                Err(e) => Err(self.file_read_error(e, *line, *column)),
                             }
                         }
                     }
@@ -5008,7 +5682,11 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.http_get(&url_str).await {
+                match self
+                    .io_client
+                    .http_get(&url_str, Arc::clone(&self.budget))
+                    .await
+                {
                     Ok(body) => {
                         match env
                             .borrow_mut()
@@ -5018,7 +5696,7 @@ impl Interpreter {
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
                     }
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
             }
             Statement::HttpPostStatement {
@@ -5053,7 +5731,11 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.http_post(&url_str, &data_str).await {
+                match self
+                    .io_client
+                    .http_post(&url_str, &data_str, Arc::clone(&self.budget))
+                    .await
+                {
                     Ok(body) => {
                         match env
                             .borrow_mut()
@@ -5063,7 +5745,7 @@ impl Interpreter {
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
                     }
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
             }
             Statement::HttpRequestStatement {
@@ -5171,7 +5853,13 @@ impl Interpreter {
 
                 match self
                     .io_client
-                    .http_request(&method_str, &url_str, &header_list, body_str)
+                    .http_request(
+                        &method_str,
+                        &url_str,
+                        &header_list,
+                        body_str,
+                        Arc::clone(&self.budget),
+                    )
                     .await
                 {
                     Ok((status, response_headers, response_body)) => {
@@ -5203,7 +5891,7 @@ impl Interpreter {
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
                     }
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
             }
             Statement::RepeatWhileLoop {
@@ -7528,19 +8216,31 @@ impl Interpreter {
                     .io_client
                     .execute_command(cmd_str, &args_refs, *use_shell, *line, *column)
                     .await
-                    .map_err(|e| {
-                        // Determine error kind based on error message
-                        let kind = if e.contains("program not found")
-                            || e.contains("cannot find")
-                            || e.contains("not recognized")
-                        {
-                            ErrorKind::CommandNotFound
-                        } else if e.contains("spawn") {
-                            ErrorKind::ProcessSpawnFailed
-                        } else {
-                            ErrorKind::General
-                        };
-                        RuntimeError::with_kind(e, *line, *column, kind)
+                    .map_err(|e| match e {
+                        ExecuteCommandError::Budget(exceeded) => {
+                            self.budget_error(exceeded, *line, *column)
+                        }
+                        ExecuteCommandError::Timeout { seconds } => RuntimeError::with_kind(
+                            format!("Subprocess execution exceeded timeout ({seconds}s)"),
+                            *line,
+                            *column,
+                            ErrorKind::Timeout,
+                        ),
+                        ExecuteCommandError::Other(message) => {
+                            // Preserve the existing subprocess error
+                            // classification for non-budget failures.
+                            let kind = if message.contains("program not found")
+                                || message.contains("cannot find")
+                                || message.contains("not recognized")
+                            {
+                                ErrorKind::CommandNotFound
+                            } else if message.contains("spawn") {
+                                ErrorKind::ProcessSpawnFailed
+                            } else {
+                                ErrorKind::General
+                            };
+                            RuntimeError::with_kind(message, *line, *column, kind)
+                        }
                     })?;
 
                 // Build result object
@@ -9730,9 +10430,9 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_file(&handle_str).await {
+                match self.io_client.read_file(&handle_str, &self.budget).await {
                     Ok(content) => Ok(Value::Text(content.into())),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Expression::ReadBinaryContent {
@@ -9757,9 +10457,9 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_binary(&handle_str).await {
+                match self.io_client.read_binary(&handle_str, &self.budget).await {
                     Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Expression::ReadBinaryN {
@@ -9796,20 +10496,7 @@ impl Interpreter {
                                 *column,
                             ));
                         }
-                        let count = *n as usize;
-                        // 50MB limit to prevent memory exhaustion
-                        const MAX_READ_BYTES: usize = 50 * 1024 * 1024;
-                        if count > MAX_READ_BYTES {
-                            return Err(RuntimeError::new(
-                                format!(
-                                    "Byte count {} exceeds maximum allowed ({})",
-                                    count, MAX_READ_BYTES
-                                ),
-                                *line,
-                                *column,
-                            ));
-                        }
-                        count
+                        *n as usize
                     }
                     _ => {
                         return Err(RuntimeError::new(
@@ -9823,9 +10510,13 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_binary_n(&handle_str, n).await {
+                match self
+                    .io_client
+                    .read_binary_n(&handle_str, n, &self.budget)
+                    .await
+                {
                     Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Expression::FileSizeOf {
@@ -10740,9 +11431,101 @@ mod header_lookup_tests {
 }
 
 #[cfg(test)]
+mod file_read_tests {
+    use super::*;
+    use crate::exec::budget::BudgetLimits;
+
+    fn budget_with_file_limit(limit: usize) -> ExecutionBudget {
+        let limits = BudgetLimits {
+            max_file_read_bytes: limit,
+            ..BudgetLimits::default()
+        };
+        ExecutionBudget::new(limits)
+    }
+
+    #[tokio::test]
+    async fn capped_read_stops_an_infinite_source_at_limit_plus_one() {
+        let budget = budget_with_file_limit(8);
+        let mut source = tokio::io::repeat(0xA5);
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            read_to_end_capped(&mut source, &budget, "test read"),
+        )
+        .await
+        .expect("bounded read must not wait for EOF from an infinite source");
+
+        assert!(matches!(
+            result,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes {
+                limit: 8,
+                actual: 9
+            }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn capped_read_allows_a_payload_exactly_at_the_limit() {
+        let budget = budget_with_file_limit(8);
+        let mut source = std::io::Cursor::new(b"12345678".to_vec());
+        let bytes = read_to_end_capped(&mut source, &budget, "test read")
+            .await
+            .expect("an exact-limit payload is valid");
+        assert_eq!(bytes, b"12345678");
+    }
+
+    #[tokio::test]
+    async fn text_and_binary_read_all_share_the_budget_ceiling() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("oversized.dat");
+        std::fs::write(&path, b"123456789").expect("fixture");
+        let path = path.to_string_lossy();
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        let budget = budget_with_file_limit(8);
+
+        let text_handle = client
+            .open_file_with_mode(&path, FileOpenMode::Read)
+            .await
+            .expect("open text fixture");
+        assert!(matches!(
+            client.read_file(&text_handle, &budget).await,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes { .. }))
+        ));
+        client.close_file(&text_handle).await.expect("close text");
+
+        let binary_handle = client
+            .open_file_with_mode(&path, FileOpenMode::ReadBinary)
+            .await
+            .expect("open binary fixture");
+        assert!(matches!(
+            client.read_binary(&binary_handle, &budget).await,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes { .. }))
+        ));
+        client
+            .close_file(&binary_handle)
+            .await
+            .expect("close binary");
+    }
+
+    #[tokio::test]
+    async fn explicit_binary_count_is_checked_before_allocation() {
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        let budget = budget_with_file_limit(8);
+        let result = client.read_binary_n("not-open", 9, &budget).await;
+        assert!(matches!(
+            result,
+            Err(FileReadError::Budget(BudgetExceeded::FileReadBytes {
+                limit: 8,
+                actual: 9
+            }))
+        ));
+    }
+}
+
+#[cfg(test)]
 mod process_tests {
     use super::*;
     use crate::config::ShellExecutionMode;
+    use crate::exec::budget::BudgetLimits;
 
     /// Config that permits subprocesses for lifecycle tests (not the secure default).
     fn permissive_process_config() -> Arc<WflConfig> {
@@ -10752,6 +11535,75 @@ mod process_tests {
             warn_on_shell_execution: false,
             ..Default::default()
         })
+    }
+
+    /// Invoke one ignored helper test in a fresh copy of this test binary. This
+    /// is cross-platform and avoids depending on optional shell utilities in CI.
+    fn test_helper_command(filter: &str) -> (String, Vec<String>) {
+        let executable = std::env::current_exe()
+            .expect("current test executable")
+            .to_string_lossy()
+            .into_owned();
+        let arguments = vec![
+            filter.to_string(),
+            "--ignored".to_string(),
+            "--nocapture".to_string(),
+            "--test-threads=1".to_string(),
+        ];
+        (executable, arguments)
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_floods_stdout_and_stderr() {
+        use std::io::Write as _;
+
+        let stdout_writer = std::thread::spawn(|| {
+            let chunk = [b'O'; 8192];
+            let mut stdout = std::io::stdout().lock();
+            for _ in 0..64 {
+                stdout.write_all(&chunk).expect("write helper stdout");
+            }
+            stdout.flush().expect("flush helper stdout");
+        });
+        let stderr_writer = std::thread::spawn(|| {
+            let chunk = [b'E'; 8192];
+            let mut stderr = std::io::stderr().lock();
+            for _ in 0..64 {
+                stderr.write_all(&chunk).expect("write helper stderr");
+            }
+            stderr.flush().expect("flush helper stderr");
+        });
+
+        stdout_writer.join().expect("stdout helper thread");
+        stderr_writer.join().expect("stderr helper thread");
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_stalls() {
+        std::thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    fn subprocess_test_helper_short_stall() {
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by foreground execution tests"]
+    // This fixture must drop the descendant handle: waiting would close the
+    // inherited-pipe window that the foreground cleanup regression exercises.
+    #[allow(clippy::zombie_processes)]
+    fn subprocess_test_helper_leaves_inherited_pipes_open() {
+        let (command, arguments) = test_helper_command("subprocess_test_helper_short_stall");
+        let _descendant = std::process::Command::new(command)
+            .args(arguments)
+            .spawn()
+            .expect("spawn descendant that inherits stdout/stderr");
+        // Drop the handle and return. The descendant deliberately outlives this
+        // direct child while retaining its inherited stdout/stderr handles.
     }
 
     #[tokio::test]
@@ -10766,6 +11618,7 @@ mod process_tests {
             result
         );
         let err = result.unwrap_err();
+        let err = err.to_string();
         assert!(
             err.contains("security policy") || err.contains("blocked") || err.contains("disabled"),
             "Error should mention policy: {}",
@@ -10813,6 +11666,153 @@ mod process_tests {
             stderr.is_empty() || stderr.trim().is_empty(),
             "Stderr should be empty"
         );
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_bounds_stdout_and_stderr() {
+        const STREAM_LIMIT: usize = 1024;
+
+        let mut config = (*permissive_process_config()).clone();
+        config.subprocess_config.max_buffer_size_bytes = STREAM_LIMIT;
+        let client = IoClient::new(Arc::new(config));
+        let (command, arguments) =
+            test_helper_command("subprocess_test_helper_floods_stdout_and_stderr");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+
+        let (stdout, stderr, exit_code) = tokio::time::timeout(
+            Duration::from_secs(10),
+            client.execute_command(&command, &argument_refs, false, 0, 0),
+        )
+        .await
+        .expect("chatty helper must not deadlock")
+        .expect("chatty helper should execute");
+
+        assert_eq!(exit_code, 0);
+        assert!(
+            stdout.len() <= STREAM_LIMIT,
+            "stdout retained {} bytes, limit is {STREAM_LIMIT}",
+            stdout.len()
+        );
+        assert!(
+            stderr.len() <= STREAM_LIMIT,
+            "stderr retained {} bytes, limit is {STREAM_LIMIT}",
+            stderr.len()
+        );
+        assert!(
+            !stdout.is_empty(),
+            "the bounded stdout tail should be retained"
+        );
+        assert!(
+            !stderr.is_empty(),
+            "the bounded stderr tail should be retained"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_kills_stalled_child_on_cancellation() {
+        let client = IoClient::new(permissive_process_config());
+        let (command, arguments) = test_helper_command("subprocess_test_helper_stalls");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let budget = Arc::new(ExecutionBudget::unlimited());
+        let cancellation_budget = Arc::clone(&budget);
+
+        let execution = ExecutionBudget::scope(
+            Arc::clone(&budget),
+            client.execute_command(&command, &argument_refs, false, 0, 0),
+        );
+        let cancel = async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancellation_budget.cancel();
+        };
+
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(execution, cancel)
+        })
+        .await
+        .expect("cancellation must terminate and reap the stalled child");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Budget(BudgetExceeded::Cancelled))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_kills_stalled_child_at_deadline() {
+        let client = IoClient::new(permissive_process_config());
+        let (command, arguments) = test_helper_command("subprocess_test_helper_stalls");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_duration = Some(Duration::from_millis(100));
+        let budget = Arc::new(ExecutionBudget::new(limits));
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ExecutionBudget::scope(
+                Arc::clone(&budget),
+                client.execute_command(&command, &argument_refs, false, 0, 0),
+            ),
+        )
+        .await
+        .expect("deadline must terminate and reap the stalled child");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Budget(BudgetExceeded::Deadline { .. }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_has_finite_timeout_inside_main_loop() {
+        let mut config = (*permissive_process_config()).clone();
+        config.timeout_seconds = 1;
+        let config = Arc::new(config);
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let _main_loop = budget.enter_main_loop();
+        let (command, arguments) = test_helper_command("subprocess_test_helper_stalls");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ExecutionBudget::scope(
+                Arc::clone(&budget),
+                client.execute_command(&command, &argument_refs, false, 0, 0),
+            ),
+        )
+        .await
+        .expect("a main-loop command must retain a finite per-operation timeout");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Timeout { seconds: 1 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_deadline_covers_inherited_pipe_drain() {
+        let client = IoClient::new(permissive_process_config());
+        let (command, arguments) =
+            test_helper_command("subprocess_test_helper_leaves_inherited_pipes_open");
+        let argument_refs: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_duration = Some(Duration::from_millis(300));
+        let budget = Arc::new(ExecutionBudget::new(limits));
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            ExecutionBudget::scope(
+                Arc::clone(&budget),
+                client.execute_command(&command, &argument_refs, false, 0, 0),
+            ),
+        )
+        .await
+        .expect("inherited pipes must not outlive the execution deadline");
+
+        assert!(matches!(
+            result,
+            Err(ExecuteCommandError::Budget(BudgetExceeded::Deadline { .. }))
+        ));
     }
 
     #[cfg(unix)]
