@@ -58,6 +58,7 @@ fn budget_keys_use_documented_defaults() {
     assert_eq!(cfg.max_pattern_steps, 5_000_000);
     assert_eq!(cfg.max_pattern_states, 10_000);
     assert_eq!(cfg.max_source_size, 64 * 1024 * 1024);
+    assert_eq!(cfg.max_file_read_size, 50 * 1024 * 1024);
     assert_eq!(cfg.web_server_max_response_size, 64 * 1024 * 1024);
     assert_eq!(cfg.web_socket_queue_bound, 1_024);
     assert_eq!(cfg.web_socket_max_connections, 1_024);
@@ -72,6 +73,7 @@ fn budget_keys_accept_overrides() {
          max_pattern_steps = 5000\n\
          max_pattern_states = 500\n\
          max_source_size = 4096\n\
+         max_file_read_size = 8192\n\
          web_server_max_response_size = 2048\n\
          web_socket_queue_bound = 32\n\
          web_socket_max_connections = 16\n",
@@ -82,6 +84,7 @@ fn budget_keys_accept_overrides() {
     assert_eq!(cfg.max_pattern_steps, 5000);
     assert_eq!(cfg.max_pattern_states, 500);
     assert_eq!(cfg.max_source_size, 4096);
+    assert_eq!(cfg.max_file_read_size, 8192);
     assert_eq!(cfg.web_server_max_response_size, 2048);
     assert_eq!(cfg.web_socket_queue_bound, 32);
     assert_eq!(cfg.web_socket_max_connections, 16);
@@ -99,9 +102,11 @@ fn max_operations_zero_means_unlimited() {
 #[test]
 fn zero_and_garbage_budget_values_keep_defaults() {
     // The positive-integer keys reject 0 and non-numeric input, keeping defaults.
-    let cfg = load_with_cfg("max_call_depth = 0\nmax_pattern_states = nope\n");
+    let cfg =
+        load_with_cfg("max_call_depth = 0\nmax_pattern_states = nope\nmax_file_read_size = 0\n");
     assert_eq!(cfg.max_call_depth, 1_000);
     assert_eq!(cfg.max_pattern_states, 10_000);
+    assert_eq!(cfg.max_file_read_size, 50 * 1024 * 1024);
 }
 
 // --- end-to-end enforcement ------------------------------------------------
@@ -170,6 +175,42 @@ fn oversized_source_is_refused() {
         !output.status.success(),
         "an oversized source must exit non-zero"
     );
+}
+
+#[test]
+fn oversized_text_file_read_is_a_resource_error() {
+    let binary = test_helpers::get_wfl_binary_path();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    fs::write(dir.path().join(".wflcfg"), "max_file_read_size = 8\n").expect("cfg");
+    let payload = dir.path().join("payload.txt");
+    fs::write(&payload, b"123456789").expect("payload");
+    let script = dir.path().join("program.wfl");
+    fs::write(
+        &script,
+        format!(
+            concat!(
+                "open file at \"{}\" for reading as reader\n",
+                "wait for store file_text as read content from reader\n"
+            ),
+            wfl_path(&payload)
+        ),
+    )
+    .expect("program");
+
+    let output = Command::new(binary)
+        .arg(&script)
+        .output()
+        .expect("run wfl binary");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("File read too large: 9 bytes (limit: 8 bytes)"),
+        "expected the file-read ceiling diagnostic; got:\n{combined}"
+    );
+    assert!(!output.status.success(), "an oversized read must fail");
 }
 
 #[test]

@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- **MCP file resources are restricted to bounded WFL sources inside the configured
+  workspace.** `resources/read` now canonicalizes file URIs, rejects traversal and
+  symlink escapes (including `.wflcfg`), caps returned source at 4 MiB, and no
+  longer echoes request or response bodies into diagnostic logs.
+- Unsupported database URL errors no longer echo the full connection URL,
+  preventing embedded credentials from being disclosed in diagnostics.
 - Package filesystem operations now enforce the manifest's package-name rules,
   reject symlinked cache/install roots and targets, verify canonical directory
   containment before recursive deletion, and prevent archive extraction through
@@ -38,6 +44,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Registry login supports an explicit registry address.** `wfl login
   [registry]` scopes a token to that HTTPS origin, mismatched logins are
   rejected, and `wfl logout` can recover malformed or incomplete credentials.
+- **Cyclic values no longer abort the interpreter during display, diagnostics,
+  or isolated-module cloning.** List/object formatting now detects cycles and
+  caps nesting depth, while deep clones preserve cycles and shared references
+  inside the cloned graph.
 - **Subprocess policy is enforced on every process launch** (shell path and
   direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
   related checks ran only when the engine believed a shell was required, so

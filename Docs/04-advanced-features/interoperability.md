@@ -92,6 +92,15 @@ Non-2xx statuses are not errors — check `resp.ok` or `resp.status`
 yourself. Network failures (DNS, connection refused) still raise errors you
 can `try`/`catch`.
 
+Outbound responses are streamed and decoded into a bounded buffer. The
+`web_server_max_response_size` setting (64 MiB by default) limits the response
+body for `read content` and `read response`, both as received and after text
+decoding. The limit includes chunked responses with no declared length. Outside
+a `main loop`, the connection and body read share the script's remaining
+`timeout_seconds`; inside a lifetime-exempt `main loop`, each request gets a
+fresh timeout of that duration. Cooperative cancellation also interrupts a
+request that is waiting on the remote peer.
+
 **Note:** inside an `open url` statement the words `method`, `headers`, and
 `body` introduce clauses, so use different variable names there (e.g.
 `request_headers`, `payload`).

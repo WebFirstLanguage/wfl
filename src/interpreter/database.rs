@@ -123,9 +123,10 @@ pub async fn connect(url: &str) -> Result<DbPool, String> {
             .map(DbPool::MySql)
             .map_err(|e| format!("Failed to connect to MariaDB/MySQL database: {e}"))
     } else {
-        Err(format!(
-            "Unsupported database URL '{url}'. Supported schemes: sqlite://, postgres://, postgresql://, mysql://, mariadb://"
-        ))
+        Err(
+            "Unsupported database URL scheme. Supported schemes: sqlite://, postgres://, postgresql://, mysql://, mariadb://"
+                .to_string(),
+        )
     }
 }
 
@@ -418,6 +419,21 @@ row_to_value!(mysql_row_to_value, MySqlRow, mysql_int);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn unsupported_database_url_does_not_echo_credentials() {
+        const SECRET: &str = "WFL_TEST_SECRET_unsupported_password_d5e0ec";
+        let url = format!("oracle://wfl:{SECRET}@database.example/app");
+
+        let error = match connect(&url).await {
+            Ok(_) => panic!("unsupported database URL unexpectedly connected"),
+            Err(error) => error,
+        };
+
+        assert!(error.contains("Unsupported database URL scheme"));
+        assert!(!error.contains(SECRET));
+        assert!(!error.contains(url.as_str()));
+    }
 
     #[test]
     fn whole_numbers_bind_as_integers() {

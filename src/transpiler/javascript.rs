@@ -965,7 +965,11 @@ impl JavaScriptTranspiler {
                     result.push_str(&format!("{}super();\n", self.indent()));
                 }
                 result.push_str(&format!("{}this._wfl_container = true;\n", self.indent()));
-                result.push_str(&format!("{}this._wfl_type = '{}';\n", self.indent(), name));
+                result.push_str(&format!(
+                    "{}this._wfl_type = {};\n",
+                    self.indent(),
+                    js_string_literal(name)
+                ));
 
                 // Initialize properties
                 for prop in properties {
@@ -1174,9 +1178,9 @@ impl JavaScriptTranspiler {
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 Ok(format!(
-                    "{}this.dispatchEvent(new CustomEvent('{}', {{ detail: [{}] }}));\n",
+                    "{}this.dispatchEvent(new CustomEvent({}, {{ detail: [{}] }}));\n",
                     self.indent(),
-                    name,
+                    js_string_literal(name),
                     args
                 ))
             }
@@ -1189,10 +1193,10 @@ impl JavaScriptTranspiler {
             } => {
                 let source = self.transpile_expression(event_source)?;
                 let mut result = format!(
-                    "{}{}.addEventListener('{}', (event) => {{\n",
+                    "{}{}.addEventListener({}, (event) => {{\n",
                     self.indent(),
                     source,
-                    event_name
+                    js_string_literal(event_name)
                 );
                 self.push_indent();
                 for s in handler_body {
@@ -1411,9 +1415,9 @@ impl JavaScriptTranspiler {
                     _ => signal_type,
                 };
                 Ok(format!(
-                    "{}process.on('{}', {});\n",
+                    "{}process.on({}, {});\n",
                     self.indent(),
-                    signal,
+                    js_string_literal(signal),
                     self.sanitize_name(handler_name)
                 ))
             }
@@ -1439,7 +1443,7 @@ impl JavaScriptTranspiler {
                 let mut result = format!(
                     "{}describe({}, function() {{\n",
                     self.indent(),
-                    self.escape_string(description)
+                    js_string_literal(description)
                 );
                 self.push_indent();
                 // Transpile setup (beforeEach)
@@ -1477,7 +1481,7 @@ impl JavaScriptTranspiler {
                 let mut result = format!(
                     "{}it({}, function() {{\n",
                     self.indent(),
-                    self.escape_string(description)
+                    js_string_literal(description)
                 );
                 self.push_indent();
                 for stmt in body {
@@ -1572,7 +1576,7 @@ impl JavaScriptTranspiler {
                         "{}expect(typeof {}).toBe({});\n",
                         self.indent(),
                         subject_expr,
-                        self.escape_string(type_name)
+                        js_string_literal(type_name)
                     )),
                 }
             }
@@ -1776,17 +1780,18 @@ impl JavaScriptTranspiler {
                 // Request variable from WaitForRequest resolves to { request, response }
                 // We use an IIFE to cache the request variable evaluation.
                 Ok(format!(
-                    "(() => {{ const __req = {}; return (__req.request || __req).headers['{}']; }})()",
+                    "(() => {{ const __req = {}; return (__req.request || __req).headers[{}]; }})()",
                     req,
-                    header_name.to_lowercase()
+                    js_string_literal(&header_name.to_lowercase())
                 ))
             }
 
             Expression::CurrentTimeMilliseconds { .. } => Ok("Date.now()".to_string()),
 
-            Expression::CurrentTimeFormatted { format, .. } => {
-                Ok(format!("WFL.time.format(new Date(), '{}')", format))
-            }
+            Expression::CurrentTimeFormatted { format, .. } => Ok(format!(
+                "WFL.time.format(new Date(), {})",
+                js_string_literal(format)
+            )),
 
             Expression::FileExists { path, .. } => {
                 let p = self.transpile_expression(path)?;
@@ -1875,7 +1880,7 @@ impl JavaScriptTranspiler {
     /// Transpile a literal to JavaScript
     fn transpile_literal(&self, lit: &Literal) -> Result<String, TranspileError> {
         match lit {
-            Literal::String(s) => Ok(format!("\"{}\"", self.escape_string(s))),
+            Literal::String(s) => Ok(js_string_literal(s)),
             Literal::Integer(i) => Ok(i.to_string()),
             Literal::Float(f) => Ok(f.to_string()),
             Literal::Boolean(b) => Ok(if *b { "true" } else { "false" }.to_string()),
@@ -2029,7 +2034,7 @@ impl JavaScriptTranspiler {
     /// Convert a simple pattern string to a regex
     fn pattern_to_regex(&self, pattern: &str) -> String {
         // For simple patterns, just escape regex special characters
-        format!("\"{}\"", regex_escape(pattern))
+        js_string_literal(&regex_escape(pattern))
     }
 
     /// Check if a list of statements contains any async operations
@@ -2188,15 +2193,6 @@ impl JavaScriptTranspiler {
         result
     }
 
-    /// Escape a string for JavaScript
-    fn escape_string(&self, s: &str) -> String {
-        s.replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-            .replace('\t', "\\t")
-    }
-
     /// Escape a key for JavaScript object literal
     fn escape_key(&self, key: &str) -> String {
         // Check if key is a valid identifier
@@ -2210,7 +2206,7 @@ impl JavaScriptTranspiler {
         if is_valid_identifier {
             key.to_string()
         } else {
-            format!("\"{}\"", self.escape_string(key))
+            js_string_literal(key)
         }
     }
 }
@@ -2226,17 +2222,74 @@ impl Clone for JavaScriptTranspiler {
     }
 }
 
-/// Escape special regex characters in a string
+/// Encode a JavaScript string literal without allowing its contents to alter
+/// the surrounding generated program.
+fn js_string_literal(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 2);
+    result.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => result.push_str("\\\""),
+            '\\' => result.push_str("\\\\"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\u{0008}' => result.push_str("\\b"),
+            '\u{000C}' => result.push_str("\\f"),
+            '\u{2028}' => result.push_str("\\u2028"),
+            '\u{2029}' => result.push_str("\\u2029"),
+            c if c.is_control() => {
+                use std::fmt::Write;
+                write!(&mut result, "\\u{:04x}", c as u32)
+                    .expect("writing to a String cannot fail");
+            }
+            c => result.push(c),
+        }
+    }
+    result.push('"');
+    result
+}
+
+/// Escape special regex characters and regex-literal delimiters in a string.
 fn regex_escape(s: &str) -> String {
     let special_chars = [
         '.', '*', '+', '?', '^', '$', '{', '}', '[', ']', '(', ')', '|', '\\',
     ];
     let mut result = String::with_capacity(s.len() * 2);
     for c in s.chars() {
-        if special_chars.contains(&c) {
-            result.push('\\');
+        match c {
+            '/' => result.push_str("\\/"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\u{2028}' => result.push_str("\\u2028"),
+            '\u{2029}' => result.push_str("\\u2029"),
+            c if special_chars.contains(&c) => {
+                result.push('\\');
+                result.push(c);
+            }
+            c => result.push(c),
         }
-        result.push(c);
     }
     result
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::{js_string_literal, regex_escape};
+
+    #[test]
+    fn javascript_string_literal_escapes_code_boundaries_and_line_separators() {
+        assert_eq!(
+            js_string_literal("\"');\n\r\t\u{0000}\u{2028}\u{2029}\\"),
+            "\"\\\"');\\n\\r\\t\\u0000\\u2028\\u2029\\\\\""
+        );
+    }
+
+    #[test]
+    fn regex_literal_text_cannot_close_the_generated_literal() {
+        assert_eq!(
+            regex_escape("safe/;globalThis.pwned=true;//\n"),
+            r"safe\/;globalThis\.pwned=true;\/\/\n"
+        );
+    }
 }

@@ -2225,3 +2225,69 @@ fn try_statement_parses_finally_and_named_error_binding() {
         other => panic!("expected a try statement, got {other:?}"),
     }
 }
+
+#[test]
+fn pattern_quantifier_rejects_descending_numeric_range() {
+    let input = "create pattern bounded:\n    10 to 1 digit\nend pattern";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let error = parser
+        .parse_statement()
+        .expect_err("a descending pattern range must be rejected");
+
+    assert!(
+        error.message.contains("lower bound") && error.message.contains("upper bound"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn pattern_quantifier_rejects_counts_outside_u32_range() {
+    for body in [
+        "exactly 4294967296 digit",
+        "exactly 9223372036854775807 digit",
+        "1 to 4294967296 digit",
+        "digit exactly 4294967296",
+        "digit between 1 and 4294967296",
+    ] {
+        let input = format!("create pattern bounded:\n    {body}\nend pattern");
+        let tokens = lex_wfl_with_positions(&input);
+        let mut parser = Parser::new(&tokens);
+
+        let error = parser
+            .parse_statement()
+            .expect_err("out-of-range quantifier must be rejected");
+        assert!(
+            error.message.contains("between 0 and"),
+            "unexpected error for `{body}`: {error}"
+        );
+    }
+}
+
+#[test]
+fn normal_pattern_quantifier_counts_remain_compatible() {
+    let cases = [
+        ("exactly 3 digit", Quantifier::Exactly(3)),
+        ("2 to 6 digit", Quantifier::Between(2, 6)),
+        ("digit exactly 4", Quantifier::Exactly(4)),
+        ("digit between 1 and 5", Quantifier::Between(1, 5)),
+    ];
+
+    for (body, expected_quantifier) in cases {
+        let input = format!("create pattern bounded:\n    {body}\nend pattern");
+        let tokens = lex_wfl_with_positions(&input);
+        let mut parser = Parser::new(&tokens);
+        let statement = parser
+            .parse_statement()
+            .unwrap_or_else(|error| panic!("expected `{body}` to parse: {error}"));
+
+        let Statement::PatternDefinition { pattern, .. } = statement else {
+            panic!("expected a pattern definition for `{body}`");
+        };
+        let PatternExpression::Quantified { quantifier, .. } = pattern else {
+            panic!("expected a quantified pattern for `{body}`, got {pattern:?}");
+        };
+        assert_eq!(quantifier, expected_quantifier, "body: `{body}`");
+    }
+}
