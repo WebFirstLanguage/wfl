@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Security
+- Package filesystem operations now enforce the manifest's package-name rules,
+  reject symlinked cache/install roots and targets, verify canonical directory
+  containment before recursive deletion, and prevent archive extraction through
+  pre-existing symlink ancestors.
 - **WFL package publishing now keeps credentials registry-scoped.** A
   project-controlled `registry` setting can no longer redirect a saved token to
   another origin; registry URLs are canonicalized and must use HTTPS without
