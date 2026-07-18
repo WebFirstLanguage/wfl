@@ -1148,7 +1148,15 @@ mod tests {
         let mut limits = tiny_limits();
         limits.max_duration = Some(Duration::from_secs(0));
         let budget = ExecutionBudget::new(limits);
-        // A zero-second deadline is already elapsed at the first sample point.
+        // The deadline trips when `elapsed() > limit`, so a zero-second deadline
+        // is only "elapsed" once the monotonic clock has advanced at least one
+        // tick past creation. `Instant`'s resolution is coarse on some platforms
+        // (notably Windows), where the first charge can otherwise land within the
+        // same tick and read `elapsed() == 0`. Spin until the clock moves so the
+        // assertion is deterministic rather than racing the timer.
+        while budget.elapsed() == Duration::ZERO {
+            std::hint::spin_loop();
+        }
         assert_eq!(
             budget.charge_operation(true),
             Err(BudgetExceeded::Deadline { limit_secs: 0 })
@@ -1244,6 +1252,13 @@ mod tests {
         let mut limits = tiny_limits();
         limits.max_duration = Some(Duration::from_secs(0));
         let budget = Arc::new(ExecutionBudget::new(limits));
+        // See `deadline_trips_when_elapsed`: the zero-second deadline only trips
+        // once the monotonic clock has moved past creation. Wait for the first
+        // tick so the post-main-loop assertion below is deterministic on
+        // coarse-resolution timers (e.g. Windows).
+        while budget.elapsed() == Duration::ZERO {
+            std::hint::spin_loop();
+        }
         // ONE meter reused across a main-loop boundary (the VM-reuse case);
         // `reset()` runs per top-level op, so each op's first charge (index 0) is
         // a sample point.
