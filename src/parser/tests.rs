@@ -2968,7 +2968,10 @@ display "start" push with numbers and 5
         other => panic!("Expected a DisplayStatement, got: {other:?}"),
     }
     assert!(
-        matches!(&statements[display_index + 1], Statement::PushStatement { .. }),
+        matches!(
+            &statements[display_index + 1],
+            Statement::PushStatement { .. }
+        ),
         "expected `push with numbers and 5` to parse as its own statement, got: {:?}",
         statements[display_index + 1]
     );
@@ -3072,6 +3075,15 @@ end action
 }
 
 // --- Centralization: `is_value_start` cannot drift from `parse_primary_expression` ----
+//
+// The primary enforcement is a pair of `debug_assert!`s inside
+// `parse_primary_expression` itself (`src/parser/expr/primary.rs`), which
+// compare `can_start_primary_expression`'s prediction against the real
+// dispatch on *every* primary-expression parse in every debug build — every
+// test below, every `TestPrograms/*.wfl` run, every program compiled without
+// `--release`. The test in this section is a curated, documented sample
+// kept for explicit coverage of each keyword-led arm, not the only thing
+// standing between the two staying in sync.
 
 /// Returns `true` if parsing `input` as a primary expression falls all the
 /// way through to `parse_primary_expression`'s final

@@ -243,27 +243,45 @@ impl<'a> Parser<'a> {
     /// to parse a standalone value, rather than falling through to that
     /// function's final `_ => Err("Unexpected token in expression")` arm.
     ///
-    /// This is the single source of truth for "can this token begin a primary
-    /// expression" — `is_value_start` below is defined in terms of it (primary
-    /// starters minus an explicit, documented exclusion list) instead of
-    /// maintaining its own independent token list, so the two can no longer
-    /// silently drift apart as `parse_primary_expression` grows new arms.
-    /// `parser/tests.rs` has a coupling test
-    /// (`can_start_primary_expression_matches_parse_primary_expression`) that
-    /// feeds a representative token of every `Token` variant through both
-    /// this predicate and an actual `parse_primary_expression` call and
-    /// asserts they agree — so an arm added to one without the other fails a
-    /// test instead of quietly drifting.
+    /// `is_value_start` below is defined in terms of this predicate (primary
+    /// starters minus an explicit, documented exclusion list) rather than
+    /// maintaining its own independent token list, so display folding can
+    /// never accept a token the expression parser itself would reject.
+    ///
+    /// This function is still a hand-maintained `matches!` for the explicit
+    /// keyword-led arms below — that half is *not* structurally incapable of
+    /// drifting from `parse_primary_expression`. What actually enforces the
+    /// coupling is `parse_primary_expression` itself (`src/parser/expr/primary.rs`):
+    /// it wraps its real dispatch (`parse_primary_expression_dispatch`) in a
+    /// pair of `debug_assert!`s that compare this predicate's prediction
+    /// against what the dispatch actually did, on every call, in every debug
+    /// build — not a hand-picked sample, but every parser test, every
+    /// `TestPrograms/*.wfl` run, and every program compiled in a debug build.
+    /// An arm added to `parse_primary_expression` without a matching update
+    /// here (or the reverse) panics the first time anything exercises that
+    /// token, rather than only when a maintained sample list happens to cover
+    /// it.
+    /// `parser/tests.rs` additionally has an explicit, documented coupling
+    /// test (`can_start_primary_expression_matches_parse_primary_expression`)
+    /// covering a curated sample, kept as much for its documentation value as
+    /// its enforcement.
+    ///
+    /// The contextual-keyword half genuinely cannot drift, structurally:
+    /// both this predicate's `|| token.is_contextual_keyword()` and
+    /// `parse_primary_expression`'s catch-all
+    /// (`_ if token.is_contextual_keyword()`) call the exact same
+    /// `Token::is_contextual_keyword` function, so there is only one list to
+    /// maintain for every contextual keyword (`text`, `map`, `contains`,
+    /// `create`, `new`, ...) — adding one there automatically updates both
+    /// call sites at once.
     ///
     /// Mirrors, in match order: the literal/bracket/paren/identifier arms; the
     /// explicit keyword-led arms (`call`, `not`, `-` unary, `with`, `count`,
     /// `pattern`, `loop`, `output`, `repeat`, `exit`, `back`, `try`, `when`,
     /// `error`, `file`, `directory`, `process`, `header`, `current`, `list`,
     /// `read`, `find`, `replace`, `split`); and finally the contextual-keyword
-    /// catch-all (`_ if token.is_contextual_keyword()`), which covers every
-    /// other contextual keyword (e.g. `text`, `map`, `contains`, `create`,
-    /// `new`, ...) as a bare variable reference. `Token::Eol` has its own arm
-    /// but it always errors, so it is excluded here.
+    /// catch-all described above. `Token::Eol` has its own arm but it always
+    /// errors, so it is excluded here.
     pub(crate) fn can_start_primary_expression(token: &Token) -> bool {
         matches!(
             token,

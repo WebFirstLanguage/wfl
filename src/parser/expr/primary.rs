@@ -20,6 +20,74 @@ pub(crate) trait PrimaryExprParser<'a> {
 
 impl<'a> PrimaryExprParser<'a> for Parser<'a> {
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
+        let leading = self.cursor.peek().cloned();
+        let result = self.parse_primary_expression_dispatch();
+
+        // Runtime coupling check between `can_start_primary_expression` (the
+        // predicate `display`'s multi-value fold is built on, in
+        // `src/parser/helpers.rs`) and this function's *actual* dispatch
+        // below. Unlike a hand-picked sample test, this runs on every
+        // primary-expression parse — every parser test, every
+        // `TestPrograms/*.wfl` run, every program compiled in a debug build —
+        // so a new dispatch arm added below without updating
+        // `can_start_primary_expression` (or the reverse) panics the first
+        // time anything exercises that token. Compiled out entirely in
+        // release builds, like the rest of this crate's `debug_assert!`
+        // invariants.
+        //
+        // Only the "predicted true" direction also checks position, not just
+        // message text: an arm that recurses (e.g. `file size of <expr>`) can
+        // propagate a nested failure's "Unexpected token in expression" text
+        // up through `?`, but that nested error's position belongs to
+        // whatever token deep inside actually failed, not to `leading` — so
+        // requiring both the message *and* the position to match tells "this
+        // token itself has no arm" apart from "this token's arm recursed into
+        // something else that failed". The "predicted false" direction needs
+        // no such check: every token classified as a non-starter always
+        // dispatches to an arm that errors unconditionally.
+        if let Some(leading) = leading {
+            let predicted_can_start = Self::can_start_primary_expression(&leading.token);
+            if !predicted_can_start {
+                debug_assert!(
+                    result.is_err(),
+                    "can_start_primary_expression predicted {:?} could not start an \
+                     expression, but parse_primary_expression succeeded",
+                    leading.token
+                );
+            } else {
+                let fell_through_to_fallback = if let Err(error) = &result {
+                    error.message.contains("Unexpected token in expression")
+                        && error.line == leading.line
+                        && error.column == leading.column
+                } else {
+                    false
+                };
+                debug_assert!(
+                    !fell_through_to_fallback,
+                    "can_start_primary_expression predicted {:?} could start an \
+                     expression, but parse_primary_expression had no dedicated arm for it",
+                    leading.token
+                );
+            }
+        }
+
+        result
+    }
+
+    fn parse_list_element(&mut self) -> Result<Expression, ParseError> {
+        // Parse a single list element without parsing binary operators
+        // This prevents "and" from being interpreted as a boolean operator
+        self.parse_primary_expression()
+    }
+}
+
+impl<'a> Parser<'a> {
+    /// The actual primary-expression dispatch. Call `parse_primary_expression`
+    /// (the trait method above), not this directly — it wraps this function
+    /// with a debug-only check that keeps `can_start_primary_expression` from
+    /// silently drifting away from what this dispatch really accepts, and
+    /// recursive calls from within the arms below go through that wrapper too.
+    fn parse_primary_expression_dispatch(&mut self) -> Result<Expression, ParseError> {
         // Strided run-budget checkpoint. Every operand (list element, operator-
         // chain term, call argument) routes through here, so this bounds a single
         // huge expression that the statement-boundary checkpoint would miss.
@@ -1293,11 +1361,5 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 0,
             ))
         }
-    }
-
-    fn parse_list_element(&mut self) -> Result<Expression, ParseError> {
-        // Parse a single list element without parsing binary operators
-        // This prevents "and" from being interpreted as a boolean operator
-        self.parse_primary_expression()
     }
 }

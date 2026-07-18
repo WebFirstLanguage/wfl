@@ -231,17 +231,24 @@ fn keyword_led_values_fold_with_exact_output() {
     // (nothing ever creates it) and independent of the test's working
     // directory or any files a developer happens to have lying around in the
     // repo root.
-    let missing_path = test_helpers::get_unique_test_file_path(
-        "display_multiple_values_stdout_does_not_exist",
-    )
-    .with_extension("missing");
+    let missing_path =
+        test_helpers::get_unique_test_file_path("display_multiple_values_stdout_does_not_exist")
+            .with_extension("missing");
     let missing_path = missing_path.to_str().expect("path should be valid UTF-8");
+    // WFL string literals only recognize `\n`, `\t`, `\r`, `\\`, `\0`, and `\"`
+    // as escapes (see `parse_string` in `src/lexer/token.rs`); anything else
+    // after a backslash is a lex error. On Windows, `missing_path` is an
+    // absolute path with `\`-separated components (e.g. `C:\Users\...\Temp\...`),
+    // so embedding it verbatim in a string literal below would frequently hit
+    // an invalid escape (`\U`, `\T`, ...) and fail to lex. Escape each `\` as
+    // `\\` so the embedded literal round-trips to the exact same path.
+    let missing_path_escaped = missing_path.replace('\\', "\\\\");
 
     let stdout = run_wfl(&format!(
         r#"
 store is_admin as no
 display "is admin: " not is_admin
-display "exists: " file exists at "{missing_path}"
+display "exists: " file exists at "{missing_path_escaped}"
 count from 1 to 3:
     display "count is " count
 end count

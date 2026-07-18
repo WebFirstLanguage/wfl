@@ -262,3 +262,70 @@ tested as whole programs rather than trusted by inspection.
   pass was verified by careful manual trace against the current source rather
   than a local build — flagged as a blocker in the PR thread, consistent with
   the deep-review pass's first attempt.
+
+## Third-head follow-up: fixing CI formatting, a Windows path bug, and real centralization
+
+A third maintainer review of `e95b0a2` found CI red on `cargo fmt --all --
+--check` (two call sites over rustfmt's 100-column width), a Windows-specific
+lexer bug in the new stdout test, and — the substantive finding — that
+`can_start_primary_expression` was *still* an independently hand-maintained
+`matches!` list, no different in kind from the token list it replaced; only
+the coupling *test* had changed, not the coupling itself.
+
+- **Formatting.** Reformatted the `PushStatement` `matches!` assertion in
+  `src/parser/tests.rs` and the `missing_path` builder in
+  `tests/display_multiple_values_stdout_test.rs` to match rustfmt's actual
+  output (confirmed against the CI diff for run `29660025888`, since `cargo
+  fmt` itself was not runnable locally — see the tooling note above, still
+  unresolved this pass).
+- **Windows-unsafe path interpolation.** `env::temp_dir()` on Windows returns
+  a `\`-separated path (e.g. `C:\Users\...\Temp\...`), and WFL string literals
+  only recognize `\n`, `\t`, `\r`, `\\`, `\0`, and `\"` as escapes (see
+  `parse_string` in `src/lexer/token.rs`) — anything else after a backslash is
+  a lex error. The `keyword_led_values_fold_with_exact_output` stdout test
+  embedded `missing_path` directly into a WFL string literal, so on Windows a
+  component like `\Local` or `\Temp` would lex as an invalid escape and fail
+  the whole test. Fixed by escaping each `\` as `\\` before interpolating, so
+  the embedded literal round-trips to the exact same path on every OS.
+- **Actual centralization.** The previous pass's `can_start_primary_expression`
+  was compared against `parse_primary_expression` only by a *sample-based*
+  unit test — a real improvement in coverage, but structurally the same kind
+  of list `is_value_start` always was: a new `parse_primary_expression` arm
+  for a token outside the sample would still silently pass every test. Fixing
+  this without hand-enumerating the ~200-variant `Token` enum meant moving the
+  enforcement out of a test and into the parser itself:
+  `parse_primary_expression` (`src/parser/expr/primary.rs`) is now a thin
+  wrapper around its real dispatch, renamed
+  `parse_primary_expression_dispatch`. The wrapper captures the leading token
+  before dispatching, then compares `can_start_primary_expression`'s
+  prediction against what the dispatch actually did — via a pair of
+  `debug_assert!`s, compiled out in release builds like the rest of this
+  crate's runtime invariants. This runs on *every* primary-expression parse,
+  not a curated sample: every parser test, every `TestPrograms/*.wfl` run,
+  every program compiled in a debug build. A new dispatch arm added without
+  updating the predicate (or the reverse) now panics the first time anything
+  exercises that token, rather than only when someone remembers to extend a
+  hand-picked list.
+
+  The one subtlety worth recording: naively comparing the *error message text*
+  between the two functions is unsound, because an arm that recurses (e.g.
+  `file size of <expr>`) can propagate a *nested* failure's generic
+  "Unexpected token in expression" text up through `?` even though the
+  *leading* token (`file`) genuinely has a dedicated arm. The fix compares
+  message text *and* source position: the generic fallback error is always
+  raised at the exact position of whichever token triggered it, and every arm
+  consumes its own leading token via `bump_sync()` before recursing into
+  anything else — so a nested failure's position is always strictly later
+  than the leading token's, never coincidentally equal. Requiring both to
+  match distinguishes "this token itself has no arm" from "this token's arm
+  recursed into something else that failed." The existing sample-based
+  coupling test in `parser/tests.rs` is kept as explicit, documented coverage
+  of each keyword-led arm, but it is no longer the only thing standing between
+  the two staying in sync.
+- **Tooling note (unresolved).** `cargo`, `rustc`, and `git` mutating commands
+  still require approval with no human available to grant it in this session.
+  This pass, like the two before it, was verified by careful manual trace
+  against the current source — including hand-tracing every
+  `parse_primary_expression` arm's error paths against the new `debug_assert!`
+  logic above to rule out false positives — rather than a local build. CI is
+  the first real compiler/test run these changes see.
