@@ -1,0 +1,13 @@
+// Display several values at once (Docs/02-getting-started/hello-world.md).
+// Quoted text is shown as-is; a variable or expression is evaluated first.
+// The space-separated form is shorthand for joining values with `with`.
+
+store name as "Alice"
+display "Hello, " name "!"                 // Hello, Alice!
+
+// Exactly the same result, written with `with`:
+display "Hello, " with name with "!"       // Hello, Alice!
+
+// Spaces come from the quotes, not from the join:
+store age as 25
+display "I am " age " years old"           // I am 25 years old

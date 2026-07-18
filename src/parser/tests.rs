@@ -2291,3 +2291,203 @@ fn normal_pattern_quantifier_counts_remain_compatible() {
         assert_eq!(quantifier, expected_quantifier, "body: `{body}`");
     }
 }
+
+// --- Multi-value `display` (concatenation of space-separated values) ---
+//
+// `display` accepts more than one space-separated value: quoted text is a
+// string literal, anything else is a variable/expression, and the values are
+// folded into a single left-associative Concatenation (identical semantics to
+// joining them with `with`). See parse_display_statement in stmt/io.rs.
+
+#[test]
+fn test_display_multiple_values_string_then_var() {
+    let input = r#"display "user age is " user age"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse multi-value display: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    let Expression::Concatenation { left, right, .. } = value else {
+        panic!("Expected Concatenation, got: {value:?}");
+    };
+    match *left {
+        Expression::Literal(Literal::String(ref s), ..) => {
+            assert_eq!(
+                s.as_ref(),
+                "user age is ",
+                "left should be the string literal"
+            )
+        }
+        other => panic!("Expected string literal on left, got: {other:?}"),
+    }
+    match *right {
+        Expression::Variable(ref name, ..) => {
+            assert_eq!(name, "user age", "right should be the variable 'user age'")
+        }
+        other => panic!("Expected variable on right, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_display_multiple_values_var_then_string() {
+    let input = r#"display user age " is the age""#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse multi-value display: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    let Expression::Concatenation { left, right, .. } = value else {
+        panic!("Expected Concatenation, got: {value:?}");
+    };
+    match *left {
+        Expression::Variable(ref name, ..) => {
+            assert_eq!(name, "user age", "left should be the variable 'user age'")
+        }
+        other => panic!("Expected variable on left, got: {other:?}"),
+    }
+    match *right {
+        Expression::Literal(Literal::String(ref s), ..) => {
+            assert_eq!(
+                s.as_ref(),
+                " is the age",
+                "right should be the string literal"
+            )
+        }
+        other => panic!("Expected string literal on right, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_display_three_values_left_associative() {
+    let input = r#"display "a" middle "b""#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse three-value display: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    // Left-associative: (("a" with middle) with "b")
+    let Expression::Concatenation { left, right, .. } = value else {
+        panic!("Expected outer Concatenation, got: {value:?}");
+    };
+    match *right {
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "b"),
+        other => panic!("Expected string 'b' on outer right, got: {other:?}"),
+    }
+    let Expression::Concatenation {
+        left: inner_left,
+        right: inner_right,
+        ..
+    } = *left
+    else {
+        panic!("Expected inner Concatenation on left");
+    };
+    match *inner_left {
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "a"),
+        other => panic!("Expected string 'a' on inner left, got: {other:?}"),
+    }
+    match *inner_right {
+        Expression::Variable(ref name, ..) => assert_eq!(name, "middle"),
+        other => panic!("Expected variable 'middle' on inner right, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_display_direct_index_not_concatenated() {
+    // Regression: `display numbers 0` must stay a single IndexAccess, NOT
+    // become a concatenation of `numbers` and `0`.
+    let input = r#"display numbers 0"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse direct index display: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    assert!(
+        matches!(value, Expression::IndexAccess { .. }),
+        "Expected IndexAccess, got: {value:?}"
+    );
+}
+
+#[test]
+fn test_display_single_value_unchanged() {
+    // Regression: a single value is still a bare expression, not a Concatenation.
+    let input = r#"display user age"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse single-value display: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    match value {
+        Expression::Variable(ref name, ..) => assert_eq!(name, "user age"),
+        other => panic!("Expected bare Variable, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_display_multiple_values_does_not_leak_into_next_statement() {
+    // The trailing value must be consumed by `display`, leaving the following
+    // statement (here `change`) to parse normally on the next line.
+    let input = "display \"user age is \" user age\nchange user age to 9";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let program = parser
+        .parse()
+        .unwrap_or_else(|errors| panic!("Expected the program to parse: {errors:?}"));
+    assert_eq!(
+        program.statements.len(),
+        2,
+        "Expected exactly two statements, got: {:?}",
+        program.statements
+    );
+    assert!(
+        matches!(
+            program.statements[0],
+            Statement::DisplayStatement {
+                value: Expression::Concatenation { .. },
+                ..
+            }
+        ),
+        "Expected a Concatenation DisplayStatement, got: {:?}",
+        program.statements[0]
+    );
+    assert!(
+        matches!(program.statements[1], Statement::Assignment { .. }),
+        "Expected the following `change` to parse as an Assignment, got: {:?}",
+        program.statements[1]
+    );
+}

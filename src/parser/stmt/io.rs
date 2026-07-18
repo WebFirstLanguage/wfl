@@ -392,207 +392,44 @@ impl<'a> IoParser<'a> for Parser<'a> {
     }
 
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
-        self.bump_sync(); // Consume "display"
+        // Anchor the statement at the `display` keyword itself.
+        let (line, column) = self
+            .bump_sync() // Consume "display"
+            .map_or((0, 0), |token| (token.line, token.column));
 
-        let expr = self.parse_expression()?;
+        // Parse the first value.
+        let mut value = self.parse_expression()?;
 
-        let token_pos = if let Some(token) = self.cursor.peek() {
-            token
-        } else {
-            return match expr {
-                Expression::Literal(_, line, column) => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::Variable(_, line, column) => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::BinaryOperation { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::UnaryOperation { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::FunctionCall { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::MemberAccess { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::IndexAccess { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::Concatenation { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PatternMatch { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PatternFind { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PatternReplace { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::PatternSplit { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::StringSplit { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::AwaitExpression { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ActionCall { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::StaticMemberAccess { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::MethodCall { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PropertyAccess { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::FileExists { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::DirectoryExists { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ListFiles { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::ReadContent { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::ReadBinaryContent { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ReadBinaryN { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::FileSizeOf { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::ListFilesRecursive { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ListFilesFiltered { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::HeaderAccess { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::CurrentTimeMilliseconds { line, column } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::CurrentTimeFormatted { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ProcessRunning { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::DatabaseQuery { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
+        // `display` accepts more than one space-separated value: quoted text is
+        // a string literal and anything else is a variable/expression. Fold
+        // each additional value into a left-associative Concatenation, giving
+        // the same result as joining them with `with`
+        // (`display a b c` == `display a with b with c`).
+        //
+        // Only tokens that begin a fresh value continue the fold (see
+        // `is_value_start`). Direct index access such as `display numbers 0` is
+        // already absorbed by `parse_expression` above — the trailing `0` never
+        // reaches this loop — and a line break ends the statement because `Eol`
+        // is not a value start, so both keep working unchanged.
+        loop {
+            let (cat_line, cat_column) = match self.cursor.peek() {
+                Some(token) if Self::is_value_start(&token.token) => (token.line, token.column),
+                _ => break,
             };
-        };
+
+            let next_value = self.parse_expression()?;
+            value = Expression::Concatenation {
+                left: Box::new(value),
+                right: Box::new(next_value),
+                line: cat_line,
+                column: cat_column,
+            };
+        }
 
         Ok(Statement::DisplayStatement {
-            value: expr,
-            line: token_pos.line,
-            column: token_pos.column,
+            value,
+            line,
+            column,
         })
     }
 

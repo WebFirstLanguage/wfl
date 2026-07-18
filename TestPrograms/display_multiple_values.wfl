@@ -1,0 +1,36 @@
+// Multi-value `display`: a display can list several space-separated values.
+// Quoted text is shown as-is; anything else (a variable or an expression) is
+// evaluated first. The values are joined exactly like `with`, so
+// `display a b c` means the same as `display a with b with c`.
+
+store user age as 28
+display "user age is " user age          // user age is 28
+
+change user age to 9
+display "user age is " user age          // user age is 9
+
+// Equivalent, written with `with`:
+display "user age is " with user age     // user age is 9
+
+// More than two values, mixing text, variables and an expression:
+store name as "Alice"
+display name " is " user age " years old"      // Alice is 9 years old
+display "in ten years: " user age plus 10      // in ten years: 19
+
+// A single value still behaves exactly as before:
+display user age                          // 9
+
+// Direct index access is unchanged: `list index` is one value, not two.
+create list scores:
+    add 100
+    add 200
+    add 300
+end list
+display "first score: " scores 0          // first score: 100
+
+// The following condition from the original report now sees the right value:
+check if user age is greater than 18:
+    display "Access granted"
+otherwise:
+    display "Must be 18 or older"
+end check

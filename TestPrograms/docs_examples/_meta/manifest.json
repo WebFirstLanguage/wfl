@@ -147,6 +147,25 @@
     ],
     "doc_purpose": "Demonstrates the simplest WFL program"
   },
+  "docs_examples/basic_syntax/display_multiple_01.wfl": {
+    "doc_section": "Docs/02-getting-started/hello-world.md#display-several-values-at-once",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "getting-started",
+      "display",
+      "concatenation"
+    ],
+    "doc_purpose": "Shows that display accepts multiple space-separated values, equivalent to joining them with 'with'"
+  },
   "docs_examples/basic_syntax/variables_01.wfl": {
     "doc_section": "Docs/03-language-basics/variables-and-types.md",
     "type": "executable",

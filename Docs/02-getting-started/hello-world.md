@@ -135,6 +135,38 @@ display "Hello, " with name with "!"
 Hello, Bob!
 ```
 
+## Display Several Values at Once
+
+You don't have to write `with` between every piece. A `display` can list
+several values separated by spaces — quoted text is shown as-is, and anything
+else (a variable or an expression) is evaluated first:
+
+```wfl
+store name as "Alice"
+display "Hello, " name "!"
+```
+
+**Output:**
+```
+Hello, Alice!
+```
+
+This is just a shorthand: `display "Hello, " name "!"` means exactly the same
+thing as `display "Hello, " with name with "!"`. Both simply join the values
+together.
+
+Because the values are joined directly (no space is added for you), put any
+spaces you want inside the quotes:
+
+```wfl
+store age as 25
+display "I am " age " years old"   // I am 25 years old
+display "I am" age "years old"     // I am25years old  ← note the missing spaces
+```
+
+> **Tip:** `with` and the space-separated form do the same job. Use whichever
+> reads more clearly — mix them freely if you like.
+
 ## Experiment!
 
 WFL is designed for experimentation. Try these:

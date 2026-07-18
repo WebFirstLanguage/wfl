@@ -238,6 +238,28 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Returns `true` if `token` can begin a standalone value expression.
+    ///
+    /// Used by `display` to fold multiple space-separated values into a single
+    /// concatenation: quoted text is a string literal, everything else is a
+    /// variable/expression. Only tokens that start a fresh value trigger the
+    /// fold — operators, keywords, and statement boundaries (`Eol`) do not — so
+    /// `display numbers 0` stays a direct index access (the `0` is absorbed by
+    /// the preceding expression) and `display x\n0` keeps the `0` as its own
+    /// statement across the line break.
+    pub(crate) fn is_value_start(token: &Token) -> bool {
+        matches!(
+            token,
+            Token::StringLiteral(_)
+                | Token::IntLiteral(_)
+                | Token::FloatLiteral(_)
+                | Token::BooleanLiteral(_)
+                | Token::NothingLiteral
+                | Token::Identifier(_)
+                | Token::LeftParen
+        )
+    }
+
     /// Synchronize parser state after an error by advancing to the next statement starter
     #[allow(dead_code)]
     pub(crate) fn synchronize(&mut self) {
