@@ -1116,11 +1116,20 @@ mod tests {
     /// clock fails loudly instead of hanging the suite.
     fn wait_for_clock_to_advance(budget: &ExecutionBudget) {
         const MAX_SPINS: u64 = 100_000_000;
-        for _ in 0..MAX_SPINS {
+        for i in 0..MAX_SPINS {
             if budget.elapsed() != Duration::ZERO {
                 return;
             }
-            std::hint::spin_loop();
+            // Cheap CPU hint most iterations, but yield to the scheduler
+            // periodically so we don't monopolise a core while waiting for the
+            // next timer tick (which can be ~15ms on Windows) on a loaded CI
+            // runner. Yielding also lets the wall clock advance sooner under
+            // contention, so the wait usually exits earlier.
+            if i % 1024 == 0 {
+                std::thread::yield_now();
+            } else {
+                std::hint::spin_loop();
+            }
         }
         panic!(
             "monotonic clock did not advance past budget creation within {MAX_SPINS} spins; \
