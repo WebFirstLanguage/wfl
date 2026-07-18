@@ -814,6 +814,29 @@ fn checked_lexer_reports_cancellation_on_a_short_input() {
     );
 }
 
+/// Spin until `budget`'s monotonic clock has advanced past creation, so a
+/// zero-second deadline is genuinely elapsed (`elapsed() > 0`).
+///
+/// `Instant` resolution is coarse on some platforms (notably the virtualized
+/// Windows CI runner), where the deadline read can land in the same tick as
+/// budget creation and see `elapsed() == 0`. Bounded by an iteration cap rather
+/// than a wall-clock timeout — which would depend on the very clock under
+/// suspicion — so a frozen clock fails loudly instead of hanging the suite.
+/// Mirrors the helper of the same shape in `src/exec/budget.rs`.
+fn wait_for_clock_to_advance(budget: &wfl::exec::budget::ExecutionBudget) {
+    const MAX_SPINS: u64 = 100_000_000;
+    for _ in 0..MAX_SPINS {
+        if budget.elapsed() != std::time::Duration::ZERO {
+            return;
+        }
+        std::hint::spin_loop();
+    }
+    panic!(
+        "monotonic clock did not advance past budget creation within {MAX_SPINS} spins; \
+         cannot exercise the zero-second deadline"
+    );
+}
+
 #[test]
 fn checked_lexer_reports_expired_deadline_on_a_short_input() {
     // Companion to the cancellation case: an already-expired deadline must abort
@@ -825,6 +848,11 @@ fn checked_lexer_reports_expired_deadline_on_a_short_input() {
         ..Default::default()
     };
     let budget = std::sync::Arc::new(ExecutionBudget::new(limits));
+    // The input is too short to reach a strided checkpoint, so the entry
+    // checkpoint is the only deadline read — wait (bounded) for the clock to
+    // advance so a coarse CI timer cannot leave the zero-second deadline
+    // not-yet-strictly-elapsed.
+    wait_for_clock_to_advance(&budget);
     let _guard = ExecutionBudget::enter(budget);
     let result = wfl::lexer::lex_wfl_with_positions_checked("display 1\n");
     assert!(
