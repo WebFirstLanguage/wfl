@@ -2664,12 +2664,16 @@ fn test_display_folds_keyword_output() {
 
 #[test]
 fn test_display_folds_keyword_file_exists() {
-    assert_display_folds(r#"display "exists: " file exists at "x.txt""#, "exists: ", |right| {
-        assert!(
-            matches!(right, Expression::FileExists { .. }),
-            "expected a FileExists expression, got: {right:?}"
-        );
-    });
+    assert_display_folds(
+        r#"display "exists: " file exists at "x.txt""#,
+        "exists: ",
+        |right| {
+            assert!(
+                matches!(right, Expression::FileExists { .. }),
+                "expected a FileExists expression, got: {right:?}"
+            );
+        },
+    );
 }
 
 #[test]
@@ -2688,12 +2692,16 @@ fn test_display_folds_keyword_directory_exists() {
 
 #[test]
 fn test_display_folds_keyword_process_running() {
-    assert_display_folds(r#"display "running: " process pid is running"#, "running: ", |right| {
-        assert!(
-            matches!(right, Expression::ProcessRunning { .. }),
-            "expected a ProcessRunning expression, got: {right:?}"
-        );
-    });
+    assert_display_folds(
+        r#"display "running: " process pid is running"#,
+        "running: ",
+        |right| {
+            assert!(
+                matches!(right, Expression::ProcessRunning { .. }),
+                "expected a ProcessRunning expression, got: {right:?}"
+            );
+        },
+    );
 }
 
 #[test]
@@ -2712,12 +2720,16 @@ fn test_display_folds_keyword_header() {
 
 #[test]
 fn test_display_folds_keyword_list_files() {
-    assert_display_folds(r#"display "files: " list files in ".""#, "files: ", |right| {
-        assert!(
-            matches!(right, Expression::ListFiles { .. }),
-            "expected a ListFiles expression, got: {right:?}"
-        );
-    });
+    assert_display_folds(
+        r#"display "files: " list files in ".""#,
+        "files: ",
+        |right| {
+            assert!(
+                matches!(right, Expression::ListFiles { .. }),
+                "expected a ListFiles expression, got: {right:?}"
+            );
+        },
+    );
 }
 
 #[test]
