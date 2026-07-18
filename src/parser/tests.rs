@@ -2597,8 +2597,22 @@ fn test_display_folds_call_action() {
 fn parse_display(input: &str) -> Expression {
     let tokens = lex_wfl_with_positions(input);
     let mut parser = Parser::new(&tokens);
-    match parser.parse_statement() {
-        Ok(Statement::DisplayStatement { value, .. }) => value,
+    // Parse the whole program (not a single statement) so any trailing tokens
+    // the fold failed to consume surface as an extra statement and fail here,
+    // rather than being silently left on the cursor.
+    let program = parser
+        .parse()
+        .unwrap_or_else(|error| panic!("Failed to parse `{input}`: {error:?}"));
+    let mut statements = program.statements.into_iter();
+    let statement = statements
+        .next()
+        .unwrap_or_else(|| panic!("Expected a statement for `{input}`"));
+    assert!(
+        statements.next().is_none(),
+        "Expected exactly one statement for `{input}`"
+    );
+    match statement {
+        Statement::DisplayStatement { value, .. } => value,
         other => panic!("Expected a DisplayStatement for `{input}`, got: {other:?}"),
     }
 }
@@ -2642,7 +2656,7 @@ fn test_display_folds_keyword_not() {
 
 #[test]
 fn test_display_folds_keyword_pattern() {
-    assert_display_folds(r#"display "p: " pattern "\d+""#, "p: ", |right| {
+    assert_display_folds(r#"display "p: " pattern "abc""#, "p: ", |right| {
         assert!(
             matches!(right, Expression::Literal(Literal::Pattern(_), ..)),
             "expected a Pattern literal, got: {right:?}"
@@ -2707,7 +2721,7 @@ fn test_display_folds_keyword_process_running() {
 #[test]
 fn test_display_folds_keyword_header() {
     assert_display_folds(
-        r#"display "h: " header "Content-Type" of response"#,
+        r#"display "h: " header "Content-Type" of req"#,
         "h: ",
         |right| {
             assert!(

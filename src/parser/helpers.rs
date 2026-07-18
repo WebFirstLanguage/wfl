@@ -283,11 +283,10 @@ impl<'a> Parser<'a> {
     ///   `display "parts: " split "a,b" by ","` prints only the split result —
     ///   but that lives in the general binary-expression grammar, not here; see
     ///   the Dev Diary entry for this feature for the follow-up scope note.)
-    /// - `not` and unary `-` (`Minus`) as *binary*-operator continuations don't
-    ///   apply here, but `Minus` specifically can never be the head of a fresh
-    ///   display value either way: `parse_binary_expression` has no precedence
-    ///   guard on subtraction, so a leading `-` after the first value is always
-    ///   consumed as arithmetic *inside* that first `parse_expression()` call
+    /// - Unary `-` (`Minus`) can never be the head of a fresh display value:
+    ///   after an operand, `parse_binary_expression` consumes a `-` as the
+    ///   binary subtraction operator, so a leading `-` after the first value is
+    ///   always folded into that first `parse_expression()` call as arithmetic
     ///   (`display "n: " -5` parses as `"n: " minus 5`, not as two values) —
     ///   adding it here would be dead code. `not` has no such conflict (it is
     ///   never a binary continuation), so it is included below.

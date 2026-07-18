@@ -31,7 +31,7 @@ end list
 display "first score: " scores 0          // first score: 100
 
 // Keyword-led values fold too. A `call` to a user-defined action:
-define action called doubled with n:
+define action called doubled with parameters n:
     give back n times 2
 end action
 display "doubled: " call doubled with 21    // doubled: 42

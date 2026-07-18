@@ -117,7 +117,7 @@ statement position to a misleading `(0, 0)`.
 ## Tests
 
 - Parser unit tests (`src/parser/tests.rs`): string→var, var→string, three-value
-  left-associative fold, index-access regression, single-value regression, a
+  right-associative fold, index-access regression, single-value regression, a
   "doesn't leak into the next statement" test (the following `change` still
   parses), and the review-driven keyword-value folds (`count` variable and a
   `call` action).

@@ -13,24 +13,16 @@
 //! `mutable_list_matches_with_byte_for_byte` below). These tests run the
 //! actual `wfl` binary end-to-end and assert exact stdout.
 
-use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
-
 mod test_helpers;
 
 /// Runs `program` as a temporary `.wfl` file and returns its stdout as a
 /// `String`, panicking with stderr if the process didn't exit successfully.
+///
+/// Delegates to `test_helpers::run_wfl_program`, which runs the `wfl` binary
+/// under a 30-second timeout (so a regression that stalls the interpreter fails
+/// the test instead of hanging CI) and cleans up the temporary script.
 fn run_wfl(program: &str) -> String {
-    let binary = test_helpers::get_wfl_binary_path();
-    let dir = tempfile::tempdir().expect("create temp dir");
-    let script: PathBuf = dir.path().join("program.wfl");
-    fs::write(&script, program).expect("write program");
-
-    let output = Command::new(binary)
-        .arg(&script)
-        .output()
-        .expect("run wfl binary");
+    let output = test_helpers::run_wfl_program(program, "display_multiple_values_stdout");
 
     assert!(
         output.status.success(),
@@ -141,7 +133,7 @@ create container Counter:
         change value to value plus 1
     end
 
-    action describe: Text
+    action summarize: Text
         return "Counter(" with value with ")"
     end
 end
@@ -151,7 +143,7 @@ create new Counter as c:
 end
 
 c.bump()
-display "instance: " c " value: " c.value " desc: " c.describe()
+display "instance: " c " value: " c.value " desc: " c.summarize()
 "#,
     );
     assert_eq!(
