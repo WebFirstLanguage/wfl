@@ -401,29 +401,42 @@ impl<'a> IoParser<'a> for Parser<'a> {
         let (line, column) = (display_token.line, display_token.column);
 
         // Parse the first value.
-        let mut value = self.parse_expression()?;
+        let mut values = vec![self.parse_expression()?];
+        let mut join_positions = Vec::new();
 
         // `display` accepts more than one space-separated value: quoted text is
-        // a string literal and anything else is a variable/expression. Fold
-        // each additional value into a left-associative Concatenation, giving
-        // the same result as joining them with `with`
-        // (`display a b c` == `display a with b with c`).
-        //
-        // Only tokens that begin a fresh value continue the fold (see
-        // `is_value_start`). Direct index access such as `display numbers 0` is
-        // already absorbed by `parse_expression` above — the trailing `0` never
-        // reaches this loop — and a line break ends the statement because `Eol`
-        // is not a value start, so both keep working unchanged.
+        // a string literal and anything else is a variable/expression. Collect
+        // every additional value here — only tokens that begin a fresh value
+        // continue the loop (see `is_value_start`). Direct index access such as
+        // `display numbers 0` is already absorbed by `parse_expression` above —
+        // the trailing `0` never reaches this loop — and a line break ends the
+        // statement because `Eol` is not a value start, so both keep working
+        // unchanged.
         loop {
             let (cat_line, cat_column) = match self.cursor.peek() {
                 Some(token) if Self::is_value_start(&token.token) => (token.line, token.column),
                 _ => break,
             };
 
-            let next_value = self.parse_expression()?;
+            values.push(self.parse_expression()?);
+            join_positions.push((cat_line, cat_column));
+        }
+
+        // Fold right-associatively — the same tree shape, evaluation order, and
+        // stringification order as explicit `with` (`a with b with c` parses as
+        // `a with (b with c)`, see the `with` handling in expr/binary.rs). This
+        // matters beyond cosmetics: `Concatenation` evaluates left, then right,
+        // then stringifies both, so a left-associative fold would stringify an
+        // earlier value *before* a later value's side effects (e.g. a list
+        // mutation) run, while this matches `with` exactly, value for value.
+        let mut value = values.pop().expect("at least one value was parsed");
+        while let Some(left) = values.pop() {
+            let (cat_line, cat_column) = join_positions
+                .pop()
+                .expect("one join position per folded value");
             value = Expression::Concatenation {
-                left: Box::new(value),
-                right: Box::new(next_value),
+                left: Box::new(left),
+                right: Box::new(value),
                 line: cat_line,
                 column: cat_column,
             };

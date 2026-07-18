@@ -2296,8 +2296,10 @@ fn normal_pattern_quantifier_counts_remain_compatible() {
 //
 // `display` accepts more than one space-separated value: quoted text is a
 // string literal, anything else is a variable/expression, and the values are
-// folded into a single left-associative Concatenation (identical semantics to
-// joining them with `with`). See parse_display_statement in stmt/io.rs.
+// folded right-associatively into a single Concatenation — the same AST shape
+// (and therefore the same evaluation order and stringification order) as
+// joining them explicitly with `with` (`display a b c` parses identically to
+// `display a with b with c`). See parse_display_statement in stmt/io.rs.
 
 #[test]
 fn test_display_multiple_values_string_then_var() {
@@ -2372,7 +2374,7 @@ fn test_display_multiple_values_var_then_string() {
 }
 
 #[test]
-fn test_display_three_values_left_associative() {
+fn test_display_three_values_right_associative_like_with() {
     let input = r#"display "a" middle "b""#;
     let tokens = lex_wfl_with_positions(input);
     let mut parser = Parser::new(&tokens);
@@ -2386,30 +2388,66 @@ fn test_display_three_values_left_associative() {
     let Ok(Statement::DisplayStatement { value, .. }) = result else {
         panic!("Expected DisplayStatement, got: {result:?}");
     };
-    // Left-associative: (("a" with middle) with "b")
+    // Right-associative, matching `"a" with middle with "b"`: ("a" with (middle with "b"))
     let Expression::Concatenation { left, right, .. } = value else {
         panic!("Expected outer Concatenation, got: {value:?}");
     };
-    match *right {
-        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "b"),
-        other => panic!("Expected string 'b' on outer right, got: {other:?}"),
+    match *left {
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "a"),
+        other => panic!("Expected string 'a' on outer left, got: {other:?}"),
     }
     let Expression::Concatenation {
         left: inner_left,
         right: inner_right,
         ..
-    } = *left
+    } = *right
     else {
-        panic!("Expected inner Concatenation on left");
+        panic!("Expected inner Concatenation on right");
     };
     match *inner_left {
-        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "a"),
-        other => panic!("Expected string 'a' on inner left, got: {other:?}"),
+        Expression::Variable(ref name, ..) => assert_eq!(name, "middle"),
+        other => panic!("Expected variable 'middle' on inner left, got: {other:?}"),
     }
     match *inner_right {
-        Expression::Variable(ref name, ..) => assert_eq!(name, "middle"),
-        other => panic!("Expected variable 'middle' on inner right, got: {other:?}"),
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "b"),
+        other => panic!("Expected string 'b' on inner right, got: {other:?}"),
     }
+}
+
+#[test]
+fn test_display_four_values_right_associative_nesting() {
+    // Four values must nest the same way a `with` chain does: right-associative,
+    // all the way down — (a with (b with (c with d))) — not just pairwise at
+    // the top level. This is what makes evaluation order (and therefore
+    // stringification order for mutating expressions) match `with` exactly.
+    // See the mutation-order regression in
+    // tests/display_multiple_values_stdout_test.rs for the runtime consequence.
+    fn as_str_literal(expr: &Expression) -> &str {
+        match expr {
+            Expression::Literal(Literal::String(s), ..) => s.as_ref(),
+            other => panic!("expected a string literal, got: {other:?}"),
+        }
+    }
+    fn as_concatenation(expr: &Expression) -> (&Expression, &Expression) {
+        match expr {
+            Expression::Concatenation { left, right, .. } => (&**left, &**right),
+            other => panic!("expected Concatenation, got: {other:?}"),
+        }
+    }
+
+    let tokens = lex_wfl_with_positions(r#"display "a" "b" "c" "d""#);
+    let mut parser = Parser::new(&tokens);
+    let Ok(Statement::DisplayStatement { value, .. }) = parser.parse_statement() else {
+        panic!("expected a DisplayStatement");
+    };
+
+    let (a, rest1) = as_concatenation(&value);
+    assert_eq!(as_str_literal(a), "a");
+    let (b, rest2) = as_concatenation(rest1);
+    assert_eq!(as_str_literal(b), "b");
+    let (c, d) = as_concatenation(rest2);
+    assert_eq!(as_str_literal(c), "c");
+    assert_eq!(as_str_literal(d), "d");
 }
 
 #[test]
@@ -2551,4 +2589,147 @@ fn test_display_folds_call_action() {
         Expression::ActionCall { ref name, .. } => assert_eq!(name, "doubled"),
         other => panic!("Expected an ActionCall on right, got: {other:?}"),
     }
+}
+
+/// Parses `input` as a single `display` statement and returns its value
+/// expression, panicking with the parse error (or the wrong statement kind)
+/// otherwise. Shared by the `test_display_folds_keyword_*` tests below.
+fn parse_display(input: &str) -> Expression {
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    match parser.parse_statement() {
+        Ok(Statement::DisplayStatement { value, .. }) => value,
+        other => panic!("Expected a DisplayStatement for `{input}`, got: {other:?}"),
+    }
+}
+
+/// Asserts `input` parses as `display "<label>" <trailing>` folded into a
+/// Concatenation whose left is the label string and whose right satisfies
+/// `check_right`.
+fn assert_display_folds(input: &str, label: &str, check_right: impl FnOnce(&Expression)) {
+    let value = parse_display(input);
+    let Expression::Concatenation { left, right, .. } = value else {
+        panic!("Expected Concatenation for `{input}`, got: {value:?}");
+    };
+    match *left {
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), label),
+        other => panic!("Expected string literal '{label}' on left, got: {other:?}"),
+    }
+    check_right(&right);
+}
+
+// The following regression tests cover each keyword-led value added to
+// `is_value_start` beyond `call`/`count`/`current` (see the doc comment on
+// `is_value_start` in parser/helpers.rs for why each is safe): every one must
+// still fold into the display's Concatenation instead of being left as a
+// dangling, separately-parsed (and likely erroring) trailing statement.
+
+#[test]
+fn test_display_folds_keyword_not() {
+    assert_display_folds(r#"display "flag: " not yes"#, "flag: ", |right| {
+        assert!(
+            matches!(
+                right,
+                Expression::UnaryOperation {
+                    operator: UnaryOperator::Not,
+                    ..
+                }
+            ),
+            "expected a `not` UnaryOperation, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_pattern() {
+    assert_display_folds(r#"display "p: " pattern "\d+""#, "p: ", |right| {
+        assert!(
+            matches!(right, Expression::Literal(Literal::Pattern(_), ..)),
+            "expected a Pattern literal, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_output() {
+    // `output` is a contextual keyword: in expression position (not preceded
+    // by `read ... from process`) it is just the variable named `output`.
+    assert_display_folds(r#"display "o: " output"#, "o: ", |right| {
+        assert!(
+            matches!(right, Expression::Variable(name, ..) if name == "output"),
+            "expected the `output` variable, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_file_exists() {
+    assert_display_folds(r#"display "exists: " file exists at "x.txt""#, "exists: ", |right| {
+        assert!(
+            matches!(right, Expression::FileExists { .. }),
+            "expected a FileExists expression, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_directory_exists() {
+    assert_display_folds(
+        r#"display "exists: " directory exists at "x""#,
+        "exists: ",
+        |right| {
+            assert!(
+                matches!(right, Expression::DirectoryExists { .. }),
+                "expected a DirectoryExists expression, got: {right:?}"
+            );
+        },
+    );
+}
+
+#[test]
+fn test_display_folds_keyword_process_running() {
+    assert_display_folds(r#"display "running: " process pid is running"#, "running: ", |right| {
+        assert!(
+            matches!(right, Expression::ProcessRunning { .. }),
+            "expected a ProcessRunning expression, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_header() {
+    assert_display_folds(
+        r#"display "h: " header "Content-Type" of response"#,
+        "h: ",
+        |right| {
+            assert!(
+                matches!(right, Expression::HeaderAccess { .. }),
+                "expected a HeaderAccess expression, got: {right:?}"
+            );
+        },
+    );
+}
+
+#[test]
+fn test_display_folds_keyword_list_files() {
+    assert_display_folds(r#"display "files: " list files in ".""#, "files: ", |right| {
+        assert!(
+            matches!(right, Expression::ListFiles { .. }),
+            "expected a ListFiles expression, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_read_content() {
+    assert_display_folds(
+        r#"display "content: " read content from handle"#,
+        "content: ",
+        |right| {
+            assert!(
+                matches!(right, Expression::ReadContent { .. }),
+                "expected a ReadContent expression, got: {right:?}"
+            );
+        },
+    );
 }

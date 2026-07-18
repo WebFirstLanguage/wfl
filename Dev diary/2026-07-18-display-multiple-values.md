@@ -46,7 +46,8 @@ shape people reach for first.
 Per the reporter's own rule — *"anything in quotes is text, anything else is a
 variable or an action, and I should be able to have more than one"* — `display`
 now accepts multiple space-separated values and folds them into a single
-left-associative `Concatenation`:
+`Concatenation`, right-associative exactly like `with` (see "Deep-review fix
+pass" below for why the association direction matters, not just the shape):
 
 ```
 display a b c   ≡   display a with b with c
@@ -127,3 +128,80 @@ statement position to a misleading `(0, 0)`.
   (manifest-tracked, 5-layer validated) backing the new
   *Display Several Values at Once* section in
   `Docs/02-getting-started/hello-world.md`.
+
+## Deep-review fix pass
+
+A maintainer deep-review (and an independent `@claude` validation pass) of the
+first cut found five issues, all fixed in this pass:
+
+**1. Association direction was observably wrong.** The first cut folded
+left-associatively (`(a with b) with c`), while explicit `with` parses
+right-associatively (`a with (b with c)`, see the `KeywordWith` continuation
+in `expr/binary.rs`). `Expression::Concatenation` evaluates left, then right,
+then stringifies both — so association direction controls *when* a value gets
+stringified relative to a later value's side effects. With two identical
+lists each holding `[before, after]`:
+
+```wfl
+display left_items "" pop of left_items          // [before, after]after  (left-fold, WRONG)
+display right_items with "" with pop of right_items  // [before]after     (with, right-fold)
+```
+
+The left fold stringified `left_items` (as `"" `'s left operand) *before* the
+`pop` on the right ran, showing the pre-mutation list; `with` stringifies it
+*after*, per its evaluation order. `parse_display_statement` now parses every
+value into a `Vec<Expression>` first, then folds from the right, producing the
+identical tree — not just a similar one — to the equivalent `with` chain. See
+`test_display_four_values_right_associative_nesting` (parser) and the
+mutation-order case in `tests/display_multiple_values_stdout_test.rs`
+(interpreter, exact stdout).
+
+**2. `is_value_start` was still missing safe keyword starters.** Added `not`,
+`pattern`, `output`, `file`, `directory`, `process`, `header`, `list`, and
+`read` — each is a keyword-led `parse_primary_expression` arm that produces a
+standalone value and is never consumed as a continuation elsewhere, so it's
+safe to fold. Deliberately *not* added: `loop`, `exit`, `repeat`, `try`,
+`when` (these double as statement/block openers, so silently folding them
+into a `display` would swallow what's far more likely to be a missing line
+break than an intended value) and `Minus`/`LeftBracket` (both are always
+already consumed earlier in the parse — see the `is_value_start` doc comment
+in `helpers.rs` for the full reasoning). `back` and `error` are unambiguous by
+the same test as `not`, but weren't flagged by review, so they were left as a
+possible follow-up rather than added speculatively.
+
+**3. `find`/`replace`/`split` remain excluded — this is a pre-existing bug,
+not a `display` bug, and out of scope here.** When one of these keywords
+follows an already-parsed value at the *first* value's `parse_expression`
+call (before `display`'s fold loop is ever consulted), the general
+binary-expression parser's continuation arm for that keyword
+(`expr/binary.rs`, the `Token::KeywordFind`/`KeywordReplace`/`KeywordSplit`
+arms under `parse_binary_expression`) discards the preceding value in some
+paths — e.g. `display "parts: " split "a,b" by ","` prints only `[a, b]`, not
+`parts: [a, b]`, because `split`'s continuation arm never incorporates `left`.
+Adding these tokens to `is_value_start` would not fix this, since the bug
+happens one call frame earlier. Fixing the general grammar is a larger,
+independently-scoped change (it affects every expression, not just
+`display`) that deserves its own TDD pass and regression suite rather than
+being folded into this PR under time pressure — flagged in the PR thread as a
+follow-up question for the maintainer rather than silently left alone.
+
+**4. Ambiguity claims corrected.** The docs and this diary previously implied
+space-separated `display` values are free-form. In fact several forms that
+look like "two values" are actually one, by the same grammar rules that apply
+everywhere else in WFL, not anything `display`-specific: a run of bare words
+(`display a b c`) is one multi-word identifier (the lexer merges consecutive
+identifier tokens before the parser ever sees them); `display numbers 0` is a
+direct index, not two values; `display total -5` is subtraction, not two
+values (unary `-` is only reachable when nothing precedes it, and here the
+first value's `parse_expression` call already consumes `-5` as `total minus
+5` before the fold loop is ever reached). `Docs/02-getting-started/hello-world.md`
+now says this plainly instead of only demonstrating the happy path.
+
+**5. Added exact-stdout regression coverage.** Prior tests only checked AST
+shape (parser unit tests) or exit code (the `TestPrograms/*.wfl` CI runner
+redirects stdout to `/dev/null`). `tests/display_multiple_values_stdout_test.rs`
+now asserts exact stdout for the documented happy paths, a user-defined action
+return value, an action with arguments and one with a side effect, a
+container instance/property/method, and — the one that matters most — the
+mutating-list case proving space-separated `display` and `with` now produce
+byte-identical output.

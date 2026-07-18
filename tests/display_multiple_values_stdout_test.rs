@@ -1,0 +1,252 @@
+//! Exact-stdout regression coverage for multi-value `display` (space-separated
+//! values folded into a `Concatenation`, see `parse_display_statement` in
+//! `src/parser/stmt/io.rs`).
+//!
+//! Prior coverage for this feature only checked AST shape (parser unit tests
+//! in `src/parser/tests.rs`) or exit code (`TestPrograms/*.wfl` under the CI
+//! runner, which redirects stdout to `/dev/null`). Neither would have caught
+//! the mutation-order bug fixed alongside this file: the first cut folded
+//! space-separated `display` values left-associatively, while explicit `with`
+//! folds right-associatively, and `Concatenation` evaluates+stringifies left
+//! before right — so the two forms could observably diverge whenever a later
+//! value mutated something an earlier value referenced (see
+//! `mutable_list_matches_with_byte_for_byte` below). These tests run the
+//! actual `wfl` binary end-to-end and assert exact stdout.
+
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+mod test_helpers;
+
+/// Runs `program` as a temporary `.wfl` file and returns its stdout as a
+/// `String`, panicking with stderr if the process didn't exit successfully.
+fn run_wfl(program: &str) -> String {
+    let binary = test_helpers::get_wfl_binary_path();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let script: PathBuf = dir.path().join("program.wfl");
+    fs::write(&script, program).expect("write program");
+
+    let output = Command::new(binary)
+        .arg(&script)
+        .output()
+        .expect("run wfl binary");
+
+    assert!(
+        output.status.success(),
+        "program did not exit successfully.\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8(output.stdout).expect("stdout should be valid UTF-8")
+}
+
+// --- Documented happy paths -------------------------------------------------
+
+#[test]
+fn documented_happy_path_matches_hello_world_docs() {
+    // Docs/02-getting-started/hello-world.md, "Display Several Values at Once".
+    let stdout = run_wfl(
+        r#"
+store name as "Alice"
+display "Hello, " name "!"
+"#,
+    );
+    assert_eq!(stdout, "Hello, Alice!\n");
+}
+
+#[test]
+fn documented_spacing_examples_match_docs_exactly() {
+    // Same doc section: spacing comes only from inside the quotes.
+    let stdout = run_wfl(
+        r#"
+store age as 25
+display "I am " age " years old"
+display "I am" age "years old"
+"#,
+    );
+    assert_eq!(stdout, "I am 25 years old\nI am25years old\n");
+}
+
+#[test]
+fn original_bug_report_now_prints_every_value() {
+    // The report this feature fixes: trailing values were silently dropped.
+    let stdout = run_wfl(
+        r#"
+store user_age as 28
+display "user age is " user_age
+change user_age to 9
+display "user age is " user_age
+"#,
+    );
+    assert_eq!(stdout, "user age is 28\nuser age is 9\n");
+}
+
+// --- Action return values, arguments, and side effects ----------------------
+
+#[test]
+fn action_return_value_folds_into_display() {
+    let stdout = run_wfl(
+        r#"
+define action called doubled with n:
+    give back n times 2
+end action
+display "doubled: " call doubled with 21
+"#,
+    );
+    assert_eq!(stdout, "doubled: 42\n");
+}
+
+#[test]
+fn action_with_multiple_arguments_folds_into_display() {
+    let stdout = run_wfl(
+        r#"
+define action called greeting with parameters person_name and times_of_day:
+    give back "Good " with times_of_day with ", " with person_name
+end action
+display "greeting: " call greeting with "Bob" and "morning"
+"#,
+    );
+    assert_eq!(stdout, "greeting: Good morning, Bob\n");
+}
+
+#[test]
+fn action_with_side_effect_runs_in_display_order() {
+    // Each call must both mutate state and interpolate its return value in
+    // the order it appears, left to right across the whole display statement.
+    let stdout = run_wfl(
+        r#"
+store counter as 0
+define action called increment:
+    change counter to counter plus 1
+    give back counter
+end action
+display "first: " call increment " second: " call increment " third: " call increment
+"#,
+    );
+    assert_eq!(stdout, "first: 1 second: 2 third: 3\n");
+}
+
+// --- Containers: instance, property, and method -----------------------------
+
+#[test]
+fn container_instance_property_and_method_all_fold() {
+    let stdout = run_wfl(
+        r#"
+create container Counter:
+    property value: Number
+
+    action bump:
+        change value to value plus 1
+    end
+
+    action describe: Text
+        return "Counter(" with value with ")"
+    end
+end
+
+create new Counter as c:
+    value is 5
+end
+
+c.bump()
+display "instance: " c " value: " c.value " desc: " c.describe()
+"#,
+    );
+    assert_eq!(
+        stdout,
+        "instance: Counter instance value: 6 desc: Counter(6)\n"
+    );
+}
+
+// --- Mutable list/container state: byte-for-byte equivalence with `with` ----
+
+#[test]
+fn mutable_list_matches_with_byte_for_byte() {
+    // This is the central regression: space-separated `display` and explicit
+    // `with` must be indistinguishable, including when a later value mutates
+    // something an earlier value references. `Concatenation` evaluates left,
+    // then right, then stringifies both — so association direction decides
+    // whether the list is stringified before or after the `pop` runs. Both
+    // forms below are now right-associative (`a with (b with c)`), so `pop`
+    // always runs first and both print the post-pop list.
+    let with_form = run_wfl(
+        r#"
+create list right_items:
+    add "before"
+    add "after"
+end list
+display right_items with "" with pop of right_items
+"#,
+    );
+    let space_separated_form = run_wfl(
+        r#"
+create list left_items:
+    add "before"
+    add "after"
+end list
+display left_items "" pop of left_items
+"#,
+    );
+
+    assert_eq!(with_form, "[before]after\n");
+    assert_eq!(
+        space_separated_form, with_form,
+        "space-separated display must byte-for-byte match the equivalent `with` chain"
+    );
+}
+
+#[test]
+fn mutable_container_property_matches_with_byte_for_byte() {
+    // Same evaluation-order guarantee as `mutable_list_matches_with_byte_for_byte`,
+    // exercised on a list held in a container *property* (accessed via
+    // `basket.items`) instead of a plain variable, since a container property
+    // is looked up through a separate code path (`Expression::PropertyAccess`
+    // in the interpreter) that also has to get the association direction
+    // right for its `Rc`-shared `Value::List` to alias correctly.
+    let program = |connector: &str| {
+        format!(
+            r#"
+create container Basket:
+    property items
+end
+
+create new Basket as basket:
+    items is ["before", "after"]
+end
+
+display basket.items {connector} "" {connector} pop of basket.items
+"#
+        )
+    };
+
+    let with_form = run_wfl(&program("with"));
+    let space_separated_form = run_wfl(&program(""));
+
+    assert_eq!(with_form, "[before]after\n");
+    assert_eq!(
+        space_separated_form, with_form,
+        "space-separated display must byte-for-byte match the equivalent `with` chain"
+    );
+}
+
+// --- Newly-supported keyword-led values --------------------------------------
+
+#[test]
+fn keyword_led_values_fold_with_exact_output() {
+    let stdout = run_wfl(
+        r#"
+store is_admin as no
+display "is admin: " not is_admin
+display "exists: " file exists at "does-not-exist-for-sure.txt"
+count from 1 to 3:
+    display "count is " count
+end count
+"#,
+    );
+    assert_eq!(
+        stdout,
+        "is admin: yes\nexists: no\ncount is 1\ncount is 2\ncount is 3\n"
+    );
+}

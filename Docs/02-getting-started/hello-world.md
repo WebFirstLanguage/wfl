@@ -153,8 +153,9 @@ Hello, Alice!
 ```
 
 This is just a shorthand: `display "Hello, " name "!"` means exactly the same
-thing as `display "Hello, " with name with "!"`. Both simply join the values
-together.
+thing as `display "Hello, " with name with "!"` — not just the same result,
+but the same order of evaluation, so a value that changes as a side effect of
+a later item (e.g. popping from a list) behaves identically either way.
 
 Because the values are joined directly (no space is added for you), put any
 spaces you want inside the quotes:
@@ -167,6 +168,17 @@ display "I am" age "years old"     // I am25years old  ← note the missing spac
 
 > **Tip:** `with` and the space-separated form do the same job. Use whichever
 > reads more clearly — mix them freely if you like.
+
+A run of plain words with nothing between them (no quotes, numbers, or
+keywords) is a single multi-word variable name, not several values — `display
+a b c` looks for one variable literally named `a b c`, the same as it would
+outside a `display`. Space-separated values only split apart where the
+grammar already has a boundary: a quote, a number, a parenthesis, or a
+keyword. Likewise, `display numbers 0` stays a single value — a direct index
+into `numbers` — and `display total -5` stays a single value — `total`
+*minus* `5` — because both `0` and `-5` attach to the item right before them
+the same way they would anywhere else in WFL. When you want two values that
+would otherwise merge like this, use `with` to make the boundary explicit.
 
 ## Experiment!
 

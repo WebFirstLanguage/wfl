@@ -249,13 +249,53 @@ impl<'a> Parser<'a> {
     /// the preceding expression) and `display x\n0` keeps the `0` as its own
     /// statement across the line break.
     ///
-    /// Alongside literals, identifiers and `(`, this covers the keyword-led
-    /// value expressions that are *not* also binary operators (so they would
-    /// otherwise be left dangling and silently dropped or, in the case of
-    /// `count`, mis-parsed as a new statement): `call` action calls, the
-    /// count-loop variable `count`, and `current` date/time values. Keywords
-    /// that the binary parser already consumes after a value (`with`, `find`,
-    /// `replace`, `split`, `matches`, arithmetic) never reach this check.
+    /// This list tracks the keyword-led arms of `parse_primary_expression`'s
+    /// top-level match (`src/parser/expr/primary.rs`) that produce a
+    /// standalone value with no ambiguity against statement boundaries: `not`,
+    /// `pattern`, `output`, `file`, `directory`, `process`, `header`, `list`,
+    /// and `read`, alongside the pre-existing `call`/`count`/`current`. Each is
+    /// exercised end-to-end (parse *and* fold) by a
+    /// `test_display_folds_keyword_*` test in `parser/tests.rs`, so a
+    /// regression here — the token stops folding, or silently changes what it
+    /// parses to — fails loudly instead of drifting unnoticed.
+    ///
+    /// Not every keyword-led primary-expression arm is included. Several are
+    /// deliberately left out because they double as statement/block openers
+    /// elsewhere in the grammar (`loop`, `exit`, `repeat`, `try`, `when` — the
+    /// first four are literal entries in `is_statement_starter` above, and
+    /// `when` opens route-arm blocks); folding them into a preceding `display`
+    /// on parse would swallow what is far more likely to be a genuine syntax
+    /// error (a missing line break) than an intended display value, so they
+    /// are left to surface that error instead of being silently absorbed.
+    /// `back` and `error` were also left out of this pass — they are
+    /// unambiguous by the same reasoning as `not`/`pattern`, but weren't
+    /// flagged by review, so they're a candidate for a follow-up rather than
+    /// bundled in here without an explicit ask.
+    ///
+    /// Deliberately excluded:
+    /// - `with`, `find`, `replace`, `split`, `matches`, `contains`,
+    ///   `starts`/`ends with`, `is`, `and`, `or`, and arithmetic keywords —
+    ///   `parse_binary_expression` already consumes these as continuations of
+    ///   the *first* value inside the initial `parse_expression()` call above,
+    ///   so they never reach this check as the head of a fresh value. (`find`,
+    ///   `replace`, and `split` have a separate, pre-existing bug where that
+    ///   continuation silently discards the value that precedes them — e.g.
+    ///   `display "parts: " split "a,b" by ","` prints only the split result —
+    ///   but that lives in the general binary-expression grammar, not here; see
+    ///   the Dev Diary entry for this feature for the follow-up scope note.)
+    /// - `not` and unary `-` (`Minus`) as *binary*-operator continuations don't
+    ///   apply here, but `Minus` specifically can never be the head of a fresh
+    ///   display value either way: `parse_binary_expression` has no precedence
+    ///   guard on subtraction, so a leading `-` after the first value is always
+    ///   consumed as arithmetic *inside* that first `parse_expression()` call
+    ///   (`display "n: " -5` parses as `"n: " minus 5`, not as two values) —
+    ///   adding it here would be dead code. `not` has no such conflict (it is
+    ///   never a binary continuation), so it is included below.
+    /// - `LeftBracket` (`[`) — postfix indexing (`Token::LeftBracket` in
+    ///   `parse_primary_expression`'s postfix loop) unconditionally attaches a
+    ///   following `[...]` to whatever expression was just parsed, so a `[` can
+    ///   never be the head of a *fresh* value here either; it is always already
+    ///   consumed as an index into the previous value.
     pub(crate) fn is_value_start(token: &Token) -> bool {
         matches!(
             token,
@@ -269,6 +309,15 @@ impl<'a> Parser<'a> {
                 | Token::KeywordCall
                 | Token::KeywordCount
                 | Token::KeywordCurrent
+                | Token::KeywordNot
+                | Token::KeywordPattern
+                | Token::KeywordOutput
+                | Token::KeywordFile
+                | Token::KeywordDirectory
+                | Token::KeywordProcess
+                | Token::KeywordHeader
+                | Token::KeywordList
+                | Token::KeywordRead
         )
     }
 
