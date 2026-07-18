@@ -1107,6 +1107,27 @@ mod tests {
         }
     }
 
+    /// Spin until the budget's monotonic clock has advanced past creation, so a
+    /// zero-second deadline is genuinely elapsed (`elapsed() > 0`). `Instant`
+    /// resolution is coarse on some platforms (notably Windows), where the first
+    /// charge can otherwise land within the same tick and read `elapsed() == 0`.
+    /// The wait is bounded by an iteration cap — not a wall-clock timeout, which
+    /// would depend on the very clock we suspect — so a pathologically frozen
+    /// clock fails loudly instead of hanging the suite.
+    fn wait_for_clock_to_advance(budget: &ExecutionBudget) {
+        const MAX_SPINS: u64 = 100_000_000;
+        for _ in 0..MAX_SPINS {
+            if budget.elapsed() != Duration::ZERO {
+                return;
+            }
+            std::hint::spin_loop();
+        }
+        panic!(
+            "monotonic clock did not advance past budget creation within {MAX_SPINS} spins; \
+             cannot exercise the zero-second deadline"
+        );
+    }
+
     #[test]
     fn operation_ceiling_trips_after_limit() {
         let budget = ExecutionBudget::new(tiny_limits());
@@ -1149,14 +1170,10 @@ mod tests {
         limits.max_duration = Some(Duration::from_secs(0));
         let budget = ExecutionBudget::new(limits);
         // The deadline trips when `elapsed() > limit`, so a zero-second deadline
-        // is only "elapsed" once the monotonic clock has advanced at least one
-        // tick past creation. `Instant`'s resolution is coarse on some platforms
-        // (notably Windows), where the first charge can otherwise land within the
-        // same tick and read `elapsed() == 0`. Spin until the clock moves so the
-        // assertion is deterministic rather than racing the timer.
-        while budget.elapsed() == Duration::ZERO {
-            std::hint::spin_loop();
-        }
+        // is only "elapsed" once the monotonic clock has advanced past creation.
+        // Wait for that (bounded) so the assertion is deterministic rather than
+        // racing the timer resolution.
+        wait_for_clock_to_advance(&budget);
         assert_eq!(
             budget.charge_operation(true),
             Err(BudgetExceeded::Deadline { limit_secs: 0 })
@@ -1253,12 +1270,10 @@ mod tests {
         limits.max_duration = Some(Duration::from_secs(0));
         let budget = Arc::new(ExecutionBudget::new(limits));
         // See `deadline_trips_when_elapsed`: the zero-second deadline only trips
-        // once the monotonic clock has moved past creation. Wait for the first
-        // tick so the post-main-loop assertion below is deterministic on
-        // coarse-resolution timers (e.g. Windows).
-        while budget.elapsed() == Duration::ZERO {
-            std::hint::spin_loop();
-        }
+        // once the monotonic clock has moved past creation. Wait (bounded) so the
+        // post-main-loop assertion below is deterministic on coarse-resolution
+        // timers (e.g. Windows).
+        wait_for_clock_to_advance(&budget);
         // ONE meter reused across a main-loop boundary (the VM-reuse case);
         // `reset()` runs per top-level op, so each op's first charge (index 0) is
         // a sample point.
