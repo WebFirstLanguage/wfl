@@ -2558,11 +2558,23 @@ impl Analyzer {
                         };
 
                     if !is_container_property {
-                        self.report_undefined_name(
-                            format!("Variable '{name}' is not defined"),
-                            *line,
-                            *column,
-                        );
+                        // A bare unresolved name may be a zero-argument action
+                        // exposed by an `include from` file and referenced by
+                        // its bare name (e.g. `store x as greet`), which lowers
+                        // to `Expression::Variable` with no call node and so
+                        // never reaches the `of`/`call` forms' include-aware
+                        // relaxation. Route it through the same helper so all
+                        // three call forms of the #548 -> #580 family behave
+                        // consistently under `include from` (issue #592). With
+                        // no includes present the helper emits nothing and
+                        // returns false, so a genuine typo stays fatal.
+                        if !self.warn_undefined_callee_if_includes(name, *line, *column) {
+                            self.report_undefined_name(
+                                format!("Variable '{name}' is not defined"),
+                                *line,
+                                *column,
+                            );
+                        }
                     }
                 }
             }
@@ -3071,6 +3083,77 @@ mod tests {
         let errors = analyzer.get_errors();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("not defined"));
+    }
+
+    // Issue #592: a bare unresolved name in a program that uses `include from`
+    // may be a zero-argument action exposed by the included file at runtime, so
+    // the `Expression::Variable` arm must relax to a non-fatal warning (like the
+    // `of`/`call` forms) instead of aborting with a fatal undefined-name error.
+    #[test]
+    fn test_bare_undefined_name_relaxed_with_includes_issue_592() {
+        let program = Program {
+            statements: vec![
+                Statement::IncludeStatement {
+                    path: Expression::Literal(Literal::String(Arc::from("mod.wfl")), 1, 1),
+                    line: 1,
+                    column: 1,
+                },
+                Statement::VariableDeclaration {
+                    name: "x".to_string(),
+                    value: Expression::Variable("greet".to_string(), 2, 12),
+                    is_constant: false,
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(&program);
+        assert!(
+            result.is_ok(),
+            "bare include-exposed name must not be a fatal error (#592): {:?}",
+            analyzer.get_errors()
+        );
+        assert!(
+            analyzer
+                .get_warnings()
+                .iter()
+                .any(|w| w.message.contains("Undefined action 'greet'")),
+            "should record a non-fatal 'Undefined action' warning (#592): {:?}",
+            analyzer.get_warnings()
+        );
+    }
+
+    // Issue #592 guardrail: the SAME bare reference WITHOUT any `include from`
+    // is a genuine typo and must stay fatal — the relaxation must not
+    // over-broaden into silencing real undefined-name errors.
+    #[test]
+    fn test_bare_undefined_name_without_includes_stays_fatal_issue_592() {
+        let program = Program {
+            statements: vec![Statement::VariableDeclaration {
+                name: "x".to_string(),
+                value: Expression::Variable("greet".to_string(), 1, 12),
+                is_constant: false,
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(&program);
+        assert!(
+            result.is_err(),
+            "a bare undefined name without includes must stay fatal (#592 guardrail)"
+        );
+        assert!(
+            analyzer
+                .get_errors()
+                .iter()
+                .any(|e| e.message.contains("Variable 'greet' is not defined")),
+            "should report the fatal undefined-variable error (#592 guardrail): {:?}",
+            analyzer.get_errors()
+        );
     }
 
     #[test]

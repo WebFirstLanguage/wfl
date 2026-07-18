@@ -53,6 +53,28 @@ include from "containers.wfl"
 
 This reads, parses, and executes the specified file in the parent scope, making all definitions available to the parent.
 
+### Calling actions from an included file
+
+An action exposed by an included file is called exactly like an action defined in the current file — there is nothing extra to learn. An action that takes arguments uses the `of` form (or the equivalent `call ... with` form):
+
+```wfl
+include from "greetings.wfl"      # exposes a `greet` action taking a name
+
+store a as greet of "Bob"         # the `of` form
+store b as call greet with "Bob"  # the equivalent `call ... with` form
+```
+
+A **zero-argument** action is referenced by its **bare name**, just like a variable — no `of` and no `call` needed:
+
+```wfl
+include from "greetings.wfl"      # also exposes a zero-argument `banner` action
+
+store line as banner              # a bare name calls the zero-argument action
+display line
+```
+
+All three forms work at the top level and inside your own action bodies. Because the analyzer does not read included files, it emits a **non-fatal** `Undefined action '<name>'` note for a name it cannot see statically — the program still runs and the action resolves at runtime.
+
 ### Type Checking in Included Files
 
 Included files go through the same pipeline as the main program (parse, analyze, type check). Because `include from` runs the file in the parent scope — as if the code were written in the main program — type-check findings in an included file are reported the same way as in the main file: as **non-fatal warnings**. The program still runs.

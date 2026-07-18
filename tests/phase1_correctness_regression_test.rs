@@ -40,7 +40,7 @@
 //! | #583 | Medium (fixed) | ✅ | `github_issues_batch_test.rs::bracket_string_stays_text` |
 //! | #588 | Medium (fixed) | ✅ | `github_issues_batch_test.rs` (`store x as <call>` Unknown) |
 //! | #590 | Medium (fixed) | ✅ | `recursive_action_return_type_test.rs` (in-process type-checker guard) **+** this file: `issue_590_*` (CLI-level end-to-end guard) |
-//! | #592 | **High (open)** | ⏳ | this file: `issue_592_*` (`#[ignore]`, top-level + action-body) |
+//! | #592 | High (**fixed**) | ✅ | this file: `issue_592_*` (top-level + action-body, plus a no-include fatal guardrail) — analyzer routes a bare unresolved name through the `of`/`call` forms' include-aware relaxation |
 //! | #578 | **High (open, umbrella)** | ⏳ | this file: `issue_578_*` (`#[ignore]`) — see note below |
 //! | #573 | Medium (**fixed**) | ✅ | Binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers shipped in #574; guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification recommends closing; it is open only pending the close click. |
 //! | #555 | Medium (open) | ⏳ | `TestPrograms/` `CI-SKIP` corpus (docs-in-CI gate) |
@@ -303,16 +303,18 @@ fn issue_590_self_recursive_indexed_result_runs_cli() {
 //   cargo test --test phase1_correctness_regression_test -- --ignored
 // ===========================================================================
 
-// --- #592 ------------------------------------------------------------------
+// --- #592 (FIXED — Phase 2) ------------------------------------------------
 // A zero-argument include-exposed action referenced by its BARE name (no `of`,
-// no `call`) is fatal — both at top level AND inside an action body — with
-// `Variable '…' is not defined` (exit 3), while `call greet` and the `of` form
-// work. Desired: it resolves like the other call forms in BOTH contexts.
-// Parameterized so a fix that only covers one context cannot make this green.
+// no `call`) USED TO BE fatal — both at top level AND inside an action body —
+// with `Variable '…' is not defined` (exit 3), while `call greet` and the `of`
+// form worked. FIXED in Phase 2: the analyzer's `Expression::Variable` arm now
+// routes a bare unresolved name through the same include-aware relaxation the
+// `of`/`call` forms use, so it resolves like the other call forms in BOTH
+// contexts. These tests are now ACTIVE guards (the `#[ignore]` was removed when
+// the fix landed); the parameterization ensures a fix covering only one context
+// cannot make them green. A no-include guardrail below pins that a genuine typo
+// (no `include from`) still stays fatal.
 // https://github.com/WebFirstLanguage/wfl/issues/592
-//
-// CURRENT (26.7.37): fatal `error[ANALYZE-SEMANTIC]: Variable 'greet' is not
-// defined`, exit 3, in both contexts.
 const MOD_GREET: &str =
     "define action called greet:\n    return \"hello from greet\"\nend action\n";
 
@@ -341,7 +343,6 @@ fn assert_greet_resolves(main_src: &str, context: &str) {
 }
 
 #[test]
-#[ignore = "open defect #592: bare zero-arg included action is fatal at top level"]
 fn issue_592_bare_zero_arg_included_action_top_level() {
     assert_greet_resolves(
         "include from \"mod.wfl\"\nstore x as greet\ndisplay x\n",
@@ -350,7 +351,6 @@ fn issue_592_bare_zero_arg_included_action_top_level() {
 }
 
 #[test]
-#[ignore = "open defect #592: bare zero-arg included action is fatal inside an action body"]
 fn issue_592_bare_zero_arg_included_action_in_action_body() {
     assert_greet_resolves(
         // Invoke run_it with an explicit `call` (not a bare `display run_it`),
@@ -362,6 +362,26 @@ fn issue_592_bare_zero_arg_included_action_in_action_body() {
          store result as call run_it\n\
          display result\n",
         "action body",
+    );
+}
+
+// Guardrail: the #592 relaxation must only fire when the program uses
+// `include from`. A bare undefined name in a program with NO include is a
+// genuine typo and must stay a FATAL analyze error (`Variable '…' is not
+// defined`, exit 3) — the `warn_undefined_callee_if_includes` helper returns
+// false without includes, so the fatal path is preserved. This pins that the
+// fix did not over-broaden into silencing real undefined-name errors.
+#[test]
+fn issue_592_bare_undefined_without_include_stays_fatal() {
+    let (out, code) = run_files(&[("main.wfl", "store x as greet\ndisplay x\n")], "main.wfl");
+    assert!(
+        out.contains("Variable 'greet' is not defined"),
+        "a bare undefined name without any include must stay fatal (#592 guardrail): {out}"
+    );
+    assert_eq!(
+        code,
+        Some(3),
+        "should exit 3 (fatal analyze error) without includes (#592 guardrail): {out}"
     );
 }
 

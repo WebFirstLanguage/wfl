@@ -1,0 +1,27 @@
+// Regression fixture for issue #592: a ZERO-ARGUMENT action exposed by an
+// `include from` file, referenced by its BARE name (no `of`, no `call`).
+//
+// Before the fix, `store greeting as greet` was a FATAL analyze error
+// (`Variable 'greet' is not defined`, exit 3) even though the runtime would
+// auto-call the zero-arg action — because a bare reference lowers to
+// `Expression::Variable` and never reached the include-aware relaxation the
+// `of`/`call` forms already used. The analyzer now routes a bare unresolved
+// name through that same relaxation, so this resolves and prints, exit 0.
+//
+// A non-fatal "Undefined action 'greet'" analyze warning is expected (the
+// action is provided by the included module at runtime); the program still
+// runs and exits 0.
+include from "module_bare_zero_arg_helper.wfl"
+
+store greeting as greet
+display greeting
+
+// Also exercise the bare reference INSIDE an action body (the other context
+// that was fatal before the fix).
+define action called run_it:
+    store inner as greet
+    return inner
+end action
+
+store from_action as call run_it
+display from_action

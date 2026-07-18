@@ -111,7 +111,8 @@ $SkipTests = @(
     "web_server_test.wfl",        # Web server - needs HTTP client
     "websocket_test.wfl",         # WebSocket - needs WS client
     "web_route_params_test.wfl",  # Web server - tested via run_web_tests.ps1
-    "module_helper.wfl"           # Helper module, not a standalone program
+    "module_helper.wfl",          # Helper module, not a standalone program
+    "module_bare_zero_arg_helper.wfl" # Helper module for #592 fixture, not standalone
 )
 
 # Tests that intentionally end with an error; they pass when wfl exits nonzero
