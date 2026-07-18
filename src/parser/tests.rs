@@ -2298,8 +2298,11 @@ fn normal_pattern_quantifier_counts_remain_compatible() {
 // string literal, anything else is a variable/expression, and the values are
 // folded right-associatively into a single Concatenation — the same AST shape
 // (and therefore the same evaluation order and stringification order) as
-// joining them explicitly with `with` (`display a b c` parses identically to
-// `display a with b with c`). See parse_display_statement in stmt/io.rs.
+// joining them explicitly with `with` (`display "x" y "z"` parses identically
+// to `display "x" with y with "z"`; a run of bare words with no separator lexes
+// as one multi-word identifier, not several values, so an example needs a
+// non-identifier token to actually show the fold). See parse_display_statement
+// in stmt/io.rs.
 
 #[test]
 fn test_display_multiple_values_string_then_var() {
