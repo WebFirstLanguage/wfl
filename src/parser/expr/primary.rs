@@ -20,6 +20,7 @@ pub(crate) trait PrimaryExprParser<'a> {
 
 impl<'a> PrimaryExprParser<'a> for Parser<'a> {
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
+        #[cfg(debug_assertions)]
         let leading = self.cursor.peek().cloned();
         let result = self.parse_primary_expression_dispatch();
 
@@ -45,6 +46,12 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
         // something else that failed". The "predicted false" direction needs
         // no such check: every token classified as a non-starter always
         // dispatches to an arm that errors unconditionally.
+        //
+        // The whole check — the `leading` capture above included — is behind
+        // `#[cfg(debug_assertions)]`, so release builds pay nothing for it (no
+        // token clone, no reclassification, no error inspection), not merely a
+        // stripped `debug_assert!`.
+        #[cfg(debug_assertions)]
         if let Some(leading) = leading {
             let predicted_can_start = Self::can_start_primary_expression(&leading.token);
             if !predicted_can_start {
