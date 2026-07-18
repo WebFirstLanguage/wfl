@@ -238,15 +238,24 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Returns `true` if `token` can begin a standalone value expression.
+    /// Returns `true` if `token` can begin a fresh standalone value in a
+    /// `display` list.
     ///
     /// Used by `display` to fold multiple space-separated values into a single
     /// concatenation: quoted text is a string literal, everything else is a
     /// variable/expression. Only tokens that start a fresh value trigger the
-    /// fold — operators, keywords, and statement boundaries (`Eol`) do not — so
+    /// fold — statement boundaries (`Eol`) and binary operators do not — so
     /// `display numbers 0` stays a direct index access (the `0` is absorbed by
     /// the preceding expression) and `display x\n0` keeps the `0` as its own
     /// statement across the line break.
+    ///
+    /// Alongside literals, identifiers and `(`, this covers the keyword-led
+    /// value expressions that are *not* also binary operators (so they would
+    /// otherwise be left dangling and silently dropped or, in the case of
+    /// `count`, mis-parsed as a new statement): `call` action calls, the
+    /// count-loop variable `count`, and `current` date/time values. Keywords
+    /// that the binary parser already consumes after a value (`with`, `find`,
+    /// `replace`, `split`, `matches`, arithmetic) never reach this check.
     pub(crate) fn is_value_start(token: &Token) -> bool {
         matches!(
             token,
@@ -257,6 +266,9 @@ impl<'a> Parser<'a> {
                 | Token::NothingLiteral
                 | Token::Identifier(_)
                 | Token::LeftParen
+                | Token::KeywordCall
+                | Token::KeywordCount
+                | Token::KeywordCurrent
         )
     }
 

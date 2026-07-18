@@ -138,8 +138,9 @@ Hello, Bob!
 ## Display Several Values at Once
 
 You don't have to write `with` between every piece. A `display` can list
-several values separated by spaces — quoted text is shown as-is, and anything
-else (a variable or an expression) is evaluated first:
+several values separated by spaces — quoted text is shown as-is, and each other
+item is evaluated first: a variable, a number, an action call, or an expression
+like `age plus 10`:
 
 ```wfl
 store name as "Alice"

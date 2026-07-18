@@ -55,8 +55,9 @@ display a b c   ≡   display a with b with c
 Implementation:
 
 - Added `Parser::is_value_start` (`src/parser/helpers.rs`) — true for the tokens
-  that begin a fresh value (string/int/float/bool/nothing literals, identifiers,
-  `(`).
+  that begin a fresh value: string/int/float/bool/nothing literals, identifiers,
+  `(`, and the keyword-led value expressions `call`, `count`, and `current`
+  (see the review follow-up below).
 - After parsing the first value, `parse_display_statement` loops while the next
   token is a value-start, parsing each additional value with the full
   expression parser and folding it into a `Concatenation`.
@@ -83,22 +84,45 @@ language (No-Unlearning: the space-separated form and the `with` form are the
 same form), rather than inventing a second, space-adding rule that only
 `display` would follow.
 
-### Scope left alone (deliberately)
+### Review follow-up: keyword-led values
 
-A leading unary minus (`display "x" -5`) and bracket list literals still aren't
-value-start triggers, so those rare shapes are unchanged. They were never part
-of the report, and treating operator/bracket tokens as new values risks
-colliding with arithmetic and index syntax. `with` still covers them.
+Automated review (Codex/Copilot) flagged that the first cut only folded
+literals, identifiers and `(`, so a value that *starts* with a keyword was
+still dropped — or worse. Two concrete cases:
+
+- `display "number: " call get_number` printed only `number: ` and evaluated
+  the call separately.
+- `display "count is " count` inside a count loop **failed to parse**: `count`
+  reached `parse_statement` as leftover and was treated as the start of a new
+  count loop (`Expected 'from' after 'count'`). That's a hard error on natural,
+  documented code (the count-loop variable), strictly worse than the original
+  silent drop.
+
+Fix: `is_value_start` now also accepts `call`, `count`, and `current` — the
+keyword-led primary expressions that are *not* also binary operators. Keywords
+the binary parser already consumes after a value (`with`, `find`, `replace`,
+`split`, `matches`) never reach the fold, and a leading `-` is parsed as
+subtraction against the previous value (so `display "x" -5` was never a fold
+case). `current` requires its full form (`current time in milliseconds` /
+`formatted as ...`) exactly as it does as a first value — an incomplete
+`current time` errors identically whether folded or not. The docs were also
+tightened to describe values honestly (a variable, number, action call, or
+arithmetic expression) rather than promising arbitrary expression forms.
+
+Also addressed in the same pass: `parse_display_statement` now `expect`s the
+`display` token (it is only dispatched on `display`) instead of defaulting the
+statement position to a misleading `(0, 0)`.
 
 ## Tests
 
 - Parser unit tests (`src/parser/tests.rs`): string→var, var→string, three-value
-  left-associative fold, index-access regression, single-value regression, and a
+  left-associative fold, index-access regression, single-value regression, a
   "doesn't leak into the next statement" test (the following `change` still
-  parses).
+  parses), and the review-driven keyword-value folds (`count` variable and a
+  `call` action).
 - E2E: `TestPrograms/display_multiple_values.wfl` (the original report, the
-  `with` equivalent, mixed values, an expression, index access, and the
-  `check`/`otherwise` block).
+  `with` equivalent, mixed values, an expression, index access, a folded `call`,
+  the `count` loop variable, and the `check`/`otherwise` block).
 - Docs: `TestPrograms/docs_examples/basic_syntax/display_multiple_01.wfl`
   (manifest-tracked, 5-layer validated) backing the new
   *Display Several Values at Once* section in

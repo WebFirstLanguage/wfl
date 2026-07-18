@@ -1,7 +1,7 @@
 // Multi-value `display`: a display can list several space-separated values.
-// Quoted text is shown as-is; anything else (a variable or an expression) is
-// evaluated first. The values are joined exactly like `with`, so
-// `display a b c` means the same as `display a with b with c`.
+// Quoted text is shown as-is; each other item (a variable, a number, an action
+// call, or an expression) is evaluated first. The values are joined exactly
+// like `with`, so `display a b c` means the same as `display a with b with c`.
 
 store user age as 28
 display "user age is " user age          // user age is 28
@@ -27,6 +27,17 @@ create list scores:
     add 300
 end list
 display "first score: " scores 0          // first score: 100
+
+// Keyword-led values fold too. A `call` to a user-defined action:
+define action called doubled with n:
+    give back n times 2
+end action
+display "doubled: " call doubled with 21    // doubled: 42
+
+// The count-loop variable `count` as a trailing value:
+count from 1 to 3:
+    display "count is " count              // count is 1 / 2 / 3
+end count
 
 // The following condition from the original report now sees the right value:
 check if user age is greater than 18:

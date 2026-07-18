@@ -2491,3 +2491,64 @@ fn test_display_multiple_values_does_not_leak_into_next_statement() {
         program.statements[1]
     );
 }
+
+#[test]
+fn test_display_folds_count_variable() {
+    // Regression for the review finding: the count-loop variable `count` is a
+    // keyword, so it must still fold as a trailing display value instead of
+    // being mis-parsed as the start of a new count loop.
+    let input = r#"display "count is " count"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse display with folded count: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    let Expression::Concatenation { left, right, .. } = value else {
+        panic!("Expected Concatenation, got: {value:?}");
+    };
+    match *left {
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "count is "),
+        other => panic!("Expected string literal on left, got: {other:?}"),
+    }
+    match *right {
+        Expression::Variable(ref name, ..) => assert_eq!(name, "count"),
+        other => panic!("Expected the `count` variable on right, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_display_folds_call_action() {
+    // Regression for the review finding: `call <action>` is a keyword-led value
+    // and must fold as a trailing display value rather than being dropped.
+    let input = r#"display "n: " call doubled with 5"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse display with folded call: {result:?}"
+    );
+
+    let Ok(Statement::DisplayStatement { value, .. }) = result else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    };
+    let Expression::Concatenation { left, right, .. } = value else {
+        panic!("Expected Concatenation, got: {value:?}");
+    };
+    match *left {
+        Expression::Literal(Literal::String(ref s), ..) => assert_eq!(s.as_ref(), "n: "),
+        other => panic!("Expected string literal on left, got: {other:?}"),
+    }
+    match *right {
+        Expression::ActionCall { ref name, .. } => assert_eq!(name, "doubled"),
+        other => panic!("Expected an ActionCall on right, got: {other:?}"),
+    }
+}

@@ -392,10 +392,13 @@ impl<'a> IoParser<'a> for Parser<'a> {
     }
 
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
-        // Anchor the statement at the `display` keyword itself.
-        let (line, column) = self
+        // Anchor the statement at the `display` keyword itself. This parser is
+        // only dispatched on `Token::KeywordDisplay`, so `bump_sync` is always
+        // `Some` here — expect rather than defaulting to a misleading (0, 0).
+        let display_token = self
             .bump_sync() // Consume "display"
-            .map_or((0, 0), |token| (token.line, token.column));
+            .expect("parse_display_statement is only called on the `display` keyword");
+        let (line, column) = (display_token.line, display_token.column);
 
         // Parse the first value.
         let mut value = self.parse_expression()?;
