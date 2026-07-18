@@ -407,14 +407,20 @@ impl<'a> IoParser<'a> for Parser<'a> {
         // `display` accepts more than one space-separated value: quoted text is
         // a string literal and anything else is a variable/expression. Collect
         // every additional value here — only tokens that begin a fresh value
-        // continue the loop (see `is_value_start`). Direct index access such as
-        // `display numbers 0` is already absorbed by `parse_expression` above —
-        // the trailing `0` never reaches this loop — and a line break ends the
-        // statement because `Eol` is not a value start, so both keep working
-        // unchanged.
+        // continue the loop (see `is_value_start`), and only when they aren't
+        // actually the start of a same-line statement in disguise (see
+        // `is_display_fold_statement_boundary`, which keeps `count from ...`
+        // and `read output from process ...` as their own statement). Direct
+        // index access such as `display numbers 0` is already absorbed by
+        // `parse_expression` above — the trailing `0` never reaches this loop
+        // — and a line break ends the statement because `Eol` is not a value
+        // start, so both keep working unchanged.
         loop {
+            let is_boundary = self.is_display_fold_statement_boundary();
             let (cat_line, cat_column) = match self.cursor.peek() {
-                Some(token) if Self::is_value_start(&token.token) => (token.line, token.column),
+                Some(token) if !is_boundary && Self::is_value_start(&token.token) => {
+                    (token.line, token.column)
+                }
                 _ => break,
             };
 

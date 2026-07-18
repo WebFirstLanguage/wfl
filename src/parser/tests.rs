@@ -2759,3 +2759,474 @@ fn test_display_folds_keyword_read_content() {
         },
     );
 }
+
+#[test]
+fn test_display_folds_keyword_back() {
+    // `back` is only reserved after `give` (`give back x`); as a fresh
+    // display value it is an unambiguous bare-variable reference, same as
+    // `not`/`pattern` above (see the `is_value_start` doc comment).
+    assert_display_folds(r#"display "b: " back"#, "b: ", |right| {
+        assert!(
+            matches!(right, Expression::Variable(name, ..) if name == "back"),
+            "expected the `back` variable, got: {right:?}"
+        );
+    });
+}
+
+#[test]
+fn test_display_folds_keyword_error() {
+    // `error` is only reserved inside `when error:` (a `try` clause header);
+    // as a fresh display value it is an unambiguous bare-variable reference.
+    assert_display_folds(r#"display "e: " error"#, "e: ", |right| {
+        assert!(
+            matches!(right, Expression::Variable(name, ..) if name == "error"),
+            "expected the `error` variable, got: {right:?}"
+        );
+    });
+}
+
+// --- Same-line statement boundaries: `count from ...` / `read output from process ...` ----
+//
+// `count` and `read` each fold as a bare value (the count-loop variable, and
+// `read content/binary/N bytes from ...`), but each also leads a longer,
+// statement-only form with no expression-position parse of its own:
+// `count from X to Y:` (a count loop) and `read output from process P as V`
+// (`parse_read_process_output_statement`). Both must still parse as their own
+// statement when they immediately follow a `display` on the same line,
+// exactly as they did before multi-value `display` existed, instead of being
+// partially folded into the display and stranding the rest as unparsable
+// leftover tokens. See `is_display_fold_statement_boundary` in
+// `parser/helpers.rs`.
+
+/// Parses `input` as a whole program and returns its statements, panicking
+/// with the parse error otherwise. Unlike `parse_display`, more than one
+/// statement is expected here — these tests are specifically about where one
+/// statement ends and the next begins.
+fn parse_program_statements(input: &str) -> Vec<Statement> {
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    parser
+        .parse()
+        .unwrap_or_else(|error| panic!("Failed to parse `{input}`: {error:?}"))
+        .statements
+}
+
+#[test]
+fn count_from_after_display_stays_a_separate_statement() {
+    let statements = parse_program_statements(
+        r#"display "start" count from 1 to 3:
+    display "n: " count
+end count
+"#,
+    );
+
+    assert_eq!(
+        statements.len(),
+        2,
+        "expected exactly 2 statements, got: {statements:?}"
+    );
+
+    match &statements[0] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `count`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement first, got: {other:?}"),
+    }
+
+    assert!(
+        matches!(&statements[1], Statement::CountLoop { .. }),
+        "expected `count from ...` to open a count loop, got: {:?}",
+        statements[1]
+    );
+}
+
+#[test]
+fn read_output_from_process_after_display_stays_a_separate_statement() {
+    let statements = parse_program_statements(
+        r#"display "start" read output from process proc as result
+display "result: " result
+"#,
+    );
+
+    assert_eq!(
+        statements.len(),
+        3,
+        "expected exactly 3 statements, got: {statements:?}"
+    );
+
+    match &statements[0] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `read`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement first, got: {other:?}"),
+    }
+
+    assert!(
+        matches!(
+            &statements[1],
+            Statement::ReadProcessOutputStatement { variable_name, .. } if variable_name == "result"
+        ),
+        "expected `read output from process ... as result` to parse as its own statement, got: {:?}",
+        statements[1]
+    );
+
+    assert!(
+        matches!(&statements[2], Statement::DisplayStatement { .. }),
+        "expected the trailing `display \"result: \" result` to parse normally, got: {:?}",
+        statements[2]
+    );
+}
+
+// --- Same-line statement boundaries surfaced by centralizing `is_value_start` ----
+//
+// `create`, `change`, `push`, `parent`, `skip`, and `give` are all contextual
+// keywords (bare variables in expression position) that are *also* dedicated
+// arms of `parse_statement`'s top-level dispatch, with no expression-position
+// equivalent for their statement form (see the `is_value_start` doc comment
+// in `parser/helpers.rs`). Centralizing on `can_start_primary_expression`
+// surfaced these the same way it surfaced `count`/`read`, so each is excluded
+// from `is_value_start` outright; these tests lock that in.
+
+#[test]
+fn create_after_display_stays_a_separate_statement() {
+    let statements =
+        parse_program_statements("display \"start\" create directory at \"wfl-test-dir\"\n");
+
+    assert_eq!(
+        statements.len(),
+        2,
+        "expected exactly 2 statements, got: {statements:?}"
+    );
+    match &statements[0] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `create`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement first, got: {other:?}"),
+    }
+    assert!(
+        matches!(&statements[1], Statement::CreateDirectoryStatement { .. }),
+        "expected `create directory at ...` to parse as its own statement, got: {:?}",
+        statements[1]
+    );
+}
+
+#[test]
+fn change_after_display_stays_a_separate_statement() {
+    let statements = parse_program_statements(
+        r#"store n as 1
+display "start" change n to 2
+"#,
+    );
+
+    assert_eq!(
+        statements.len(),
+        3,
+        "expected exactly 3 statements, got: {statements:?}"
+    );
+    match &statements[1] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `change`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement second, got: {other:?}"),
+    }
+    assert!(
+        matches!(&statements[2], Statement::Assignment { .. }),
+        "expected `change n to 2` to parse as its own assignment statement, got: {:?}",
+        statements[2]
+    );
+}
+
+#[test]
+fn push_after_display_stays_a_separate_statement() {
+    let statements = parse_program_statements(
+        r#"create list numbers:
+end list
+display "start" push with numbers and 5
+"#,
+    );
+
+    let display_index = statements.len() - 2;
+    match &statements[display_index] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `push`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement, got: {other:?}"),
+    }
+    assert!(
+        matches!(&statements[display_index + 1], Statement::PushStatement { .. }),
+        "expected `push with numbers and 5` to parse as its own statement, got: {:?}",
+        statements[display_index + 1]
+    );
+}
+
+#[test]
+fn parent_after_display_stays_a_separate_statement() {
+    let statements = parse_program_statements(
+        r#"display "start" parent bump
+"#,
+    );
+
+    assert_eq!(
+        statements.len(),
+        2,
+        "expected exactly 2 statements, got: {statements:?}"
+    );
+    match &statements[0] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `parent`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement first, got: {other:?}"),
+    }
+    assert!(
+        matches!(
+            &statements[1],
+            Statement::ParentMethodCall { method_name, .. } if method_name == "bump"
+        ),
+        "expected `parent bump` to parse as its own statement, got: {:?}",
+        statements[1]
+    );
+}
+
+#[test]
+fn skip_after_display_stays_a_continue_statement() {
+    // The sharpest case: as a bare statement, `skip` is `continue` — a
+    // control-flow *effect*, not a value — and both forms consume exactly one
+    // token, so a silent regression here would not even leave stray tokens
+    // behind; it would just quietly stop continuing the loop.
+    let statements = parse_program_statements(
+        r#"display "start" skip
+"#,
+    );
+
+    assert_eq!(
+        statements.len(),
+        2,
+        "expected exactly 2 statements, got: {statements:?}"
+    );
+    match &statements[0] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `skip`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement first, got: {other:?}"),
+    }
+    assert!(
+        matches!(&statements[1], Statement::ContinueStatement { .. }),
+        "expected `skip` to still parse as its own ContinueStatement, got: {:?}",
+        statements[1]
+    );
+}
+
+#[test]
+fn give_back_after_display_stays_a_separate_statement() {
+    let statements = parse_program_statements(
+        r#"define action called f:
+    display "start" give back 5
+end action
+"#,
+    );
+
+    let Statement::ActionDefinition { body, .. } = &statements[0] else {
+        panic!("Expected an ActionDefinition, got: {:?}", statements[0]);
+    };
+
+    assert_eq!(
+        body.len(),
+        2,
+        "expected exactly 2 statements in the action body, got: {body:?}"
+    );
+    match &body[0] {
+        Statement::DisplayStatement { value, .. } => {
+            assert!(
+                matches!(value, Expression::Literal(Literal::String(s), ..) if s.as_ref() == "start"),
+                "expected the `display` to stop at the bare string, not fold `give`, got: {value:?}"
+            );
+        }
+        other => panic!("Expected a DisplayStatement first, got: {other:?}"),
+    }
+    assert!(
+        matches!(&body[1], Statement::ReturnStatement { .. }),
+        "expected `give back 5` to parse as its own return statement, got: {:?}",
+        body[1]
+    );
+}
+
+// --- Centralization: `is_value_start` cannot drift from `parse_primary_expression` ----
+
+/// Returns `true` if parsing `input` as a primary expression falls all the
+/// way through to `parse_primary_expression`'s final
+/// `_ => Err("Unexpected token in expression: ...")` arm — i.e. the leading
+/// token has *no* dedicated arm — as opposed to succeeding, or failing with a
+/// different, arm-specific error (e.g. an incomplete but recognized keyword
+/// form). This is a stronger signal than plain `Ok`/`Err`: several arms
+/// return a perfectly valid `Ok` for a bare keyword (`back`, `output`, ...),
+/// while others can still legitimately `Err` without having fallen through
+/// (e.g. `(` with nothing before `)`) — only the fallback's specific message
+/// means "no arm claimed this token".
+fn falls_through_to_primary_expression_fallback(input: &str) -> bool {
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    match parser.parse_primary_expression() {
+        Ok(_) => false,
+        Err(error) => error.message.contains("Unexpected token in expression"),
+    }
+}
+
+#[test]
+fn can_start_primary_expression_matches_parse_primary_expression() {
+    // One representative snippet per case, covering every explicit
+    // keyword-led arm in `parse_primary_expression`, a broad sample of the
+    // contextual-keyword catch-all (`_ if token.is_contextual_keyword()`),
+    // and a broad sample of tokens with no primary-expression arm at all
+    // (structural keywords/punctuation that only mean something as a
+    // statement or as a continuation of a *preceding* expression). Not
+    // literally exhaustive over all ~190 `Token` variants — that would mostly
+    // test the lexer, not this coupling — but wide enough that adding or
+    // removing a `parse_primary_expression` arm for any of these tokens
+    // without updating `can_start_primary_expression` fails this test.
+    let cases: &[(&str, bool)] = &[
+        // Literals, identifiers, brackets: always a primary starter.
+        ("5", true),
+        ("5.0", true),
+        (r#""s""#, true),
+        ("yes", true),
+        ("nothing", true),
+        ("x", true),
+        ("(5)", true),
+        ("[5]", true),
+        // Explicit keyword-led arms.
+        ("call", true),
+        ("not yes", true),
+        ("-5", true),
+        ("with x", true),
+        ("count", true),
+        ("pattern", true),
+        ("loop", true),
+        ("output", true),
+        ("repeat", true),
+        ("exit", true),
+        ("back", true),
+        ("try", true),
+        ("when", true),
+        ("error", true),
+        ("file", true),
+        ("directory", true),
+        ("process", true),
+        ("header", true),
+        ("current", true),
+        ("list", true),
+        ("read", true),
+        ("find x in y", true),
+        ("replace x with y in z", true),
+        ("split x by y", true),
+        // A sample of the contextual-keyword catch-all: no dedicated arm
+        // above, but `token.is_contextual_keyword()` is true, so a bare
+        // keyword still resolves to a plain variable reference.
+        ("text", true),
+        ("map", true),
+        ("create", true),
+        ("new", true),
+        ("parent", true),
+        ("push", true),
+        ("skip", true),
+        ("give", true),
+        ("called", true),
+        ("needs", true),
+        ("change", true),
+        ("reversed", true),
+        ("at", true),
+        ("least", true),
+        ("most", true),
+        ("than", true),
+        ("zero", true),
+        ("any", true),
+        ("must", true),
+        ("defaults", true),
+        ("binary", true),
+        ("bytes", true),
+        ("that", true),
+        ("files", true),
+        ("extension", true),
+        ("extensions", true),
+        ("contains", true),
+        ("starts", true),
+        ("ends", true),
+        // Structural keywords and punctuation with no primary-expression arm:
+        // only meaningful as a statement starter or as a continuation
+        // consumed by an already-parsed left operand.
+        ("store", false),
+        ("display", false),
+        ("check", false),
+        ("if", false),
+        ("for", false),
+        ("define", false),
+        ("action", false),
+        ("end", false),
+        ("otherwise", false),
+        ("then", false),
+        ("as", false),
+        ("to", false),
+        ("from", false),
+        ("and", false),
+        ("or", false),
+        ("in", false),
+        ("while", false),
+        ("until", false),
+        ("forever", false),
+        ("break", false),
+        ("continue", false),
+        ("return", false),
+        (":", false),
+        (",", false),
+    ];
+
+    for (input, expected) in cases {
+        let tokens = lex_wfl_with_positions(input);
+        let leading_token = tokens
+            .first()
+            .unwrap_or_else(|| panic!("`{input}` lexed to no tokens"));
+        let predicted = Parser::can_start_primary_expression(&leading_token.token);
+        assert_eq!(
+            predicted, *expected,
+            "can_start_primary_expression(`{input}`) predicted {predicted}, expected {expected}"
+        );
+
+        if *expected {
+            assert!(
+                !falls_through_to_primary_expression_fallback(input),
+                "`{input}` is predicted to start a primary expression, but \
+                 parse_primary_expression fell through to its fallback arm — \
+                 can_start_primary_expression has drifted from \
+                 parse_primary_expression"
+            );
+        } else {
+            assert!(
+                falls_through_to_primary_expression_fallback(input),
+                "`{input}` is predicted NOT to start a primary expression, but \
+                 parse_primary_expression accepted it (or failed with a \
+                 different, arm-specific error) — can_start_primary_expression \
+                 has drifted from parse_primary_expression"
+            );
+        }
+    }
+}

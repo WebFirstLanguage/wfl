@@ -227,18 +227,55 @@ display basket.items {connector} "" {connector} pop of basket.items
 
 #[test]
 fn keyword_led_values_fold_with_exact_output() {
-    let stdout = run_wfl(
+    // A unique absolute path under the OS temp dir, guaranteed not to exist
+    // (nothing ever creates it) and independent of the test's working
+    // directory or any files a developer happens to have lying around in the
+    // repo root.
+    let missing_path = test_helpers::get_unique_test_file_path(
+        "display_multiple_values_stdout_does_not_exist",
+    )
+    .with_extension("missing");
+    let missing_path = missing_path.to_str().expect("path should be valid UTF-8");
+
+    let stdout = run_wfl(&format!(
         r#"
 store is_admin as no
 display "is admin: " not is_admin
-display "exists: " file exists at "does-not-exist-for-sure.txt"
+display "exists: " file exists at "{missing_path}"
 count from 1 to 3:
     display "count is " count
 end count
-"#,
-    );
+"#
+    ));
     assert_eq!(
         stdout,
         "is admin: yes\nexists: no\ncount is 1\ncount is 2\ncount is 3\n"
     );
 }
+
+// --- Same-line statement boundaries: `count from ...` / `read output from process ...` ----
+
+#[test]
+fn count_from_after_display_on_same_line_stays_a_separate_statement() {
+    // `count` alone folds into `display` as the count-loop variable (see
+    // `keyword_led_values_fold_with_exact_output`), but `count from ...` on
+    // the *same line* as a preceding `display` must still open a count loop,
+    // exactly as it did before multi-value `display` existed — not get
+    // partially folded into the display and leave `from 1 to 3:` stranded.
+    let stdout = run_wfl(
+        r#"
+display "start" count from 1 to 3:
+    display "n: " count
+end count
+"#,
+    );
+    assert_eq!(stdout, "start\nn: 1\nn: 2\nn: 3\n");
+}
+
+// `read output from process ...` after a same-line `display` is covered as a
+// parser-level whole-program regression instead of here
+// (`read_output_from_process_after_display_stays_a_separate_statement` in
+// `src/parser/tests.rs`): it needs a real subprocess and a `wait for` to
+// exercise end-to-end, which would make this suite timing-dependent for a
+// case that's purely about statement *boundaries* — the AST shape settles the
+// question without needing to actually run a process.

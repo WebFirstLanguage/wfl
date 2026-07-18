@@ -175,13 +175,24 @@ a b c` looks for one variable literally named `a b c`, the same as it would
 outside a `display`. Space-separated values only split apart where the grammar
 already has a boundary: a quote, a number, a parenthesis, or one of the
 keywords that begins a value on its own (such as `not`, `file exists`, or an
-action `call`). Words joined by an operator like `plus` or `minus`, or a
-keyword that opens a new statement or block, stay part of the same value rather
-than starting a new one. So `display numbers 0` stays a single value — a direct
-index into `numbers` — and `display total -5` stays a single value — `total`
-*minus* `5` — because both `0` and `-5` attach to the item right before them
-the same way they would anywhere else in WFL. When you want two values that
-would otherwise merge like this, use `with` to make the boundary explicit.
+action `call`).
+
+Two kinds of tokens do *not* start a new value, for different reasons:
+
+- Words joined by an operator like `plus` or `minus` stay part of the *same*
+  value. `display numbers 0` stays a single value — a direct index into
+  `numbers` — and `display total -5` stays a single value — `total` *minus*
+  `5` — because both `0` and `-5` attach to the item right before them the
+  same way they would anywhere else in WFL.
+- A keyword that starts a *different kind of statement* — `count from ...`, a
+  loop, `create ...`, `change ... to ...`, and a few others — ends the
+  `display` right where it is, exactly as a line break would, and begins its
+  own statement immediately after. `display "start" count from 1 to 3:` still
+  displays `start` and then opens a count loop, just as it did before
+  `display` accepted multiple values.
+
+When you want two values that would otherwise merge like the first case, use
+`with` to make the boundary explicit.
 
 ## Experiment!
 

@@ -10,7 +10,7 @@ A user wrote what reads as perfectly natural WFL:
 
 ```wfl
 store user age as 28
-display user age "user age is" user age
+display "user age is " user age
 change user age to 9
 
 check if user age is greater than 18:
@@ -205,3 +205,60 @@ return value, an action with arguments and one with a side effect, a
 container instance/property/method, and — the one that matters most — the
 mutating-list case proving space-separated `display` and `with` now produce
 byte-identical output.
+
+## New-head follow-up: centralization and more same-line boundaries
+
+A second maintainer review of `fef9fb7` asked for `is_value_start` to stop
+being an independently-maintained token list and instead be defined in terms
+of the *same* classification `parse_primary_expression` uses, plus asked for
+the `count`/`read` same-line fix from the deep-review pass to be regression
+tested as whole programs rather than trusted by inspection.
+
+- **Centralization.** `src/parser/helpers.rs` now has
+  `Parser::can_start_primary_expression`, a single predicate mirroring every
+  arm of `parse_primary_expression` (explicit keyword arms plus the
+  contextual-keyword catch-all via `Token::is_contextual_keyword`).
+  `is_value_start` is now `can_start_primary_expression` minus an explicit,
+  documented exclusion list, instead of its own hand-maintained list — so a
+  new `parse_primary_expression` arm is included by default rather than
+  requiring a second edit to opt in. A coupling test in `parser/tests.rs`
+  (`can_start_primary_expression_matches_parse_primary_expression`) feeds a
+  representative token through both functions and asserts they agree, so the
+  two can't silently drift apart again. This also added `back` and `error` to
+  `is_value_start` (previously left out only because they weren't flagged by
+  review, not because they were unsafe — see finding 2 above).
+- **New same-line statement boundaries.** Actually centralizing the
+  classification (rather than hand-curating a short list) surfaced six more
+  tokens with the exact same shape as the `count`/`read` finding: `create`,
+  `change`, `push`, `parent`, `skip`, and `give` are all contextual keywords
+  (bare variables in expression position) that are *also* dedicated arms of
+  `parse_statement`'s top-level dispatch, with no expression-position
+  equivalent for their statement form. Unlike `count`/`read`, none of the six
+  has one unambiguous continuation token to guard on (`create` alone forks
+  into containers, lists, patterns, directories, files, maps, dates, times,
+  and plain variable declarations), so — same reasoning as the pre-existing
+  `loop`/`exit`/`repeat`/`try`/`when` exclusions — they're excluded from
+  `is_value_start` outright rather than guarded. `skip` was the sharpest case
+  to catch: as a bare statement it's `continue` (a control-flow effect, one
+  token), with *no syntactic difference at all* from folding it as a value
+  (also one token) — an unguarded inclusion would have silently turned a
+  loop's `continue` into inert display output instead of a parse error.
+  `parse_display_statement`'s fold loop also gained a real lookahead guard,
+  `Parser::is_display_fold_statement_boundary`, so `display "x" count from 1
+  to 3:` and `display "x" read output from process p` keep parsing as two
+  statements (the count-loop/read-output form) instead of the display
+  swallowing just the keyword and stranding the rest. Each of the eight
+  excluded tokens (the original five plus these six) now has an explicit
+  `*_after_display_stays_a_separate_statement` whole-program regression test
+  in `parser/tests.rs`.
+- **Test determinism.** The `file exists at "does-not-exist-for-sure.txt"`
+  stdout case depended on the test runner's working directory not happening
+  to contain a file by that name. It now builds a unique, absolute path under
+  the OS temp directory via `test_helpers::get_unique_test_file_path`, the
+  same helper the rest of the integration suite already uses to avoid
+  cross-test and cross-machine collisions.
+- **Tooling note.** `cargo build`/`test`/`clippy`/`fmt` were blocked by this
+  session's tool-approval policy with no human available to grant it, so this
+  pass was verified by careful manual trace against the current source rather
+  than a local build — flagged as a blocker in the PR thread, consistent with
+  the deep-review pass's first attempt.
