@@ -238,6 +238,233 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Returns `true` if `token` has a dedicated arm in
+    /// `parse_primary_expression` (`src/parser/expr/primary.rs`) that attempts
+    /// to parse a standalone value, rather than falling through to that
+    /// function's final `_ => Err("Unexpected token in expression")` arm.
+    ///
+    /// `is_value_start` below is defined in terms of this predicate (primary
+    /// starters minus an explicit, documented exclusion list) rather than
+    /// maintaining its own independent token list, so display folding can
+    /// never accept a token the expression parser itself would reject.
+    ///
+    /// This function is still a hand-maintained `matches!` for the explicit
+    /// keyword-led arms below — that half is *not* structurally incapable of
+    /// drifting from `parse_primary_expression`. What actually enforces the
+    /// coupling is `parse_primary_expression` itself (`src/parser/expr/primary.rs`):
+    /// it wraps its real dispatch (`parse_primary_expression_dispatch`) in a
+    /// pair of `debug_assert!`s that compare this predicate's prediction
+    /// against what the dispatch actually did, on every call, in every debug
+    /// build — not a hand-picked sample, but every parser test, every
+    /// `TestPrograms/*.wfl` run, and every program compiled in a debug build.
+    /// An arm added to `parse_primary_expression` without a matching update
+    /// here (or the reverse) panics the first time anything exercises that
+    /// token, rather than only when a maintained sample list happens to cover
+    /// it.
+    /// `parser/tests.rs` additionally has an explicit, documented coupling
+    /// test (`can_start_primary_expression_matches_parse_primary_expression`)
+    /// covering a curated sample, kept as much for its documentation value as
+    /// its enforcement.
+    ///
+    /// The contextual-keyword half genuinely cannot drift, structurally:
+    /// both this predicate's `|| token.is_contextual_keyword()` and
+    /// `parse_primary_expression`'s catch-all
+    /// (`_ if token.is_contextual_keyword()`) call the exact same
+    /// `Token::is_contextual_keyword` function, so there is only one list to
+    /// maintain for every contextual keyword (`text`, `map`, `contains`,
+    /// `create`, `new`, ...) — adding one there automatically updates both
+    /// call sites at once.
+    ///
+    /// Mirrors, in match order: the literal/bracket/paren/identifier arms; the
+    /// explicit keyword-led arms (`call`, `not`, `-` unary, `with`, `count`,
+    /// `pattern`, `loop`, `output`, `repeat`, `exit`, `back`, `try`, `when`,
+    /// `error`, `file`, `directory`, `process`, `header`, `current`, `list`,
+    /// `read`, `find`, `replace`, `split`); and finally the contextual-keyword
+    /// catch-all described above. `Token::Eol` has its own arm but it always
+    /// errors, so it is excluded here.
+    pub(crate) fn can_start_primary_expression(token: &Token) -> bool {
+        matches!(
+            token,
+            Token::LeftBracket
+                | Token::LeftParen
+                | Token::StringLiteral(_)
+                | Token::IntLiteral(_)
+                | Token::FloatLiteral(_)
+                | Token::BooleanLiteral(_)
+                | Token::NothingLiteral
+                | Token::KeywordCall
+                | Token::Identifier(_)
+                | Token::KeywordNot
+                | Token::Minus
+                | Token::KeywordWith
+                | Token::KeywordCount
+                | Token::KeywordPattern
+                | Token::KeywordLoop
+                | Token::KeywordOutput
+                | Token::KeywordRepeat
+                | Token::KeywordExit
+                | Token::KeywordBack
+                | Token::KeywordTry
+                | Token::KeywordWhen
+                | Token::KeywordError
+                | Token::KeywordFile
+                | Token::KeywordDirectory
+                | Token::KeywordProcess
+                | Token::KeywordHeader
+                | Token::KeywordCurrent
+                | Token::KeywordList
+                | Token::KeywordRead
+                | Token::KeywordFind
+                | Token::KeywordReplace
+                | Token::KeywordSplit
+        ) || token.is_contextual_keyword()
+    }
+
+    /// Returns `true` if `token` can begin a fresh standalone value in a
+    /// `display` list.
+    ///
+    /// Used by `display` to fold multiple space-separated values into a single
+    /// concatenation: quoted text is a string literal, everything else is a
+    /// variable/expression. Only tokens that start a fresh value trigger the
+    /// fold — statement boundaries (`Eol`) and binary operators do not — so
+    /// `display numbers 0` stays a direct index access (the `0` is absorbed by
+    /// the preceding expression) and `display x\n0` keeps the `0` as its own
+    /// statement across the line break.
+    ///
+    /// Defined as `can_start_primary_expression` minus an explicit exclusion
+    /// list, so it can never accept a token the expression parser itself
+    /// rejects, and any *new* primary-expression starter is included by
+    /// default rather than requiring a second, easy-to-forget edit — the
+    /// opposite failure mode of the token list this replaced. Each included
+    /// keyword starter is exercised end-to-end (parse *and* fold) by a
+    /// `test_display_folds_keyword_*` test in `parser/tests.rs`.
+    ///
+    /// Excluded, with reasons:
+    /// - `loop`, `exit`, `repeat`, `try`, `when` — these double as
+    ///   statement/block openers elsewhere in the grammar (the first four are
+    ///   literal entries in `is_statement_starter` above, and `when` opens
+    ///   route-arm blocks); folding them into a preceding `display` on parse
+    ///   would swallow what is far more likely to be a genuine syntax error (a
+    ///   missing line break) than an intended display value, so they are left
+    ///   to surface that error instead of being silently absorbed. `back` and
+    ///   `error` have no such conflict — each is *only* ever a bare-variable
+    ///   arm in `parse_primary_expression`, is not a dedicated arm of
+    ///   `parse_statement`'s top-level dispatch (`src/parser/mod.rs`), and
+    ///   (unlike `count`/`read`, see below) never leads a longer statement
+    ///   form — so they are included.
+    /// - `create`, `change`, `push`, `parent`, `skip`, `give` — each is
+    ///   contextual (`Token::is_contextual_keyword`), so in expression
+    ///   position it is just a bare-variable reference, but each is *also* a
+    ///   dedicated arm of `parse_statement`'s top-level dispatch leading a
+    ///   statement form with no expression-position equivalent: `create
+    ///   container/list/new/pattern/directory/file/map/date/time/... as`,
+    ///   `change X to Y` (assignment), `push with LIST and VALUE`, `parent
+    ///   method(...)` (parent method call), and `give back EXPR` (return).
+    ///   Centralizing on `can_start_primary_expression` surfaced these the
+    ///   same way it surfaced `count`/`read`; unlike those two, none has a
+    ///   single, unambiguous continuation token to guard on (`create` alone
+    ///   forks more than half a dozen ways), so — same reasoning as
+    ///   `loop`/`exit`/`repeat`/`try`/`when` — they are excluded outright
+    ///   rather than guarded. `skip` is the sharpest case: as a bare
+    ///   statement it's a *control-flow* effect (`continue`, one token,
+    ///   see `Token::KeywordContinue | Token::KeywordSkip` in
+    ///   `parse_statement`) with no visible syntax difference from folding it
+    ///   as a value — both consume exactly one token — so an unguarded
+    ///   inclusion would silently turn a loop's `continue` into inert display
+    ///   output instead of a parse-time error. See the
+    ///   `*_after_display_stays_a_separate_statement` tests in
+    ///   `parser/tests.rs` for `create`, `change`, `push`, `parent`, `skip`,
+    ///   and `give`.
+    /// - `with`, `find`, `replace`, `split` — `parse_binary_expression`
+    ///   already consumes these as continuations of the *first* value inside
+    ///   the initial `parse_expression()` call above, so they never reach this
+    ///   check as the head of a fresh value. (`find`, `replace`, and `split`
+    ///   have a separate, pre-existing bug where that continuation silently
+    ///   discards the value that precedes them — e.g.
+    ///   `display "parts: " split "a,b" by ","` prints only the split result —
+    ///   but that lives in the general binary-expression grammar, not here;
+    ///   see the Dev Diary entry for this feature for the follow-up scope
+    ///   note.)
+    /// - Unary `-` (`Minus`) can never be the head of a fresh display value:
+    ///   after an operand, `parse_binary_expression` consumes a `-` as the
+    ///   binary subtraction operator, so a leading `-` after the first value is
+    ///   always folded into that first `parse_expression()` call as arithmetic
+    ///   (`display "n: " -5` parses as `"n: " minus 5`, not as two values) —
+    ///   adding it here would be dead code. `not` has no such conflict (it is
+    ///   never a binary continuation), so it is included.
+    /// - `LeftBracket` (`[`) — postfix indexing (`Token::LeftBracket` in
+    ///   `parse_primary_expression`'s postfix loop) unconditionally attaches a
+    ///   following `[...]` to whatever expression was just parsed, so a `[` can
+    ///   never be the head of a *fresh* value here either; it is always already
+    ///   consumed as an index into the previous value.
+    ///
+    /// `count` and `read` are included (the count-loop variable, and
+    /// `read content/binary/N bytes from ...`), but each also leads a longer,
+    /// statement-only form on the same line — `count from ... to ...:` (a
+    /// count loop) and `read output from process ...`
+    /// (`parse_read_process_output_statement`) — that has no expression-position
+    /// parse of its own. Folding either as a bare value would truncate the
+    /// `display` at just the keyword and strand the rest as unparsable
+    /// leftover tokens. `parse_display_statement`'s fold loop therefore pairs
+    /// this predicate with `is_display_fold_statement_boundary`, which peeks
+    /// one token further to keep those two forms as their own statement,
+    /// exactly as they parsed before this feature existed.
+    pub(crate) fn is_value_start(token: &Token) -> bool {
+        Self::can_start_primary_expression(token)
+            && !matches!(
+                token,
+                Token::KeywordLoop
+                    | Token::KeywordExit
+                    | Token::KeywordRepeat
+                    | Token::KeywordTry
+                    | Token::KeywordWhen
+                    | Token::KeywordCreate
+                    | Token::KeywordChange
+                    | Token::KeywordPush
+                    | Token::KeywordParent
+                    | Token::KeywordSkip
+                    | Token::KeywordGive
+                    | Token::KeywordWith
+                    | Token::KeywordFind
+                    | Token::KeywordReplace
+                    | Token::KeywordSplit
+                    | Token::Minus
+                    | Token::LeftBracket
+            )
+    }
+
+    /// Returns `true` when the upcoming tokens begin a new statement rather
+    /// than a fresh `display` value, even though the leading token alone
+    /// passes `is_value_start`.
+    ///
+    /// `count` and `read` are each folded as expression starters (the
+    /// count-loop variable, and `read content`/`read binary`/`read N bytes
+    /// from`), but `count from ...` opens a count loop and
+    /// `read output from process ...` is statement-only
+    /// (`parse_read_process_output_statement`) — neither has an
+    /// expression-position parse, so folding them would silently truncate the
+    /// `display` at just the keyword and leave the rest of the statement
+    /// dangling as unparsable leftover tokens. This lookahead preserves the
+    /// pre-existing same-line behavior for both: `display "x" count from 1 to
+    /// 3:` and `display "x" read output from process p` still end the
+    /// `display` after `"x"` and parse the second statement normally.
+    pub(crate) fn is_display_fold_statement_boundary(&self) -> bool {
+        let Some(next) = self.cursor.peek() else {
+            return false;
+        };
+        match &next.token {
+            Token::KeywordCount => self
+                .cursor
+                .peek_next()
+                .is_some_and(|t| t.token == Token::KeywordFrom),
+            Token::KeywordRead => self
+                .cursor
+                .peek_next()
+                .is_some_and(|t| t.token == Token::KeywordOutput),
+            _ => false,
+        }
+    }
+
     /// Synchronize parser state after an error by advancing to the next statement starter
     #[allow(dead_code)]
     pub(crate) fn synchronize(&mut self) {

@@ -392,207 +392,66 @@ impl<'a> IoParser<'a> for Parser<'a> {
     }
 
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
-        self.bump_sync(); // Consume "display"
+        // Anchor the statement at the `display` keyword itself. This parser is
+        // only dispatched on `Token::KeywordDisplay`, so `bump_sync` is always
+        // `Some` here — expect rather than defaulting to a misleading (0, 0).
+        let display_token = self
+            .bump_sync() // Consume "display"
+            .expect("parse_display_statement is only called on the `display` keyword");
+        let (line, column) = (display_token.line, display_token.column);
 
-        let expr = self.parse_expression()?;
+        // Parse the first value.
+        let mut values = vec![self.parse_expression()?];
+        let mut join_positions = Vec::new();
 
-        let token_pos = if let Some(token) = self.cursor.peek() {
-            token
-        } else {
-            return match expr {
-                Expression::Literal(_, line, column) => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::Variable(_, line, column) => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::BinaryOperation { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
+        // `display` accepts more than one space-separated value: quoted text is
+        // a string literal and anything else is a variable/expression. Collect
+        // every additional value here — only tokens that begin a fresh value
+        // continue the loop (see `is_value_start`), and only when they aren't
+        // actually the start of a same-line statement in disguise (see
+        // `is_display_fold_statement_boundary`, which keeps `count from ...`
+        // and `read output from process ...` as their own statement). Direct
+        // index access such as `display numbers 0` is already absorbed by
+        // `parse_expression` above — the trailing `0` never reaches this loop
+        // — and a line break ends the statement because `Eol` is not a value
+        // start, so both keep working unchanged.
+        loop {
+            let is_boundary = self.is_display_fold_statement_boundary();
+            let (cat_line, cat_column) = match self.cursor.peek() {
+                Some(token) if !is_boundary && Self::is_value_start(&token.token) => {
+                    (token.line, token.column)
                 }
-                Expression::UnaryOperation { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::FunctionCall { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::MemberAccess { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::IndexAccess { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::Concatenation { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PatternMatch { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PatternFind { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PatternReplace { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::PatternSplit { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::StringSplit { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::AwaitExpression { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ActionCall { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::StaticMemberAccess { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::MethodCall { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::PropertyAccess { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::FileExists { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::DirectoryExists { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ListFiles { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::ReadContent { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::ReadBinaryContent { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ReadBinaryN { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::FileSizeOf { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::ListFilesRecursive { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ListFilesFiltered { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::HeaderAccess { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
-                Expression::CurrentTimeMilliseconds { line, column } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::CurrentTimeFormatted { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::ProcessRunning { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
-                Expression::DatabaseQuery { line, column, .. } => Ok(Statement::DisplayStatement {
-                    value: expr,
-                    line,
-                    column,
-                }),
+                _ => break,
             };
-        };
+
+            values.push(self.parse_expression()?);
+            join_positions.push((cat_line, cat_column));
+        }
+
+        // Fold right-associatively — the same tree shape, evaluation order, and
+        // stringification order as explicit `with` (`a with b with c` parses as
+        // `a with (b with c)`, see the `with` handling in expr/binary.rs). This
+        // matters beyond cosmetics: `Concatenation` evaluates left, then right,
+        // then stringifies both, so a left-associative fold would stringify an
+        // earlier value *before* a later value's side effects (e.g. a list
+        // mutation) run, while this matches `with` exactly, value for value.
+        let mut value = values.pop().expect("at least one value was parsed");
+        while let Some(left) = values.pop() {
+            let (cat_line, cat_column) = join_positions
+                .pop()
+                .expect("one join position per folded value");
+            value = Expression::Concatenation {
+                left: Box::new(left),
+                right: Box::new(value),
+                line: cat_line,
+                column: cat_column,
+            };
+        }
 
         Ok(Statement::DisplayStatement {
-            value: expr,
-            line: token_pos.line,
-            column: token_pos.column,
+            value,
+            line,
+            column,
         })
     }
 

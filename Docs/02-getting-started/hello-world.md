@@ -135,6 +135,68 @@ display "Hello, " with name with "!"
 Hello, Bob!
 ```
 
+## Display Several Values at Once
+
+You don't have to write `with` between every piece. A `display` can list
+several values separated by spaces — quoted text is shown as-is, and each other
+item is evaluated first: a variable, a number, an action call, or an expression
+like `age plus 10`:
+
+```wfl
+store name as "Alice"
+display "Hello, " name "!"
+```
+
+**Output:**
+```
+Hello, Alice!
+```
+
+This is just a shorthand: `display "Hello, " name "!"` means exactly the same
+thing as `display "Hello, " with name with "!"` — not just the same result,
+but the same order of evaluation, so a value that changes as a side effect of
+a later item (e.g. popping from a list) behaves identically either way.
+
+Because the values are joined directly (no space is added for you), put any
+spaces you want inside the quotes:
+
+```wfl
+store age as 25
+display "I am " age " years old"   // I am 25 years old
+display "I am" age "years old"     // I am25years old  ← note the missing spaces
+```
+
+> **Tip:** `with` and the space-separated form do the same job — use whichever
+> reads more clearly. Just pick *one* form within a single `display`: mixing
+> them in the same statement (like `display a with b c`) can group the values
+> differently and change the order they're evaluated, so a run of pure `with`
+> or pure spaces stays predictable while a mix may not.
+
+A run of plain words with nothing between them (no quotes, numbers, or
+keywords) is a single multi-word variable name, not several values — `display
+a b c` looks for one variable literally named `a b c`, the same as it would
+outside a `display`. Space-separated values only split apart where the grammar
+already has a boundary: a quote, a number, a parenthesis, or one of the
+keywords that begins a value on its own (such as `not`, `file exists`, or an
+action `call`).
+
+Two kinds of tokens do *not* start a new value, for different reasons:
+
+- Words joined by an operator like `plus` or `minus` stay part of the *same*
+  value. `display numbers 0` stays a single value — a direct index into
+  `numbers` — and `display total -5` stays a single value — `total` *minus*
+  `5` — because both `0` and `-5` attach to the item right before them the
+  same way they would anywhere else in WFL.
+- A keyword that starts a *different kind of statement* — `count from ...`, a
+  loop, `create ...`, `change ... to ...`, and a few others — ends the
+  `display` right where it is, exactly as a line break would, and begins its
+  own statement immediately after. `display "start" count from 1 to 3:` still
+  displays `start` and then opens a count loop, just as it did before
+  `display` accepted multiple values.
+
+When you want two values that would otherwise merge like the first case, use
+`with` to make the boundary explicit.
+
 ## Experiment!
 
 WFL is designed for experimentation. Try these:
