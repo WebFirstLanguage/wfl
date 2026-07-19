@@ -166,8 +166,11 @@ display "I am " age " years old"   // I am 25 years old
 display "I am" age "years old"     // I am25years old  ← note the missing spaces
 ```
 
-> **Tip:** `with` and the space-separated form do the same job. Use whichever
-> reads more clearly — mix them freely if you like.
+> **Tip:** `with` and the space-separated form do the same job — use whichever
+> reads more clearly. Just pick *one* form within a single `display`: mixing
+> them in the same statement (like `display a with b c`) can group the values
+> differently and change the order they're evaluated, so a run of pure `with`
+> or pure spaces stays predictable while a mix may not.
 
 A run of plain words with nothing between them (no quotes, numbers, or
 keywords) is a single multi-word variable name, not several values — `display
