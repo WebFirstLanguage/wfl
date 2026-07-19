@@ -1,6 +1,6 @@
 [package]
 name = "wfl"
-version = "26.7.45"
+version = "26.7.46"
 edition = "2024"
 # Minimum supported Rust version. Driven by the `sqlx` 0.9 dependency, which
 # declares `rust-version = "1.94"`; the WFL sources themselves need less.
@@ -16,7 +16,7 @@ default-run = "wfl"
 name = "WFL"
 identifier = "com.logbie.wfl"
 icon = ["icons/wfl.png"]
-version = "26.7.45"
+version = "26.7.46"
 copyright = "© 2025 Logbie LLC"
 category = "Developer Tool"
 short_description = "WebFirst Language Compiler and Runtime"
