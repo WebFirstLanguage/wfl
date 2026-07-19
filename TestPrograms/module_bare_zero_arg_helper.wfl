@@ -1,0 +1,7 @@
+// Helper module for module_include_bare_zero_arg.wfl (issue #592).
+// Exposes a ZERO-ARGUMENT action so the main file can reference it by its
+// bare name (`store greeting as greet`) across an `include from`. This file is
+// a helper, not a standalone program (skipped by the integration harness).
+define action called greet:
+    return "hello from greet"
+end action
