@@ -154,14 +154,17 @@ parameter annotated with a container name accepts instances of that container
 or any descendant via `extends`. For an action participating in overloading,
 declared parameter types are enforced when the action executes — a call whose
 argument a declared type rejects is a runtime error, so a call between two
-definitions dispatches over the overloads defined so far. An action defined
-exactly once is not runtime-checked; its annotations inform static analysis
-only. A variable bound to an action by a bare reference (`store h as f`) is
-callable and dispatches with the signatures the action had at the point of
-the binding (snapshot semantics), statically and at runtime; a binding whose
-state cannot be determined statically (e.g. reassigned in one branch of a
-conditional) defers wholly to runtime dispatch. Container methods do not
-support overloading.
+definitions dispatches over the overloads defined so far. This enforcement is
+scoped to the statement block whose definitions form the overload set (or
+begins when definitions from different blocks merge into one scope): an
+action defined exactly once in its block is not runtime-checked; its
+annotations inform static analysis only. A variable bound to an action by a
+bare reference (`store h as f`) is callable and dispatches with the
+signatures the action had at the point of the binding (snapshot semantics),
+statically and at runtime; a binding whose state cannot be determined
+statically — reassigned in one branch of a conditional, or bound after a
+definition that sits inside a branch or loop — defers wholly to runtime
+dispatch. Container methods do not support overloading.
 
 **Action Call:**
 ```

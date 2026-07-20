@@ -523,6 +523,38 @@ mod interpreter {
         }
     }
 
+    // Round 4, finding 3: runtime enforcement must be scoped to the block
+    // that actually overloads the name. A sibling block's lone typed action
+    // keeps legacy dynamic-call leniency even though another block overloads
+    // the same name. (Interpreter-only: static analysis of nested action
+    // bodies is out of scope here — this pins the runtime rule.)
+    #[tokio::test]
+    async fn sibling_block_overload_does_not_guard_lone_action() {
+        let interp = run(r#"
+define action called block_a:
+    define action called helper with parameters x as number:
+        return x plus 1
+    end action
+    define action called helper with parameters t as text:
+        return t
+    end action
+    return helper of 5
+end action
+
+define action called block_b with parameters raw_input:
+    define action called helper with parameters x as number:
+        return x
+    end action
+    return helper of raw_input
+end action
+
+store outcome as block_b of "lenient"
+"#)
+        .await
+        .expect("a lone typed action in a sibling block must keep dynamic-call leniency");
+        assert_eq!(global_text(&interp, "outcome"), "lenient");
+    }
+
     fn global_text(interpreter: &Interpreter, name: &str) -> String {
         match interpreter.global_env().borrow().get(name) {
             Some(Value::Text(t)) => t.to_string(),
@@ -1383,6 +1415,192 @@ store s as r plus 1
         .await
         .expect("a call before a later reassignment must stay valid");
         assert_eq!(global_number(&interp, "s"), 7.0);
+    }
+
+    // Round 4, finding 1: an overload defined inside a branch must not leak
+    // into the visible-signature prefix a later alias captures. Whether the
+    // branch ran is unknowable statically, so the alias defers wholly to
+    // runtime dispatch — the rejection below must come from the runtime, not
+    // from static validation against a leaked (and here future-including)
+    // signature prefix.
+    #[tokio::test]
+    async fn branch_defined_overload_does_not_leak_into_alias_prefix() {
+        let err = match run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+store flag as no
+check if flag:
+    define action called f with parameters t as text:
+        return t
+    end action
+end check
+
+store h as f
+store r as h of yes
+
+define action called f with parameters t as text:
+    return t
+end action
+"#,
+        )
+        .await
+        {
+            Ok(_) => panic!("a call matching no runtime member must fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.starts_with("runtime:"),
+            "a conditionally-extended alias must defer to runtime dispatch, got: {err}"
+        );
+    }
+
+    // Round 4, finding 1 (guardrail — the maintainer's exact program): the
+    // alias holds only the number member at runtime, so the text call fails
+    // at dispatch even though a text overload exists lexically later.
+    #[tokio::test]
+    async fn branch_defined_overload_alias_fails_at_runtime_dispatch() {
+        let err = match run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+store flag as no
+check if flag:
+    define action called f with parameters t as text:
+        return t
+    end action
+end check
+
+store h as f
+store r as h of "hello"
+
+define action called f with parameters t as text:
+    return t
+end action
+"#,
+        )
+        .await
+        {
+            Ok(_) => panic!("the alias must not see the branch or future overload"),
+            Err(err) => err,
+        };
+        assert!(
+            err.starts_with("runtime:"),
+            "expected a runtime dispatch failure, got: {err}"
+        );
+    }
+
+    // Round 4, finding 1 (loop variant): loop bodies may run zero times, so a
+    // definition inside one poisons the counter the same way a branch does.
+    #[tokio::test]
+    async fn loop_defined_overload_does_not_leak_into_alias_prefix() {
+        let err = match run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+store limit as 0
+count from 1 to limit:
+    define action called f with parameters t as text:
+        return t
+    end action
+end count
+
+store h as f
+store r as h of yes
+
+define action called f with parameters t as text:
+    return t
+end action
+"#,
+        )
+        .await
+        {
+            Ok(_) => panic!("a call matching no runtime member must fail"),
+            Err(err) => err,
+        };
+        assert!(
+            err.starts_with("runtime:"),
+            "a loop-extended alias must defer to runtime dispatch, got: {err}"
+        );
+    }
+
+    // Round 4, finding 2: temporal dispatch enforcement must reach tests
+    // nested under `describe`. An interleaved wrong-type call between two
+    // same-block definitions must be rejected, not run the wrong body.
+    #[tokio::test]
+    async fn describe_nested_interleaved_call_rejected() {
+        let code = r#"
+describe "temporal":
+    test "interleaved call":
+        define action called choose with parameters value as number:
+            return "number body"
+        end action
+        store selected as choose of "hello"
+        define action called choose with parameters value as text:
+            return "text body"
+        end action
+    end test
+end describe
+"#;
+        let tokens = lex_wfl_with_positions(code);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().expect("parse");
+
+        let mut analyzer = Analyzer::new();
+        analyzer.analyze(&program).expect("analyze");
+        let mut checker = TypeChecker::new();
+        checker.check_types(&program).expect("typecheck");
+
+        let mut interpreter = Interpreter::new();
+        interpreter.set_test_mode(true);
+        interpreter.interpret(&program).await.expect("interpret");
+
+        let results = interpreter.get_test_results();
+        assert_eq!(
+            results.failed_tests, 1,
+            "the interleaved call inside a describe-nested test must fail"
+        );
+        assert!(
+            results
+                .failures
+                .first()
+                .is_some_and(|f| f.assertion_message.contains("expects")),
+            "the failure must be the temporal dispatch rejection: {:?}",
+            results.failures
+        );
+    }
+
+    // Round 4 (drift guard): an alias taken inside a branch can see more
+    // definitions than PASS 1 registered top-level signatures. Clamping to a
+    // shorter prefix would statically reject a call that runtime dispatch
+    // accepts — the alias must go dynamic instead.
+    #[tokio::test]
+    async fn in_branch_alias_over_counter_drift_defers_to_runtime() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+store flag as yes
+check if flag:
+    define action called f with parameters t as text:
+        return t
+    end action
+    store h as f
+    store r as h of "hello"
+end check
+"#,
+        )
+        .await
+        .expect("an in-branch alias seeing extra definitions must defer to runtime");
+        assert_eq!(global_text(&interp, "r"), "hello");
     }
 
     // Finding 4: a single (non-overloaded) typed action keeps its historical

@@ -312,11 +312,14 @@ pub struct Analyzer {
     /// Reset per `analyze` run.
     action_aliases: HashMap<String, AliasState>,
     /// Overload definitions *visited so far* in the PASS-2 walk, per action
-    /// name. PASS 1 registers signatures in lexical order, so this count is a
-    /// prefix length into the symbol's signature list — the overloads a
+    /// name. PASS 1 registers signatures in lexical order, so an exact count
+    /// is a prefix length into the symbol's signature list — the overloads a
     /// stored-action alias captured at its binding point (runtime snapshot
-    /// semantics). Reset per `analyze` run.
-    defined_overloads: HashMap<String, usize>,
+    /// semantics). Path-sensitive: control-flow constructs snapshot and join
+    /// it alongside `action_aliases`, so a definition inside a branch that
+    /// may not execute degrades the count to [`OverloadCount::Unknown`].
+    /// Reset per `analyze` run.
+    defined_overloads: HashMap<String, OverloadCount>,
     /// What each alias call site resolved to, keyed by (callee, line, column).
     /// The type checker reads this instead of the final alias map so it
     /// observes the alias state that held *at that statement*, not whatever
@@ -337,6 +340,37 @@ pub enum AliasState {
     /// Possibly an action (e.g. reassigned differently across branches):
     /// static validation is skipped and the call defers to runtime dispatch.
     Dynamic,
+}
+
+/// How many overloads of an action the PASS-2 walk has visited so far.
+/// `Exact(n)` is a faithful prefix length into the PASS-1 signature list;
+/// `Unknown` means the count depends on control flow (a definition sits in a
+/// branch or loop whose execution is undecidable), so aliases bound after
+/// that point defer to runtime dispatch instead of trusting a prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverloadCount {
+    Exact(usize),
+    Unknown,
+}
+
+impl OverloadCount {
+    fn bump(self) -> Self {
+        match self {
+            OverloadCount::Exact(n) => OverloadCount::Exact(n + 1),
+            OverloadCount::Unknown => OverloadCount::Unknown,
+        }
+    }
+}
+
+/// The control-flow-sensitive state snapshotted around branches: stored-
+/// action aliases plus the visible-overload counters. Both describe "what
+/// has executed so far", so they must travel through branch joins together —
+/// joining one without the other lets unexecuted code leak into the other's
+/// view (the round-4 review finding).
+#[derive(Clone)]
+struct FlowState {
+    aliases: HashMap<String, AliasState>,
+    overloads: HashMap<String, OverloadCount>,
 }
 
 impl Default for Analyzer {
@@ -835,7 +869,11 @@ impl Analyzer {
             Statement::ActionDefinition { name, .. } => {
                 // Signature was already registered in Pass 1
                 // Now analyze the body in Pass 2
-                *self.defined_overloads.entry(name.clone()).or_insert(0) += 1;
+                let counter = self
+                    .defined_overloads
+                    .entry(name.clone())
+                    .or_insert(OverloadCount::Exact(0));
+                *counter = counter.bump();
                 self.analyze_action_body(statement);
             }
             Statement::IfStatement {
@@ -845,7 +883,7 @@ impl Analyzer {
                 ..
             } => {
                 self.analyze_expression(condition);
-                let alias_entry = self.action_aliases.clone();
+                let flow_entry = self.flow_entry();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope.clone());
@@ -853,7 +891,7 @@ impl Analyzer {
                 for stmt in then_block {
                     self.analyze_statement(stmt);
                 }
-                let alias_then = self.take_alias_branch(&alias_entry);
+                let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 let mut defined_in_then = Vec::new();
@@ -876,8 +914,8 @@ impl Analyzer {
                     for stmt in else_stmts {
                         self.analyze_statement(stmt);
                     }
-                    let alias_else = self.take_alias_branch(&alias_entry);
-                    self.join_alias_branches(&[alias_then.clone(), alias_else]);
+                    let flow_else = self.take_flow_branch(&flow_entry);
+                    self.join_flow_branches(&[flow_then.clone(), flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
 
@@ -892,7 +930,7 @@ impl Analyzer {
                     }
                 } else {
                     // No else: the construct may be skipped entirely.
-                    self.join_alias_branches(&[alias_then.clone(), alias_entry.clone()]);
+                    self.join_flow_branches(&[flow_then.clone(), flow_entry.clone()]);
                 }
 
                 // Variables defined in both branches are definitely defined
@@ -919,13 +957,13 @@ impl Analyzer {
                 ..
             } => {
                 self.analyze_expression(condition);
-                let alias_entry = self.action_aliases.clone();
+                let flow_entry = self.flow_entry();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
                 self.analyze_statement(then_stmt);
-                let alias_then = self.take_alias_branch(&alias_entry);
+                let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = then_scope.parent {
@@ -937,15 +975,15 @@ impl Analyzer {
                     self.current_scope = Scope::with_parent(outer_scope);
 
                     self.analyze_statement(else_stmt);
-                    let alias_else = self.take_alias_branch(&alias_entry);
-                    self.join_alias_branches(&[alias_then, alias_else]);
+                    let flow_else = self.take_flow_branch(&flow_entry);
+                    self.join_flow_branches(&[flow_then, flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = else_scope.parent {
                         self.current_scope = *parent;
                     }
                 } else {
-                    self.join_alias_branches(&[alias_then, alias_entry]);
+                    self.join_flow_branches(&[flow_then, flow_entry]);
                 }
             }
             Statement::ForEachLoop {
@@ -974,13 +1012,13 @@ impl Analyzer {
                 // Add item to action_parameters to prevent it from being flagged as undefined
                 self.action_parameters.insert(item_name.clone());
 
-                let alias_entry = self.action_aliases.clone();
+                let flow_entry = self.flow_entry();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 // The body may run zero times: join it with the skip path.
-                let alias_body = self.take_alias_branch(&alias_entry);
-                self.join_alias_branches(&[alias_body, alias_entry]);
+                let flow_body = self.take_flow_branch(&flow_entry);
+                self.join_flow_branches(&[flow_body, flow_entry]);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(item_name);
@@ -1046,13 +1084,13 @@ impl Analyzer {
                 self.action_parameters.insert(loop_var_name.to_string());
                 self.active_loop_variables.push(loop_var_name.to_string());
 
-                let alias_entry = self.action_aliases.clone();
+                let flow_entry = self.flow_entry();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 // The body may run zero times: join it with the skip path.
-                let alias_body = self.take_alias_branch(&alias_entry);
-                self.join_alias_branches(&[alias_body, alias_entry]);
+                let flow_body = self.take_flow_branch(&flow_entry);
+                self.join_flow_branches(&[flow_body, flow_entry]);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(loop_var_name);
@@ -1071,13 +1109,13 @@ impl Analyzer {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
-                let alias_entry = self.action_aliases.clone();
+                let flow_entry = self.flow_entry();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 // The body may run zero times: join it with the skip path.
-                let alias_body = self.take_alias_branch(&alias_entry);
-                self.join_alias_branches(&[alias_body, alias_entry]);
+                let flow_body = self.take_flow_branch(&flow_entry);
+                self.join_flow_branches(&[flow_body, flow_entry]);
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
@@ -1161,20 +1199,19 @@ impl Analyzer {
 
                 // Undefined names inside a try body raise catchable runtime
                 // errors, so they are downgraded to warnings while in here.
-                let alias_entry = self.action_aliases.clone();
+                let flow_entry = self.flow_entry();
                 self.try_depth += 1;
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 self.try_depth -= 1;
-                let alias_try = self.take_alias_branch(&alias_entry);
+                let flow_try = self.take_flow_branch(&flow_entry);
                 // Error clauses can be entered from any point in the body, so
-                // they start from the entry/body join; the map is left on that
-                // conservative state for them.
-                self.join_alias_branches(&[alias_try.clone(), alias_entry.clone()]);
-                let alias_handler_entry = self.action_aliases.clone();
-                let mut alias_paths: Vec<std::collections::HashMap<String, AliasState>> =
-                    vec![alias_try];
+                // they start from the entry/body join; the state is left on
+                // that conservative join for them.
+                self.join_flow_branches(&[flow_try.clone(), flow_entry.clone()]);
+                let flow_handler_entry = self.flow_entry();
+                let mut flow_paths: Vec<FlowState> = vec![flow_try];
 
                 let try_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = try_scope.parent {
@@ -1211,11 +1248,11 @@ impl Analyzer {
                         let _ = self.current_scope.define(error_message_symbol);
                     }
 
-                    self.action_aliases = alias_handler_entry.clone();
+                    self.restore_flow(&flow_handler_entry);
                     for stmt in &when_clause.body {
                         self.analyze_statement(stmt);
                     }
-                    alias_paths.push(self.take_alias_branch(&alias_handler_entry));
+                    flow_paths.push(self.take_flow_branch(&flow_handler_entry));
 
                     let when_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = when_scope.parent {
@@ -1227,11 +1264,11 @@ impl Analyzer {
                     let outer_scope = std::mem::take(&mut self.current_scope);
                     self.current_scope = Scope::with_parent(outer_scope);
 
-                    self.action_aliases = alias_handler_entry.clone();
+                    self.restore_flow(&flow_handler_entry);
                     for stmt in otherwise_stmts {
                         self.analyze_statement(stmt);
                     }
-                    alias_paths.push(self.take_alias_branch(&alias_handler_entry));
+                    flow_paths.push(self.take_flow_branch(&flow_handler_entry));
 
                     let otherwise_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = otherwise_scope.parent {
@@ -1240,7 +1277,7 @@ impl Analyzer {
                 }
 
                 // After the construct, any of the recorded paths may have run.
-                self.join_alias_branches(&alias_paths);
+                self.join_flow_branches(&flow_paths);
 
                 if let Some(finally_stmts) = finally_block {
                     let outer_scope = std::mem::take(&mut self.current_scope);
@@ -2969,10 +3006,15 @@ impl Analyzer {
                     // it will hold. A pure forward reference (zero defined so
                     // far) has no runtime value yet, so no alias is recorded.
                     match self.defined_overloads.get(source).copied() {
-                        Some(visible) if visible > 0 => Some(AliasState::Bound {
-                            action: source.clone(),
-                            visible_signatures: visible,
-                        }),
+                        Some(OverloadCount::Exact(visible)) if visible > 0 => {
+                            Some(AliasState::Bound {
+                                action: source.clone(),
+                                visible_signatures: visible,
+                            })
+                        }
+                        // Control flow made the visible set undecidable: keep
+                        // the alias, but let runtime dispatch judge its calls.
+                        Some(OverloadCount::Unknown) => Some(AliasState::Dynamic),
                         _ => None,
                     }
                 }
@@ -2993,33 +3035,56 @@ impl Analyzer {
         }
     }
 
-    /// Ends one control-flow branch's alias analysis: returns the branch's
-    /// resulting alias state and resets `action_aliases` to the `entry`
-    /// snapshot so the next branch starts from the construct's entry state.
-    ///
-    /// Alias state is deliberately *not* threaded through unexecuted or
-    /// conditionally-executed code as if it ran — see `join_alias_branches`.
-    fn take_alias_branch(
-        &mut self,
-        entry: &HashMap<String, AliasState>,
-    ) -> HashMap<String, AliasState> {
-        std::mem::replace(&mut self.action_aliases, entry.clone())
+    /// Snapshot of the control-flow-sensitive state at a construct's entry.
+    fn flow_entry(&self) -> FlowState {
+        FlowState {
+            aliases: self.action_aliases.clone(),
+            overloads: self.defined_overloads.clone(),
+        }
     }
 
-    /// Joins the alias maps of every path that can reach the statement after
-    /// a control-flow construct: a name keeps its state only when every path
-    /// agrees; any disagreement (including absence on some path) degrades it
-    /// to [`AliasState::Dynamic`], so later calls defer to runtime dispatch
+    /// Ends one control-flow branch's analysis: returns the branch's
+    /// resulting flow state (aliases + visible-overload counters) and resets
+    /// the live state to the `entry` snapshot so the next branch starts from
+    /// the construct's entry state.
+    ///
+    /// Flow state is deliberately *not* threaded through unexecuted or
+    /// conditionally-executed code as if it ran — see `join_flow_branches`.
+    fn take_flow_branch(&mut self, entry: &FlowState) -> FlowState {
+        FlowState {
+            aliases: std::mem::replace(&mut self.action_aliases, entry.aliases.clone()),
+            overloads: std::mem::replace(&mut self.defined_overloads, entry.overloads.clone()),
+        }
+    }
+
+    /// Resets the live flow state to a snapshot (used by `try` handlers,
+    /// which can be entered from any point in the guarded body).
+    fn restore_flow(&mut self, state: &FlowState) {
+        self.action_aliases = state.aliases.clone();
+        self.defined_overloads = state.overloads.clone();
+    }
+
+    /// Joins the flow state of every path that can reach the statement after
+    /// a control-flow construct.
+    ///
+    /// Aliases: a name keeps its state only when every path agrees; any
+    /// disagreement (including absence on some path) degrades it to
+    /// [`AliasState::Dynamic`], so later calls defer to runtime dispatch
     /// instead of being misjudged from one path's state.
-    fn join_alias_branches(&mut self, paths: &[HashMap<String, AliasState>]) {
+    ///
+    /// Overload counters: a count survives only when every path agrees on
+    /// the same exact value (absence counts as zero); disagreement — a
+    /// definition executed on one path but not another — degrades to
+    /// [`OverloadCount::Unknown`], which makes later alias bindings Dynamic.
+    fn join_flow_branches(&mut self, paths: &[FlowState]) {
         let mut keys: std::collections::HashSet<&String> = std::collections::HashSet::new();
         for path in paths {
-            keys.extend(path.keys());
+            keys.extend(path.aliases.keys());
         }
         let mut joined = HashMap::new();
         for key in keys {
-            let first = paths[0].get(key);
-            let state = if paths.iter().all(|p| p.get(key) == first) {
+            let first = paths[0].aliases.get(key);
+            let state = if paths.iter().all(|p| p.aliases.get(key) == first) {
                 first.cloned()
             } else {
                 Some(AliasState::Dynamic)
@@ -3029,6 +3094,35 @@ impl Analyzer {
             }
         }
         self.action_aliases = joined;
+
+        let mut names: std::collections::HashSet<&String> = std::collections::HashSet::new();
+        for path in paths {
+            names.extend(path.overloads.keys());
+        }
+        let mut counters = HashMap::new();
+        for name in names {
+            let first = paths[0]
+                .overloads
+                .get(name)
+                .copied()
+                .unwrap_or(OverloadCount::Exact(0));
+            let agreed = paths.iter().all(|p| {
+                p.overloads
+                    .get(name)
+                    .copied()
+                    .unwrap_or(OverloadCount::Exact(0))
+                    == first
+            });
+            counters.insert(
+                name.clone(),
+                if agreed {
+                    first
+                } else {
+                    OverloadCount::Unknown
+                },
+            );
+        }
+        self.defined_overloads = counters;
     }
 
     /// The signatures a call through alias `name` may dispatch to right now:
@@ -3047,8 +3141,19 @@ impl Analyzer {
             } => {
                 let symbol = self.current_scope.resolve(action)?;
                 if let SymbolKind::Function { signatures } = &symbol.kind {
-                    let visible = (*visible_signatures).min(signatures.len());
-                    Some((state.clone(), Some(signatures[..visible].to_vec())))
+                    // The walk can visit more definitions than PASS 1
+                    // registered top-level signatures (e.g. a definition
+                    // nested in the branch this alias sits in). The prefix is
+                    // then not a faithful description of the runtime value —
+                    // defer to runtime dispatch rather than validate against
+                    // a truncation.
+                    if *visible_signatures > signatures.len() {
+                        return Some((AliasState::Dynamic, None));
+                    }
+                    Some((
+                        state.clone(),
+                        Some(signatures[..*visible_signatures].to_vec()),
+                    ))
                 } else {
                     None
                 }

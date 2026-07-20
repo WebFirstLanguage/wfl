@@ -156,4 +156,24 @@ end action
 
 display forward_dynamic of "hello"
 
+// Note: per-block enforcement scoping (a sibling block's lone typed action
+// keeps dynamic-call leniency) is covered in tests/overload_test.rs — static
+// analysis cannot yet resolve calls to actions defined inside action bodies,
+// so that scenario cannot run through this full-pipeline program.
+
+// --- Versions defined inside a branch dispatch at runtime -------------------
+
+define action called branchy with parameters value as number:
+    return "branchy num " with value
+end action
+
+store branch_flag as yes
+check if branch_flag:
+    define action called branchy with parameters value as text:
+        return "branchy txt " with value
+    end action
+    store branchy_ref as branchy
+    display branchy_ref of "conditional"
+end check
+
 display "All overloading tests passed!"

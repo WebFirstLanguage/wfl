@@ -1070,13 +1070,16 @@ pub struct Interpreter {
     /// thread boundary. Replaces the old `op_count`/`started`/`max_duration`
     /// fields and the scattered per-subsystem constants.
     budget: Arc<ExecutionBudget>,
-    /// Action names with more than one definition in the same statement block
-    /// anywhere in the current program (pre-scanned at `interpret` start), so
-    /// even the *first* definition of an overloaded name enforces its declared
-    /// parameter types during the window before the later definitions execute.
-    /// Include-driven overloads invisible to this scan are flagged at merge
-    /// time by `Environment::define_or_merge_action`.
-    overloaded_action_names: std::collections::HashSet<String>,
+    /// Action names defined more than once in the *currently executing*
+    /// statement block (scanned at block entry), so even the *first*
+    /// definition of an overloaded name enforces its declared parameter
+    /// types during the window before the later definitions execute. Scoped
+    /// per block — a sibling block's lone definition of the same name keeps
+    /// legacy dynamic-call leniency. `None` when the current block overloads
+    /// nothing (the common case; no allocation). Overloads the block scan
+    /// cannot see (includes, cross-block merges) are flagged at merge time
+    /// by `Environment::define_or_merge_action`.
+    current_block_overload_dups: RefCell<Option<Rc<std::collections::HashSet<String>>>>,
     call_stack: RefCell<Vec<CallFrame>>,
     /// Live recursion depth for enforcement, kept **separate** from `call_stack`
     /// (which is diagnostic and gets force-cleared on a terminal timeout). A
@@ -1125,6 +1128,30 @@ pub struct TestFailure {
     pub assertion_message: String,
     pub line: usize,
     pub column: usize,
+}
+
+/// RAII scope for [`Interpreter::current_block_overload_dups`]: installs the
+/// executing block's overload-duplicate set and restores the enclosing
+/// block's on drop — surviving `?` early returns and `.await` points.
+struct BlockDupsScope<'a> {
+    slot: &'a RefCell<Option<Rc<std::collections::HashSet<String>>>>,
+    prev: Option<Rc<std::collections::HashSet<String>>>,
+}
+
+impl<'a> BlockDupsScope<'a> {
+    fn enter(
+        slot: &'a RefCell<Option<Rc<std::collections::HashSet<String>>>>,
+        current: Option<Rc<std::collections::HashSet<String>>>,
+    ) -> Self {
+        let prev = slot.replace(current);
+        Self { slot, prev }
+    }
+}
+
+impl Drop for BlockDupsScope<'_> {
+    fn drop(&mut self) {
+        *self.slot.borrow_mut() = self.prev.take();
+    }
 }
 
 // Process handle for managing subprocess state
@@ -2817,7 +2844,7 @@ impl Interpreter {
             in_count_loop: RefCell::new(false),
             sched_counter: Cell::new(0),
             budget,
-            overloaded_action_names: std::collections::HashSet::new(),
+            current_block_overload_dups: RefCell::new(None),
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
             base_call_depth: 0,
@@ -3399,100 +3426,41 @@ impl Interpreter {
         ExecutionBudget::scope(Arc::clone(&self.budget), self.interpret_inner(program)).await
     }
 
-    /// Collects action names defined more than once within the same statement
-    /// block, recursing into every nested block. Per-block counting mirrors
-    /// the same-scope overloading rule: two same-name definitions in different
-    /// blocks are independent actions, not overloads.
-    fn collect_overloaded_action_names(
+    /// Action names defined more than once in `statements` — the immediate
+    /// slice only, matching the same-scope overloading rule: two same-name
+    /// definitions in different blocks are independent actions, not
+    /// overloads. Returns `None` (no allocation kept) when nothing in the
+    /// slice is overloaded.
+    fn scan_block_overload_dups(
         statements: &[Statement],
-        found: &mut std::collections::HashSet<String>,
-    ) {
+    ) -> Option<Rc<std::collections::HashSet<String>>> {
         let mut counts: HashMap<&str, usize> = HashMap::new();
+        let mut dups: std::collections::HashSet<String> = std::collections::HashSet::new();
         for statement in statements {
             if let Statement::ActionDefinition { name, .. } = statement {
                 let entry = counts.entry(name.as_str()).or_insert(0);
                 *entry += 1;
-                if *entry > 1 {
-                    found.insert(name.clone());
+                if *entry == 2 {
+                    dups.insert(name.clone());
                 }
             }
         }
-        for statement in statements {
-            match statement {
-                Statement::ActionDefinition { body, .. }
-                | Statement::ForEachLoop { body, .. }
-                | Statement::CountLoop { body, .. }
-                | Statement::WhileLoop { body, .. }
-                | Statement::RepeatWhileLoop { body, .. }
-                | Statement::RepeatUntilLoop { body, .. }
-                | Statement::ForeverLoop { body, .. }
-                | Statement::MainLoop { body, .. }
-                | Statement::WebSocketHandlerStatement { body, .. }
-                | Statement::TestBlock { body, .. } => {
-                    Self::collect_overloaded_action_names(body, found);
-                }
-                Statement::IfStatement {
-                    then_block,
-                    else_block,
-                    ..
-                } => {
-                    Self::collect_overloaded_action_names(then_block, found);
-                    if let Some(else_block) = else_block {
-                        Self::collect_overloaded_action_names(else_block, found);
-                    }
-                }
-                Statement::SingleLineIf {
-                    then_stmt,
-                    else_stmt,
-                    ..
-                } => {
-                    Self::collect_overloaded_action_names(std::slice::from_ref(then_stmt), found);
-                    if let Some(else_stmt) = else_stmt {
-                        Self::collect_overloaded_action_names(
-                            std::slice::from_ref(else_stmt),
-                            found,
-                        );
-                    }
-                }
-                Statement::WaitForStatement { inner, .. } => {
-                    Self::collect_overloaded_action_names(std::slice::from_ref(inner), found);
-                }
-                Statement::TryStatement {
-                    body,
-                    when_clauses,
-                    otherwise_block,
-                    finally_block,
-                    ..
-                } => {
-                    Self::collect_overloaded_action_names(body, found);
-                    for clause in when_clauses {
-                        Self::collect_overloaded_action_names(&clause.body, found);
-                    }
-                    if let Some(otherwise_block) = otherwise_block {
-                        Self::collect_overloaded_action_names(otherwise_block, found);
-                    }
-                    if let Some(finally_block) = finally_block {
-                        Self::collect_overloaded_action_names(finally_block, found);
-                    }
-                }
-                Statement::EventHandler { handler_body, .. } => {
-                    Self::collect_overloaded_action_names(handler_body, found);
-                }
-                _ => {}
-            }
+        if dups.is_empty() {
+            None
+        } else {
+            Some(Rc::new(dups))
         }
     }
 
     /// The interpreter run body, executed inside the task-local budget scope
     /// established by [`Interpreter::interpret`].
     async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
-        // Names that will become overload sets enforce their declared types
-        // from the first definition on. Accumulated (not replaced) so a REPL
-        // interpreter reused across snippets keeps earlier flags.
-        Self::collect_overloaded_action_names(
-            &program.statements,
-            &mut self.overloaded_action_names,
-        );
+        // Names that will become overload sets in the top-level block enforce
+        // their declared types from the first definition on. Nested blocks
+        // get their own scan at block entry (`BlockDupsScope`), so
+        // enforcement stays scoped to the block that actually overloads.
+        *self.current_block_overload_dups.borrow_mut() =
+            Self::scan_block_overload_dups(&program.statements);
         // Reset per-run enforcement/loop state first, so a prior *terminal*
         // budget breach (e.g. an uncaught timeout that unwound to the top) can't
         // leak stale count-loop or depth state into this run — matters when one
@@ -3991,7 +3959,10 @@ impl Interpreter {
                     // declared types during the window before the second
                     // definition executes ("the overloads defined so far").
                     enforce_param_types: std::cell::Cell::new(
-                        self.overloaded_action_names.contains(name),
+                        self.current_block_overload_dups
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|dups| dups.contains(name)),
                     ),
                 };
 
@@ -8881,20 +8852,36 @@ impl Interpreter {
                 // This allows tests to access setup variables while remaining isolated from each other
                 let describe_env = Environment::new_child_env(&env);
 
-                // Run setup if present (runs in describe environment)
+                // Run setup if present (runs in describe environment).
+                // Setup/tests/teardown are three separate statement blocks,
+                // each with its own overload-duplicate scope.
                 if let Some(setup_stmts) = setup {
+                    let _overload_dups = BlockDupsScope::enter(
+                        &self.current_block_overload_dups,
+                        Self::scan_block_overload_dups(setup_stmts),
+                    );
                     for stmt in setup_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
                 }
 
                 // Execute all tests (each gets a child of describe_env for isolation)
-                for test in tests {
-                    Box::pin(self._execute_statement(test, describe_env.clone())).await?;
+                {
+                    let _overload_dups = BlockDupsScope::enter(
+                        &self.current_block_overload_dups,
+                        Self::scan_block_overload_dups(tests),
+                    );
+                    for test in tests {
+                        Box::pin(self._execute_statement(test, describe_env.clone())).await?;
+                    }
                 }
 
                 // Run teardown if present (runs in describe environment)
                 if let Some(teardown_stmts) = teardown {
+                    let _overload_dups = BlockDupsScope::enter(
+                        &self.current_block_overload_dups,
+                        Self::scan_block_overload_dups(teardown_stmts),
+                    );
                     for stmt in teardown_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
@@ -8931,7 +8918,12 @@ impl Interpreter {
                 // ensuring each test gets a fresh copy for true isolation
                 let test_env = Environment::new_isolated_child_env(&env);
 
-                // Execute test body and catch assertion failures
+                // Execute test body and catch assertion failures. The body
+                // is its own statement block for overload enforcement.
+                let _overload_dups = BlockDupsScope::enter(
+                    &self.current_block_overload_dups,
+                    Self::scan_block_overload_dups(body),
+                );
                 let mut test_passed = true;
 
                 for stmt in body {
@@ -9248,6 +9240,12 @@ impl Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         self.assert_invariants();
+        // Each block carries its own overload-duplicate set for temporal
+        // enforcement; restored on drop (including `?` early returns).
+        let _overload_dups = BlockDupsScope::enter(
+            &self.current_block_overload_dups,
+            Self::scan_block_overload_dups(statements),
+        );
         let mut last_value = Value::Null;
 
         #[cfg(debug_assertions)]

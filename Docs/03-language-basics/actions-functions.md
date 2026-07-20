@@ -326,13 +326,22 @@ A few matching rules worth knowing:
   is a runtime error naming the parameter and both types — an overload never
   silently runs with an argument its signature rules out. An action defined
   only once keeps its historical behavior: its annotations guide static
-  analysis and do not reject values at runtime.
+  analysis and do not reject values at runtime. This enforcement is scoped
+  to the block that defines the versions: a different block's lone action of
+  the same name is a separate, single action and keeps the historical
+  behavior.
 - **Stored actions dispatch the same way — over the versions that existed
   when stored.** After `store helper as depict`, calling `helper of 42`
   resolves among `depict`'s versions exactly as a direct call would. The
   stored reference is a snapshot: versions of `depict` defined *after* the
   `store` belong to `depict` but not to `helper`, both when the program runs
   and in static analysis.
+- **Versions defined inside a branch or loop dispatch at runtime.** When a
+  version is defined inside a `check if` branch or a loop body, whether it
+  exists depends on what actually executed — so static analysis stops
+  guessing for references stored after that point and defers their calls to
+  runtime dispatch, which always judges against the versions that really
+  exist.
 
 ### Overloads behave like one action
 

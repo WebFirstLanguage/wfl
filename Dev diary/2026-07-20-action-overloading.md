@@ -178,3 +178,63 @@ plus `TestPrograms/action_overloading_comprehensive.wfl` end-to-end. One
 existing unit test updated (`test_function_call_type_checking`) because the
 analyzer now reports of-form argument type mismatches earlier with a more
 specific message.
+
+## Round 4 (fourth-pass review): path-sensitive counters and per-block enforcement
+
+The maintainer's fourth pass found three P1 defects in the round-3
+temporal/snapshot machinery itself:
+
+1. **The visible-overload counter was not path-sensitive.** Control-flow
+   handlers snapshot/joined only the alias map; the `defined_overloads`
+   counter kept counting through branch bodies, so a definition inside a
+   never-executed branch inflated the prefix a later alias captured — the
+   alias could statically "see" overloads (including lexically later,
+   PASS-1-registered ones) that the runtime value never held. The counter
+   value type is now `OverloadCount::{Exact, Unknown}` and travels with the
+   alias map through a combined `FlowState` snapshot/join in every branch
+   construct (`check if`, single-line if, the three analyzed loop forms,
+   `try`): paths agreeing on an exact count keep it; disagreement degrades
+   to `Unknown`, which makes aliases bound afterwards `Dynamic` — static
+   validation steps aside and runtime dispatch (always correct) decides.
+   A related latent drift the review didn't name: an alias bound *inside*
+   a branch could see a counter larger than the PASS-1 signature list
+   (branch-nested definitions are counted but never registered), and the
+   old clamped prefix statically rejected calls the runtime accepts;
+   `alias_call_target` now detects the drift and defers to runtime too.
+
+2. **The runtime pre-scan missed describe-nested tests.** The old
+   whole-program `collect_overloaded_action_names` walk had no
+   `DescribeBlock` arm, so an interleaved wrong-type call inside a test
+   under `describe` executed the wrong body instead of erroring.
+
+3. **The pre-scan's flat name set over-guarded sibling blocks.** One
+   block's overloads runtime-guarded a different block's lone typed action
+   of the same name, breaking the restored backward compatibility.
+
+Fixes 2 and 3 share one mechanism: the global pre-scan is gone. Each
+statement block now computes its own immediate-slice duplicate set at
+execution entry (`scan_block_overload_dups`, installed via a small RAII
+`BlockDupsScope` guard in `_execute_block`, the top-level program loop, and
+the describe/test executors — restored on drop, so `?` early returns and
+awaits are safe). `ActionDefinition` execution seeds `enforce_param_types`
+from the *current block's* set only; `define_or_merge_action`'s merge-time
+flagging still covers include-driven and cross-block merges after they
+happen. Block identity is inherent (no identity keys needed), describe
+setup/tests/teardown and test bodies are three ordinary blocks, and module
+statement blocks gain first-definition temporal enforcement they previously
+lacked — a strict improvement, noted here so it is not mistaken for a
+regression. The scan is one discriminant-only pass over the immediate slice
+per block entry (no allocation unless a name repeats), noise next to
+per-statement dispatch cost.
+
+Notes for future rounds: `RepeatWhileLoop`/`RepeatUntilLoop`/`ForeverLoop`/
+`MainLoop` bodies are not visited by this analyzer's PASS-2 walk at all (a
+pre-existing gap — their nested definitions and aliases are invisible to
+semantic analysis), and static analysis cannot yet resolve calls to actions
+defined inside action bodies, which is why the sibling-block leniency
+scenario is pinned in `tests/overload_test.rs` rather than the TestProgram.
+
+Round-4 coverage: six new tests (55 total) — branch/loop counter-leak
+deferral, the maintainer's exact program as a dispatch guardrail, in-branch
+alias drift, describe-nested temporal rejection (via `set_test_mode` +
+`get_test_results`), and sibling-block leniency.
