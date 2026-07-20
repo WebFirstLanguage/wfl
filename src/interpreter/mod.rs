@@ -3455,12 +3455,6 @@ impl Interpreter {
     /// The interpreter run body, executed inside the task-local budget scope
     /// established by [`Interpreter::interpret`].
     async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
-        // Names that will become overload sets in the top-level block enforce
-        // their declared types from the first definition on. Nested blocks
-        // get their own scan at block entry (`BlockDupsScope`), so
-        // enforcement stays scoped to the block that actually overloads.
-        *self.current_block_overload_dups.borrow_mut() =
-            Self::scan_block_overload_dups(&program.statements);
         // Reset per-run enforcement/loop state first, so a prior *terminal*
         // budget breach (e.g. an uncaught timeout that unwound to the top) can't
         // leak stale count-loop or depth state into this run — matters when one
@@ -3479,6 +3473,12 @@ impl Interpreter {
         // shares the parent's budget, clearing it would wrongly cancel the
         // parent's still-active main-loop exemption.
         self.assert_invariants();
+        // Names that will become overload sets in the top-level block enforce
+        // their declared types from the first definition on. Nested blocks
+        // get their own scan at block entry (`BlockDupsScope`), so
+        // enforcement stays scoped to the block that actually overloads.
+        *self.current_block_overload_dups.borrow_mut() =
+            Self::scan_block_overload_dups(&program.statements);
         self.call_stack.borrow_mut().clear();
 
         // Set up script arguments in the global environment
