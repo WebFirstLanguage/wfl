@@ -523,6 +523,73 @@ mod interpreter {
         }
     }
 
+    // Round 6, finding 2: block-entry arming is speculative — if the run
+    // fails before the merging definition executes, the still-single action
+    // must return to legacy dynamic-call leniency for later runs (a REPL
+    // interpreter is reused across snippets).
+    #[tokio::test]
+    async fn speculative_arming_reverts_when_merge_never_executes() {
+        async fn run_snippet(interpreter: &mut Interpreter, code: &str) -> Result<(), String> {
+            let tokens = lex_wfl_with_positions(code);
+            let mut parser = Parser::new(&tokens);
+            let program = parser
+                .parse()
+                .unwrap_or_else(|e| panic!("Failed to parse {code:?}: {e:?}"));
+            interpreter
+                .interpret(&program)
+                .await
+                .map(|_| ())
+                .map_err(|errors| {
+                    errors
+                        .iter()
+                        .map(|e| e.to_string())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+        }
+
+        let mut interpreter = Interpreter::new();
+        run_snippet(
+            &mut interpreter,
+            r#"
+define action called f with parameters x as number:
+    return "num body"
+end action
+"#,
+        )
+        .await
+        .expect("snippet 1 defines a lone typed action");
+
+        run_snippet(
+            &mut interpreter,
+            r#"
+store bad as 10 divided by 0
+define action called f with parameters t as text:
+    return "text body"
+end action
+"#,
+        )
+        .await
+        .expect_err("snippet 2 fails before the merge executes");
+
+        run_snippet(
+            &mut interpreter,
+            r#"
+define action called caller with parameters passthrough:
+    return f of passthrough
+end action
+
+store out as caller of "lenient"
+"#,
+        )
+        .await
+        .expect("a never-merged action must keep legacy dynamic-call leniency");
+        match interpreter.global_env().borrow().get("out") {
+            Some(Value::Text(t)) => assert_eq!(t.to_string(), "num body"),
+            other => panic!("expected Text in 'out', got {other:?}"),
+        }
+    }
+
     // Round 4, finding 3: runtime enforcement must be scoped to the block
     // that actually overloads the name. A sibling block's lone typed action
     // keeps legacy dynamic-call leniency even though another block overloads
@@ -1759,6 +1826,70 @@ end try
         )
         .await
         .expect("the throw-time binding accepts this call; static analysis must defer");
+        assert_eq!(global_text(&interp, "r"), "gee text");
+    }
+
+    // Round 6, finding 1: every loop variant participates in alias flow
+    // analysis — a `repeat while` body mutating an alias must degrade it to
+    // runtime dispatch just like the other loop forms.
+    #[tokio::test]
+    async fn alias_mutated_in_repeat_while_defers_to_runtime() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters b as boolean:
+    return "eff bool"
+end action
+
+define action called g with parameters t:
+    return "gee text"
+end action
+
+store h as f
+repeat while yes:
+    change h to g
+    break
+    change h to f
+end repeat
+store r as h of "boom"
+"#,
+        )
+        .await
+        .expect("the break-time binding accepts this call; static analysis must defer");
+        assert_eq!(global_text(&interp, "r"), "gee text");
+    }
+
+    // Round 6, finding 1 (main loop variant): same rule for `main loop`.
+    #[tokio::test]
+    async fn alias_mutated_in_main_loop_defers_to_runtime() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters b as boolean:
+    return "eff bool"
+end action
+
+define action called g with parameters t:
+    return "gee text"
+end action
+
+store h as f
+main loop:
+    change h to g
+    break
+    change h to f
+end loop
+store r as h of "boom"
+"#,
+        )
+        .await
+        .expect("the break-time binding accepts this call; static analysis must defer");
         assert_eq!(global_text(&interp, "r"), "gee text");
     }
 

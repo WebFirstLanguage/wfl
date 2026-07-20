@@ -1154,6 +1154,40 @@ impl Drop for BlockDupsScope<'_> {
     }
 }
 
+/// Members speculatively armed at block entry (`enforce_param_types` set
+/// because a later definition in the block will merge with them). If the
+/// merge never executes — the run errors or returns first — the promise is
+/// broken and Drop restores each member's prior flag, so a still-single
+/// action keeps its legacy dynamic-call behavior in later runs (a REPL
+/// interpreter is reused across snippets). A member that did merge is part
+/// of an overload set by drop time and keeps enforcement. Entries restore
+/// in reverse order so re-armed duplicates unwind to the oldest prior flag.
+struct ArmedMember {
+    env: Rc<RefCell<Environment>>,
+    name: String,
+    member: Rc<FunctionValue>,
+    prior_enforce: bool,
+}
+
+struct ArmedEnforcementGuard {
+    armed: Vec<ArmedMember>,
+}
+
+impl Drop for ArmedEnforcementGuard {
+    fn drop(&mut self) {
+        for entry in self.armed.drain(..).rev() {
+            let merged = matches!(
+                entry.env.borrow().get_local(&entry.name),
+                Some(Value::Overloaded(set))
+                    if set.overloads.iter().any(|m| Rc::ptr_eq(m, &entry.member))
+            );
+            if !merged {
+                entry.member.enforce_param_types.set(entry.prior_enforce);
+            }
+        }
+    }
+}
+
 // Process handle for managing subprocess state
 #[allow(dead_code)]
 pub struct ProcessHandle {
@@ -3452,28 +3486,50 @@ impl Interpreter {
         }
     }
 
-    /// Enters a statement block for overload enforcement: computes the
-    /// block's own duplicate set, and arms `enforce_param_types` on any
-    /// same-scope function the block's definitions will merge with — the
-    /// merge makes that member overloaded, so its temporal window starts
-    /// when the block starts executing, not at the later merge. Inherited
-    /// (parent-scope) names are not mergeable — defining over them is a
-    /// shadowing error — so only the local scope is consulted.
-    fn enter_block_overloads(
-        &self,
+    /// Speculatively arms `enforce_param_types` on any same-scope function
+    /// that `statements` will merge a new definition into — the merge makes
+    /// that member overloaded, so its temporal window starts when the block
+    /// starts executing, not at the later merge. Inherited (parent-scope)
+    /// names are not mergeable — defining over them is a shadowing error —
+    /// so only the local scope is consulted. The returned guard reverts the
+    /// arming on drop for members whose merge never actually executed.
+    fn arm_block_members(
         statements: &[Statement],
         env: &Rc<RefCell<Environment>>,
-    ) -> BlockDupsScope<'_> {
+    ) -> ArmedEnforcementGuard {
+        let mut armed = Vec::new();
         for statement in statements {
             if let Statement::ActionDefinition { name, .. } = statement
                 && let Some(Value::Function(existing)) = env.borrow().get_local(name)
             {
+                let prior_enforce = existing.enforce_param_types.get();
                 existing.enforce_param_types.set(true);
+                armed.push(ArmedMember {
+                    env: Rc::clone(env),
+                    name: name.clone(),
+                    member: existing,
+                    prior_enforce,
+                });
             }
         }
-        BlockDupsScope::enter(
-            &self.current_block_overload_dups,
-            Self::scan_block_overload_dups(statements),
+        ArmedEnforcementGuard { armed }
+    }
+
+    /// Enters a statement block for overload enforcement: computes the
+    /// block's own duplicate set and speculatively arms mergeable members
+    /// (see [`Self::arm_block_members`]). Both guards restore on drop.
+    fn enter_block_overloads(
+        &self,
+        statements: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> (BlockDupsScope<'_>, ArmedEnforcementGuard) {
+        let armed = Self::arm_block_members(statements, env);
+        (
+            BlockDupsScope::enter(
+                &self.current_block_overload_dups,
+                Self::scan_block_overload_dups(statements),
+            ),
+            armed,
         )
     }
 
@@ -3503,14 +3559,9 @@ impl Interpreter {
         // get their own scan at block entry (`BlockDupsScope`), so
         // enforcement stays scoped to the block that actually overloads.
         // Same-scope members an incoming definition will merge with (a REPL
-        // interpreter reused across snippets) are armed the same way.
-        for statement in &program.statements {
-            if let Statement::ActionDefinition { name, .. } = statement
-                && let Some(Value::Function(existing)) = self.global_env.borrow().get_local(name)
-            {
-                existing.enforce_param_types.set(true);
-            }
-        }
+        // interpreter reused across snippets) are armed the same way — and
+        // reverted on run exit if this run never executed the merge.
+        let _armed_members = Self::arm_block_members(&program.statements, &self.global_env);
         *self.current_block_overload_dups.borrow_mut() =
             Self::scan_block_overload_dups(&program.statements);
         self.call_stack.borrow_mut().clear();
@@ -8890,7 +8941,8 @@ impl Interpreter {
                 // Setup/tests/teardown are three separate statement blocks,
                 // each with its own overload-duplicate scope.
                 if let Some(setup_stmts) = setup {
-                    let _overload_dups = self.enter_block_overloads(setup_stmts, &describe_env);
+                    let (_overload_dups, _armed_members) =
+                        self.enter_block_overloads(setup_stmts, &describe_env);
                     for stmt in setup_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
@@ -8898,7 +8950,8 @@ impl Interpreter {
 
                 // Execute all tests (each gets a child of describe_env for isolation)
                 {
-                    let _overload_dups = self.enter_block_overloads(tests, &describe_env);
+                    let (_overload_dups, _armed_members) =
+                        self.enter_block_overloads(tests, &describe_env);
                     for test in tests {
                         Box::pin(self._execute_statement(test, describe_env.clone())).await?;
                     }
@@ -8945,7 +8998,7 @@ impl Interpreter {
 
                 // Execute test body and catch assertion failures. The body
                 // is its own statement block for overload enforcement.
-                let _overload_dups = self.enter_block_overloads(body, &test_env);
+                let (_overload_dups, _armed_members) = self.enter_block_overloads(body, &test_env);
                 let mut test_passed = true;
 
                 for stmt in body {
@@ -9265,7 +9318,7 @@ impl Interpreter {
         // Each block carries its own overload-duplicate set for temporal
         // enforcement (restored on drop, including `?` early returns), and
         // arms same-scope members its definitions will merge with.
-        let _overload_dups = self.enter_block_overloads(statements, &env);
+        let (_overload_dups, _armed_members) = self.enter_block_overloads(statements, &env);
         let mut last_value = Value::Null;
 
         #[cfg(debug_assertions)]

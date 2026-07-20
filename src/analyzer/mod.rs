@@ -1154,6 +1154,70 @@ impl Analyzer {
                     self.current_scope = *parent;
                 }
             }
+            // The remaining loop forms get the same flow treatment. The
+            // pre-checked forms may run zero times, so the body joins with
+            // the entry (skip) path; `forever`/`main loop` exit only through
+            // an abrupt `break`, which the mutation-frame degradation
+            // covers, so including the entry path there is merely
+            // conservative, never wrong.
+            Statement::RepeatWhileLoop {
+                condition, body, ..
+            }
+            | Statement::RepeatUntilLoop {
+                condition, body, ..
+            } => {
+                self.analyze_expression(condition);
+
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.current_scope = Scope::with_parent(outer_scope);
+
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
+                let errors_before = self.errors.len();
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+                // These bodies were not analyzed before alias flow tracking
+                // reached them; new diagnostics inside would break existing
+                // programs (backward compatibility), so they demote to
+                // warnings — runtime behavior is authoritative in here.
+                let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                self.warnings.extend(demoted);
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                self.degrade_mutated_aliases(&mutated);
+
+                let loop_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = loop_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
+            Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.current_scope = Scope::with_parent(outer_scope);
+
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
+                let errors_before = self.errors.len();
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+                // Same demotion as the repeat forms: web-server main loops
+                // reference handler-provided names this analyzer cannot
+                // model, and these bodies were previously unanalyzed.
+                let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                self.warnings.extend(demoted);
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                self.degrade_mutated_aliases(&mutated);
+
+                let loop_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = loop_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
             Statement::DisplayStatement { value, .. } => {
                 self.analyze_expression(value);
             }

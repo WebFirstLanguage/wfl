@@ -104,8 +104,10 @@ define action called add_numbers with parameters x and y:
     return x plus y
 end action
 
-// Call
+// Call as a statement
 call add_numbers with 5 and 3
+
+// Call as an expression
 store result as add_numbers of 5 and 3
 display result
 

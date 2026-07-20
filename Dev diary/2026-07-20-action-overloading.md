@@ -296,3 +296,40 @@ action — the same leniency real dynamic code would use.
 Round-5 coverage: three new tests (60 total) — cross-block temporal
 enforcement, loop-break intermediate binding, and try-handler intermediate
 binding (both formerly static false rejections).
+
+## Round 6 (sixth-pass review): all loop variants, revertible arming
+
+Two more P1s from the maintainer's sixth pass:
+
+1. **The four remaining loop forms joined alias flow analysis.**
+   `repeat while`/`repeat until`/`forever`/`main loop` had no
+   `analyze_statement` arms at all — their bodies fell to the catch-all,
+   so alias mutations inside them were invisible (round 5's abrupt-exit
+   degradation never fired) and a `break` could leave runtime state static
+   analysis contradicted. All four now get the same scope handling,
+   flow-entry/mutation-frame/join, and mutated-alias degradation as the
+   other loops (the pre-checked forms join with the skip path; the
+   infinite forms exit only via `break`, which the mutation degradation
+   covers, so including the entry path is merely conservative). One
+   compatibility consequence surfaced immediately: these bodies were
+   *never analyzed before*, and a full-program sweep showed five
+   web-server TestPrograms failing on handler-provided names (`method`,
+   `path`, `client_ip`) the analyzer cannot model inside `main loop`.
+   Diagnostics arising inside these four body kinds therefore demote to
+   warnings — alias tracking works, existing programs keep running, and
+   the sweep is back to its pre-change baseline (the two deliberate
+   error-demonstration programs).
+
+2. **Speculative arming is now revertible.** Round 5's block-entry arming
+   set `enforce_param_types` permanently even when the promised merge
+   never executed (the run errored or returned first) — a reused REPL
+   interpreter then rejected legacy dynamic calls to a still-single
+   action in later snippets. `arm_block_members` records each armed
+   member's prior flag in an `ArmedEnforcementGuard`; on drop (block exit
+   or top-level run exit, including error paths) every member that did
+   not actually end up in an overload set is restored, in reverse order
+   so re-armed duplicates unwind to the oldest flag. Members that merged
+   keep enforcement — by then it is permanent by doctrine.
+
+Round-6 coverage: three new tests (63 total) — repeat-while and main-loop
+alias deferral, and the three-snippet REPL arming-rollback scenario.

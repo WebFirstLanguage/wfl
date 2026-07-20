@@ -160,7 +160,8 @@ definitions dispatches over the overloads defined so far. This enforcement is
 scoped to the statement block whose definitions form the overload set; for
 definitions in different blocks that merge into one scope, enforcement of
 the existing members begins when the block containing the merging
-definition starts executing. An action defined exactly once in its block
+definition starts executing, and is reverted when that block exits without
+the merge having executed. An action defined exactly once in its block
 (and never merged) is not runtime-checked; its annotations inform static
 analysis only. A variable bound to an action by a
 bare reference (`store h as f`) is callable and dispatches with the

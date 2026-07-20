@@ -334,7 +334,9 @@ A few matching rules worth knowing:
   behavior. When a block adds a version to an action that already exists in
   the same scope, the existing version starts enforcing the moment that
   block begins executing — a call between the block's start and the new
-  definition already dispatches strictly.
+  definition already dispatches strictly. If the block exits before the new
+  definition ever executes (an error, an early return), the arming is
+  undone: a never-merged action returns to its single-action behavior.
 - **Stored actions dispatch the same way — over the versions that existed
   when stored.** After `store helper as depict`, calling `helper of 42`
   resolves among `depict`'s versions exactly as a direct call would. The
