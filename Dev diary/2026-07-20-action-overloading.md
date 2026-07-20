@@ -66,15 +66,16 @@ carry `TODO(#638)` markers.
 
 ## Incidental fixes and discoveries
 
-- **`as text` / `returns text` never parsed.** `text` lexes as
-  `KeywordText`, but the action parser only accepted `Identifier` in type
-  position — so typed `text` parameters were unusable. Fixed via
-  `type_from_token` (also accepts `pattern`). Notably `returns <type>` is
-  *still* effectively unusable for most names because the lexer folds
-  `name returns text` into one multi-word identifier — the typechecker's
-  "WFL has no return-type annotation syntax" comment is accurate, and the
-  overload machinery therefore leans entirely on inferred return types
-  (issue #575 infrastructure).
+- **Typed `text` parameters never parsed — now fixed.** `text` lexes as
+  `KeywordText` (and `nothing` as `NothingLiteral`), but the action parser
+  only accepted `Identifier` in type position — so `as text` / `as nothing`
+  parameters were unusable. Fixed via `type_from_token`, which accepts the
+  keyword/literal token forms (`text`, `pattern`, `nothing`) alongside
+  identifiers. `returns <type>` remains unsupported: the lexer folds
+  `name returns text` into one multi-word identifier before the parser ever
+  sees a `returns` clause, so the typechecker's "WFL has no return-type
+  annotation syntax" comment stays accurate and the overload machinery leans
+  entirely on inferred return types (issue #575 infrastructure).
 - **Pre-existing debug-build stack exhaustion.** Recursion inside an
   `otherwise:` block overflows the 2 MiB test-thread stack after ~2-3 frames
   in debug builds (confirmed on unmodified main; depth 1 passes, depth 3

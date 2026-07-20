@@ -73,6 +73,8 @@ pub(crate) fn format_param_type(t: &Type) -> String {
         Type::Number => "number".to_string(),
         Type::Boolean => "boolean".to_string(),
         Type::Nothing => "nothing".to_string(),
+        Type::Pattern => "pattern".to_string(),
+        Type::Any => "any".to_string(),
         Type::Custom(name) => name.clone(),
         other => format!("{other:?}"),
     }

@@ -9978,7 +9978,23 @@ impl Interpreter {
                     }
                 }
 
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
+                // A bare-Variable callee that names an overload set must not
+                // be evaluated through the Variable arm: that would auto-call
+                // a zero-argument overload and then try to call its result.
+                // The set itself is the call target (PR #639 review).
+                let overloaded_callee = if let Expression::Variable(name, _, _) = function.as_ref()
+                {
+                    match env.borrow().get(name) {
+                        Some(value @ Value::Overloaded(_)) => Some(value),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let function_val = match overloaded_callee {
+                    Some(value) => value,
+                    None => self.evaluate_expression(function, Rc::clone(&env)).await?,
+                };
 
                 #[cfg(debug_assertions)]
                 let func_name = match &function_val {

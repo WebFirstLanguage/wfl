@@ -266,6 +266,28 @@ store r as call f with 5
 }
 
 #[test]
+fn nothing_and_pattern_type_annotations_parse() {
+    // `nothing` lexes as NothingLiteral and `pattern`/`text` as keywords, so
+    // type positions must accept those tokens, not just identifiers
+    // (PR #639 review).
+    let errors = analyze_errors(
+        r#"
+define action called f with parameters x as nothing:
+    display "nothing"
+end action
+
+define action called f with parameters x as number:
+    display x
+end action
+"#,
+    );
+    assert!(
+        errors.is_empty(),
+        "'as nothing' must parse and overload against 'as number': {errors:?}"
+    );
+}
+
+#[test]
 fn single_signature_behavior_unchanged() {
     // The classic single-definition path must keep its existing diagnostics.
     let errors = analyze_errors(

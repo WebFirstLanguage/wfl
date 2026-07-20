@@ -442,6 +442,13 @@ impl TypeChecker {
         // not carry a stale flag from a program that used includes.
         self.has_includes = crate::analyzer::program_has_includes(program);
 
+        // Per-run overload return-type table: clear it like the other per-run
+        // state above, so a reused TypeChecker never resolves an overloaded
+        // call against a previous program's recorded return types (which a
+        // forward-referenced overload would otherwise pick up instead of
+        // falling back to Unknown).
+        self.overload_returns.clear();
+
         // Only run the analyzer if it hasn't been run already
         // When created with with_analyzer(), the analyzer has already been run,
         // so we don't need to analyze again. This prevents duplicate symbol registration.

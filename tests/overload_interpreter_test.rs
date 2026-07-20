@@ -238,6 +238,30 @@ store r as g
 }
 
 #[tokio::test]
+async fn of_form_call_dispatches_when_zero_arg_overload_present() {
+    // Regression (PR #639 review): evaluating the callee of `g of 5` must not
+    // auto-call the zero-argument overload and then try to call its result —
+    // the overload set itself is the call target. Bare references still
+    // auto-call the zero-argument version.
+    let interp = run(r#"
+define action called g:
+    return 1
+end action
+
+define action called g with parameters x:
+    return x
+end action
+
+store r1 as g of 5
+store r2 as g
+"#)
+    .await
+    .expect("program should run");
+    assert_eq!(global_number(&interp, "r1"), 5.0);
+    assert_eq!(global_number(&interp, "r2"), 1.0);
+}
+
+#[tokio::test]
 async fn overload_closures_capture_definitions() {
     let interp = run(r#"
 store base as 10
