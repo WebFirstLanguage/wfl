@@ -7,6 +7,25 @@ use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::ExprParser;
 
+/// Maps a token in type position (`x as <type>`, `returns <type>`) to its
+/// `Type`. Some type names lex as keywords rather than identifiers (`text`,
+/// `pattern`), so matching on `Identifier` alone would reject them.
+fn type_from_token(token: &Token) -> Option<Type> {
+    match token {
+        Token::KeywordText => Some(Type::Text),
+        Token::KeywordPattern => Some(Type::Pattern),
+        Token::Identifier(type_name) => Some(match type_name.as_str() {
+            "text" => Type::Text,
+            "number" => Type::Number,
+            "boolean" => Type::Boolean,
+            "nothing" => Type::Nothing,
+            "pattern" => Type::Pattern,
+            _ => Type::Custom(type_name.clone()),
+        }),
+        _ => None,
+    }
+}
+
 pub(crate) trait ActionParser<'a>: ExprParser<'a> {
     fn parse_action_definition(&mut self) -> Result<Statement, ParseError>
     where
@@ -110,17 +129,8 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume "as"
 
                         if let Some(type_token) = self.cursor.peek() {
-                            if let Token::Identifier(type_name) = &type_token.token {
+                            if let Some(typ) = type_from_token(&type_token.token) {
                                 self.bump_sync();
-
-                                let typ = match type_name.as_str() {
-                                    "text" => Type::Text,
-                                    "number" => Type::Number,
-                                    "boolean" => Type::Boolean,
-                                    "nothing" => Type::Nothing,
-                                    _ => Type::Custom(type_name.clone()),
-                                };
-
                                 Some(typ)
                             } else {
                                 let err_token = type_token.clone();
@@ -195,17 +205,8 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "returns"
 
                     if let Some(type_token) = self.cursor.peek() {
-                        if let Token::Identifier(type_name) = &type_token.token {
+                        if let Some(typ) = type_from_token(&type_token.token) {
                             self.bump_sync();
-
-                            let typ = match type_name.as_str() {
-                                "text" => Type::Text,
-                                "number" => Type::Number,
-                                "boolean" => Type::Boolean,
-                                "nothing" => Type::Nothing,
-                                _ => Type::Custom(type_name.clone()),
-                            };
-
                             Some(typ)
                         } else {
                             let err_token = type_token.clone();

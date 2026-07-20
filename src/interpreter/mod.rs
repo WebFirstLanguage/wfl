@@ -23,7 +23,7 @@ use self::environment::Environment;
 use self::error::{ErrorKind, RuntimeError};
 use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
-    EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
+    EventHandler, FunctionValue, InterfaceDefinitionValue, OverloadedFunction, Value,
 };
 use crate::builtins::get_function_arity;
 use crate::config::WflConfig;
@@ -47,8 +47,8 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
-    WsHandlerEvent,
+    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, Type,
+    UnaryOperator, WsHandlerEvent,
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
@@ -2933,7 +2933,7 @@ impl Interpreter {
             Value::Bool(_) => Type::Boolean,
             Value::List(_) => Type::List(Box::new(Type::Unknown)),
             Value::Object(_) => Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
-            Value::Function(_) => Type::Function {
+            Value::Function(_) | Value::Overloaded(_) => Type::Function {
                 parameters: vec![],
                 return_type: Box::new(Type::Unknown),
             },
@@ -3615,10 +3615,15 @@ impl Interpreter {
 
         if errors.is_empty() {
             let main_func_opt = {
-                if let Some(Value::Function(main_func)) = self.global_env.borrow().get("main") {
-                    Some(main_func.clone())
-                } else {
-                    None
+                match self.global_env.borrow().get("main") {
+                    Some(Value::Function(main_func)) => Some(main_func.clone()),
+                    // An overloaded `main` runs its zero-argument overload.
+                    Some(Value::Overloaded(overloaded)) => overloaded
+                        .overloads
+                        .iter()
+                        .find(|func| func.params.is_empty())
+                        .cloned(),
+                    _ => None,
                 }
             };
 
@@ -3871,23 +3876,29 @@ impl Interpreter {
                 column,
             } => {
                 let param_names: Vec<String> = parameters.iter().map(|p| p.name.clone()).collect();
+                let param_types: Vec<Option<Type>> =
+                    parameters.iter().map(|p| p.param_type.clone()).collect();
 
                 let function = FunctionValue {
                     name: Some(name.clone()),
                     params: param_names,
+                    param_types,
                     body: body.clone(),
                     env: Rc::downgrade(&env),
                     line: *line,
                     column: *column,
                 };
 
-                let function_value = Value::Function(Rc::new(function));
-                match env.borrow_mut().define(name, function_value.clone()) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                // A same-scope redefinition of an action name merges into an
+                // overload set instead of erroring; every other collision
+                // keeps its existing error.
+                match env
+                    .borrow_mut()
+                    .define_or_merge_action(name, Rc::new(function))
+                {
+                    Ok(defined_value) => Ok((defined_value, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                 }
-
-                Ok((function_value, ControlFlow::None))
             }
 
             Statement::ReturnStatement {
@@ -3924,6 +3935,21 @@ impl Interpreter {
                             .call_function(&func, vec![], *var_line, *var_column)
                             .await
                             .map(|value| (value, ControlFlow::None));
+                    } else if let Some(Value::Overloaded(overloaded)) = lookup {
+                        // A bare overloaded name auto-calls its zero-argument
+                        // overload, matching single-function behavior.
+                        if let Some(func) = overloaded
+                            .overloads
+                            .iter()
+                            .find(|func| func.params.is_empty())
+                        {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Executing bare overloaded action call: {}", name);
+                            return self
+                                .call_function(func, vec![], *var_line, *var_column)
+                                .await
+                                .map(|value| (value, ControlFlow::None));
+                        }
                     }
                 }
 
@@ -5308,7 +5334,7 @@ impl Interpreter {
                     ExportType::Action => {
                         // Check if action definition exists in local scope only
                         if let Some(value) = env.borrow().get_local(name) {
-                            if matches!(value, Value::Function(_)) {
+                            if matches!(value, Value::Function(_) | Value::Overloaded(_)) {
                                 Ok((Value::Null, ControlFlow::None))
                             } else {
                                 Err(RuntimeError::new(
@@ -6311,6 +6337,7 @@ impl Interpreter {
                         let init_function = FunctionValue {
                             name: Some("initialize".to_string()),
                             params: init_method.params.clone(),
+                            param_types: vec![None; init_method.params.len()],
                             body: init_method.body.clone(),
                             env: init_method.env.clone(),
                             line: init_method.line,
@@ -6582,6 +6609,7 @@ impl Interpreter {
                             let function = FunctionValue {
                                 name: Some(method_val.name.clone()),
                                 params: method_val.params.clone(),
+                                param_types: vec![None; method_val.params.len()],
                                 body: method_val.body.clone(),
                                 env: method_val.env.clone(),
                                 line: method_val.line,
@@ -9262,6 +9290,10 @@ impl Interpreter {
                     if let Some(value) = env_borrowed.get(name) {
                         match &value {
                             Value::Function(func) => func.params.is_empty(), // Zero-arg user functions auto-call (async)
+                            Value::Overloaded(overloaded) => overloaded
+                                .overloads
+                                .iter()
+                                .any(|func| func.params.is_empty()),
                             Value::NativeFunction(_, _) => false, // Native functions evaluate sync
                             _ => false,
                         }
@@ -9313,6 +9345,18 @@ impl Interpreter {
             Value::Function(func) => {
                 if func.params.is_empty() {
                     // User functions are async -> return None to signal fallback to async
+                    Ok(None)
+                } else {
+                    Ok(Some(value))
+                }
+            }
+            Value::Overloaded(overloaded) => {
+                if overloaded
+                    .overloads
+                    .iter()
+                    .any(|func| func.params.is_empty())
+                {
+                    // The zero-arg overload auto-calls (async path)
                     Ok(None)
                 } else {
                     Ok(Some(value))
@@ -9579,6 +9623,7 @@ impl Interpreter {
                     let function = FunctionValue {
                         name: Some(method.name.clone()),
                         params: method.params.clone(),
+                        param_types: vec![None; method.params.len()],
                         body: method.body.clone(),
                         env: method.env.clone(),
                         line: method.line,
@@ -9663,6 +9708,7 @@ impl Interpreter {
                         let function = FunctionValue {
                             name: Some(method_val.name.clone()),
                             params: method_val.params.clone(),
+                            param_types: vec![None; method_val.params.len()],
                             body: method_val.body.clone(),
                             env: method_val.env.clone(),
                             line: method_val.line,
@@ -9713,6 +9759,7 @@ impl Interpreter {
                         let method_function = FunctionValue {
                             name: function.name.clone(),
                             params: function.params.clone(),
+                            param_types: function.param_types.clone(),
                             body: function.body.clone(),
                             env: Rc::downgrade(&method_env),
                             line: function.line,
@@ -9827,6 +9874,19 @@ impl Interpreter {
                                 Ok(value)
                             }
                         }
+                        Value::Overloaded(overloaded) => {
+                            if let Some(func) = overloaded
+                                .overloads
+                                .iter()
+                                .find(|func| func.params.is_empty())
+                            {
+                                // Auto-call the zero-argument overload
+                                self.call_function(func, vec![], *line, *column).await
+                            } else {
+                                // Return the overload set for calls with arguments
+                                Ok(value)
+                            }
+                        }
                         _ => Ok(value),
                     }
                 } else if name == "count" {
@@ -9902,7 +9962,9 @@ impl Interpreter {
                     if let Some(value) = field {
                         let callee_is_function = matches!(
                             env.borrow().get(name),
-                            Some(Value::Function(_)) | Some(Value::NativeFunction(_, _))
+                            Some(Value::Function(_))
+                                | Some(Value::Overloaded(_))
+                                | Some(Value::NativeFunction(_, _))
                         ) || crate::builtins::is_builtin_function(name);
                         if !callee_is_function {
                             return Ok(value);
@@ -9925,6 +9987,10 @@ impl Interpreter {
 
                 let result = match function_val {
                     Value::Function(func) => {
+                        self.call_function(&func, arg_values, *line, *column).await
+                    }
+                    Value::Overloaded(overloaded) => {
+                        let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
                         self.call_function(&func, arg_values, *line, *column).await
                     }
                     Value::NativeFunction(native_name, native_fn) => {
@@ -9977,6 +10043,17 @@ impl Interpreter {
                 })?;
 
                 match function_val {
+                    Value::Overloaded(overloaded) => {
+                        let mut arg_values = Vec::new();
+                        for arg in arguments.iter() {
+                            arg_values.push(
+                                self.evaluate_expression(&arg.value, Rc::clone(&env))
+                                    .await?,
+                            );
+                        }
+                        let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
+                        self.call_function(&func, arg_values, *line, *column).await
+                    }
                     Value::Function(func) => {
                         let mut arg_values = Vec::new();
                         for arg in arguments.iter() {
@@ -10819,6 +10896,140 @@ impl Interpreter {
         };
         self.assert_invariants();
         result
+    }
+
+    /// Picks the overload whose parameter count and declared parameter types
+    /// match the actual argument values: filter by count, drop candidates
+    /// whose concrete annotations reject an argument, then prefer the
+    /// candidate with the most concretely-matched parameters (ties resolve to
+    /// definition order).
+    fn select_overload(
+        overloaded: &OverloadedFunction,
+        args: &[Value],
+        line: usize,
+        column: usize,
+    ) -> Result<Rc<FunctionValue>, RuntimeError> {
+        let arity_matches: Vec<&Rc<FunctionValue>> = overloaded
+            .overloads
+            .iter()
+            .filter(|func| func.params.len() == args.len())
+            .collect();
+
+        if arity_matches.is_empty() {
+            let mut arities: Vec<usize> = overloaded
+                .overloads
+                .iter()
+                .map(|func| func.params.len())
+                .collect();
+            arities.sort_unstable();
+            arities.dedup();
+            let arities_str = arities
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" or ");
+            return Err(RuntimeError::new(
+                format!(
+                    "No version of '{}' takes {} argument(s). It is defined with {} parameter(s).",
+                    overloaded.name,
+                    args.len(),
+                    arities_str
+                ),
+                line,
+                column,
+            ));
+        }
+
+        let mut best: Option<(&Rc<FunctionValue>, usize)> = None;
+        for func in &arity_matches {
+            let mut concrete_matches = 0usize;
+            let mut accepts = true;
+            for (param_type, arg) in func.param_types.iter().zip(args) {
+                if let Some(expected) = param_type {
+                    if Self::value_matches_type(arg, expected) {
+                        concrete_matches += 1;
+                    } else {
+                        accepts = false;
+                        break;
+                    }
+                }
+            }
+            if accepts && best.is_none_or(|(_, count)| concrete_matches > count) {
+                best = Some((func, concrete_matches));
+            }
+        }
+
+        match best {
+            Some((func, _)) => Ok(Rc::clone(func)),
+            None => {
+                let provided: Vec<&str> = args.iter().map(|arg| arg.type_name()).collect();
+                let mut message = format!(
+                    "No version of '{}' matches this call.\nYou provided ({}), but '{}' accepts:",
+                    overloaded.name,
+                    provided.join(", "),
+                    overloaded.name
+                );
+                for func in &arity_matches {
+                    message.push_str(&format!("\n  {}", Self::format_overload_signature(func)));
+                }
+                Err(RuntimeError::new(message, line, column))
+            }
+        }
+    }
+
+    /// Whether a runtime value satisfies a declared parameter type. Untyped
+    /// and unknown annotations accept everything; `Custom` types match a
+    /// container instance of that type or of a descendant (via the parent
+    /// instance chain).
+    fn value_matches_type(value: &Value, expected: &Type) -> bool {
+        match expected {
+            Type::Number => matches!(value, Value::Number(_)),
+            Type::Text => matches!(value, Value::Text(_)),
+            Type::Boolean => matches!(value, Value::Bool(_)),
+            Type::Nothing => matches!(value, Value::Null | Value::Nothing),
+            Type::Pattern => matches!(value, Value::Pattern(_)),
+            Type::List(_) => matches!(value, Value::List(_)),
+            Type::Map(_, _) => matches!(value, Value::Object(_)),
+            Type::Custom(name) => {
+                if name.eq_ignore_ascii_case("any") {
+                    return true;
+                }
+                if let Value::ContainerInstance(instance) = value {
+                    let mut current = Some(Rc::clone(instance));
+                    while let Some(inst) = current {
+                        let inst_ref = inst.borrow();
+                        if inst_ref.container_type == *name {
+                            return true;
+                        }
+                        current = inst_ref.parent.clone();
+                    }
+                    false
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        }
+    }
+
+    /// Renders an overload's signature in WFL surface syntax for error
+    /// messages, e.g. `depict with value as number`.
+    fn format_overload_signature(func: &FunctionValue) -> String {
+        let name = func.name.as_deref().unwrap_or("anonymous");
+        if func.params.is_empty() {
+            return format!("{name} (no parameters)");
+        }
+        let params = func
+            .params
+            .iter()
+            .zip(&func.param_types)
+            .map(|(param, param_type)| match param_type {
+                Some(t) => format!("{param} as {}", crate::analyzer::format_param_type(t)),
+                None => param.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(" and ");
+        format!("{name} with {params}")
     }
 
     async fn call_function(

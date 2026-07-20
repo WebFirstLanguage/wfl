@@ -217,6 +217,128 @@ end check
 store double sum as (sum of 5 and 3) times 2
 ```
 
+## Defining Multiple Versions of an Action (Overloading)
+
+An action name can have several definitions in the same scope, as long as WFL
+can always tell them apart at a call site. Each version is called an
+*overload*, and calls pick the right one automatically.
+
+### Overloading by parameter count
+
+The simplest overloads differ in how many parameters they take:
+
+```wfl
+define action called greet with parameters name:
+    return "Hello, " with name with "!"
+end action
+
+define action called greet with parameters first and last:
+    return "Hello, " with first with " " with last with "!"
+end action
+
+display greet of "Alice"              // Hello, Alice!
+display greet of "Alice" and "Smith"  // Hello, Alice Smith!
+```
+
+### Overloading by parameter type
+
+Same-count overloads are allowed when their parameters declare different
+types with `as`:
+
+```wfl
+define action called depict with parameters value as number:
+    return "a number: " with value
+end action
+
+define action called depict with parameters value as text:
+    return "some text: " with value
+end action
+
+display depict of 42     // a number: 42
+display depict of "wfl"  // some text: wfl
+```
+
+Dispatch happens on the actual value, so calling through a variable works the
+same way: `depict of some_variable` runs the number version when the variable
+holds a number.
+
+### The two rules
+
+Two same-name definitions are rejected when a call could never be routed
+deterministically between them:
+
+1. **Exact duplicates** — same parameter count and same declared types
+   (untyped parameters count as "accepts anything"):
+
+   ```wfl
+   define action called f with parameters x:
+       return 1
+   end action
+
+   define action called f with parameters y:   // error: same parameters
+       return 2
+   end action
+   ```
+
+2. **Indistinguishable pairs** — same parameter count with no position where
+   *both* versions declare concrete, different types. An untyped parameter
+   accepts numbers too, so `f with x` and `f with x as number` would both
+   match `f of 5`:
+
+   ```wfl
+   define action called f with parameters x:
+       return 1
+   end action
+
+   define action called f with parameters x as number:   // error: ambiguous
+       return 2
+   end action
+   ```
+
+Give every same-count overload distinct parameter types (`as number`,
+`as text`, ...), or use different parameter counts.
+
+### How calls choose an overload
+
+1. Versions with the wrong parameter count are dropped. If none remain, the
+   call is an error listing the counts the action accepts.
+2. Among same-count versions, each typed parameter is checked against the
+   argument. Versions whose declared types reject an argument are dropped.
+3. If several versions still match (possible with container types and
+   inheritance), the one with the most concretely-matched parameters wins;
+   remaining ties go to the version defined first.
+4. If no version matches, the error lists what you provided and every
+   version's signature.
+
+When argument types cannot be known until the program runs, static analysis
+defers the choice to the runtime silently — you never have to annotate a call.
+
+### Overloads are still one value
+
+Storing an overloaded action in a variable carries the whole set, and calls
+through the variable dispatch the same way:
+
+```wfl
+define action called shout with parameters message as text:
+    return touppercase of message
+end action
+
+define action called shout with parameters message as number:
+    return "LOUD NUMBER " with message
+end action
+
+store loud as shout
+display loud of "quiet"   // QUIET
+display loud of 3         // LOUD NUMBER 3
+```
+
+If one overload takes no parameters, a bare reference to the name auto-calls
+it — the same behavior as a single zero-parameter action.
+
+> **Not yet overloadable:** container methods (actions defined inside
+> `create container`) do not support overloading yet; a repeated method name
+> keeps the last definition.
+
 ## Variable Scope
 
 ### Local Variables

@@ -140,6 +140,17 @@ define action called <identifier> [with parameters <param-list>]:
 end action
 ```
 
+Parameters may declare a type with `as` (e.g. `value as number`). An action
+name may be defined more than once in the same scope (overloading) when every
+pair of same-name definitions differs in parameter count or has at least one
+position where both declare concrete, different parameter types. Exact
+duplicates, and same-count pairs with no such distinguishing position, are
+definition-time errors. Calls resolve by filtering candidates on argument
+count, then on argument types (statically when known, otherwise on the runtime
+values); among several runtime matches the version with the most
+concretely-matched parameters wins, with remaining ties resolved in definition
+order. Container methods do not support overloading.
+
 **Action Call:**
 ```
 call <identifier> [with <argument-list>]

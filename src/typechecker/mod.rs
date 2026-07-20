@@ -1,8 +1,10 @@
 use crate::analyzer::{Analyzer, Symbol, SymbolKind};
 use crate::builtins;
 use crate::parser::ast::{
-    Expression, Literal, Operator, PatternExpression, Program, Statement, Type, UnaryOperator,
+    Expression, Literal, Operator, Parameter, PatternExpression, Program, Statement, Type,
+    UnaryOperator,
 };
+use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -145,6 +147,12 @@ pub struct TypeChecker {
     /// [`TypeCheckError::Budget`] variant so the distinction is enforced by the
     /// type system rather than an optional side channel.
     budget_error: Option<crate::exec::budget::BudgetExceeded>,
+    /// Inferred return type of each overload of an action, keyed by
+    /// `(action name, index into the analyzer symbol's signatures)`. The
+    /// symbol's `symbol_type` can only hold one `Type::Function` (the last
+    /// definition checked), so overloaded call sites resolve their return
+    /// type through this table instead.
+    overload_returns: HashMap<(String, usize), Type>,
 }
 
 impl Default for TypeChecker {
@@ -166,6 +174,7 @@ impl TypeChecker {
             current_container: None,
             has_includes: false,
             budget_error: None,
+            overload_returns: HashMap::new(),
         }
     }
 
@@ -179,6 +188,7 @@ impl TypeChecker {
             current_container: None,
             has_includes: false,
             budget_error: None,
+            overload_returns: HashMap::new(),
         }
     }
 
@@ -295,6 +305,128 @@ impl TypeChecker {
             // keeps variables bound to their results inferable instead of
             // raising spurious "Could not infer type" errors (issue #551).
             _ => Type::Any,
+        }
+    }
+
+    /// The registered signatures for `name` when it resolves to a function
+    /// symbol, cloned so callers don't hold a borrow of the analyzer.
+    fn action_signatures(&self, name: &str) -> Option<Vec<crate::analyzer::FunctionSignature>> {
+        let symbol = self.analyzer.get_symbol(name)?;
+        if let SymbolKind::Function { signatures } = &symbol.kind {
+            Some(signatures.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Index of the signature whose parameters match this definition's, within
+    /// the analyzer symbol's signature list. Definition-time validation
+    /// guarantees signatures are pairwise distinct, so parameter equality
+    /// identifies the overload unambiguously.
+    fn signature_index_for(&self, name: &str, parameters: &[Parameter]) -> Option<usize> {
+        self.action_signatures(name)?
+            .iter()
+            .position(|sig| sig.parameters == parameters)
+    }
+
+    /// Resolves a call against an overloaded action (more than one registered
+    /// signature): filters candidates by argument count, then by inferred
+    /// argument types, and returns the resolved (or common) return type.
+    /// Mirrors the analyzer's `check_overloaded_call`, but produces the type
+    /// for the call expression.
+    fn infer_overloaded_call_type(
+        &mut self,
+        name: &str,
+        signatures: &[crate::analyzer::FunctionSignature],
+        arguments: &[crate::parser::ast::Argument],
+        line: usize,
+        column: usize,
+    ) -> Type {
+        let arg_types: Vec<Type> = arguments
+            .iter()
+            .map(|arg| self.infer_expression_type(&arg.value))
+            .collect();
+
+        let arity_matches: Vec<usize> = (0..signatures.len())
+            .filter(|&i| signatures[i].parameters.len() == arguments.len())
+            .collect();
+
+        if arity_matches.is_empty() {
+            let mut arities: Vec<usize> =
+                signatures.iter().map(|sig| sig.parameters.len()).collect();
+            arities.sort_unstable();
+            arities.dedup();
+            let arities_str = arities
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" or ");
+            self.type_error(
+                format!(
+                    "Action '{name}' expects {arities_str} arguments, but {} were provided",
+                    arguments.len()
+                ),
+                None,
+                None,
+                line,
+                column,
+            );
+            return Type::Error;
+        }
+
+        let compatible: Vec<usize> =
+            arity_matches
+                .iter()
+                .copied()
+                .filter(|&i| {
+                    signatures[i].parameters.iter().zip(arg_types.iter()).all(
+                        |(param, arg_type)| {
+                            let param_type =
+                                param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
+                            self.are_types_compatible(&param_type, arg_type)
+                        },
+                    )
+                })
+                .collect();
+
+        let return_type_of = |checker: &Self, index: usize| -> Type {
+            checker
+                .overload_returns
+                .get(&(name.to_string(), index))
+                .cloned()
+                .or_else(|| signatures[index].return_type.clone())
+                .unwrap_or(Type::Unknown)
+        };
+
+        match compatible.len() {
+            0 => {
+                let provided: Vec<String> = arg_types.iter().map(|t| t.to_string()).collect();
+                let mut message = format!(
+                    "No version of '{name}' matches this call.\nYou provided ({}), but '{name}' accepts:",
+                    provided.join(", ")
+                );
+                for &i in &arity_matches {
+                    message.push_str(&format!(
+                        "\n  {}",
+                        crate::analyzer::format_signature(name, &signatures[i])
+                    ));
+                }
+                self.type_error(message, None, None, line, column);
+                Type::Error
+            }
+            1 => return_type_of(self, compatible[0]),
+            _ => {
+                // Statically ambiguous (dynamic argument types): the runtime
+                // dispatches on the actual values. If every surviving overload
+                // agrees on the return type, the call still has that type.
+                let mut returns = compatible.iter().map(|&i| return_type_of(self, i));
+                let first = returns.next().unwrap_or(Type::Unknown);
+                if returns.all(|t| t == first) {
+                    first
+                } else {
+                    Type::Unknown
+                }
+            }
         }
     }
 
@@ -954,13 +1086,26 @@ impl TypeChecker {
                 // only `Unknown` so self-references resolve gracefully during the
                 // body check (#590); external callers still see the same `Nothing`
                 // return type void actions had before.
-                if let Some(inferred) = inferred_return
+                if let Some(inferred) = inferred_return.clone()
                     && let Some(symbol) = self.analyzer.get_symbol_mut(name)
                 {
                     symbol.symbol_type = Some(Type::Function {
                         parameters: param_types,
                         return_type: Box::new(inferred),
                     });
+                }
+
+                // Record this overload's return type under its signature index
+                // so overloaded call sites can resolve per-overload results
+                // (the symbol_type above can only remember one definition).
+                let overload_return = return_type
+                    .as_ref()
+                    .cloned()
+                    .or(inferred_return)
+                    .unwrap_or(Type::Unknown);
+                if let Some(index) = self.signature_index_for(name, parameters) {
+                    self.overload_returns
+                        .insert((name.clone(), index), overload_return);
                 }
             }
             Statement::IfStatement {
@@ -3001,6 +3146,22 @@ impl TypeChecker {
                         }
                         return Type::Any;
                     }
+
+                    // Overloaded user actions called in the `of` form resolve
+                    // through the signature list (the single Type::Function
+                    // below can only describe one definition).
+                    if !Analyzer::is_builtin_function(callee)
+                        && let Some(signatures) = self.action_signatures(callee)
+                        && signatures.len() > 1
+                    {
+                        return self.infer_overloaded_call_type(
+                            callee,
+                            &signatures,
+                            arguments,
+                            *line,
+                            *column,
+                        );
+                    }
                 }
 
                 let function_type = self.infer_expression_type(function);
@@ -3387,6 +3548,21 @@ impl TypeChecker {
                 // For builtin functions, use special handling (variadic support, etc.)
                 if Analyzer::is_builtin_function(name) {
                     return self.get_builtin_function_type(name, arguments.len());
+                }
+
+                // Overloaded actions (several registered signatures) resolve
+                // through the signature list; the single symbol_type below can
+                // only describe one definition.
+                if let Some(signatures) = self.action_signatures(name)
+                    && signatures.len() > 1
+                {
+                    return self.infer_overloaded_call_type(
+                        name,
+                        &signatures,
+                        arguments,
+                        *_line,
+                        *_column,
+                    );
                 }
 
                 let symbol_opt = self.analyzer.get_symbol(name);
@@ -4506,8 +4682,12 @@ mod tests {
             "Expected type error for wrong argument type"
         );
 
+        // The analyzer's of-form call validation now catches this first with
+        // "Argument 'name' of action 'greet' expects Text, but got Number";
+        // the typechecker's own path words it as "incorrect type".
         let errors = result.err().unwrap().into_diagnostics();
-        assert!(errors.iter().any(|e| e.message.contains("incorrect type")));
+        assert!(errors.iter().any(|e| e.message.contains("incorrect type")
+            || e.message.contains("expects Text, but got Number")));
     }
 
     #[test]

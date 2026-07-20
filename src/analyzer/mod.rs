@@ -15,6 +15,69 @@ pub enum SymbolKind {
     Pattern,
 }
 
+/// Why two same-name signatures cannot coexist as overloads.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SignatureConflict {
+    /// Same parameter count and same (normalized) parameter types.
+    ExactDuplicate,
+    /// Same parameter count and no position where both declare concrete,
+    /// different types — an untyped parameter accepts every value, so no
+    /// call could ever be routed deterministically between the two.
+    Ambiguous,
+}
+
+fn signature_conflict(a: &FunctionSignature, b: &FunctionSignature) -> Option<SignatureConflict> {
+    if a.parameters.len() != b.parameters.len() {
+        return None;
+    }
+    let exact_same_types = a
+        .parameters
+        .iter()
+        .zip(&b.parameters)
+        .all(|(pa, pb)| pa.param_type == pb.param_type);
+    if exact_same_types {
+        return Some(SignatureConflict::ExactDuplicate);
+    }
+    let distinguishable = a.parameters.iter().zip(&b.parameters).any(
+        |(pa, pb)| matches!((&pa.param_type, &pb.param_type), (Some(ta), Some(tb)) if ta != tb),
+    );
+    if distinguishable {
+        None
+    } else {
+        Some(SignatureConflict::Ambiguous)
+    }
+}
+
+/// Render a signature in WFL surface syntax for diagnostics, e.g.
+/// `describe with value as number` or `reset (no parameters)`.
+pub(crate) fn format_signature(name: &str, signature: &FunctionSignature) -> String {
+    if signature.parameters.is_empty() {
+        return format!("{name} (no parameters)");
+    }
+    let params = signature
+        .parameters
+        .iter()
+        .map(|p| match &p.param_type {
+            Some(t) => format!("{} as {}", p.name, format_param_type(t)),
+            None => p.name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(" and ");
+    format!("{name} with {params}")
+}
+
+/// Parameter types as they appear in source (`as number`, not `as Number`).
+pub(crate) fn format_param_type(t: &Type) -> String {
+    match t {
+        Type::Text => "text".to_string(),
+        Type::Number => "number".to_string(),
+        Type::Boolean => "boolean".to_string(),
+        Type::Nothing => "nothing".to_string(),
+        Type::Custom(name) => name.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ContainerInfo {
     pub name: String,
@@ -2035,13 +2098,56 @@ impl Analyzer {
             ..
         } = statement
         {
+            let new_signature = FunctionSignature {
+                parameters: parameters.clone(),
+                return_type: return_type.clone(),
+            };
+
+            // Same-scope redefinition of an existing action is the overload
+            // path: accumulate the signature instead of erroring, unless the
+            // pair is an exact duplicate or cannot be told apart at a call
+            // site. Collisions with non-function symbols and parent-scope
+            // shadowing keep their existing `Scope::define` errors.
+            if let Some(existing) = self.current_scope.symbols.get_mut(name)
+                && let SymbolKind::Function { signatures } = &mut existing.kind
+            {
+                let first_line = existing.line;
+                match signatures
+                    .iter()
+                    .find_map(|sig| signature_conflict(sig, &new_signature))
+                {
+                    Some(SignatureConflict::ExactDuplicate) => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "Action '{name}' was already defined with the same parameters at line {first_line}. \
+                                 Overloads must differ in parameter count or in their declared parameter types \
+                                 (e.g. 'value as number' vs 'value as text')."
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    Some(SignatureConflict::Ambiguous) => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "These two versions of '{name}' cannot be told apart when called with {} argument(s). \
+                                 Give every same-parameter-count overload distinct parameter types \
+                                 ('as number', 'as text', ...), or use different parameter counts.",
+                                new_signature.parameters.len()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    None => signatures.push(new_signature),
+                }
+                return;
+            }
+
             let symbol = Symbol {
                 name: name.clone(),
                 kind: SymbolKind::Function {
-                    signatures: vec![FunctionSignature {
-                        parameters: parameters.clone(),
-                        return_type: return_type.clone(),
-                    }],
+                    signatures: vec![new_signature],
                 },
                 symbol_type: None,
                 line: *line,
@@ -2311,6 +2417,245 @@ impl Analyzer {
     pub fn pop_scope(&mut self) {
         if let Some(parent) = self.current_scope.parent.take() {
             self.current_scope = *parent;
+        }
+    }
+
+    /// Validates a call against every registered signature of `name`:
+    /// filters candidates by argument count, then (when several share the
+    /// count) by static argument types. A single surviving candidate gets the
+    /// full named-argument and type validation; several survivors mean some
+    /// argument types are only known at runtime, so dispatch is deferred to
+    /// the interpreter with no diagnostic.
+    ///
+    /// `is_of_form` only selects the historical wording of the arity error
+    /// ("Function ... arguments" for the `of` form vs "Action ...
+    /// argument(s)" for the `call` form).
+    fn check_overloaded_call(
+        &mut self,
+        name: &str,
+        signatures: &[FunctionSignature],
+        arguments: &[crate::parser::ast::Argument],
+        is_of_form: bool,
+        line: usize,
+        column: usize,
+    ) {
+        let arity_matches: Vec<&FunctionSignature> = signatures
+            .iter()
+            .filter(|sig| sig.parameters.len() == arguments.len())
+            .collect();
+
+        if arity_matches.is_empty() {
+            let mut arities: Vec<usize> =
+                signatures.iter().map(|sig| sig.parameters.len()).collect();
+            arities.sort_unstable();
+            arities.dedup();
+            let arities_str = arities
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" or ");
+            let message = if is_of_form {
+                format!(
+                    "Function '{name}' expects {arities_str} arguments, but {} were provided",
+                    arguments.len()
+                )
+            } else {
+                format!(
+                    "Action '{name}' expects {arities_str} argument(s), but {} were provided",
+                    arguments.len()
+                )
+            };
+            self.errors.push(SemanticError::new(message, line, column));
+            return;
+        }
+
+        if arity_matches.len() == 1 {
+            self.check_call_against_signature(name, arity_matches[0], arguments, line, column);
+            return;
+        }
+
+        let compatible: Vec<&FunctionSignature> = arity_matches
+            .iter()
+            .copied()
+            .filter(|sig| self.signature_accepts(sig, arguments))
+            .collect();
+
+        match compatible.len() {
+            1 => self.check_call_against_signature(name, compatible[0], arguments, line, column),
+            0 => {
+                let provided: Vec<String> = arguments
+                    .iter()
+                    .map(|arg| {
+                        Self::format_type_for_display(&self.infer_expression_type(&arg.value))
+                    })
+                    .collect();
+                let mut message = format!(
+                    "No version of '{name}' matches this call.\nYou provided ({}), but '{name}' accepts:",
+                    provided.join(", ")
+                );
+                for sig in &arity_matches {
+                    message.push_str(&format!("\n  {}", format_signature(name, sig)));
+                }
+                self.errors.push(SemanticError::new(message, line, column));
+            }
+            _ => {
+                // Several overloads still accept the call because some
+                // argument types are only known at runtime — the interpreter
+                // dispatches on the actual values.
+            }
+        }
+    }
+
+    /// Whether `signature` could accept this call: every argument maps onto a
+    /// distinct parameter (by name or position) and no statically-known
+    /// argument type contradicts a concrete parameter annotation. Used to
+    /// filter same-arity overload candidates; unlike
+    /// `check_call_against_signature` it reports nothing.
+    fn signature_accepts(
+        &self,
+        signature: &FunctionSignature,
+        arguments: &[crate::parser::ast::Argument],
+    ) -> bool {
+        let mut mapped: Vec<Option<&Expression>> = vec![None; signature.parameters.len()];
+
+        for (arg_idx, arg) in arguments.iter().enumerate() {
+            let param_idx = if let Some(arg_name) = &arg.name {
+                match signature
+                    .parameters
+                    .iter()
+                    .position(|p| p.name == *arg_name)
+                {
+                    Some(idx) => idx,
+                    None => return false,
+                }
+            } else {
+                arg_idx
+            };
+            if mapped[param_idx].is_some() {
+                return false;
+            }
+            mapped[param_idx] = Some(&arg.value);
+        }
+
+        signature
+            .parameters
+            .iter()
+            .zip(mapped)
+            .all(|(param, arg_opt)| {
+                let (Some(expected_type), Some(arg_val)) = (&param.param_type, arg_opt) else {
+                    return true;
+                };
+                if matches!(expected_type, Type::Unknown | Type::Any) {
+                    return true;
+                }
+                let arg_type = self.infer_expression_type(arg_val);
+                arg_type == Type::Unknown || self.is_type_compatible(&arg_type, expected_type)
+            })
+    }
+
+    /// Full validation of a call against one resolved signature: argument
+    /// count, named-argument mapping (unknown parameter, duplicate argument),
+    /// and per-argument type compatibility.
+    fn check_call_against_signature(
+        &mut self,
+        name: &str,
+        signature: &FunctionSignature,
+        arguments: &[crate::parser::ast::Argument],
+        line: usize,
+        column: usize,
+    ) {
+        if arguments.len() != signature.parameters.len() {
+            self.errors.push(SemanticError::new(
+                format!(
+                    "Action '{}' expects {} argument(s), but {} were provided",
+                    name,
+                    signature.parameters.len(),
+                    arguments.len()
+                ),
+                line,
+                column,
+            ));
+
+            // Skip type validation if arity is mismatched to avoid noisy/cascading errors
+            return;
+        }
+
+        // Map arguments to parameters for type validation
+        let mut matched_args: Vec<Option<&Expression>> = vec![None; signature.parameters.len()];
+        let mut has_mapping_error = false;
+
+        for (arg_idx, arg) in arguments.iter().enumerate() {
+            let mut param_idx_opt = None;
+
+            if let Some(arg_name) = &arg.name {
+                // Named argument
+                if let Some(idx) = signature
+                    .parameters
+                    .iter()
+                    .position(|p| p.name == *arg_name)
+                {
+                    param_idx_opt = Some(idx);
+                } else {
+                    self.errors.push(SemanticError::new(
+                        format!("Unknown parameter '{arg_name}' for action '{name}'"),
+                        line,
+                        column,
+                    ));
+                    has_mapping_error = true;
+                }
+            } else {
+                // Positional argument
+                if arg_idx < signature.parameters.len() {
+                    param_idx_opt = Some(arg_idx);
+                }
+            }
+
+            if let Some(param_idx) = param_idx_opt {
+                if matched_args[param_idx].is_some() {
+                    let param_name = &signature.parameters[param_idx].name;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "Duplicate argument for parameter '{param_name}' in action '{name}'"
+                        ),
+                        line,
+                        column,
+                    ));
+                    has_mapping_error = true;
+                } else {
+                    matched_args[param_idx] = Some(&arg.value);
+                }
+            }
+        }
+
+        // Skip type validation if argument mapping failed
+        if has_mapping_error {
+            return;
+        }
+
+        // Type validation
+        for (param, arg_opt) in signature.parameters.iter().zip(matched_args.iter()) {
+            if let Some(arg_val) = arg_opt
+                && let Some(expected_type) = &param.param_type
+            {
+                let arg_type = self.infer_expression_type(arg_val);
+
+                if arg_type != Type::Unknown
+                    && expected_type != &Type::Unknown
+                    && expected_type != &Type::Any
+                    && !self.is_type_compatible(&arg_type, expected_type)
+                {
+                    let expected_display = Self::format_type_for_display(expected_type);
+                    let actual_display = Self::format_type_for_display(&arg_type);
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "Argument '{}' of action '{}' expects {}, but got {}",
+                            param.name, name, expected_display, actual_display
+                        ),
+                        line,
+                        column,
+                    ));
+                }
+            }
         }
     }
 
@@ -2597,19 +2942,40 @@ impl Analyzer {
                 }
 
                 if let Expression::Variable(name, _, _) = &**function {
-                    if let Some(symbol) = self.current_scope.resolve(name) {
-                        match &symbol.kind {
-                            SymbolKind::Function { signatures } => {
-                                // For now, just check the first signature for compatibility
-                                // TODO: Implement proper overload resolution based on argument types and count
-                                if let Some(first_signature) = signatures.first()
-                                    && arguments.len() != first_signature.parameters.len()
-                                {
-                                    // Check if any signature matches the argument count
-                                    let matching_signature = signatures
-                                        .iter()
-                                        .find(|sig| sig.parameters.len() == arguments.len());
-                                    if matching_signature.is_none() {
+                    // Clone the resolved signature list (plus the symbol's
+                    // definition position, needed by the non-function arm) up
+                    // front so the symbol borrow doesn't overlap the mutable
+                    // calls below.
+                    type ResolvedCallee = (Option<Vec<FunctionSignature>>, usize, usize);
+                    let resolved_signatures: Option<ResolvedCallee> =
+                        self.current_scope.resolve(name).map(|symbol| {
+                            let signatures =
+                                if let SymbolKind::Function { signatures } = &symbol.kind {
+                                    Some(signatures.clone())
+                                } else {
+                                    None
+                                };
+                            (signatures, symbol.line, symbol.column)
+                        });
+                    if let Some((function_signatures, symbol_line, symbol_column)) =
+                        resolved_signatures
+                    {
+                        match function_signatures {
+                            Some(signatures) => {
+                                for arg in arguments {
+                                    self.analyze_expression(&arg.value);
+                                }
+
+                                if Self::is_builtin_function(name) {
+                                    // Builtins keep the historical arity-only
+                                    // check; their full validation lives in the
+                                    // stdlib layer.
+                                    if let Some(first_signature) = signatures.first()
+                                        && arguments.len() != first_signature.parameters.len()
+                                        && !signatures
+                                            .iter()
+                                            .any(|sig| sig.parameters.len() == arguments.len())
+                                    {
                                         let expected_arities: Vec<String> = signatures
                                             .iter()
                                             .map(|sig| sig.parameters.len().to_string())
@@ -2621,13 +2987,18 @@ impl Analyzer {
                                             *column,
                                         ));
                                     }
-                                }
-
-                                for arg in arguments {
-                                    self.analyze_expression(&arg.value);
+                                } else {
+                                    self.check_overloaded_call(
+                                        name,
+                                        &signatures,
+                                        arguments,
+                                        true,
+                                        *line,
+                                        *column,
+                                    );
                                 }
                             }
-                            _ => {
+                            None => {
                                 // The symbol resolved to something that is not a
                                 // function. Built-in stdlib functions (touppercase,
                                 // wflhash256, parse_json, ...) get injected into an
@@ -2640,8 +3011,8 @@ impl Analyzer {
                                 // "is not a function". Real builtin Function
                                 // symbols take the arm above (arity preserved).
                                 let is_injected_builtin = Self::is_builtin_function(name)
-                                    && symbol.line == 0
-                                    && symbol.column == 0;
+                                    && symbol_line == 0
+                                    && symbol_column == 0;
                                 // An action parameter or handler-property name
                                 // (e.g. `body of msg` inside a websocket handler)
                                 // is a relaxed `of`-form access even when an outer
@@ -2784,125 +3155,34 @@ impl Analyzer {
                     return;
                 }
 
-                // Validate user-defined action exists and has correct signature
-                if let Some(symbol) = self.current_scope.resolve(name) {
-                    match &symbol.kind {
-                        SymbolKind::Function { signatures } => {
-                            // Get first signature (actions have single signature)
-                            if let Some(first_signature) = signatures.first() {
-                                // Validate argument count
-                                if arguments.len() != first_signature.parameters.len() {
-                                    self.errors.push(SemanticError::new(
-                                        format!(
-                                            "Action '{}' expects {} argument(s), but {} were provided",
-                                            name,
-                                            first_signature.parameters.len(),
-                                            arguments.len()
-                                        ),
-                                        *line,
-                                        *column,
-                                    ));
-
-                                    // Skip type validation if arity is mismatched to avoid noisy/cascading errors
-                                    return;
-                                }
-
-                                // Map arguments to parameters for type validation
-                                let mut matched_args: Vec<Option<&Expression>> =
-                                    vec![None; first_signature.parameters.len()];
-                                let mut has_mapping_error = false;
-
-                                for (arg_idx, arg) in arguments.iter().enumerate() {
-                                    let mut param_idx_opt = None;
-
-                                    if let Some(arg_name) = &arg.name {
-                                        // Named argument
-                                        if let Some(idx) = first_signature
-                                            .parameters
-                                            .iter()
-                                            .position(|p| p.name == *arg_name)
-                                        {
-                                            param_idx_opt = Some(idx);
-                                        } else {
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Unknown parameter '{}' for action '{}'",
-                                                    arg_name, name
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                            has_mapping_error = true;
-                                        }
-                                    } else {
-                                        // Positional argument
-                                        if arg_idx < first_signature.parameters.len() {
-                                            param_idx_opt = Some(arg_idx);
-                                        }
-                                    }
-
-                                    if let Some(param_idx) = param_idx_opt {
-                                        if matched_args[param_idx].is_some() {
-                                            let param_name =
-                                                &first_signature.parameters[param_idx].name;
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Duplicate argument for parameter '{}' in action '{}'",
-                                                    param_name, name
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                            has_mapping_error = true;
-                                        } else {
-                                            matched_args[param_idx] = Some(&arg.value);
-                                        }
-                                    }
-                                }
-
-                                // Skip type validation if argument mapping failed
-                                if has_mapping_error {
-                                    return;
-                                }
-
-                                // Type validation
-                                for (param, arg_opt) in
-                                    first_signature.parameters.iter().zip(matched_args.iter())
-                                {
-                                    if let Some(arg_val) = arg_opt
-                                        && let Some(expected_type) = &param.param_type
-                                    {
-                                        let arg_type = self.infer_expression_type(arg_val);
-
-                                        if arg_type != Type::Unknown
-                                            && expected_type != &Type::Unknown
-                                            && expected_type != &Type::Any
-                                            && !self.is_type_compatible(&arg_type, expected_type)
-                                        {
-                                            let expected_display =
-                                                Self::format_type_for_display(expected_type);
-                                            let actual_display =
-                                                Self::format_type_for_display(&arg_type);
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Argument '{}' of action '{}' expects {}, but got {}",
-                                                    param.name,
-                                                    name,
-                                                    expected_display,
-                                                    actual_display
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
+                // Validate user-defined action exists and has a matching
+                // signature (overload resolution across all registered
+                // signatures). Clone the signature list up front so the
+                // symbol borrow doesn't overlap the mutable calls below.
+                let resolved_signatures: Option<Option<Vec<FunctionSignature>>> =
+                    self.current_scope.resolve(name).map(|symbol| {
+                        if let SymbolKind::Function { signatures } = &symbol.kind {
+                            Some(signatures.clone())
+                        } else {
+                            None
                         }
-                        _ => {
+                    });
+                if let Some(function_signatures) = resolved_signatures {
+                    match function_signatures {
+                        Some(signatures) => {
+                            self.check_overloaded_call(
+                                name,
+                                &signatures,
+                                arguments,
+                                false,
+                                *line,
+                                *column,
+                            );
+                        }
+                        None => {
                             // Symbol exists but is not a function/action
                             self.errors.push(SemanticError::new(
-                                format!("'{}' is not an action", name),
+                                format!("'{name}' is not an action"),
                                 *line,
                                 *column,
                             ));

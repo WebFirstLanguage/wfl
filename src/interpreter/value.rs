@@ -26,6 +26,10 @@ pub enum Value {
     Null,
     Nothing, // Used for void returns
 
+    /// A set of same-name action overloads; calls dispatch on argument count
+    /// and runtime argument types (see `Interpreter::select_overload`).
+    Overloaded(Rc<OverloadedFunction>),
+
     // Container-related values
     ContainerDefinition(Rc<ContainerDefinitionValue>),
     ContainerInstance(Rc<RefCell<ContainerInstanceValue>>),
@@ -40,10 +44,22 @@ pub type NativeFunction = fn(Vec<Value>) -> Result<Value, RuntimeError>;
 pub struct FunctionValue {
     pub name: Option<String>,
     pub params: Vec<String>,
+    /// Declared parameter types, parallel to `params` (`None` = untyped).
+    /// Runtime overload dispatch matches argument values against these.
+    pub param_types: Vec<Option<crate::parser::ast::Type>>,
     pub body: Vec<Statement>,
     pub env: Weak<RefCell<Environment>>,
     pub line: usize,
     pub column: usize,
+}
+
+/// The runtime value of an action name defined more than once in a scope:
+/// every overload in definition order. Calls pick the overload whose
+/// parameter count and declared parameter types match the actual arguments.
+#[derive(Clone)]
+pub struct OverloadedFunction {
+    pub name: String,
+    pub overloads: Vec<Rc<FunctionValue>>,
 }
 
 #[derive(Clone)]
@@ -191,6 +207,7 @@ impl Value {
             Value::List(_) => "List",
             Value::Object(_) => "Object",
             Value::Function(_) => "Function",
+            Value::Overloaded(_) => "Function",
             Value::NativeFunction(_, _) => "NativeFunction",
             Value::Future(_) => "Future",
             Value::Date(_) => "Date",
@@ -216,7 +233,7 @@ impl Value {
             Value::Text(s) => !s.is_empty(),
             Value::List(list) => !list.borrow().is_empty(),
             Value::Object(obj) => !obj.borrow().is_empty(),
-            Value::Function(_) | Value::NativeFunction(_, _) => true,
+            Value::Function(_) | Value::Overloaded(_) | Value::NativeFunction(_, _) => true,
             Value::Future(future) => future.borrow().completed,
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
             Value::Pattern(_) => true,
@@ -400,6 +417,14 @@ impl Value {
                     func.name.as_deref().unwrap_or("anonymous")
                 )
             }
+            Value::Overloaded(overloaded) => {
+                write!(
+                    f,
+                    "Function({}, {} overloads)",
+                    overloaded.name,
+                    overloaded.overloads.len()
+                )
+            }
             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "Date({d})"),
@@ -501,6 +526,14 @@ impl Value {
             }
             Value::Function(func) => {
                 write!(f, "action {}", func.name.as_deref().unwrap_or("anonymous"))
+            }
+            Value::Overloaded(overloaded) => {
+                write!(
+                    f,
+                    "action {} ({} overloads)",
+                    overloaded.name,
+                    overloaded.overloads.len()
+                )
             }
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),

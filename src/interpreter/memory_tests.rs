@@ -19,6 +19,7 @@ mod tests {
             let function = FunctionValue {
                 name: Some("test_function".to_string()),
                 params: vec!["param1".to_string()],
+                param_types: vec![None],
                 body: vec![],
                 env: Rc::downgrade(&global_env), // Weak reference!
                 line: 1,
@@ -111,6 +112,7 @@ mod tests {
             let function = FunctionValue {
                 name: Some(name.clone()),
                 params: param_names,
+                param_types: vec![None; parameters.len()],
                 body: body.clone(),
                 env: Rc::downgrade(&child_env), // Using Weak reference
                 line: 1,

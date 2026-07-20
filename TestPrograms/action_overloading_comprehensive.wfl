@@ -1,0 +1,83 @@
+// Comprehensive test of user-defined action overloading.
+// Actions may share a name when they differ in parameter count, or in at
+// least one position where both declare concrete, different parameter types.
+
+// --- Overloading by parameter count ----------------------------------------
+
+define action called greet with parameters name:
+    return "Hello, " with name with "!"
+end action
+
+define action called greet with parameters first and last:
+    return "Hello, " with first with " " with last with "!"
+end action
+
+display greet of "Alice"
+display greet of "Alice" and "Smith"
+
+// The call form dispatches the same way as the of form.
+store greeting_one as call greet with "Bob"
+store greeting_two as call greet with "Bob" and "Jones"
+display greeting_one
+display greeting_two
+
+// --- Overloading by parameter type -----------------------------------------
+
+define action called depict with parameters value as number:
+    return "a number: " with value
+end action
+
+define action called depict with parameters value as text:
+    return "some text: " with value
+end action
+
+display depict of 42
+display depict of "wfl"
+
+// Dispatch happens on the runtime value, so a variable works too.
+store dynamic_value as 7
+display depict of dynamic_value
+
+// --- Mixed count and type overloads ----------------------------------------
+
+define action called area with parameters side as number:
+    return side times side
+end action
+
+define action called area with parameters width as number and height as number:
+    return width times height
+end action
+
+display "square area: " with area of 5
+display "rectangle area: " with area of 4 and 6
+
+// --- Overloads calling their siblings --------------------------------------
+
+define action called fact with parameters n:
+    return fact of n and 1
+end action
+
+define action called fact with parameters n and acc:
+    check if n is less than 2:
+        return acc
+    end check
+    return fact of (n minus 1) and (acc times n)
+end action
+
+display "5! = " with fact of 5
+
+// --- Overloaded action as a first-class value ------------------------------
+
+define action called shout with parameters message as text:
+    return touppercase of message
+end action
+
+define action called shout with parameters message as number:
+    return "LOUD NUMBER " with message
+end action
+
+store loud as shout
+display loud of "quiet"
+display loud of 3
+
+display "All overloading tests passed!"
