@@ -189,4 +189,21 @@ check if branch_flag:
     display branchy_ref of "conditional"
 end check
 
+// --- References reassigned in a loop dispatch at runtime --------------------
+// A break can exit while the reference holds an intermediate binding, so
+// static analysis defers these calls to runtime dispatch.
+
+define action called swap_target with parameters t:
+    return "swapped " with t
+end action
+
+store swap_ref as branchy
+store one_pass as 1
+count from 1 to one_pass:
+    change swap_ref to swap_target
+    break
+    change swap_ref to branchy
+end count
+display swap_ref of "midway"
+
 display "All overloading tests passed!"

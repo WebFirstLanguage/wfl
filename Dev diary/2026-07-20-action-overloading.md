@@ -252,3 +252,47 @@ parameter — its exact match, which correspondingly wins specificity — and
 otherwise leaves versions tied so definition order decides. Two regression
 tests (57 total) plus a TestProgram section; the docs' `nothing` bullet and
 the spec sentence now state both halves of the rule.
+
+## Round 5 (fifth-pass review): block-entry arming and abrupt-exit joins
+
+The maintainer's fifth pass found two P1 gaps:
+
+1. **Cross-block merges left a temporal window open.** The per-block
+   duplicate scan (round 4) only saw names defined twice in the *same*
+   slice. A block whose definition merges with an action already present in
+   the same scope (branches execute against the enclosing environment)
+   left the existing member lenient until the merge — an interleaved
+   dynamic call before the in-block definition ran the wrong body.
+   `enter_block_overloads` now arms `enforce_param_types` on same-scope
+   existing function members for every name the entering block defines
+   (inherited names are untouched — defining over them is a shadowing
+   error, not a merge). Wired through `_execute_block`, the top-level
+   program loop (which also covers a REPL interpreter reused across
+   snippets), and the describe/test executors. Arming is lexical, matching
+   the established "defined more than once in the block" rule.
+
+2. **Endpoint-only flow joins missed abrupt exits.** The `FlowState` join
+   compared construct entry with the state after the whole body — but a
+   `break`/`continue` (or an error transferring to a `when` handler) can
+   exit while an alias holds an intermediate binding the body later
+   restores, making the endpoints equal and the join wrong in the
+   *false-rejection* direction: static analysis rejected calls the runtime
+   accepts. Rather than collecting states at every exit point, the analyzer
+   now tracks which alias names are written at any point inside each
+   loop/`try` body (`alias_mutation_frames`, a stack whose pop merges into
+   the parent frame so inner-body mutations count for outer bodies) and
+   degrades exactly those names to `AliasState::Dynamic` after loop joins
+   and at `try`-handler entry. Names the body never touched keep their
+   precise state; endpoint joins remain sound for branch constructs, which
+   cannot exit mid-branch. Overload counters need no frames — they are
+   monotonic, so endpoint disagreement already catches every mutation.
+
+Test-shape note: reassigning an alias across differently-shaped actions is
+constrained by the pre-existing function-type assignment check (parameter
+types compare positionally; untyped parameters are compatible with
+anything), so the round-5 regressions reassign to an untyped-parameter
+action — the same leniency real dynamic code would use.
+
+Round-5 coverage: three new tests (60 total) — cross-block temporal
+enforcement, loop-break intermediate binding, and try-handler intermediate
+binding (both formerly static false rejections).

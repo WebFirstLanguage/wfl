@@ -1656,6 +1656,112 @@ end check
         assert_eq!(global_text(&interp, "r"), "hello");
     }
 
+    // Round 5, finding 1: a block whose definition will merge with an
+    // existing same-scope action must arm that member's enforcement at block
+    // entry — an interleaved dynamic call before the in-block definition
+    // must not run the wrong body during the temporal window.
+    #[tokio::test]
+    async fn cross_block_merge_arms_existing_member_at_entry() {
+        let err = match run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return "num body"
+end action
+
+define action called caller with parameters passthrough:
+    return f of passthrough
+end action
+
+store flag as yes
+check if flag:
+    store mid as caller of "sneaky"
+    define action called f with parameters t as text:
+        return "text body"
+    end action
+end check
+"#,
+        )
+        .await
+        {
+            Ok(_) => panic!("the interleaved call must hit temporal enforcement"),
+            Err(err) => err,
+        };
+        assert!(
+            err.starts_with("runtime:") && err.contains("expects"),
+            "expected the temporal dispatch rejection, got: {err}"
+        );
+    }
+
+    // Round 5, finding 2 (loop): a `break` can exit a loop while an alias
+    // holds an intermediate binding the body later restores. Endpoint-only
+    // joins would keep the restored binding and statically reject a call the
+    // runtime accepts — mutated aliases must degrade to runtime dispatch.
+    #[tokio::test]
+    async fn alias_mutated_in_loop_with_break_defers_to_runtime() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters b as boolean:
+    return "eff bool"
+end action
+
+define action called g with parameters t:
+    return "gee text"
+end action
+
+store h as f
+store limit as 1
+count from 1 to limit:
+    change h to g
+    break
+    change h to f
+end count
+store r as h of "boom"
+"#,
+        )
+        .await
+        .expect("the break-time binding accepts this call; static analysis must defer");
+        assert_eq!(global_text(&interp, "r"), "gee text");
+    }
+
+    // Round 5, finding 2 (try): an error can transfer to a `when` handler
+    // while an alias holds an intermediate binding the body later restores.
+    // The handler must see mutated aliases as dynamic, not the endpoint state.
+    #[tokio::test]
+    async fn alias_mutated_in_try_body_is_dynamic_in_handler() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters b as boolean:
+    return "eff bool"
+end action
+
+define action called g with parameters t:
+    return "gee text"
+end action
+
+store h as f
+store r as "unset"
+try:
+    change h to g
+    store bad as 10 divided by 0
+    change h to f
+when error:
+    change r to h of "boom"
+end try
+"#,
+        )
+        .await
+        .expect("the throw-time binding accepts this call; static analysis must defer");
+        assert_eq!(global_text(&interp, "r"), "gee text");
+    }
+
     // Finding 4: a single (non-overloaded) typed action keeps its historical
     // dynamic-call behavior — annotations are not runtime guards for it.
     #[tokio::test]

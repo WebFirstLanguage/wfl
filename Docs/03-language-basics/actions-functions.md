@@ -331,7 +331,10 @@ A few matching rules worth knowing:
   analysis and do not reject values at runtime. This enforcement is scoped
   to the block that defines the versions: a different block's lone action of
   the same name is a separate, single action and keeps the historical
-  behavior.
+  behavior. When a block adds a version to an action that already exists in
+  the same scope, the existing version starts enforcing the moment that
+  block begins executing — a call between the block's start and the new
+  definition already dispatches strictly.
 - **Stored actions dispatch the same way — over the versions that existed
   when stored.** After `store helper as depict`, calling `helper of 42`
   resolves among `depict`'s versions exactly as a direct call would. The
@@ -343,7 +346,10 @@ A few matching rules worth knowing:
   exists depends on what actually executed — so static analysis stops
   guessing for references stored after that point and defers their calls to
   runtime dispatch, which always judges against the versions that really
-  exist.
+  exist. The same applies to a stored reference reassigned anywhere inside
+  a loop or `try` body: a `break` or an error can leave the loop (or reach
+  the error handler) while the reference holds an intermediate binding, so
+  its calls defer to runtime dispatch too.
 
 ### Overloads behave like one action
 

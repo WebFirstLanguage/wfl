@@ -3452,6 +3452,31 @@ impl Interpreter {
         }
     }
 
+    /// Enters a statement block for overload enforcement: computes the
+    /// block's own duplicate set, and arms `enforce_param_types` on any
+    /// same-scope function the block's definitions will merge with — the
+    /// merge makes that member overloaded, so its temporal window starts
+    /// when the block starts executing, not at the later merge. Inherited
+    /// (parent-scope) names are not mergeable — defining over them is a
+    /// shadowing error — so only the local scope is consulted.
+    fn enter_block_overloads(
+        &self,
+        statements: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> BlockDupsScope<'_> {
+        for statement in statements {
+            if let Statement::ActionDefinition { name, .. } = statement
+                && let Some(Value::Function(existing)) = env.borrow().get_local(name)
+            {
+                existing.enforce_param_types.set(true);
+            }
+        }
+        BlockDupsScope::enter(
+            &self.current_block_overload_dups,
+            Self::scan_block_overload_dups(statements),
+        )
+    }
+
     /// The interpreter run body, executed inside the task-local budget scope
     /// established by [`Interpreter::interpret`].
     async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
@@ -3477,6 +3502,15 @@ impl Interpreter {
         // their declared types from the first definition on. Nested blocks
         // get their own scan at block entry (`BlockDupsScope`), so
         // enforcement stays scoped to the block that actually overloads.
+        // Same-scope members an incoming definition will merge with (a REPL
+        // interpreter reused across snippets) are armed the same way.
+        for statement in &program.statements {
+            if let Statement::ActionDefinition { name, .. } = statement
+                && let Some(Value::Function(existing)) = self.global_env.borrow().get_local(name)
+            {
+                existing.enforce_param_types.set(true);
+            }
+        }
         *self.current_block_overload_dups.borrow_mut() =
             Self::scan_block_overload_dups(&program.statements);
         self.call_stack.borrow_mut().clear();
@@ -8856,10 +8890,7 @@ impl Interpreter {
                 // Setup/tests/teardown are three separate statement blocks,
                 // each with its own overload-duplicate scope.
                 if let Some(setup_stmts) = setup {
-                    let _overload_dups = BlockDupsScope::enter(
-                        &self.current_block_overload_dups,
-                        Self::scan_block_overload_dups(setup_stmts),
-                    );
+                    let _overload_dups = self.enter_block_overloads(setup_stmts, &describe_env);
                     for stmt in setup_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
@@ -8867,10 +8898,7 @@ impl Interpreter {
 
                 // Execute all tests (each gets a child of describe_env for isolation)
                 {
-                    let _overload_dups = BlockDupsScope::enter(
-                        &self.current_block_overload_dups,
-                        Self::scan_block_overload_dups(tests),
-                    );
+                    let _overload_dups = self.enter_block_overloads(tests, &describe_env);
                     for test in tests {
                         Box::pin(self._execute_statement(test, describe_env.clone())).await?;
                     }
@@ -8878,10 +8906,7 @@ impl Interpreter {
 
                 // Run teardown if present (runs in describe environment)
                 if let Some(teardown_stmts) = teardown {
-                    let _overload_dups = BlockDupsScope::enter(
-                        &self.current_block_overload_dups,
-                        Self::scan_block_overload_dups(teardown_stmts),
-                    );
+                    let _overload_dups = self.enter_block_overloads(teardown_stmts, &describe_env);
                     for stmt in teardown_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
@@ -8920,10 +8945,7 @@ impl Interpreter {
 
                 // Execute test body and catch assertion failures. The body
                 // is its own statement block for overload enforcement.
-                let _overload_dups = BlockDupsScope::enter(
-                    &self.current_block_overload_dups,
-                    Self::scan_block_overload_dups(body),
-                );
+                let _overload_dups = self.enter_block_overloads(body, &test_env);
                 let mut test_passed = true;
 
                 for stmt in body {
@@ -9241,11 +9263,9 @@ impl Interpreter {
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         self.assert_invariants();
         // Each block carries its own overload-duplicate set for temporal
-        // enforcement; restored on drop (including `?` early returns).
-        let _overload_dups = BlockDupsScope::enter(
-            &self.current_block_overload_dups,
-            Self::scan_block_overload_dups(statements),
-        );
+        // enforcement (restored on drop, including `?` early returns), and
+        // arms same-scope members its definitions will merge with.
+        let _overload_dups = self.enter_block_overloads(statements, &env);
         let mut last_value = Value::Null;
 
         #[cfg(debug_assertions)]

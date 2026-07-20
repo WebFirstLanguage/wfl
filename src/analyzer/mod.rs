@@ -320,6 +320,15 @@ pub struct Analyzer {
     /// may not execute degrades the count to [`OverloadCount::Unknown`].
     /// Reset per `analyze` run.
     defined_overloads: HashMap<String, OverloadCount>,
+    /// Stack of alias-mutation frames, one per loop/`try` body being
+    /// analyzed. Records which alias names were *written at any point*
+    /// during the body — endpoint flow states cannot see a binding that was
+    /// mutated and then restored, but a `break`/`continue` or an error
+    /// transferring to a `when` handler can expose exactly that
+    /// intermediate state at runtime. Popping a frame merges it into its
+    /// parent (an inner body's mutation is also the outer body's). Reset
+    /// per `analyze` run.
+    alias_mutation_frames: Vec<std::collections::HashSet<String>>,
     /// What each alias call site resolved to, keyed by (callee, line, column).
     /// The type checker reads this instead of the final alias map so it
     /// observes the alias state that held *at that statement*, not whatever
@@ -578,6 +587,7 @@ impl Analyzer {
             budget_error: None,
             action_aliases: HashMap::new(),
             defined_overloads: HashMap::new(),
+            alias_mutation_frames: Vec::new(),
             alias_call_sites: HashMap::new(),
         }
     }
@@ -663,6 +673,7 @@ impl Analyzer {
         // Stored-action alias state is per-program.
         self.action_aliases.clear();
         self.defined_overloads.clear();
+        self.alias_mutation_frames.clear();
         self.alias_call_sites.clear();
 
         // PASS 1: Register all top-level action signatures
@@ -1013,12 +1024,19 @@ impl Analyzer {
                 self.action_parameters.insert(item_name.clone());
 
                 let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 // The body may run zero times: join it with the skip path.
                 let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
                 self.join_flow_branches(&[flow_body, flow_entry]);
+                // A break/continue can leave the loop while a mutated alias
+                // holds an intermediate binding the body later restores —
+                // endpoint states cannot see it, so mutated names defer to
+                // runtime dispatch.
+                self.degrade_mutated_aliases(&mutated);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(item_name);
@@ -1085,12 +1103,19 @@ impl Analyzer {
                 self.active_loop_variables.push(loop_var_name.to_string());
 
                 let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 // The body may run zero times: join it with the skip path.
                 let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
                 self.join_flow_branches(&[flow_body, flow_entry]);
+                // A break/continue can leave the loop while a mutated alias
+                // holds an intermediate binding the body later restores —
+                // endpoint states cannot see it, so mutated names defer to
+                // runtime dispatch.
+                self.degrade_mutated_aliases(&mutated);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(loop_var_name);
@@ -1110,12 +1135,19 @@ impl Analyzer {
                 self.current_scope = Scope::with_parent(outer_scope);
 
                 let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 // The body may run zero times: join it with the skip path.
                 let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
                 self.join_flow_branches(&[flow_body, flow_entry]);
+                // A break/continue can leave the loop while a mutated alias
+                // holds an intermediate binding the body later restores —
+                // endpoint states cannot see it, so mutated names defer to
+                // runtime dispatch.
+                self.degrade_mutated_aliases(&mutated);
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
@@ -1200,16 +1232,21 @@ impl Analyzer {
                 // Undefined names inside a try body raise catchable runtime
                 // errors, so they are downgraded to warnings while in here.
                 let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 self.try_depth += 1;
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 self.try_depth -= 1;
                 let flow_try = self.take_flow_branch(&flow_entry);
+                let mutated_in_body = self.pop_mutation_frame();
                 // Error clauses can be entered from any point in the body, so
-                // they start from the entry/body join; the state is left on
-                // that conservative join for them.
+                // they start from the entry/body join — with every alias the
+                // body mutated *anywhere* degraded to Dynamic, because the
+                // error may fire while such an alias holds an intermediate
+                // binding the body's endpoint state has already restored.
                 self.join_flow_branches(&[flow_try.clone(), flow_entry.clone()]);
+                self.degrade_mutated_aliases(&mutated_in_body);
                 let flow_handler_entry = self.flow_entry();
                 let mut flow_paths: Vec<FlowState> = vec![flow_try];
 
@@ -3028,10 +3065,45 @@ impl Analyzer {
         match target {
             Some(state) => {
                 self.action_aliases.insert(name.to_string(), state);
+                self.record_alias_mutation(name);
             }
             None => {
-                self.action_aliases.remove(name);
+                if self.action_aliases.remove(name).is_some() {
+                    self.record_alias_mutation(name);
+                }
             }
+        }
+    }
+
+    /// Records that `name`'s alias state was written while a loop/`try`
+    /// body frame is active (no-op at unframed depth).
+    fn record_alias_mutation(&mut self, name: &str) {
+        if let Some(top) = self.alias_mutation_frames.last_mut() {
+            top.insert(name.to_string());
+        }
+    }
+
+    fn push_mutation_frame(&mut self) {
+        self.alias_mutation_frames.push(Default::default());
+    }
+
+    /// Pops the current mutation frame, merging it into the parent frame —
+    /// an inner body's mutation is also a mutation within the outer body.
+    fn pop_mutation_frame(&mut self) -> std::collections::HashSet<String> {
+        let frame = self.alias_mutation_frames.pop().unwrap_or_default();
+        if let Some(parent) = self.alias_mutation_frames.last_mut() {
+            parent.extend(frame.iter().cloned());
+        }
+        frame
+    }
+
+    /// Degrades every mutated alias to [`AliasState::Dynamic`]: an abrupt
+    /// exit may expose an intermediate binding endpoint states cannot see,
+    /// so calls through these names defer to runtime dispatch.
+    fn degrade_mutated_aliases(&mut self, mutated: &std::collections::HashSet<String>) {
+        for name in mutated {
+            self.action_aliases
+                .insert(name.clone(), AliasState::Dynamic);
         }
     }
 
