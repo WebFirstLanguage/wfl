@@ -2632,9 +2632,10 @@ impl Analyzer {
     /// Validates a call against every registered signature of `name`:
     /// filters candidates by argument count, then (when several share the
     /// count) by static argument types. A single surviving candidate gets the
-    /// full named-argument and type validation; several survivors mean some
-    /// argument types are only known at runtime, so dispatch is deferred to
-    /// the interpreter with no diagnostic.
+    /// full named-argument and type validation; several survivors — argument
+    /// types only known at runtime, `nothing` arguments (compatible with
+    /// every parameter type), or container-inheritance overlap — defer
+    /// dispatch to the interpreter with no diagnostic.
     ///
     /// `is_of_form` only selects the historical wording of the arity error
     /// ("Function ... arguments" for the `of` form vs "Action ...
@@ -2708,9 +2709,10 @@ impl Analyzer {
                 self.errors.push(SemanticError::new(message, line, column));
             }
             _ => {
-                // Several overloads still accept the call because some
-                // argument types are only known at runtime — the interpreter
-                // dispatches on the actual values.
+                // Several overloads still accept the call — runtime-only
+                // argument types, `nothing` arguments, or container-
+                // inheritance overlap. The interpreter dispatches on the
+                // actual values.
             }
         }
     }

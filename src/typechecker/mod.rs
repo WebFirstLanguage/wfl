@@ -416,7 +416,8 @@ impl TypeChecker {
             }
             1 => return_type_of(self, compatible[0]),
             _ => {
-                // Statically ambiguous (dynamic argument types): the runtime
+                // Statically ambiguous — dynamic argument types, `nothing`
+                // arguments, or container-inheritance overlap: the runtime
                 // dispatches on the actual values. If every surviving overload
                 // agrees on the return type, the call still has that type.
                 let mut returns = compatible.iter().map(|&i| return_type_of(self, i));
