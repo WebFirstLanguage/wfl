@@ -126,12 +126,53 @@ Two maintainer review rounds found five gaps, all fixed in the same PR:
 Full-pipeline regression tests (analyze → typecheck → interpret) cover each
 finding in `tests/overload_test.rs::full_pipeline`.
 
+## Follow-up: maintainer deep-review round 3 (same day)
+
+Round 3 found four P1 gaps in the round-2 fixes, all in the new machinery:
+
+1. **Alias snapshots.** The analyzer aliased only `variable → action name` and
+   resolved against the complete signature list, contradicting the runtime's
+   snapshot semantics. `AliasState::Bound { action, visible_signatures }` now
+   records how many overloads were lexically defined before the binding (a
+   PASS-2 walk counter; PASS 1 pushes signatures in lexical order, so the
+   count is a prefix length), and both analyzer call arms and both
+   typechecker call paths resolve against that prefix only.
+2. **`call ... with` aliases in the typechecker.** Only the `of`-form path
+   was alias-aware. Both paths now consult the analyzer's per-call-site
+   record (below).
+3. **Temporally sound alias state.** Alias mutations no longer leak from
+   code that hasn't executed: action/method/handler bodies save and restore
+   the alias map (and overload counters), and control-flow constructs
+   (`check if`, single-line if, all loops, `try`) analyze each branch from
+   the entry state and join the results — a name whose state differs across
+   paths degrades to `AliasState::Dynamic`, which skips static validation
+   and defers to runtime dispatch instead of misjudging. The typechecker no
+   longer reads the analyzer's *final* alias map at all: the analyzer records
+   what each alias call site resolved to in `alias_call_sites` keyed by
+   (callee, line, column), so the typechecker observes per-statement state.
+4. **Runtime type enforcement scoped to overloads.** Round 2's unconditional
+   `call_function` check turned every annotation into a runtime guard,
+   breaking legacy dynamically-typed calls to single typed actions (a
+   backward-compatibility violation). `FunctionValue.enforce_param_types`
+   (a `Cell<bool>`) now gates it: set for names the interpreter's program
+   pre-scan finds defined more than once in the same block (so the first
+   member of a future overload set enforces during the temporal window), and
+   set on every member when `define_or_merge_action` merges (covering
+   include-driven overloads; the shared `Rc` also flags captured snapshot
+   references). Single-definition actions keep their historical dynamic
+   behavior.
+
+One adaptation from the review's illustrative programs: `change h to 0` on a
+function-typed variable is a pre-existing static type error (incompatible
+assignment), so the regression tests exercise the alias-clobber scenarios by
+reassigning to a *different action* of compatible shape instead.
+
 ## Tests
 
 All overload coverage lives in the single `tests/overload_test.rs` crate
 (consolidated so CI runners don't run out of disk linking extra test
 binaries), organized as `analyzer`, `typechecker`, `interpreter`, and
-`full_pipeline` modules — 40+ tests including the deep-review regressions —
+`full_pipeline` modules — 48 tests including all deep-review regressions —
 plus `TestPrograms/action_overloading_comprehensive.wfl` end-to-end. One
 existing unit test updated (`test_function_call_type_checking`) because the
 analyzer now reports of-form argument type mismatches earlier with a more

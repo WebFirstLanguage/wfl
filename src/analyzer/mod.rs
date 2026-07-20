@@ -305,10 +305,38 @@ pub struct Analyzer {
     /// semantic diagnostic. Reset per `analyze` run.
     budget_error: Option<crate::exec::budget::BudgetExceeded>,
     /// Variables that hold a stored action reference (`store h as f`), mapped
-    /// to the action's name so calls through the variable get real overload
-    /// resolution. Removed again when the variable is reassigned to anything
-    /// that is not a bare action reference. Reset per `analyze` run.
-    action_aliases: HashMap<String, String>,
+    /// to what is statically known about them so calls through the variable
+    /// get real overload resolution. Removed again when the variable is
+    /// reassigned to anything that is not a bare action reference; degraded to
+    /// [`AliasState::Dynamic`] when control flow makes the binding uncertain.
+    /// Reset per `analyze` run.
+    action_aliases: HashMap<String, AliasState>,
+    /// Overload definitions *visited so far* in the PASS-2 walk, per action
+    /// name. PASS 1 registers signatures in lexical order, so this count is a
+    /// prefix length into the symbol's signature list — the overloads a
+    /// stored-action alias captured at its binding point (runtime snapshot
+    /// semantics). Reset per `analyze` run.
+    defined_overloads: HashMap<String, usize>,
+    /// What each alias call site resolved to, keyed by (callee, line, column).
+    /// The type checker reads this instead of the final alias map so it
+    /// observes the alias state that held *at that statement*, not whatever
+    /// the map ended up as. Reset per `analyze` run.
+    alias_call_sites: HashMap<(String, usize, usize), AliasState>,
+}
+
+/// Statically known state of a stored-action alias variable.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AliasState {
+    /// Bound to `action`, seeing only the first `visible_signatures` entries
+    /// of its signature list — the overloads lexically defined before the
+    /// binding, matching the runtime's snapshot semantics.
+    Bound {
+        action: String,
+        visible_signatures: usize,
+    },
+    /// Possibly an action (e.g. reassigned differently across branches):
+    /// static validation is skipped and the call defers to runtime dispatch.
+    Dynamic,
 }
 
 impl Default for Analyzer {
@@ -515,6 +543,8 @@ impl Analyzer {
             active_loop_variables: Vec::new(),
             budget_error: None,
             action_aliases: HashMap::new(),
+            defined_overloads: HashMap::new(),
+            alias_call_sites: HashMap::new(),
         }
     }
 
@@ -596,8 +626,10 @@ impl Analyzer {
         // does not carry a stale flag from a previous program.
         self.has_includes = program_has_includes(program);
 
-        // Stored-action aliases are per-program state.
+        // Stored-action alias state is per-program.
         self.action_aliases.clear();
+        self.defined_overloads.clear();
+        self.alias_call_sites.clear();
 
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
@@ -800,9 +832,10 @@ impl Analyzer {
                     }
                 }
             }
-            Statement::ActionDefinition { .. } => {
+            Statement::ActionDefinition { name, .. } => {
                 // Signature was already registered in Pass 1
                 // Now analyze the body in Pass 2
+                *self.defined_overloads.entry(name.clone()).or_insert(0) += 1;
                 self.analyze_action_body(statement);
             }
             Statement::IfStatement {
@@ -812,6 +845,7 @@ impl Analyzer {
                 ..
             } => {
                 self.analyze_expression(condition);
+                let alias_entry = self.action_aliases.clone();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope.clone());
@@ -819,6 +853,7 @@ impl Analyzer {
                 for stmt in then_block {
                     self.analyze_statement(stmt);
                 }
+                let alias_then = self.take_alias_branch(&alias_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 let mut defined_in_then = Vec::new();
@@ -841,6 +876,8 @@ impl Analyzer {
                     for stmt in else_stmts {
                         self.analyze_statement(stmt);
                     }
+                    let alias_else = self.take_alias_branch(&alias_entry);
+                    self.join_alias_branches(&[alias_then.clone(), alias_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
 
@@ -853,6 +890,9 @@ impl Analyzer {
                     if let Some(parent) = else_scope.parent {
                         self.current_scope = *parent;
                     }
+                } else {
+                    // No else: the construct may be skipped entirely.
+                    self.join_alias_branches(&[alias_then.clone(), alias_entry.clone()]);
                 }
 
                 // Variables defined in both branches are definitely defined
@@ -879,11 +919,13 @@ impl Analyzer {
                 ..
             } => {
                 self.analyze_expression(condition);
+                let alias_entry = self.action_aliases.clone();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
                 self.analyze_statement(then_stmt);
+                let alias_then = self.take_alias_branch(&alias_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = then_scope.parent {
@@ -895,11 +937,15 @@ impl Analyzer {
                     self.current_scope = Scope::with_parent(outer_scope);
 
                     self.analyze_statement(else_stmt);
+                    let alias_else = self.take_alias_branch(&alias_entry);
+                    self.join_alias_branches(&[alias_then, alias_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = else_scope.parent {
                         self.current_scope = *parent;
                     }
+                } else {
+                    self.join_alias_branches(&[alias_then, alias_entry]);
                 }
             }
             Statement::ForEachLoop {
@@ -928,9 +974,13 @@ impl Analyzer {
                 // Add item to action_parameters to prevent it from being flagged as undefined
                 self.action_parameters.insert(item_name.clone());
 
+                let alias_entry = self.action_aliases.clone();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                // The body may run zero times: join it with the skip path.
+                let alias_body = self.take_alias_branch(&alias_entry);
+                self.join_alias_branches(&[alias_body, alias_entry]);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(item_name);
@@ -996,9 +1046,13 @@ impl Analyzer {
                 self.action_parameters.insert(loop_var_name.to_string());
                 self.active_loop_variables.push(loop_var_name.to_string());
 
+                let alias_entry = self.action_aliases.clone();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                // The body may run zero times: join it with the skip path.
+                let alias_body = self.take_alias_branch(&alias_entry);
+                self.join_alias_branches(&[alias_body, alias_entry]);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(loop_var_name);
@@ -1017,9 +1071,13 @@ impl Analyzer {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
+                let alias_entry = self.action_aliases.clone();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                // The body may run zero times: join it with the skip path.
+                let alias_body = self.take_alias_branch(&alias_entry);
+                self.join_alias_branches(&[alias_body, alias_entry]);
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
@@ -1103,11 +1161,20 @@ impl Analyzer {
 
                 // Undefined names inside a try body raise catchable runtime
                 // errors, so they are downgraded to warnings while in here.
+                let alias_entry = self.action_aliases.clone();
                 self.try_depth += 1;
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 self.try_depth -= 1;
+                let alias_try = self.take_alias_branch(&alias_entry);
+                // Error clauses can be entered from any point in the body, so
+                // they start from the entry/body join; the map is left on that
+                // conservative state for them.
+                self.join_alias_branches(&[alias_try.clone(), alias_entry.clone()]);
+                let alias_handler_entry = self.action_aliases.clone();
+                let mut alias_paths: Vec<std::collections::HashMap<String, AliasState>> =
+                    vec![alias_try];
 
                 let try_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = try_scope.parent {
@@ -1144,9 +1211,11 @@ impl Analyzer {
                         let _ = self.current_scope.define(error_message_symbol);
                     }
 
+                    self.action_aliases = alias_handler_entry.clone();
                     for stmt in &when_clause.body {
                         self.analyze_statement(stmt);
                     }
+                    alias_paths.push(self.take_alias_branch(&alias_handler_entry));
 
                     let when_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = when_scope.parent {
@@ -1158,15 +1227,20 @@ impl Analyzer {
                     let outer_scope = std::mem::take(&mut self.current_scope);
                     self.current_scope = Scope::with_parent(outer_scope);
 
+                    self.action_aliases = alias_handler_entry.clone();
                     for stmt in otherwise_stmts {
                         self.analyze_statement(stmt);
                     }
+                    alias_paths.push(self.take_alias_branch(&alias_handler_entry));
 
                     let otherwise_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = otherwise_scope.parent {
                         self.current_scope = *parent;
                     }
                 }
+
+                // After the construct, any of the recorded paths may have run.
+                self.join_alias_branches(&alias_paths);
 
                 if let Some(finally_stmts) = finally_block {
                     let outer_scope = std::mem::take(&mut self.current_scope);
@@ -1501,9 +1575,15 @@ impl Analyzer {
                             let _ = self.current_scope.define(symbol);
                         }
 
+                        // Same isolation as `analyze_action_body`: a method
+                        // body has not executed at definition time.
+                        let alias_entry = self.action_aliases.clone();
+                        let overloads_entry = self.defined_overloads.clone();
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        self.action_aliases = alias_entry;
+                        self.defined_overloads = overloads_entry;
 
                         // Restore previous container context
                         self.current_container = previous_container;
@@ -1578,9 +1658,15 @@ impl Analyzer {
                             let _ = self.current_scope.define(symbol);
                         }
 
+                        // Same isolation as `analyze_action_body`: a method
+                        // body has not executed at definition time.
+                        let alias_entry = self.action_aliases.clone();
+                        let overloads_entry = self.defined_overloads.clone();
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        self.action_aliases = alias_entry;
+                        self.defined_overloads = overloads_entry;
 
                         // Restore previous container context
                         self.current_container = previous_container;
@@ -1940,9 +2026,15 @@ impl Analyzer {
                     }
                 }
 
+                // Handler bodies run per event, not at registration — same
+                // alias isolation as action bodies.
+                let alias_entry = self.action_aliases.clone();
+                let overloads_entry = self.defined_overloads.clone();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                self.action_aliases = alias_entry;
+                self.defined_overloads = overloads_entry;
 
                 for prop in newly_added {
                     self.action_parameters.remove(prop);
@@ -2271,10 +2363,19 @@ impl Analyzer {
                 }
             }
 
-            // Analyze body statements
+            // Analyze body statements. The body has not *executed* at the
+            // point of definition, so any alias mutations it performs must
+            // not leak into (or clobber) the surrounding scope's alias state;
+            // inside the body the definition-point state approximates what
+            // the closure captured. Nested definitions likewise must not
+            // inflate the outer visible-overload counters.
+            let alias_entry = self.action_aliases.clone();
+            let overloads_entry = self.defined_overloads.clone();
             for stmt in body {
                 self.analyze_statement(stmt);
             }
+            self.action_aliases = alias_entry;
+            self.defined_overloads = overloads_entry;
 
             // Clean up: remove parameter names from action_parameters
             for param_name in param_names_to_remove {
@@ -2863,16 +2964,28 @@ impl Analyzer {
         let target = if let Expression::Variable(source, _, _) = value {
             match self.current_scope.resolve(source) {
                 Some(symbol) if matches!(symbol.kind, SymbolKind::Function { .. }) => {
-                    Some(source.clone())
+                    // Snapshot semantics: the alias sees the overloads defined
+                    // *before this statement*, exactly like the runtime value
+                    // it will hold. A pure forward reference (zero defined so
+                    // far) has no runtime value yet, so no alias is recorded.
+                    match self.defined_overloads.get(source).copied() {
+                        Some(visible) if visible > 0 => Some(AliasState::Bound {
+                            action: source.clone(),
+                            visible_signatures: visible,
+                        }),
+                        _ => None,
+                    }
                 }
+                // Aliasing an alias copies its state — including the original
+                // snapshot, not a re-read of the current definition count.
                 _ => self.action_aliases.get(source).cloned(),
             }
         } else {
             None
         };
         match target {
-            Some(action) => {
-                self.action_aliases.insert(name.to_string(), action);
+            Some(state) => {
+                self.action_aliases.insert(name.to_string(), state);
             }
             None => {
                 self.action_aliases.remove(name);
@@ -2880,9 +2993,78 @@ impl Analyzer {
         }
     }
 
-    /// The action a stored-action alias points at, if `name` is one.
-    pub(crate) fn action_alias(&self, name: &str) -> Option<&str> {
-        self.action_aliases.get(name).map(String::as_str)
+    /// Runs one control-flow branch's analysis from `entry` alias state and
+    /// returns the branch's resulting state, leaving `action_aliases` empty
+    /// (callers immediately join or reset).
+    ///
+    /// Alias state is deliberately *not* threaded through unexecuted or
+    /// conditionally-executed code as if it ran — see `join_alias_branches`.
+    fn take_alias_branch(
+        &mut self,
+        entry: &HashMap<String, AliasState>,
+    ) -> HashMap<String, AliasState> {
+        std::mem::replace(&mut self.action_aliases, entry.clone())
+    }
+
+    /// Joins the alias maps of every path that can reach the statement after
+    /// a control-flow construct: a name keeps its state only when every path
+    /// agrees; any disagreement (including absence on some path) degrades it
+    /// to [`AliasState::Dynamic`], so later calls defer to runtime dispatch
+    /// instead of being misjudged from one path's state.
+    fn join_alias_branches(&mut self, paths: &[HashMap<String, AliasState>]) {
+        let mut keys: std::collections::HashSet<&String> = std::collections::HashSet::new();
+        for path in paths {
+            keys.extend(path.keys());
+        }
+        let mut joined = HashMap::new();
+        for key in keys {
+            let first = paths[0].get(key);
+            let state = if paths.iter().all(|p| p.get(key) == first) {
+                first.cloned()
+            } else {
+                Some(AliasState::Dynamic)
+            };
+            if let Some(state) = state {
+                joined.insert(key.clone(), state);
+            }
+        }
+        self.action_aliases = joined;
+    }
+
+    /// The signatures a call through alias `name` may dispatch to right now:
+    /// the snapshot prefix for a bound alias, or `Dynamic` when static
+    /// knowledge was lost to control flow. `None` means `name` is not an
+    /// alias (or its action no longer resolves to a function).
+    fn alias_call_target(
+        &self,
+        name: &str,
+    ) -> Option<(AliasState, Option<Vec<FunctionSignature>>)> {
+        match self.action_aliases.get(name)? {
+            AliasState::Dynamic => Some((AliasState::Dynamic, None)),
+            state @ AliasState::Bound {
+                action,
+                visible_signatures,
+            } => {
+                let symbol = self.current_scope.resolve(action)?;
+                if let SymbolKind::Function { signatures } = &symbol.kind {
+                    let visible = (*visible_signatures).min(signatures.len());
+                    Some((state.clone(), Some(signatures[..visible].to_vec())))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// What the alias call at (`name`, `line`, `column`) resolved to during
+    /// semantic analysis, for the type checker's per-statement view.
+    pub(crate) fn alias_call_resolution(
+        &self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<&AliasState> {
+        self.alias_call_sites.get(&(name.to_string(), line, column))
     }
 
     /// Whether container `child` is `ancestor` or extends it (directly or
@@ -3121,30 +3303,25 @@ impl Analyzer {
                                 // A stored action reference (`store h as f`)
                                 // is callable with the aliased action's
                                 // overload set.
-                                let aliased_signatures =
-                                    self.action_alias(name).and_then(|action| {
-                                        self.current_scope.resolve(action).and_then(|symbol| {
-                                            if let SymbolKind::Function { signatures } =
-                                                &symbol.kind
-                                            {
-                                                Some(signatures.clone())
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                    });
-                                if let Some(signatures) = aliased_signatures {
+                                let alias_target = self.alias_call_target(name);
+                                if let Some((state, signatures)) = alias_target {
+                                    self.alias_call_sites
+                                        .insert((name.clone(), *line, *column), state);
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
                                     }
-                                    self.check_overloaded_call(
-                                        name,
-                                        &signatures,
-                                        arguments,
-                                        true,
-                                        *line,
-                                        *column,
-                                    );
+                                    // A Dynamic alias defers wholly to runtime
+                                    // dispatch; only bound snapshots validate.
+                                    if let Some(signatures) = signatures {
+                                        self.check_overloaded_call(
+                                            name,
+                                            &signatures,
+                                            arguments,
+                                            true,
+                                            *line,
+                                            *column,
+                                        );
+                                    }
                                 } else if is_injected_builtin
                                     || self.action_parameters.contains(name)
                                 {
@@ -3310,25 +3487,20 @@ impl Analyzer {
                         }
                         None => {
                             // A stored action reference (`store h as f`) is
-                            // callable with the aliased action's overload set.
-                            let aliased_signatures = self.action_alias(name).and_then(|action| {
-                                self.current_scope.resolve(action).and_then(|symbol| {
-                                    if let SymbolKind::Function { signatures } = &symbol.kind {
-                                        Some(signatures.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                            });
-                            if let Some(signatures) = aliased_signatures {
-                                self.check_overloaded_call(
-                                    name,
-                                    &signatures,
-                                    arguments,
-                                    false,
-                                    *line,
-                                    *column,
-                                );
+                            // callable with the aliased action's snapshot.
+                            if let Some((state, signatures)) = self.alias_call_target(name) {
+                                self.alias_call_sites
+                                    .insert((name.clone(), *line, *column), state);
+                                if let Some(signatures) = signatures {
+                                    self.check_overloaded_call(
+                                        name,
+                                        &signatures,
+                                        arguments,
+                                        false,
+                                        *line,
+                                        *column,
+                                    );
+                                }
                             } else {
                                 // Symbol exists but is not a function/action
                                 self.errors.push(SemanticError::new(

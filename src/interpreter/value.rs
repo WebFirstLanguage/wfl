@@ -51,6 +51,15 @@ pub struct FunctionValue {
     pub env: Weak<RefCell<Environment>>,
     pub line: usize,
     pub column: usize,
+    /// Whether `call_function` enforces the declared parameter types. Set only
+    /// for actions participating in overload dispatch (a member of an overload
+    /// set, or a definition whose name is overloaded later in the same block),
+    /// so a call against "the overloads defined so far" rejects non-matching
+    /// arguments instead of running the wrong body. Plain single actions keep
+    /// their historical dynamic behavior: annotations are static-analysis
+    /// hints, not runtime guards. A `Cell` so merging can flip existing
+    /// members already shared behind `Rc` (including captured snapshots).
+    pub enforce_param_types: std::cell::Cell<bool>,
 }
 
 /// The runtime value of an action name defined more than once in a scope:

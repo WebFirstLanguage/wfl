@@ -151,11 +151,17 @@ values); among several runtime matches the version with the most
 concretely-matched parameters wins, with remaining ties resolved in definition
 order. A `nothing` argument is compatible with every parameter type; a
 parameter annotated with a container name accepts instances of that container
-or any descendant via `extends`. Declared parameter types are enforced when
-the action executes — a call whose argument a declared type rejects is a
-runtime error. A variable bound to an action by a bare reference
-(`store h as f`) is callable and dispatches with the referenced action's
-signatures. Container methods do not support overloading.
+or any descendant via `extends`. For an action participating in overloading,
+declared parameter types are enforced when the action executes — a call whose
+argument a declared type rejects is a runtime error, so a call between two
+definitions dispatches over the overloads defined so far. An action defined
+exactly once is not runtime-checked; its annotations inform static analysis
+only. A variable bound to an action by a bare reference (`store h as f`) is
+callable and dispatches with the signatures the action had at the point of
+the binding (snapshot semantics), statically and at runtime; a binding whose
+state cannot be determined statically (e.g. reassigned in one branch of a
+conditional) defers wholly to runtime dispatch. Container methods do not
+support overloading.
 
 **Action Call:**
 ```

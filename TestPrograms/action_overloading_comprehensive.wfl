@@ -128,4 +128,32 @@ store depicter as depict
 display depicter of 42
 display depicter of "alias"
 
+// --- Stored references are snapshots of the overloads defined so far --------
+
+define action called stage with parameters value as number:
+    return "stage one: " with value
+end action
+
+store early_stage as stage
+
+define action called stage with parameters value as text:
+    return "stage two: " with value
+end action
+
+// early_stage captured only the number version; stage itself has both.
+display early_stage of 7
+display stage of "later"
+
+// --- Single (non-overloaded) typed actions keep dynamic-call behavior -------
+
+define action called render_tag with parameters value as number:
+    return "tag: " with value
+end action
+
+define action called forward_dynamic with parameters passthrough:
+    return render_tag of passthrough
+end action
+
+display forward_dynamic of "hello"
+
 display "All overloading tests passed!"

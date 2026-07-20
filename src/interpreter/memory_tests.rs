@@ -24,6 +24,7 @@ mod tests {
                 env: Rc::downgrade(&global_env), // Weak reference!
                 line: 1,
                 column: 1,
+                enforce_param_types: std::cell::Cell::new(false),
             };
 
             // Store in environment
@@ -117,6 +118,7 @@ mod tests {
                 env: Rc::downgrade(&child_env), // Using Weak reference
                 line: 1,
                 column: 1,
+                enforce_param_types: std::cell::Cell::new(false),
             };
 
             let function_value = Value::Function(Rc::new(function));

@@ -1182,4 +1182,203 @@ store distinct as first_alias is equal to second_alias
             "distinct overload sets must not be equal"
         );
     }
+
+    // --- Round-3 deep-review regressions ---------------------------------------
+
+    // Finding 1: an alias stored between two overload definitions captures a
+    // snapshot — statically it must see only the overloads defined before the
+    // `store`, matching the runtime value.
+    #[tokio::test]
+    async fn alias_snapshot_between_definitions_rejects_later_overload() {
+        let err = match run_pipeline(
+            r#"
+define action called choose with parameters value as number:
+    return "number"
+end action
+
+store saved as choose
+
+define action called choose with parameters value as text:
+    return "text"
+end action
+
+store result as saved of "hello"
+"#,
+        )
+        .await
+        {
+            Ok(_) => panic!("a text call through a number-only snapshot must be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            err.starts_with("analyze:") || err.starts_with("typecheck:"),
+            "rejection must come from static analysis, not the runtime: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn alias_snapshot_between_definitions_accepts_visible_overload() {
+        let interp = run_pipeline(
+            r#"
+define action called choose with parameters value as number:
+    return "number"
+end action
+
+store saved as choose
+
+define action called choose with parameters value as text:
+    return "text"
+end action
+
+store result as saved of 5
+"#,
+        )
+        .await
+        .expect("a call matching the snapshot overload must pass the whole pipeline");
+        assert_eq!(global_text(&interp, "result"), "number");
+    }
+
+    // Finding 2: the typechecker must resolve aliases in the `call ... with`
+    // form, not just the `of` form.
+    #[tokio::test]
+    async fn alias_call_with_form_typechecks() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters x as text:
+    return "text"
+end action
+
+store h as f
+store r as call h with 5
+store s as r plus 1
+"#,
+        )
+        .await
+        .expect("call-with through an alias must analyze, typecheck, and run");
+        assert_eq!(global_number(&interp, "s"), 7.0);
+    }
+
+    // Finding 3: alias state must not be mutated by code that has not
+    // executed. (Reassigning to another action is used here because
+    // `change h to 0` on a function-typed variable is a pre-existing static
+    // type error unrelated to aliases.)
+    #[tokio::test]
+    async fn uncalled_body_does_not_clobber_alias() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters x as text:
+    return "text"
+end action
+
+define action called g with parameters y as text:
+    return "gee"
+end action
+
+store h as f
+
+define action called never_called:
+    change h to g
+end action
+
+store r as h of 5
+"#,
+        )
+        .await
+        .expect("an uncalled body must not remap the outer alias");
+        assert_eq!(global_number(&interp, "r"), 6.0);
+    }
+
+    // Finding 3: a branch that may or may not run degrades the alias to
+    // "dynamic" — later calls defer to runtime instead of erroring.
+    #[tokio::test]
+    async fn conditional_reassignment_degrades_alias() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters x as text:
+    return "text"
+end action
+
+define action called g with parameters y as text:
+    return "gee"
+end action
+
+store h as f
+store flag as no
+
+check if flag:
+    change h to g
+otherwise:
+    display "kept"
+end check
+
+store r as h of 5
+"#,
+        )
+        .await
+        .expect("an alias modified in an untaken branch must still be callable");
+        assert_eq!(global_number(&interp, "r"), 6.0);
+    }
+
+    // Finding 3: the typechecker must observe alias state at each statement,
+    // not the analyzer's final table.
+    #[tokio::test]
+    async fn call_before_later_reassignment_typechecks() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters x as text:
+    return "text"
+end action
+
+define action called g with parameters y as text:
+    return "gee"
+end action
+
+store h as f
+store r as h of 5
+change h to g
+store s as r plus 1
+"#,
+        )
+        .await
+        .expect("a call before a later reassignment must stay valid");
+        assert_eq!(global_number(&interp, "s"), 7.0);
+    }
+
+    // Finding 4: a single (non-overloaded) typed action keeps its historical
+    // dynamic-call behavior — annotations are not runtime guards for it.
+    #[tokio::test]
+    async fn legacy_single_typed_action_dynamic_call_runs() {
+        let interp = run_pipeline(
+            r#"
+define action called render with parameters value as number:
+    return "value: " with value
+end action
+
+define action called forward with parameters dynamic_value:
+    return render of dynamic_value
+end action
+
+store out as forward of "hello"
+"#,
+        )
+        .await
+        .expect("a legacy single typed action must accept dynamic calls at runtime");
+        assert_eq!(global_text(&interp, "out"), "value: hello");
+    }
 }

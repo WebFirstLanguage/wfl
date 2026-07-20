@@ -3154,22 +3154,50 @@ impl TypeChecker {
                         return Type::Any;
                     }
 
+                    // Stored action references (`store h as f`) resolve
+                    // through the analyzer's per-call-site record, which
+                    // carries the alias state that held *at this statement*
+                    // (snapshot prefix, or Dynamic when control flow made the
+                    // binding uncertain).
+                    if let Some(resolution) = self
+                        .analyzer
+                        .alias_call_resolution(callee, *line, *column)
+                        .cloned()
+                    {
+                        match resolution {
+                            crate::analyzer::AliasState::Dynamic => {
+                                for arg in arguments {
+                                    let _ = self.infer_expression_type(&arg.value);
+                                }
+                                return Type::Unknown;
+                            }
+                            crate::analyzer::AliasState::Bound {
+                                action,
+                                visible_signatures,
+                            } => {
+                                if let Some(signatures) = self.action_signatures(&action) {
+                                    let visible = visible_signatures.min(signatures.len());
+                                    return self.infer_overloaded_call_type(
+                                        &action,
+                                        &signatures[..visible],
+                                        arguments,
+                                        *line,
+                                        *column,
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     // Overloaded user actions called in the `of` form resolve
                     // through the signature list (the single Type::Function
                     // below can only describe one definition).
-                    // Stored action references (`store h as f`) resolve
-                    // through their alias.
-                    let effective_callee = self
-                        .analyzer
-                        .action_alias(callee)
-                        .unwrap_or(callee)
-                        .to_string();
-                    if !Analyzer::is_builtin_function(&effective_callee)
-                        && let Some(signatures) = self.action_signatures(&effective_callee)
+                    if !Analyzer::is_builtin_function(callee)
+                        && let Some(signatures) = self.action_signatures(callee)
                         && signatures.len() > 1
                     {
                         return self.infer_overloaded_call_type(
-                            &effective_callee,
+                            callee,
                             &signatures,
                             arguments,
                             *line,
@@ -3562,6 +3590,38 @@ impl TypeChecker {
                 // For builtin functions, use special handling (variadic support, etc.)
                 if Analyzer::is_builtin_function(name) {
                     return self.get_builtin_function_type(name, arguments.len());
+                }
+
+                // Stored action references called with `call ... with` get the
+                // same per-call-site alias resolution as the `of` form.
+                if let Some(resolution) = self
+                    .analyzer
+                    .alias_call_resolution(name, *_line, *_column)
+                    .cloned()
+                {
+                    match resolution {
+                        crate::analyzer::AliasState::Dynamic => {
+                            for arg in arguments {
+                                let _ = self.infer_expression_type(&arg.value);
+                            }
+                            return Type::Unknown;
+                        }
+                        crate::analyzer::AliasState::Bound {
+                            action,
+                            visible_signatures,
+                        } => {
+                            if let Some(signatures) = self.action_signatures(&action) {
+                                let visible = visible_signatures.min(signatures.len());
+                                return self.infer_overloaded_call_type(
+                                    &action,
+                                    &signatures[..visible],
+                                    arguments,
+                                    *_line,
+                                    *_column,
+                                );
+                            }
+                        }
+                    }
                 }
 
                 // Overloaded actions (several registered signatures) resolve

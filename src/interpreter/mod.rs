@@ -1070,6 +1070,13 @@ pub struct Interpreter {
     /// thread boundary. Replaces the old `op_count`/`started`/`max_duration`
     /// fields and the scattered per-subsystem constants.
     budget: Arc<ExecutionBudget>,
+    /// Action names with more than one definition in the same statement block
+    /// anywhere in the current program (pre-scanned at `interpret` start), so
+    /// even the *first* definition of an overloaded name enforces its declared
+    /// parameter types during the window before the later definitions execute.
+    /// Include-driven overloads invisible to this scan are flagged at merge
+    /// time by `Environment::define_or_merge_action`.
+    overloaded_action_names: std::collections::HashSet<String>,
     call_stack: RefCell<Vec<CallFrame>>,
     /// Live recursion depth for enforcement, kept **separate** from `call_stack`
     /// (which is diagnostic and gets force-cleared on a terminal timeout). A
@@ -2810,6 +2817,7 @@ impl Interpreter {
             in_count_loop: RefCell::new(false),
             sched_counter: Cell::new(0),
             budget,
+            overloaded_action_names: std::collections::HashSet::new(),
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
             base_call_depth: 0,
@@ -3391,9 +3399,100 @@ impl Interpreter {
         ExecutionBudget::scope(Arc::clone(&self.budget), self.interpret_inner(program)).await
     }
 
+    /// Collects action names defined more than once within the same statement
+    /// block, recursing into every nested block. Per-block counting mirrors
+    /// the same-scope overloading rule: two same-name definitions in different
+    /// blocks are independent actions, not overloads.
+    fn collect_overloaded_action_names(
+        statements: &[Statement],
+        found: &mut std::collections::HashSet<String>,
+    ) {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for statement in statements {
+            if let Statement::ActionDefinition { name, .. } = statement {
+                let entry = counts.entry(name.as_str()).or_insert(0);
+                *entry += 1;
+                if *entry > 1 {
+                    found.insert(name.clone());
+                }
+            }
+        }
+        for statement in statements {
+            match statement {
+                Statement::ActionDefinition { body, .. }
+                | Statement::ForEachLoop { body, .. }
+                | Statement::CountLoop { body, .. }
+                | Statement::WhileLoop { body, .. }
+                | Statement::RepeatWhileLoop { body, .. }
+                | Statement::RepeatUntilLoop { body, .. }
+                | Statement::ForeverLoop { body, .. }
+                | Statement::MainLoop { body, .. }
+                | Statement::WebSocketHandlerStatement { body, .. }
+                | Statement::TestBlock { body, .. } => {
+                    Self::collect_overloaded_action_names(body, found);
+                }
+                Statement::IfStatement {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    Self::collect_overloaded_action_names(then_block, found);
+                    if let Some(else_block) = else_block {
+                        Self::collect_overloaded_action_names(else_block, found);
+                    }
+                }
+                Statement::SingleLineIf {
+                    then_stmt,
+                    else_stmt,
+                    ..
+                } => {
+                    Self::collect_overloaded_action_names(std::slice::from_ref(then_stmt), found);
+                    if let Some(else_stmt) = else_stmt {
+                        Self::collect_overloaded_action_names(
+                            std::slice::from_ref(else_stmt),
+                            found,
+                        );
+                    }
+                }
+                Statement::WaitForStatement { inner, .. } => {
+                    Self::collect_overloaded_action_names(std::slice::from_ref(inner), found);
+                }
+                Statement::TryStatement {
+                    body,
+                    when_clauses,
+                    otherwise_block,
+                    finally_block,
+                    ..
+                } => {
+                    Self::collect_overloaded_action_names(body, found);
+                    for clause in when_clauses {
+                        Self::collect_overloaded_action_names(&clause.body, found);
+                    }
+                    if let Some(otherwise_block) = otherwise_block {
+                        Self::collect_overloaded_action_names(otherwise_block, found);
+                    }
+                    if let Some(finally_block) = finally_block {
+                        Self::collect_overloaded_action_names(finally_block, found);
+                    }
+                }
+                Statement::EventHandler { handler_body, .. } => {
+                    Self::collect_overloaded_action_names(handler_body, found);
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// The interpreter run body, executed inside the task-local budget scope
     /// established by [`Interpreter::interpret`].
     async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
+        // Names that will become overload sets enforce their declared types
+        // from the first definition on. Accumulated (not replaced) so a REPL
+        // interpreter reused across snippets keeps earlier flags.
+        Self::collect_overloaded_action_names(
+            &program.statements,
+            &mut self.overloaded_action_names,
+        );
         // Reset per-run enforcement/loop state first, so a prior *terminal*
         // budget breach (e.g. an uncaught timeout that unwound to the top) can't
         // leak stale count-loop or depth state into this run — matters when one
@@ -3887,6 +3986,13 @@ impl Interpreter {
                     env: Rc::downgrade(&env),
                     line: *line,
                     column: *column,
+                    // Pre-scanned: true when this name has several definitions
+                    // in its block, so even the first member enforces its
+                    // declared types during the window before the second
+                    // definition executes ("the overloads defined so far").
+                    enforce_param_types: std::cell::Cell::new(
+                        self.overloaded_action_names.contains(name),
+                    ),
                 };
 
                 // A same-scope redefinition of an action name merges into an
@@ -6348,6 +6454,7 @@ impl Interpreter {
                             env: init_method.env.clone(),
                             line: init_method.line,
                             column: init_method.column,
+                            enforce_param_types: std::cell::Cell::new(false),
                         };
 
                         // Create a new environment for the constructor execution
@@ -6620,6 +6727,7 @@ impl Interpreter {
                                 env: method_val.env.clone(),
                                 line: method_val.line,
                                 column: method_val.column,
+                                enforce_param_types: std::cell::Cell::new(false),
                             };
 
                             // Create a new environment for the method execution
@@ -9634,6 +9742,7 @@ impl Interpreter {
                         env: method.env.clone(),
                         line: method.line,
                         column: method.column,
+                        enforce_param_types: std::cell::Cell::new(false),
                     };
 
                     Ok(Value::Function(Rc::new(function)))
@@ -9719,6 +9828,7 @@ impl Interpreter {
                             env: method_val.env.clone(),
                             line: method_val.line,
                             column: method_val.column,
+                            enforce_param_types: std::cell::Cell::new(false),
                         };
 
                         // Create a new environment for the method execution
@@ -9770,6 +9880,7 @@ impl Interpreter {
                             env: Rc::downgrade(&method_env),
                             line: function.line,
                             column: function.column,
+                            enforce_param_types: function.enforce_param_types.clone(),
                         };
 
                         // Call the function with the method environment
@@ -11093,28 +11204,33 @@ impl Interpreter {
             ));
         }
 
-        // Declared parameter types are enforced on every call, so a lone
-        // member of a (possibly not-yet-complete) overload set rejects
-        // non-matching arguments instead of silently running the wrong body
-        // — calls dispatch on "the overloads defined so far". `nothing` and
+        // Declared parameter types are runtime-enforced only for actions
+        // participating in overload dispatch: a lone member of a
+        // not-yet-complete overload set rejects non-matching arguments instead
+        // of silently running the wrong body — calls dispatch on "the
+        // overloads defined so far". Plain single actions keep their
+        // historical dynamic behavior (annotations are static hints, not
+        // runtime guards), preserving backward compatibility. `nothing` and
         // untyped/`any` parameters accept every value.
-        for ((param_name, param_type), arg) in
-            func.params.iter().zip(&func.param_types).zip(args.iter())
-        {
-            if let Some(expected) = param_type
-                && !matches!(expected, Type::Any | Type::Unknown)
-                && !Self::value_matches_type(arg, expected)
+        if func.enforce_param_types.get() {
+            for ((param_name, param_type), arg) in
+                func.params.iter().zip(&func.param_types).zip(args.iter())
             {
-                let action_name = func.name.as_deref().unwrap_or("anonymous");
-                return Err(RuntimeError::new(
-                    format!(
-                        "Argument '{param_name}' of '{action_name}' expects {}, but got {}",
-                        crate::analyzer::format_param_type(expected),
-                        arg.type_name()
-                    ),
-                    line,
-                    column,
-                ));
+                if let Some(expected) = param_type
+                    && !matches!(expected, Type::Any | Type::Unknown)
+                    && !Self::value_matches_type(arg, expected)
+                {
+                    let action_name = func.name.as_deref().unwrap_or("anonymous");
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Argument '{param_name}' of '{action_name}' expects {}, but got {}",
+                            crate::analyzer::format_param_type(expected),
+                            arg.type_name()
+                        ),
+                        line,
+                        column,
+                    ));
+                }
             }
         }
 

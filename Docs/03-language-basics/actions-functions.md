@@ -321,13 +321,18 @@ A few matching rules worth knowing:
 - **Container types include descendants.** A parameter typed `as Dog` accepts
   a `Dog` instance and any container that `extends Dog` (directly or through
   a chain).
-- **Declared types are enforced when the action runs.** Calling a typed
-  action with a value its parameter type rejects is a runtime error naming
-  the parameter and both types — an action never silently runs with an
-  argument its signature rules out.
-- **Stored actions dispatch the same way.** After `store helper as depict`,
-  calling `helper of 42` resolves among `depict`'s versions exactly as a
-  direct call would.
+- **Overloaded actions enforce their declared types when they run.** Calling
+  a version of an overloaded action with a value its parameter type rejects
+  is a runtime error naming the parameter and both types — an overload never
+  silently runs with an argument its signature rules out. An action defined
+  only once keeps its historical behavior: its annotations guide static
+  analysis and do not reject values at runtime.
+- **Stored actions dispatch the same way — over the versions that existed
+  when stored.** After `store helper as depict`, calling `helper of 42`
+  resolves among `depict`'s versions exactly as a direct call would. The
+  stored reference is a snapshot: versions of `depict` defined *after* the
+  `store` belong to `depict` but not to `helper`, both when the program runs
+  and in static analysis.
 
 ### Overloads behave like one action
 

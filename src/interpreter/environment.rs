@@ -123,6 +123,14 @@ impl Environment {
         };
 
         if let Some(overloads) = merged {
+            // Every member of an overload set enforces its declared parameter
+            // types at call time — including through previously captured
+            // references to an individual member (snapshot aliases), which
+            // behave as an overload set of one. Covers include-driven
+            // overloads the interpreter's program pre-scan cannot see.
+            for member in &overloads {
+                member.enforce_param_types.set(true);
+            }
             let value = Value::Overloaded(Rc::new(OverloadedFunction {
                 name: name.to_string(),
                 overloads,
