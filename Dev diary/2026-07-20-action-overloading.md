@@ -173,7 +173,8 @@ reassigning to a *different action* of compatible shape instead.
 All overload coverage lives in the single `tests/overload_test.rs` crate
 (consolidated so CI runners don't run out of disk linking extra test
 binaries), organized as `analyzer`, `typechecker`, `interpreter`, and
-`full_pipeline` modules — 48 tests including all deep-review regressions —
+`full_pipeline` modules — 48 tests through the round-3 review, 49 after the
+post-review polish added a negative-path `call ... with` alias rejection —
 plus `TestPrograms/action_overloading_comprehensive.wfl` end-to-end. One
 existing unit test updated (`test_function_call_type_checking`) because the
 analyzer now reports of-form argument type mismatches earlier with a more
