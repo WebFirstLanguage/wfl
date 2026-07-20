@@ -288,6 +288,30 @@ end action
 }
 
 #[test]
+fn any_type_annotation_parses_but_cannot_distinguish() {
+    // `as any` parses (KeywordAny in type position), but Any accepts every
+    // value, so it cannot separate two same-count overloads — same rule as
+    // untyped parameters (PR #639 review).
+    let errors = analyze_errors(
+        r#"
+define action called f with parameters x as any:
+    display x
+end action
+
+define action called f with parameters x as number:
+    display x
+end action
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains('f') && e.contains("cannot be told apart")),
+        "'as any' vs 'as number' same-arity pair must be rejected as ambiguous: {errors:?}"
+    );
+}
+
+#[test]
 fn single_signature_behavior_unchanged() {
     // The classic single-definition path must keep its existing diagnostics.
     let errors = analyze_errors(

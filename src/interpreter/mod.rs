@@ -10968,6 +10968,11 @@ impl Interpreter {
             let mut accepts = true;
             for (param_type, arg) in func.param_types.iter().zip(args) {
                 if let Some(expected) = param_type {
+                    // `any`/`Unknown` annotations accept everything and earn
+                    // no specificity credit, matching untyped parameters.
+                    if matches!(expected, Type::Any | Type::Unknown) {
+                        continue;
+                    }
                     if Self::value_matches_type(arg, expected) {
                         concrete_matches += 1;
                     } else {

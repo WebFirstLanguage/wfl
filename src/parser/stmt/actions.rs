@@ -14,6 +14,7 @@ fn type_from_token(token: &Token) -> Option<Type> {
     match token {
         Token::KeywordText => Some(Type::Text),
         Token::KeywordPattern => Some(Type::Pattern),
+        Token::KeywordAny => Some(Type::Any),
         // `nothing` lexes as its own literal token, never as an identifier.
         Token::NothingLiteral => Some(Type::Nothing),
         Token::Identifier(type_name) => Some(match type_name.as_str() {
@@ -22,6 +23,7 @@ fn type_from_token(token: &Token) -> Option<Type> {
             "boolean" => Type::Boolean,
             "nothing" => Type::Nothing,
             "pattern" => Type::Pattern,
+            "any" => Type::Any,
             _ => Type::Custom(type_name.clone()),
         }),
         _ => None,

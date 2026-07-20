@@ -148,11 +148,22 @@ impl Environment {
             if prior.param_types.len() != new_func.param_types.len() {
                 continue;
             }
+            // Mirrors the analyzer's rule: `any`/`Unknown` annotations accept
+            // every value, so they cannot separate two overloads.
+            let is_concrete = |t: &Option<crate::parser::ast::Type>| {
+                matches!(
+                    t,
+                    Some(inner) if !matches!(
+                        inner,
+                        crate::parser::ast::Type::Any | crate::parser::ast::Type::Unknown
+                    )
+                )
+            };
             let distinguishable = prior
                 .param_types
                 .iter()
                 .zip(&new_func.param_types)
-                .any(|(a, b)| matches!((a, b), (Some(ta), Some(tb)) if ta != tb));
+                .any(|(a, b)| is_concrete(a) && is_concrete(b) && a != b);
             if !distinguishable {
                 return Err(format!(
                     "Action '{name}' was already defined with {} parameter(s). \

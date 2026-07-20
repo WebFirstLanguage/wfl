@@ -38,9 +38,13 @@ fn signature_conflict(a: &FunctionSignature, b: &FunctionSignature) -> Option<Si
     if exact_same_types {
         return Some(SignatureConflict::ExactDuplicate);
     }
-    let distinguishable = a.parameters.iter().zip(&b.parameters).any(
-        |(pa, pb)| matches!((&pa.param_type, &pb.param_type), (Some(ta), Some(tb)) if ta != tb),
-    );
+    // `any`/`Unknown` annotations accept every value, so — like untyped
+    // parameters — they cannot separate two overloads at a call site.
+    let is_concrete =
+        |t: &Option<Type>| matches!(t, Some(inner) if !matches!(inner, Type::Any | Type::Unknown));
+    let distinguishable = a.parameters.iter().zip(&b.parameters).any(|(pa, pb)| {
+        is_concrete(&pa.param_type) && is_concrete(&pb.param_type) && pa.param_type != pb.param_type
+    });
     if distinguishable {
         None
     } else {
