@@ -128,9 +128,11 @@ finding in `tests/overload_test.rs::full_pipeline`.
 
 ## Tests
 
-`tests/overload_analyzer_test.rs` (11), `tests/overload_typechecker_test.rs`
-(5), `tests/overload_interpreter_test.rs` (13), plus
-`TestPrograms/action_overloading_comprehensive.wfl` end-to-end. One existing
-unit test updated (`test_function_call_type_checking`) because the analyzer
-now reports of-form argument type mismatches earlier with a more specific
-message.
+All overload coverage lives in the single `tests/overload_test.rs` crate
+(consolidated so CI runners don't run out of disk linking extra test
+binaries), organized as `analyzer`, `typechecker`, `interpreter`, and
+`full_pipeline` modules — 40+ tests including the deep-review regressions —
+plus `TestPrograms/action_overloading_comprehensive.wfl` end-to-end. One
+existing unit test updated (`test_function_call_type_checking`) because the
+analyzer now reports of-form argument type mismatches earlier with a more
+specific message.

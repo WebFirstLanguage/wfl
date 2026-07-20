@@ -731,11 +731,15 @@ impl Analyzer {
                 // This is actually a property assignment, not a variable declaration
                 // Don't treat it as an error - the interpreter will handle it
 
-                if !is_property_assignment && let Err(error) = self.current_scope.define(symbol) {
-                    self.errors.push(error);
+                // Aliases only track real variable bindings: a container
+                // property assignment creates no binding, and a failed define
+                // must not disturb an outer variable's alias state.
+                if !is_property_assignment {
+                    match self.current_scope.define(symbol) {
+                        Err(error) => self.errors.push(error),
+                        Ok(()) => self.update_action_alias(name, value),
+                    }
                 }
-
-                self.update_action_alias(name, value);
             }
             Statement::Assignment {
                 name,
@@ -744,10 +748,12 @@ impl Analyzer {
                 column,
             } => {
                 let mut skip_value_analysis = false;
+                let mut is_variable_assignment = false;
 
                 if let Some(symbol) = self.current_scope.resolve(name) {
                     match &symbol.kind {
                         SymbolKind::Variable { mutable } => {
+                            is_variable_assignment = *mutable;
                             if !mutable {
                                 self.errors.push(SemanticError::new(
                                     format!("Cannot modify constant '{name}' - constants are immutable once defined"),
@@ -787,7 +793,11 @@ impl Analyzer {
                 // Only analyze the value expression if the assignment is potentially valid
                 if !skip_value_analysis {
                     self.analyze_expression(value);
-                    self.update_action_alias(name, value);
+                    // Aliases only track real variable rebinds; invalid or
+                    // property/undefined targets leave alias state untouched.
+                    if is_variable_assignment {
+                        self.update_action_alias(name, value);
+                    }
                 }
             }
             Statement::ActionDefinition { .. } => {
@@ -2755,6 +2765,11 @@ impl Analyzer {
             return true;
         }
 
+        // NOTE: the tuple below is deliberately (expected, actual) — the
+        // reverse of the parameter order — so every arm reads
+        // "(what the target requires, what the value is)". Keep new arms in
+        // that orientation (e.g. ancestry checks walk from `actual` up to
+        // `expected`).
         match (expected, actual) {
             (_, Type::Unknown) => true,
             (Type::Unknown, _) => true,
