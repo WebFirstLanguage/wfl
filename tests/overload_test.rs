@@ -582,6 +582,29 @@ mod interpreter {
     }
 
     #[tokio::test]
+    async fn capitalized_primitive_annotations_dispatch() {
+        // `as Number` / `as Text` normalize to the primitive types, so
+        // runtime dispatch treats them like the lowercase spellings instead
+        // of container types named "Number"/"Text" (PR #639 review).
+        let interp = run(r#"
+define action called f with parameters x as Number:
+    return "num"
+end action
+
+define action called f with parameters x as Text:
+    return "text"
+end action
+
+store r1 as f of 5
+store r2 as f of "hello"
+"#)
+        .await
+        .expect("program should run");
+        assert_eq!(global_text(&interp, "r1"), "num");
+        assert_eq!(global_text(&interp, "r2"), "text");
+    }
+
+    #[tokio::test]
     async fn both_call_forms_dispatch() {
         let interp = run(r#"
     define action called f with parameters x as number:

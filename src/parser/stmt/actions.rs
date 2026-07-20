@@ -17,7 +17,11 @@ fn type_from_token(token: &Token) -> Option<Type> {
         Token::KeywordAny => Some(Type::Any),
         // `nothing` lexes as its own literal token, never as an identifier.
         Token::NothingLiteral => Some(Type::Nothing),
-        Token::Identifier(type_name) => Some(match type_name.as_str() {
+        // Primitive names match case-insensitively (`as Text` == `as text`):
+        // the analyzer already treats Custom("Text") as Text-compatible, but
+        // runtime overload dispatch would treat it as a container type and
+        // miss. True custom types keep their original spelling.
+        Token::Identifier(type_name) => Some(match type_name.to_ascii_lowercase().as_str() {
             "text" => Type::Text,
             "number" => Type::Number,
             "boolean" => Type::Boolean,
