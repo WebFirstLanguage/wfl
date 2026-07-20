@@ -11009,6 +11009,12 @@ impl Interpreter {
     /// container instance of that type or of a descendant (via the parent
     /// instance chain).
     fn value_matches_type(value: &Value, expected: &Type) -> bool {
+        // `nothing` is compatible with every parameter type, mirroring the
+        // static checkers' `(_, Type::Nothing) => true` rule; ties among
+        // overloads resolve by specificity then definition order.
+        if matches!(value, Value::Null | Value::Nothing) {
+            return true;
+        }
         match expected {
             Type::Number => matches!(value, Value::Number(_)),
             Type::Text => matches!(value, Value::Text(_)),
@@ -11085,6 +11091,31 @@ impl Interpreter {
                 line,
                 column,
             ));
+        }
+
+        // Declared parameter types are enforced on every call, so a lone
+        // member of a (possibly not-yet-complete) overload set rejects
+        // non-matching arguments instead of silently running the wrong body
+        // — calls dispatch on "the overloads defined so far". `nothing` and
+        // untyped/`any` parameters accept every value.
+        for ((param_name, param_type), arg) in
+            func.params.iter().zip(&func.param_types).zip(args.iter())
+        {
+            if let Some(expected) = param_type
+                && !matches!(expected, Type::Any | Type::Unknown)
+                && !Self::value_matches_type(arg, expected)
+            {
+                let action_name = func.name.as_deref().unwrap_or("anonymous");
+                return Err(RuntimeError::new(
+                    format!(
+                        "Argument '{param_name}' of '{action_name}' expects {}, but got {}",
+                        crate::analyzer::format_param_type(expected),
+                        arg.type_name()
+                    ),
+                    line,
+                    column,
+                ));
+            }
         }
 
         let func_env = match func.env.upgrade() {

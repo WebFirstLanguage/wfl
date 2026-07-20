@@ -607,6 +607,7 @@ impl PartialEq for Value {
 
             // Types that don't need cycle detection can be handled directly here
             (Value::Function(a), Value::Function(b)) => return Rc::ptr_eq(a, b),
+            (Value::Overloaded(a), Value::Overloaded(b)) => return Rc::ptr_eq(a, b),
             (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
                 // Use cast to usize for MSRV 1.75 compatibility (fn_addr_eq is 1.85+)
                 // This compares the function code addresses directly
@@ -710,6 +711,7 @@ fn eq_with_visited(
         }
 
         (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
+        (Value::Overloaded(a), Value::Overloaded(b)) => Rc::ptr_eq(a, b),
         (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
             name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
         }

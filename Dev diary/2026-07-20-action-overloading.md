@@ -93,6 +93,39 @@ carry `TODO(#638)` markers.
 - Runtime dispatch order requirement is unchanged from single actions: a
   call executes against the overloads defined so far.
 
+## Follow-up: maintainer deep-review fixes (same day)
+
+Two maintainer review rounds found five gaps, all fixed in the same PR:
+
+1. **Container-typed overloads were statically rejected** — parameters
+   annotate as `Custom("Dog")` but instances infer as
+   `ContainerInstance("Dog")`, and neither static compat function paired
+   them. Added `Analyzer::container_is_or_extends` (depth-guarded `extends`
+   walk) and Custom↔ContainerInstance arms (with ancestry) to both
+   `is_type_compatible` and `are_types_compatible`.
+2. **`nothing` passed static resolution but failed runtime dispatch** —
+   `value_matches_type` now accepts `Null`/`Nothing` for every parameter
+   type, mirroring the static `(_, Nothing) => true` rule; ties fall to
+   definition order.
+3. **Stored actions were not callable statically** — new analyzer
+   `action_aliases` (variable → action, recorded for bare `store h as f`
+   references, cleared on reassignment); both analyzer call arms and both
+   typechecker call paths resolve through the alias, so aliased calls get
+   full overload resolution and per-overload return types.
+4. **Temporal dispatch hole** — a call between two overload definitions ran
+   the lone first overload's body with a non-matching argument
+   (`call_function` only checked arity). Declared parameter types are now
+   enforced in `call_function` itself: a concrete annotation that rejects an
+   argument value is a runtime error, so a single typed action behaves like
+   an overload set of one and calls dispatch on "the overloads defined so
+   far". (`nothing` and `any`/untyped parameters still accept everything.)
+5. **`Value::Overloaded` equality** — added `Rc::ptr_eq` arms to both the
+   `PartialEq` fast path and `eq_with_visited`, so an overload set equals
+   itself and distinct sets compare unequal.
+
+Full-pipeline regression tests (analyze → typecheck → interpret) cover each
+finding in `tests/overload_test.rs::full_pipeline`.
+
 ## Tests
 
 `tests/overload_analyzer_test.rs` (11), `tests/overload_typechecker_test.rs`

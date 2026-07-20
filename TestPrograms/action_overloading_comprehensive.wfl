@@ -79,4 +79,53 @@ end action
 display shout of "quiet"
 display shout of 3
 
+// --- Container-typed overloads (exact and inherited dispatch) ---------------
+
+create container Doggo:
+    property tag: Text
+end
+
+create container Kitty:
+    property tag: Text
+end
+
+create container Pup extends Doggo:
+    property toy: Text
+end
+
+define action called species with parameters value as Doggo:
+    return "dog"
+end action
+
+define action called species with parameters value as Kitty:
+    return "cat"
+end action
+
+create new Doggo as rover:
+    tag is "rover"
+end
+
+create new Kitty as felix:
+    tag is "felix"
+end
+
+create new Pup as pip:
+    tag is "pip"
+    toy is "ball"
+end
+
+display "rover is a " with species of rover
+display "felix is a " with species of felix
+display "pip is a " with species of pip
+
+// --- nothing matches every overload (definition order wins) -----------------
+
+display depict of nothing
+
+// --- Stored action references dispatch like the action itself ---------------
+
+store depicter as depict
+display depicter of 42
+display depicter of "alias"
+
 display "All overloading tests passed!"

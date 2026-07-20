@@ -3157,12 +3157,19 @@ impl TypeChecker {
                     // Overloaded user actions called in the `of` form resolve
                     // through the signature list (the single Type::Function
                     // below can only describe one definition).
-                    if !Analyzer::is_builtin_function(callee)
-                        && let Some(signatures) = self.action_signatures(callee)
+                    // Stored action references (`store h as f`) resolve
+                    // through their alias.
+                    let effective_callee = self
+                        .analyzer
+                        .action_alias(callee)
+                        .unwrap_or(callee)
+                        .to_string();
+                    if !Analyzer::is_builtin_function(&effective_callee)
+                        && let Some(signatures) = self.action_signatures(&effective_callee)
                         && signatures.len() > 1
                     {
                         return self.infer_overloaded_call_type(
-                            callee,
+                            &effective_callee,
                             &signatures,
                             arguments,
                             *line,
@@ -4471,6 +4478,16 @@ impl TypeChecker {
                 }
 
                 self.are_types_compatible(a_ret, b_ret)
+            }
+
+            // Container instances satisfy targets typed as their own
+            // container (`value as Dog` parses as Custom("Dog")) or as any
+            // ancestor via the `extends` chain; same for descendant custom
+            // types. Mirrors `Analyzer::is_type_compatible`.
+            (Type::Custom(target), Type::ContainerInstance(source))
+            | (Type::ContainerInstance(target), Type::ContainerInstance(source))
+            | (Type::Custom(target), Type::Custom(source)) => {
+                self.analyzer.container_is_or_extends(source, target)
             }
 
             _ => false,

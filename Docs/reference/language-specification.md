@@ -149,7 +149,13 @@ definition-time errors. Calls resolve by filtering candidates on argument
 count, then on argument types (statically when known, otherwise on the runtime
 values); among several runtime matches the version with the most
 concretely-matched parameters wins, with remaining ties resolved in definition
-order. Container methods do not support overloading.
+order. A `nothing` argument is compatible with every parameter type; a
+parameter annotated with a container name accepts instances of that container
+or any descendant via `extends`. Declared parameter types are enforced when
+the action executes — a call whose argument a declared type rejects is a
+runtime error. A variable bound to an action by a bare reference
+(`store h as f`) is callable and dispatches with the referenced action's
+signatures. Container methods do not support overloading.
 
 **Action Call:**
 ```

@@ -304,6 +304,11 @@ pub struct Analyzer {
     /// budget failure is fatal and must never be mistaken for an ordinary
     /// semantic diagnostic. Reset per `analyze` run.
     budget_error: Option<crate::exec::budget::BudgetExceeded>,
+    /// Variables that hold a stored action reference (`store h as f`), mapped
+    /// to the action's name so calls through the variable get real overload
+    /// resolution. Removed again when the variable is reassigned to anything
+    /// that is not a bare action reference. Reset per `analyze` run.
+    action_aliases: HashMap<String, String>,
 }
 
 impl Default for Analyzer {
@@ -509,6 +514,7 @@ impl Analyzer {
             try_depth: 0,
             active_loop_variables: Vec::new(),
             budget_error: None,
+            action_aliases: HashMap::new(),
         }
     }
 
@@ -589,6 +595,9 @@ impl Analyzer {
         // Assign directly (not just set-to-true) so a reused analyzer instance
         // does not carry a stale flag from a previous program.
         self.has_includes = program_has_includes(program);
+
+        // Stored-action aliases are per-program state.
+        self.action_aliases.clear();
 
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
@@ -725,6 +734,8 @@ impl Analyzer {
                 if !is_property_assignment && let Err(error) = self.current_scope.define(symbol) {
                     self.errors.push(error);
                 }
+
+                self.update_action_alias(name, value);
             }
             Statement::Assignment {
                 name,
@@ -776,6 +787,7 @@ impl Analyzer {
                 // Only analyze the value expression if the assignment is potentially valid
                 if !skip_value_analysis {
                     self.analyze_expression(value);
+                    self.update_action_alias(name, value);
                 }
             }
             Statement::ActionDefinition { .. } => {
@@ -2809,13 +2821,74 @@ impl Analyzer {
                 true
             }
 
-            // Allow implicitly resolving custom types
+            // Allow implicitly resolving custom types; a descendant container
+            // is compatible with an ancestor-typed target.
             (Type::Custom(expected_name), Type::Custom(actual_name)) => {
                 expected_name == actual_name
+                    || self.container_is_or_extends(actual_name, expected_name)
+            }
+
+            // Container instances match a parameter annotated with their own
+            // container name (`value as Dog` parses as Custom("Dog")) or any
+            // ancestor via the `extends` chain.
+            (Type::Custom(expected_name), Type::ContainerInstance(actual_name))
+            | (Type::ContainerInstance(expected_name), Type::ContainerInstance(actual_name)) => {
+                self.container_is_or_extends(actual_name, expected_name)
             }
 
             _ => false,
         }
+    }
+
+    /// Records or removes the stored-action alias for `name` after a
+    /// `store`/`change`: a bare reference to an action (directly or through
+    /// another alias) makes `name` callable with that action's overload set;
+    /// any other value clears a previous alias.
+    fn update_action_alias(&mut self, name: &str, value: &Expression) {
+        let target = if let Expression::Variable(source, _, _) = value {
+            match self.current_scope.resolve(source) {
+                Some(symbol) if matches!(symbol.kind, SymbolKind::Function { .. }) => {
+                    Some(source.clone())
+                }
+                _ => self.action_aliases.get(source).cloned(),
+            }
+        } else {
+            None
+        };
+        match target {
+            Some(action) => {
+                self.action_aliases.insert(name.to_string(), action);
+            }
+            None => {
+                self.action_aliases.remove(name);
+            }
+        }
+    }
+
+    /// The action a stored-action alias points at, if `name` is one.
+    pub(crate) fn action_alias(&self, name: &str) -> Option<&str> {
+        self.action_aliases.get(name).map(String::as_str)
+    }
+
+    /// Whether container `child` is `ancestor` or extends it (directly or
+    /// transitively). The walk is depth-guarded so a cyclic `extends` chain
+    /// cannot hang analysis.
+    pub(crate) fn container_is_or_extends(&self, child: &str, ancestor: &str) -> bool {
+        let mut current = Some(child.to_string());
+        let mut depth = 0;
+        while let Some(name) = current {
+            if name == ancestor {
+                return true;
+            }
+            depth += 1;
+            if depth > 64 {
+                return false;
+            }
+            current = self
+                .get_container(&name)
+                .and_then(|info| info.extends.clone());
+        }
+        false
     }
 
     fn format_type_for_display(t: &Type) -> String {
@@ -3030,7 +3103,36 @@ impl Analyzer {
                                 // is a relaxed `of`-form access even when an outer
                                 // scope also defines a non-function symbol of the
                                 // same name; the property read must win over it.
-                                if is_injected_builtin || self.action_parameters.contains(name) {
+                                // A stored action reference (`store h as f`)
+                                // is callable with the aliased action's
+                                // overload set.
+                                let aliased_signatures =
+                                    self.action_alias(name).and_then(|action| {
+                                        self.current_scope.resolve(action).and_then(|symbol| {
+                                            if let SymbolKind::Function { signatures } =
+                                                &symbol.kind
+                                            {
+                                                Some(signatures.clone())
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                    });
+                                if let Some(signatures) = aliased_signatures {
+                                    for arg in arguments {
+                                        self.analyze_expression(&arg.value);
+                                    }
+                                    self.check_overloaded_call(
+                                        name,
+                                        &signatures,
+                                        arguments,
+                                        true,
+                                        *line,
+                                        *column,
+                                    );
+                                } else if is_injected_builtin
+                                    || self.action_parameters.contains(name)
+                                {
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
                                     }
@@ -3192,12 +3294,34 @@ impl Analyzer {
                             );
                         }
                         None => {
-                            // Symbol exists but is not a function/action
-                            self.errors.push(SemanticError::new(
-                                format!("'{name}' is not an action"),
-                                *line,
-                                *column,
-                            ));
+                            // A stored action reference (`store h as f`) is
+                            // callable with the aliased action's overload set.
+                            let aliased_signatures = self.action_alias(name).and_then(|action| {
+                                self.current_scope.resolve(action).and_then(|symbol| {
+                                    if let SymbolKind::Function { signatures } = &symbol.kind {
+                                        Some(signatures.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                            });
+                            if let Some(signatures) = aliased_signatures {
+                                self.check_overloaded_call(
+                                    name,
+                                    &signatures,
+                                    arguments,
+                                    false,
+                                    *line,
+                                    *column,
+                                );
+                            } else {
+                                // Symbol exists but is not a function/action
+                                self.errors.push(SemanticError::new(
+                                    format!("'{name}' is not an action"),
+                                    *line,
+                                    *column,
+                                ));
+                            }
                         }
                     }
                 } else if !self.warn_undefined_callee_if_includes(name, *line, *column) {

@@ -313,6 +313,22 @@ Give every same-count overload distinct parameter types (`as number`,
 When argument types cannot be known until the program runs, static analysis
 defers the choice to the runtime silently — you never have to annotate a call.
 
+A few matching rules worth knowing:
+
+- **`nothing` matches every typed parameter.** Passing `nothing` never
+  disqualifies a version; when several versions accept it, the one defined
+  first wins.
+- **Container types include descendants.** A parameter typed `as Dog` accepts
+  a `Dog` instance and any container that `extends Dog` (directly or through
+  a chain).
+- **Declared types are enforced when the action runs.** Calling a typed
+  action with a value its parameter type rejects is a runtime error naming
+  the parameter and both types — an action never silently runs with an
+  argument its signature rules out.
+- **Stored actions dispatch the same way.** After `store helper as depict`,
+  calling `helper of 42` resolves among `depict`'s versions exactly as a
+  direct call would.
+
 ### Overloads behave like one action
 
 An overloaded name is used exactly like a single action — the same call

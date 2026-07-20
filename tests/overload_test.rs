@@ -875,3 +875,311 @@ store r2 as f of "hello"
         );
     }
 }
+
+// Full-pipeline coverage (parse -> analyze -> typecheck -> interpret) for the
+// maintainer deep-review findings on PR #639: container-typed overloads,
+// `nothing` arguments, stored action aliases, temporal dispatch, and
+// overload-set identity.
+mod full_pipeline {
+    use wfl::analyzer::Analyzer;
+    use wfl::interpreter::Interpreter;
+    use wfl::interpreter::value::Value;
+    use wfl::lexer::lex_wfl_with_positions;
+    use wfl::parser::Parser;
+    use wfl::typechecker::TypeChecker;
+
+    /// Runs the whole static pipeline and then the interpreter. Errors from
+    /// any stage come back as a joined string naming the stage.
+    async fn run_pipeline(code: &str) -> Result<Interpreter, String> {
+        let tokens = lex_wfl_with_positions(code);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().map_err(|e| format!("parse: {e:?}"))?;
+
+        let mut analyzer = Analyzer::new();
+        if let Err(errors) = analyzer.analyze(&program) {
+            return Err(format!(
+                "analyze: {}",
+                errors
+                    .iter()
+                    .map(|e| e.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+        }
+
+        let mut checker = TypeChecker::new();
+        if let Err(err) = checker.check_types(&program) {
+            return Err(format!(
+                "typecheck: {}",
+                err.into_diagnostics()
+                    .iter()
+                    .map(|e| e.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+        }
+
+        let mut interpreter = Interpreter::new();
+        match interpreter.interpret(&program).await {
+            Ok(_) => Ok(interpreter),
+            Err(errors) => Err(format!(
+                "runtime: {}",
+                errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )),
+        }
+    }
+
+    fn global_text(interpreter: &Interpreter, name: &str) -> String {
+        match interpreter.global_env().borrow().get(name) {
+            Some(Value::Text(t)) => t.to_string(),
+            other => panic!("expected Text in '{name}', got {other:?}"),
+        }
+    }
+
+    fn global_number(interpreter: &Interpreter, name: &str) -> f64 {
+        match interpreter.global_env().borrow().get(name) {
+            Some(Value::Number(n)) => n,
+            other => panic!("expected Number in '{name}', got {other:?}"),
+        }
+    }
+
+    fn global_bool(interpreter: &Interpreter, name: &str) -> bool {
+        match interpreter.global_env().borrow().get(name) {
+            Some(Value::Bool(b)) => b,
+            other => panic!("expected Bool in '{name}', got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn container_typed_overloads_dispatch() {
+        let interp = run_pipeline(
+            r#"
+create container Dog:
+    property tag: Text
+end
+
+create container Cat:
+    property tag: Text
+end
+
+define action called depict with parameters value as Dog:
+    return "dog"
+end action
+
+define action called depict with parameters value as Cat:
+    return "cat"
+end action
+
+create new Dog as rover:
+    tag is "rover"
+end
+
+create new Cat as felix:
+    tag is "felix"
+end
+
+store r1 as depict of rover
+store r2 as depict of felix
+"#,
+        )
+        .await
+        .expect("container-typed overloads must pass the whole pipeline");
+        assert_eq!(global_text(&interp, "r1"), "dog");
+        assert_eq!(global_text(&interp, "r2"), "cat");
+    }
+
+    #[tokio::test]
+    async fn inherited_container_instance_matches_parent_param() {
+        let interp = run_pipeline(
+            r#"
+create container Dog:
+    property tag: Text
+end
+
+create container Puppy extends Dog:
+    property toy: Text
+end
+
+define action called depict with parameters value as Dog:
+    return "dog"
+end action
+
+define action called depict with parameters value as number:
+    return "number"
+end action
+
+create new Puppy as pip:
+    tag is "pip"
+    toy is "ball"
+end
+
+store r as depict of pip
+"#,
+        )
+        .await
+        .expect("a descendant instance must match a parent-typed parameter");
+        assert_eq!(global_text(&interp, "r"), "dog");
+    }
+
+    #[tokio::test]
+    async fn nothing_argument_dispatches_by_definition_order() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return "number body"
+end action
+
+define action called f with parameters x as text:
+    return "text body"
+end action
+
+store r as f of nothing
+"#,
+        )
+        .await
+        .expect("`nothing` must stay compatible with every overload at runtime");
+        assert_eq!(global_text(&interp, "r"), "number body");
+    }
+
+    #[tokio::test]
+    async fn stored_action_alias_full_pipeline() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+define action called f with parameters x as text:
+    return "text"
+end action
+
+store h as f
+store r as h of 5
+store s as r plus 1
+"#,
+        )
+        .await
+        .expect("calling an overload set through a stored variable must pass the whole pipeline");
+        assert_eq!(global_number(&interp, "r"), 6.0);
+        assert_eq!(global_number(&interp, "s"), 7.0);
+    }
+
+    #[tokio::test]
+    async fn alias_invalidated_on_reassignment() {
+        let code = r#"
+define action called f with parameters x as number:
+    return 1
+end action
+
+define action called f with parameters x as text:
+    return "t"
+end action
+
+store h as f
+change h to 5
+store r as h of 1
+"#;
+        let tokens = lex_wfl_with_positions(code);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().expect("parse");
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(&program);
+        let errors: Vec<String> = match result {
+            Ok(()) => Vec::new(),
+            Err(errors) => errors.into_iter().map(|e| e.message).collect(),
+        };
+        assert!(
+            errors.iter().any(|e| e.contains("not a function")),
+            "a reassigned alias must stop being callable: {errors:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn interleaved_call_rejected_at_runtime() {
+        // Statically the call resolves to the later text overload, but at
+        // runtime only the number overload exists yet — the call must be
+        // rejected, never silently run the number body with a text argument.
+        let err = run_pipeline(
+            r#"
+define action called choose with parameters value as number:
+    return "number body"
+end action
+
+store selected as choose of "hello"
+
+define action called choose with parameters value as text:
+    return "text body"
+end action
+"#,
+        )
+        .await
+        .err()
+        .expect("an interleaved call against the wrong lone overload must error");
+        assert!(
+            err.starts_with("runtime:") && err.contains("expects"),
+            "the rejection should be a runtime type error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn call_after_both_definitions_dispatches_correctly() {
+        let interp = run_pipeline(
+            r#"
+define action called choose with parameters value as number:
+    return "number body"
+end action
+
+define action called choose with parameters value as text:
+    return "text body"
+end action
+
+store selected as choose of "hello"
+"#,
+        )
+        .await
+        .expect("the same call after both definitions must dispatch");
+        assert_eq!(global_text(&interp, "selected"), "text body");
+    }
+
+    #[tokio::test]
+    async fn overloaded_value_self_identity() {
+        let interp = run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return "number"
+end action
+
+define action called f with parameters x as text:
+    return "text"
+end action
+
+define action called g with parameters x as number:
+    return "g-number"
+end action
+
+define action called g with parameters x as text:
+    return "g-text"
+end action
+
+store first_alias as f
+store second_alias as g
+store identical as first_alias is equal to first_alias
+store distinct as first_alias is equal to second_alias
+"#,
+        )
+        .await
+        .expect("overload-set identity comparisons must run");
+        assert!(
+            global_bool(&interp, "identical"),
+            "an overload set must be equal to itself"
+        );
+        assert!(
+            !global_bool(&interp, "distinct"),
+            "distinct overload sets must not be equal"
+        );
+    }
+}
