@@ -333,3 +333,28 @@ Two more P1s from the maintainer's sixth pass:
 
 Round-6 coverage: three new tests (63 total) — repeat-while and main-loop
 alias deferral, and the three-snippet REPL arming-rollback scenario.
+
+## Round 7 (merge-readiness review): budget breaches never demote
+
+The maintainer's seventh pass caught a serious flaw in round 6's
+compatibility demotion: the drain moved *every* new error into warnings —
+including the rendered fatal error a shared-budget breach pushes when
+analysis is aborted inside one of the four loop bodies. `analyze` then
+returned `Ok(())` with `budget_error` latched, so `--analyze` and direct
+analyzer callers could report success after an aborted analysis. The
+demotion now runs only when `budget_error` is unlatched; a breach keeps
+the whole error tail fatal (analysis was aborted, not diagnosed). Two
+red-first regressions mirror `analyzer_polls_the_budget_inside_nested_bodies`
+with `main loop` and `repeat while` bodies.
+
+Also in this round: the pre-existing pin test
+`main_loop_body_is_currently_not_statically_analyzed` (which explicitly
+invited a deliberate update when analyzer coverage arrived) became
+`main_loop_body_diagnostics_demote_to_warnings`, asserting the new
+contract — the reference IS surfaced, as a warning, never a fatal error;
+and the describe-teardown guard binding now destructures both scopes
+(Copilot nit). Lesson recorded: run the whole workspace suite, not just
+the feature crates — the pin test lived in `include_of_form_resolution_test`
+and only CI caught it. (Local caveat: several integration crates shell
+out to `target/release/wfl`; with a stale release build they fail
+spuriously — CI builds it fresh.)

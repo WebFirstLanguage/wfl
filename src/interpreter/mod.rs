@@ -8959,7 +8959,8 @@ impl Interpreter {
 
                 // Run teardown if present (runs in describe environment)
                 if let Some(teardown_stmts) = teardown {
-                    let _overload_dups = self.enter_block_overloads(teardown_stmts, &describe_env);
+                    let (_overload_dups, _armed_members) =
+                        self.enter_block_overloads(teardown_stmts, &describe_env);
                     for stmt in teardown_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }

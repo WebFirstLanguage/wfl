@@ -581,6 +581,53 @@ fn analyzer_polls_the_budget_inside_nested_bodies() {
 }
 
 #[test]
+fn analyzer_budget_breach_inside_main_loop_body_stays_fatal() {
+    // Diagnostics inside `main loop`/`repeat` bodies demote to warnings for
+    // backward compatibility — but a latched budget breach is a fatal
+    // resource-limit event: it must never be demoted away, or the analyzer
+    // would return Ok after an aborted analysis.
+    let mut body = String::from("main loop:\n");
+    for _ in 0..64 {
+        body.push_str("    display 1\n");
+    }
+    body.push_str("    break\nend loop\n");
+    let tokens = wfl::lexer::lex_wfl_with_positions(&body);
+    let program = wfl::parser::Parser::new(&tokens)
+        .parse()
+        .expect("main-loop program parses");
+
+    let _guard = enter_capped_budget(5);
+    let result = wfl::analyzer::Analyzer::new().analyze(&program);
+    let errors = result.expect_err("a budget breach inside a main loop body must stay fatal");
+    assert!(
+        format!("{errors:?}").contains("operation budget"),
+        "the operation-budget breach must survive the compatibility demotion; got: {errors:?}"
+    );
+}
+
+#[test]
+fn analyzer_budget_breach_inside_repeat_body_stays_fatal() {
+    // Same rule for the `repeat` forms.
+    let mut body = String::from("repeat while yes:\n");
+    for _ in 0..64 {
+        body.push_str("    display 1\n");
+    }
+    body.push_str("    break\nend repeat\n");
+    let tokens = wfl::lexer::lex_wfl_with_positions(&body);
+    let program = wfl::parser::Parser::new(&tokens)
+        .parse()
+        .expect("repeat-while program parses");
+
+    let _guard = enter_capped_budget(5);
+    let result = wfl::analyzer::Analyzer::new().analyze(&program);
+    let errors = result.expect_err("a budget breach inside a repeat body must stay fatal");
+    assert!(
+        format!("{errors:?}").contains("operation budget"),
+        "the operation-budget breach must survive the compatibility demotion; got: {errors:?}"
+    );
+}
+
+#[test]
 fn type_checker_polls_the_budget_inside_nested_bodies() {
     // `with_analyzer` skips the analyzer pass, so the breach can only come from
     // the recursive checkpoint in `check_statement_types` — not the analyzer and

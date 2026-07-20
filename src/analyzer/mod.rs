@@ -1180,9 +1180,13 @@ impl Analyzer {
                 // These bodies were not analyzed before alias flow tracking
                 // reached them; new diagnostics inside would break existing
                 // programs (backward compatibility), so they demote to
-                // warnings — runtime behavior is authoritative in here.
-                let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
-                self.warnings.extend(demoted);
+                // warnings — runtime behavior is authoritative in here. A
+                // latched budget breach is different: analysis was *aborted*,
+                // not diagnosed, and its rendered error must stay fatal.
+                if self.budget_error.is_none() {
+                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                    self.warnings.extend(demoted);
+                }
                 let flow_body = self.take_flow_branch(&flow_entry);
                 let mutated = self.pop_mutation_frame();
                 self.join_flow_branches(&[flow_body, flow_entry]);
@@ -1205,9 +1209,12 @@ impl Analyzer {
                 }
                 // Same demotion as the repeat forms: web-server main loops
                 // reference handler-provided names this analyzer cannot
-                // model, and these bodies were previously unanalyzed.
-                let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
-                self.warnings.extend(demoted);
+                // model, and these bodies were previously unanalyzed. A
+                // latched budget breach stays fatal (see the repeat forms).
+                if self.budget_error.is_none() {
+                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                    self.warnings.extend(demoted);
+                }
                 let flow_body = self.take_flow_branch(&flow_entry);
                 let mutated = self.pop_mutation_frame();
                 self.join_flow_branches(&[flow_body, flow_entry]);
