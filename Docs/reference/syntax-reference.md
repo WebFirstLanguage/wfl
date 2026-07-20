@@ -106,7 +106,7 @@ end action
 
 // Call
 call add_numbers with 5 and 3
-store result as add_numbers with 5 and 3
+store result as add_numbers of 5 and 3
 display result
 
 // Typed parameters and overloading: same name, distinguishable signatures

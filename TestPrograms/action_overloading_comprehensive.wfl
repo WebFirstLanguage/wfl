@@ -66,7 +66,7 @@ end action
 
 display "5! = " with fact of 5
 
-// --- Overloaded action as a first-class value ------------------------------
+// --- Typed text overload using a builtin ------------------------------------
 
 define action called shout with parameters message as text:
     return touppercase of message
@@ -76,8 +76,7 @@ define action called shout with parameters message as number:
     return "LOUD NUMBER " with message
 end action
 
-store loud as shout
-display loud of "quiet"
-display loud of 3
+display shout of "quiet"
+display shout of 3
 
 display "All overloading tests passed!"

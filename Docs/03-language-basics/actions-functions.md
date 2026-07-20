@@ -313,10 +313,10 @@ Give every same-count overload distinct parameter types (`as number`,
 When argument types cannot be known until the program runs, static analysis
 defers the choice to the runtime silently — you never have to annotate a call.
 
-### Overloads are still one value
+### Overloads behave like one action
 
-Storing an overloaded action in a variable carries the whole set, and calls
-through the variable dispatch the same way:
+An overloaded name is used exactly like a single action — the same call
+syntax, the same rules everywhere the name appears:
 
 ```wfl
 define action called shout with parameters message as text:
@@ -327,9 +327,8 @@ define action called shout with parameters message as number:
     return "LOUD NUMBER " with message
 end action
 
-store loud as shout
-display loud of "quiet"   // QUIET
-display loud of 3         // LOUD NUMBER 3
+display shout of "quiet"   // QUIET
+display shout of 3         // LOUD NUMBER 3
 ```
 
 If one overload takes no parameters, a bare reference to the name auto-calls
