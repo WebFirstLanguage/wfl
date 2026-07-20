@@ -122,6 +122,19 @@ display "pip is a " with species of pip
 
 display depict of nothing
 
+// --- nothing earns specificity only for an explicit nothing parameter -------
+
+define action called nothing_pick with parameters value as number:
+    return "picked number"
+end action
+
+define action called nothing_pick with parameters value as nothing:
+    return "picked nothing"
+end action
+
+display nothing_pick of nothing
+display nothing_pick of 3
+
 // --- Stored action references dispatch like the action itself ---------------
 
 store depicter as depict

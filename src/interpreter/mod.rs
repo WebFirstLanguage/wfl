@@ -11083,7 +11083,16 @@ impl Interpreter {
                         continue;
                     }
                     if Self::value_matches_type(arg, expected) {
-                        concrete_matches += 1;
+                        // A `nothing` argument is accepted by every parameter
+                        // type but earns specificity credit only for an
+                        // explicit `as nothing` parameter (its exact match) —
+                        // otherwise versions accepting `nothing` stay tied
+                        // and definition order decides, as documented.
+                        if !matches!(arg, Value::Null | Value::Nothing)
+                            || matches!(expected, Type::Nothing)
+                        {
+                            concrete_matches += 1;
+                        }
                     } else {
                         accepts = false;
                         break;

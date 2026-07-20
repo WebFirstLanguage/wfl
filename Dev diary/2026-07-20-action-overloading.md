@@ -239,3 +239,16 @@ Round-4 coverage: six new tests (55 total) — branch/loop counter-leak
 deferral, the maintainer's exact program as a dispatch guardrail, in-branch
 alias drift, describe-nested temporal rejection (via `set_test_mode` +
 `get_test_results`), and sibling-block leniency.
+
+## Post-round-4 dispatch refinement: `nothing` and specificity
+
+Copilot spotted that `value_matches_type`'s early accept for `nothing`
+inflated `select_overload`'s specificity count: a `nothing` argument earned
+"concrete match" credit for typed parameters, so a version with more
+annotations beat the documented definition-order rule (e.g. `f(a as number,
+b)` vs `f(a as text, b as number)` called with two `nothing`s picked the
+second). `nothing` now earns credit only for an explicit `as nothing`
+parameter — its exact match, which correspondingly wins specificity — and
+otherwise leaves versions tied so definition order decides. Two regression
+tests (57 total) plus a TestProgram section; the docs' `nothing` bullet and
+the spec sentence now state both halves of the rule.

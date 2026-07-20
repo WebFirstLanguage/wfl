@@ -1130,6 +1130,59 @@ store r as h of 1
         );
     }
 
+    // A `nothing` argument is accepted by every parameter type but must not
+    // earn specificity credit for a typed parameter — otherwise a version
+    // with more annotations beats the documented definition-order rule.
+    #[tokio::test]
+    async fn nothing_specificity_falls_to_definition_order() {
+        let interp = run_pipeline(
+            r#"
+define action called pick with parameters a as number and b:
+    return "first"
+end action
+
+define action called pick with parameters a as text and b as number:
+    return "second"
+end action
+
+store r as pick of nothing and nothing
+"#,
+        )
+        .await
+        .expect("nothing must be accepted by every version");
+        assert_eq!(
+            global_text(&interp, "r"),
+            "first",
+            "nothing must not add specificity; definition order decides"
+        );
+    }
+
+    // The one parameter type a `nothing` argument matches *exactly* is an
+    // explicit `as nothing` — that version is more specific for it.
+    #[tokio::test]
+    async fn explicit_nothing_overload_wins_specificity() {
+        let interp = run_pipeline(
+            r#"
+define action called pick with parameters a as number:
+    return "num"
+end action
+
+define action called pick with parameters a as nothing:
+    return "none"
+end action
+
+store r as pick of nothing
+"#,
+        )
+        .await
+        .expect("an explicit nothing overload must be callable");
+        assert_eq!(
+            global_text(&interp, "r"),
+            "none",
+            "an explicit 'as nothing' parameter matches nothing exactly"
+        );
+    }
+
     #[tokio::test]
     async fn interleaved_call_rejected_at_runtime() {
         // Statically the call resolves to the later text overload, but at

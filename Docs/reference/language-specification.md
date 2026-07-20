@@ -149,9 +149,11 @@ definition-time errors. Calls resolve by filtering candidates on argument
 count, then on argument types (statically when known, otherwise on the runtime
 values); among several runtime matches the version with the most
 concretely-matched parameters wins, with remaining ties resolved in definition
-order. A `nothing` argument is compatible with every parameter type; a
-parameter annotated with a container name accepts instances of that container
-or any descendant via `extends`. For an action participating in overloading,
+order. A `nothing` argument is compatible with every parameter type and
+contributes no dispatch specificity except toward a parameter declared
+`as nothing`, which it matches exactly; a parameter annotated with a
+container name accepts instances of that container or any descendant via
+`extends`. For an action participating in overloading,
 declared parameter types are enforced when the action executes — a call whose
 argument a declared type rejects is a runtime error, so a call between two
 definitions dispatches over the overloads defined so far. This enforcement is

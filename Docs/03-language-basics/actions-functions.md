@@ -316,8 +316,10 @@ defers the choice to the runtime silently — you never have to annotate a call.
 A few matching rules worth knowing:
 
 - **`nothing` matches every typed parameter.** Passing `nothing` never
-  disqualifies a version; when several versions accept it, the one defined
-  first wins.
+  disqualifies a version, and it adds no specificity to typed parameters —
+  when several versions accept it, the one defined first wins. The one
+  exception is a parameter declared `as nothing`: that is an exact match for
+  a `nothing` argument, so such a version wins over the others.
 - **Container types include descendants.** A parameter typed `as Dog` accepts
   a `Dog` instance and any container that `extends Dog` (directly or through
   a chain).
