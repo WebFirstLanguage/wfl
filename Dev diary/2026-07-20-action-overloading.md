@@ -152,7 +152,8 @@ Round 3 found four P1 gaps in the round-2 fixes, all in the new machinery:
    (callee, line, column), so the typechecker observes per-statement state.
 4. **Runtime type enforcement scoped to overloads.** Round 2's unconditional
    `call_function` check turned every annotation into a runtime guard,
-   breaking legacy dynamically-typed calls to single typed actions (a
+   breaking legacy dynamically-typed calls to typed actions defined only
+   once (a
    backward-compatibility violation). `FunctionValue.enforce_param_types`
    (a `Cell<bool>`) now gates it: set for names the interpreter's program
    pre-scan finds defined more than once in the same block (so the first

@@ -1262,6 +1262,31 @@ store s as r plus 1
         assert_eq!(global_number(&interp, "s"), 7.0);
     }
 
+    // Finding 2 companion: the same alias resolution must also *reject*
+    // statically-invalid `call ... with` arguments, not just accept valid ones.
+    #[tokio::test]
+    async fn alias_call_with_form_rejects_type_mismatch() {
+        let err = match run_pipeline(
+            r#"
+define action called f with parameters x as number:
+    return x plus 1
+end action
+
+store h as f
+store r as call h with "hello"
+"#,
+        )
+        .await
+        {
+            Ok(_) => panic!("call-with through an alias must reject a mismatched argument"),
+            Err(err) => err,
+        };
+        assert!(
+            err.starts_with("analyze:") || err.starts_with("typecheck:"),
+            "the rejection should come from static analysis: {err}"
+        );
+    }
+
     // Finding 3: alias state must not be mutated by code that has not
     // executed. (Reassigning to another action is used here because
     // `change h to 0` on a function-typed variable is a pre-existing static

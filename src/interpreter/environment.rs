@@ -156,6 +156,16 @@ impl Environment {
             if prior.param_types.len() != new_func.param_types.len() {
                 continue;
             }
+            // Exact duplicates get the analyzer's clearer wording — the
+            // interpreter is the source of truth for include-driven and
+            // dynamically-constructed definitions the analyzer never saw.
+            if prior.param_types == new_func.param_types {
+                return Err(format!(
+                    "Action '{name}' was already defined with the same parameters (previous definition at line {}). \
+                     Overloads must differ in parameter count or in their declared parameter types.",
+                    prior.line
+                ));
+            }
             // Mirrors the analyzer's rule: `any`/`Unknown` annotations accept
             // every value, so they cannot separate two overloads.
             let is_concrete = |t: &Option<crate::parser::ast::Type>| {

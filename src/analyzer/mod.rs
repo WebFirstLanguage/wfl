@@ -2993,9 +2993,9 @@ impl Analyzer {
         }
     }
 
-    /// Runs one control-flow branch's analysis from `entry` alias state and
-    /// returns the branch's resulting state, leaving `action_aliases` empty
-    /// (callers immediately join or reset).
+    /// Ends one control-flow branch's alias analysis: returns the branch's
+    /// resulting alias state and resets `action_aliases` to the `entry`
+    /// snapshot so the next branch starts from the construct's entry state.
     ///
     /// Alias state is deliberately *not* threaded through unexecuted or
     /// conditionally-executed code as if it ran — see `join_alias_branches`.
