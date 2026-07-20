@@ -336,7 +336,8 @@ it — the same behavior as a single zero-parameter action.
 
 > **Not yet overloadable:** container methods (actions defined inside
 > `create container`) do not support overloading yet; a repeated method name
-> keeps the last definition.
+> keeps the last definition (tracked in
+> [#638](https://github.com/WebFirstLanguage/wfl/issues/638)).
 
 ## Variable Scope
 

@@ -60,8 +60,9 @@ value, callable through variables.
 
 **Container methods deferred.** Methods live in four name-keyed HashMaps with
 inheritance and interface-conformance rules; the current (silent last-wins)
-behavior is long-standing. Overloading them is follow-up work; the docs say
-so explicitly.
+behavior is long-standing. Overloading them is follow-up work tracked in
+issue #638; the docs say so explicitly and the storage/registration sites
+carry `TODO(#638)` markers.
 
 ## Incidental fixes and discoveries
 

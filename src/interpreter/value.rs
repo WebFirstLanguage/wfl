@@ -77,6 +77,10 @@ pub struct ContainerDefinitionValue {
     pub extends: Option<String>,
     pub implements: Vec<String>,
     pub properties: HashMap<String, PropertyDefinition>,
+    /// TODO(#638): name-keyed maps mean container methods cannot overload —
+    /// a repeated method name silently keeps the last definition. Overload
+    /// support needs these to hold sets (cf. `OverloadedFunction`) plus
+    /// arity/type-aware inheritance and interface-conformance matching.
     pub methods: HashMap<String, ContainerMethodValue>,
     pub events: HashMap<String, ContainerEventValue>,
     pub static_properties: HashMap<String, Value>,

@@ -1441,6 +1441,10 @@ impl Analyzer {
                             column: *method_column,
                         };
 
+                        // TODO(#638): container methods do not support
+                        // overloading — a repeated method name silently
+                        // replaces the earlier registration (contrast
+                        // `register_action_signature`, which merges or errors).
                         container_info
                             .methods
                             .insert(method_name.clone(), method_info);
@@ -1502,6 +1506,8 @@ impl Analyzer {
                             column: *method_column,
                         };
 
+                        // TODO(#638): same silent last-wins as instance
+                        // methods above — no overloading for static methods.
                         container_info
                             .static_methods
                             .insert(method_name.clone(), method_info);

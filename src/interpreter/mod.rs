@@ -6239,6 +6239,12 @@ impl Interpreter {
                             line: *line,
                             column: *column,
                         };
+                        // TODO(#638): container methods do not support
+                        // overloading — a repeated method name silently keeps
+                        // the last definition here. Route same-name methods
+                        // through an overload set (see
+                        // `Environment::define_or_merge_action` /
+                        // `select_overload` for the action equivalent).
                         container_methods.insert(name.clone(), container_method);
                     }
                 }
