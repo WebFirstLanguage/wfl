@@ -1,0 +1,209 @@
+// Comprehensive test of user-defined action overloading.
+// Actions may share a name when they differ in parameter count, or in at
+// least one position where both declare concrete, different parameter types.
+
+// --- Overloading by parameter count ----------------------------------------
+
+define action called greet with parameters name:
+    return "Hello, " with name with "!"
+end action
+
+define action called greet with parameters first and last:
+    return "Hello, " with first with " " with last with "!"
+end action
+
+display greet of "Alice"
+display greet of "Alice" and "Smith"
+
+// The call form dispatches the same way as the of form.
+store greeting_one as call greet with "Bob"
+store greeting_two as call greet with "Bob" and "Jones"
+display greeting_one
+display greeting_two
+
+// --- Overloading by parameter type -----------------------------------------
+
+define action called depict with parameters value as number:
+    return "a number: " with value
+end action
+
+define action called depict with parameters value as text:
+    return "some text: " with value
+end action
+
+display depict of 42
+display depict of "wfl"
+
+// Dispatch happens on the runtime value, so a variable works too.
+store dynamic_value as 7
+display depict of dynamic_value
+
+// --- Mixed count and type overloads ----------------------------------------
+
+define action called area with parameters side as number:
+    return side times side
+end action
+
+define action called area with parameters width as number and height as number:
+    return width times height
+end action
+
+display "square area: " with area of 5
+display "rectangle area: " with area of 4 and 6
+
+// --- Overloads calling their siblings --------------------------------------
+
+define action called fact with parameters n:
+    return fact of n and 1
+end action
+
+define action called fact with parameters n and acc:
+    check if n is less than 2:
+        return acc
+    end check
+    return fact of (n minus 1) and (acc times n)
+end action
+
+display "5! = " with fact of 5
+
+// --- Typed text overload using a builtin ------------------------------------
+
+define action called shout with parameters message as text:
+    return touppercase of message
+end action
+
+define action called shout with parameters message as number:
+    return "LOUD NUMBER " with message
+end action
+
+display shout of "quiet"
+display shout of 3
+
+// --- Container-typed overloads (exact and inherited dispatch) ---------------
+
+create container Doggo:
+    property tag: Text
+end
+
+create container Kitty:
+    property tag: Text
+end
+
+create container Pup extends Doggo:
+    property toy: Text
+end
+
+define action called species with parameters value as Doggo:
+    return "dog"
+end action
+
+define action called species with parameters value as Kitty:
+    return "cat"
+end action
+
+create new Doggo as rover:
+    tag is "rover"
+end
+
+create new Kitty as felix:
+    tag is "felix"
+end
+
+create new Pup as pip:
+    tag is "pip"
+    toy is "ball"
+end
+
+display "rover is a " with species of rover
+display "felix is a " with species of felix
+display "pip is a " with species of pip
+
+// --- nothing matches every overload (definition order wins) -----------------
+
+display depict of nothing
+
+// --- nothing earns specificity only for an explicit nothing parameter -------
+
+define action called nothing_pick with parameters value as number:
+    return "picked number"
+end action
+
+define action called nothing_pick with parameters value as nothing:
+    return "picked nothing"
+end action
+
+display nothing_pick of nothing
+display nothing_pick of 3
+
+// --- Stored action references dispatch like the action itself ---------------
+
+store depicter as depict
+display depicter of 42
+display depicter of "alias"
+
+// --- Stored references are snapshots of the overloads defined so far --------
+
+define action called stage with parameters value as number:
+    return "stage one: " with value
+end action
+
+store early_stage as stage
+
+define action called stage with parameters value as text:
+    return "stage two: " with value
+end action
+
+// early_stage captured only the number version; stage itself has both.
+display early_stage of 7
+display stage of "later"
+
+// --- Single (non-overloaded) typed actions keep dynamic-call behavior -------
+
+define action called render_tag with parameters value as number:
+    return "tag: " with value
+end action
+
+define action called forward_dynamic with parameters passthrough:
+    return render_tag of passthrough
+end action
+
+display forward_dynamic of "hello"
+
+// Note: per-block enforcement scoping (a sibling block's lone typed action
+// keeps dynamic-call leniency) is covered in tests/overload_test.rs — static
+// analysis cannot yet resolve calls to actions defined inside action bodies,
+// so that scenario cannot run through this full-pipeline program.
+
+// --- Versions defined inside a branch dispatch at runtime -------------------
+
+define action called branchy with parameters value as number:
+    return "branchy num " with value
+end action
+
+store branch_flag as yes
+check if branch_flag:
+    define action called branchy with parameters value as text:
+        return "branchy txt " with value
+    end action
+    store branchy_ref as branchy
+    display branchy_ref of "conditional"
+end check
+
+// --- References reassigned in a loop dispatch at runtime --------------------
+// A break can exit while the reference holds an intermediate binding, so
+// static analysis defers these calls to runtime dispatch.
+
+define action called swap_target with parameters t:
+    return "swapped " with t
+end action
+
+store swap_ref as branchy
+store one_pass as 1
+count from 1 to one_pass:
+    change swap_ref to swap_target
+    break
+    change swap_ref to branchy
+end count
+display swap_ref of "midway"
+
+display "All overloading tests passed!"

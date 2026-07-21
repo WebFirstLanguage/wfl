@@ -104,10 +104,24 @@ define action called add_numbers with parameters x and y:
     return x plus y
 end action
 
-// Call
+// Call as a statement
 call add_numbers with 5 and 3
-store result as add_numbers with 5 and 3
+
+// Call as an expression
+store result as add_numbers of 5 and 3
 display result
+
+// Typed parameters and overloading: same name, distinguishable signatures
+define action called depict with parameters value as number:
+    return "a number: " with value
+end action
+
+define action called depict with parameters value as text:
+    return "some text: " with value
+end action
+
+display depict of 42      // dispatches to the number version
+display depict of "wfl"   // dispatches to the text version
 ```
 
 ## Lists

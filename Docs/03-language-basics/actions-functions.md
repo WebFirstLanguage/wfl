@@ -217,6 +217,168 @@ end check
 store double sum as (sum of 5 and 3) times 2
 ```
 
+## Defining Multiple Versions of an Action (Overloading)
+
+An action name can have several definitions in the same scope, as long as WFL
+can always tell them apart at a call site. Each version is called an
+*overload*, and calls pick the right one automatically.
+
+### Overloading by parameter count
+
+The simplest overloads differ in how many parameters they take:
+
+```wfl
+define action called greet with parameters name:
+    return "Hello, " with name with "!"
+end action
+
+define action called greet with parameters first and last:
+    return "Hello, " with first with " " with last with "!"
+end action
+
+display greet of "Alice"              // Hello, Alice!
+display greet of "Alice" and "Smith"  // Hello, Alice Smith!
+```
+
+### Overloading by parameter type
+
+Same-count overloads are allowed when their parameters declare different
+types with `as`:
+
+```wfl
+define action called depict with parameters value as number:
+    return "a number: " with value
+end action
+
+define action called depict with parameters value as text:
+    return "some text: " with value
+end action
+
+display depict of 42     // a number: 42
+display depict of "wfl"  // some text: wfl
+```
+
+Dispatch happens on the actual value, so calling through a variable works the
+same way: `depict of some_variable` runs the number version when the variable
+holds a number.
+
+### The two rules
+
+Two same-name definitions are rejected when a call could never be routed
+deterministically between them:
+
+1. **Exact duplicates** — same parameter count and same declared types
+   (untyped parameters count as "accepts anything"):
+
+   ```wfl
+   define action called f with parameters x:
+       return 1
+   end action
+
+   define action called f with parameters y:   // error: same parameters
+       return 2
+   end action
+   ```
+
+2. **Indistinguishable pairs** — same parameter count with no position where
+   *both* versions declare concrete, different types. An untyped parameter
+   accepts numbers too, so `f with x` and `f with x as number` would both
+   match `f of 5`:
+
+   ```wfl
+   define action called f with parameters x:
+       return 1
+   end action
+
+   define action called f with parameters x as number:   // error: ambiguous
+       return 2
+   end action
+   ```
+
+Give every same-count overload distinct parameter types (`as number`,
+`as text`, ...), or use different parameter counts.
+
+### How calls choose an overload
+
+1. Versions with the wrong parameter count are dropped. If none remain, the
+   call is an error listing the counts the action accepts.
+2. Among same-count versions, each typed parameter is checked against the
+   argument. Versions whose declared types reject an argument are dropped.
+3. If several versions still match (possible with container types and
+   inheritance), the one with the most concretely-matched parameters wins;
+   remaining ties go to the version defined first.
+4. If no version matches, the error lists what you provided and every
+   version's signature.
+
+When argument types cannot be known until the program runs, static analysis
+defers the choice to the runtime silently — you never have to annotate a call.
+
+A few matching rules worth knowing:
+
+- **`nothing` matches every typed parameter.** Passing `nothing` never
+  disqualifies a version, and it adds no specificity to typed parameters —
+  when several versions accept it, the one defined first wins. The one
+  exception is a parameter declared `as nothing`: that is an exact match for
+  a `nothing` argument, so such a version wins over the others.
+- **Container types include descendants.** A parameter typed `as Dog` accepts
+  a `Dog` instance and any container that `extends Dog` (directly or through
+  a chain).
+- **Overloaded actions enforce their declared types when they run.** Calling
+  a version of an overloaded action with a value its parameter type rejects
+  is a runtime error naming the parameter and both types — an overload never
+  silently runs with an argument its signature rules out. An action defined
+  only once keeps its historical behavior: its annotations guide static
+  analysis and do not reject values at runtime. This enforcement is scoped
+  to the block that defines the versions: a different block's lone action of
+  the same name is a separate, single action and keeps the historical
+  behavior. When a block adds a version to an action that already exists in
+  the same scope, the existing version starts enforcing the moment that
+  block begins executing — a call between the block's start and the new
+  definition already dispatches strictly. If the block exits before the new
+  definition ever executes (an error, an early return), the arming is
+  undone: a never-merged action returns to its single-action behavior.
+- **Stored actions dispatch the same way — over the versions that existed
+  when stored.** After `store helper as depict`, calling `helper of 42`
+  resolves among `depict`'s versions exactly as a direct call would. The
+  stored reference is a snapshot: versions of `depict` defined *after* the
+  `store` belong to `depict` but not to `helper`, both when the program runs
+  and in static analysis.
+- **Versions defined inside a branch or loop dispatch at runtime.** When a
+  version is defined inside a `check if` branch or a loop body, whether it
+  exists depends on what actually executed — so static analysis stops
+  guessing for references stored after that point and defers their calls to
+  runtime dispatch, which always judges against the versions that really
+  exist. The same applies to a stored reference reassigned anywhere inside
+  a loop or `try` body: a `break` or an error can leave the loop (or reach
+  the error handler) while the reference holds an intermediate binding, so
+  its calls defer to runtime dispatch too.
+
+### Overloads behave like one action
+
+An overloaded name is used exactly like a single action — the same call
+syntax, the same rules everywhere the name appears:
+
+```wfl
+define action called shout with parameters message as text:
+    return touppercase of message
+end action
+
+define action called shout with parameters message as number:
+    return "LOUD NUMBER " with message
+end action
+
+display shout of "quiet"   // QUIET
+display shout of 3         // LOUD NUMBER 3
+```
+
+If one overload takes no parameters, a bare reference to the name auto-calls
+it — the same behavior as a single zero-parameter action.
+
+> **Not yet overloadable:** container methods (actions defined inside
+> `create container`) do not support overloading yet; a repeated method name
+> keeps the last definition (tracked in
+> [#638](https://github.com/WebFirstLanguage/wfl/issues/638)).
+
 ## Variable Scope
 
 ### Local Variables

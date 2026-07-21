@@ -89,6 +89,111 @@ impl Environment {
         Ok(())
     }
 
+    /// Defines an action, merging a same-scope redefinition into an overload
+    /// set (`Value::Overloaded`) instead of erroring. Overloads must differ in
+    /// parameter count or in at least one position where both declare
+    /// concrete, different parameter types — mirroring the analyzer's
+    /// definition-time rules. Collisions with non-function bindings and
+    /// parent-scope shadowing keep the same errors as [`Self::define`].
+    /// Returns the value now bound to `name`.
+    pub fn define_or_merge_action(
+        &mut self,
+        name: &str,
+        func: Rc<super::value::FunctionValue>,
+    ) -> Result<Value, String> {
+        use super::value::OverloadedFunction;
+
+        let merged = match self.values.get(name) {
+            Some(Value::Function(existing)) => {
+                Self::check_overload_distinct(name, std::slice::from_ref(existing), &func)?;
+                Some(vec![Rc::clone(existing), Rc::clone(&func)])
+            }
+            Some(Value::Overloaded(existing)) => {
+                Self::check_overload_distinct(name, &existing.overloads, &func)?;
+                let mut overloads = existing.overloads.clone();
+                overloads.push(Rc::clone(&func));
+                Some(overloads)
+            }
+            Some(_) => {
+                return Err(format!(
+                    "Variable '{name}' has already been defined. Use 'change {name} to <value>' to modify it."
+                ));
+            }
+            None => None,
+        };
+
+        if let Some(overloads) = merged {
+            // Every member of an overload set enforces its declared parameter
+            // types at call time — including through previously captured
+            // references to an individual member (snapshot aliases), which
+            // behave as an overload set of one. Covers include-driven
+            // overloads the interpreter's program pre-scan cannot see.
+            for member in &overloads {
+                member.enforce_param_types.set(true);
+            }
+            let value = Value::Overloaded(Rc::new(OverloadedFunction {
+                name: name.to_string(),
+                overloads,
+            }));
+            self.values.insert(name.to_string(), value.clone());
+            return Ok(value);
+        }
+
+        let value = Value::Function(func);
+        self.define(name, value.clone())?;
+        Ok(value)
+    }
+
+    /// Rejects a new overload that an existing one could never be told apart
+    /// from at a call site: same parameter count and no position where both
+    /// declare concrete, different types.
+    fn check_overload_distinct(
+        name: &str,
+        existing: &[Rc<super::value::FunctionValue>],
+        new_func: &Rc<super::value::FunctionValue>,
+    ) -> Result<(), String> {
+        for prior in existing {
+            if prior.param_types.len() != new_func.param_types.len() {
+                continue;
+            }
+            // Exact duplicates get the analyzer's clearer wording — the
+            // interpreter is the source of truth for include-driven and
+            // dynamically-constructed definitions the analyzer never saw.
+            if prior.param_types == new_func.param_types {
+                return Err(format!(
+                    "Action '{name}' was already defined with the same parameters (previous definition at line {}). \
+                     Overloads must differ in parameter count or in their declared parameter types.",
+                    prior.line
+                ));
+            }
+            // Mirrors the analyzer's rule: `any`/`Unknown` annotations accept
+            // every value, so they cannot separate two overloads.
+            let is_concrete = |t: &Option<crate::parser::ast::Type>| {
+                matches!(
+                    t,
+                    Some(inner) if !matches!(
+                        inner,
+                        crate::parser::ast::Type::Any | crate::parser::ast::Type::Unknown
+                    )
+                )
+            };
+            let distinguishable = prior
+                .param_types
+                .iter()
+                .zip(&new_func.param_types)
+                .any(|(a, b)| is_concrete(a) && is_concrete(b) && a != b);
+            if !distinguishable {
+                return Err(format!(
+                    "Action '{name}' was already defined with {} parameter(s). \
+                     Overloads must differ in parameter count or in their declared parameter types \
+                     (e.g. 'value as number' vs 'value as text').",
+                    new_func.param_types.len()
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn define_native(
         &mut self,
         name: &'static str,

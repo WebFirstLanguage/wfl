@@ -23,7 +23,7 @@ use self::environment::Environment;
 use self::error::{ErrorKind, RuntimeError};
 use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
-    EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
+    EventHandler, FunctionValue, InterfaceDefinitionValue, OverloadedFunction, Value,
 };
 use crate::builtins::get_function_arity;
 use crate::config::WflConfig;
@@ -47,8 +47,8 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
-    WsHandlerEvent,
+    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, Type,
+    UnaryOperator, WsHandlerEvent,
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
@@ -1070,6 +1070,16 @@ pub struct Interpreter {
     /// thread boundary. Replaces the old `op_count`/`started`/`max_duration`
     /// fields and the scattered per-subsystem constants.
     budget: Arc<ExecutionBudget>,
+    /// Action names defined more than once in the *currently executing*
+    /// statement block (scanned at block entry), so even the *first*
+    /// definition of an overloaded name enforces its declared parameter
+    /// types during the window before the later definitions execute. Scoped
+    /// per block — a sibling block's lone definition of the same name keeps
+    /// legacy dynamic-call leniency. `None` when the current block overloads
+    /// nothing (the common case; no allocation). Overloads the block scan
+    /// cannot see (includes, cross-block merges) are flagged at merge time
+    /// by `Environment::define_or_merge_action`.
+    current_block_overload_dups: RefCell<Option<Rc<std::collections::HashSet<String>>>>,
     call_stack: RefCell<Vec<CallFrame>>,
     /// Live recursion depth for enforcement, kept **separate** from `call_stack`
     /// (which is diagnostic and gets force-cleared on a terminal timeout). A
@@ -1118,6 +1128,64 @@ pub struct TestFailure {
     pub assertion_message: String,
     pub line: usize,
     pub column: usize,
+}
+
+/// RAII scope for [`Interpreter::current_block_overload_dups`]: installs the
+/// executing block's overload-duplicate set and restores the enclosing
+/// block's on drop — surviving `?` early returns and `.await` points.
+struct BlockDupsScope<'a> {
+    slot: &'a RefCell<Option<Rc<std::collections::HashSet<String>>>>,
+    prev: Option<Rc<std::collections::HashSet<String>>>,
+}
+
+impl<'a> BlockDupsScope<'a> {
+    fn enter(
+        slot: &'a RefCell<Option<Rc<std::collections::HashSet<String>>>>,
+        current: Option<Rc<std::collections::HashSet<String>>>,
+    ) -> Self {
+        let prev = slot.replace(current);
+        Self { slot, prev }
+    }
+}
+
+impl Drop for BlockDupsScope<'_> {
+    fn drop(&mut self) {
+        *self.slot.borrow_mut() = self.prev.take();
+    }
+}
+
+/// Members speculatively armed at block entry (`enforce_param_types` set
+/// because a later definition in the block will merge with them). If the
+/// merge never executes — the run errors or returns first — the promise is
+/// broken and Drop restores each member's prior flag, so a still-single
+/// action keeps its legacy dynamic-call behavior in later runs (a REPL
+/// interpreter is reused across snippets). A member that did merge is part
+/// of an overload set by drop time and keeps enforcement. Entries restore
+/// in reverse order so re-armed duplicates unwind to the oldest prior flag.
+struct ArmedMember {
+    env: Rc<RefCell<Environment>>,
+    name: String,
+    member: Rc<FunctionValue>,
+    prior_enforce: bool,
+}
+
+struct ArmedEnforcementGuard {
+    armed: Vec<ArmedMember>,
+}
+
+impl Drop for ArmedEnforcementGuard {
+    fn drop(&mut self) {
+        for entry in self.armed.drain(..).rev() {
+            let merged = matches!(
+                entry.env.borrow().get_local(&entry.name),
+                Some(Value::Overloaded(set))
+                    if set.overloads.iter().any(|m| Rc::ptr_eq(m, &entry.member))
+            );
+            if !merged {
+                entry.member.enforce_param_types.set(entry.prior_enforce);
+            }
+        }
+    }
 }
 
 // Process handle for managing subprocess state
@@ -2810,6 +2878,7 @@ impl Interpreter {
             in_count_loop: RefCell::new(false),
             sched_counter: Cell::new(0),
             budget,
+            current_block_overload_dups: RefCell::new(None),
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
             base_call_depth: 0,
@@ -2933,7 +3002,7 @@ impl Interpreter {
             Value::Bool(_) => Type::Boolean,
             Value::List(_) => Type::List(Box::new(Type::Unknown)),
             Value::Object(_) => Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
-            Value::Function(_) => Type::Function {
+            Value::Function(_) | Value::Overloaded(_) => Type::Function {
                 parameters: vec![],
                 return_type: Box::new(Type::Unknown),
             },
@@ -3391,6 +3460,79 @@ impl Interpreter {
         ExecutionBudget::scope(Arc::clone(&self.budget), self.interpret_inner(program)).await
     }
 
+    /// Action names defined more than once in `statements` — the immediate
+    /// slice only, matching the same-scope overloading rule: two same-name
+    /// definitions in different blocks are independent actions, not
+    /// overloads. Returns `None` (no allocation kept) when nothing in the
+    /// slice is overloaded.
+    fn scan_block_overload_dups(
+        statements: &[Statement],
+    ) -> Option<Rc<std::collections::HashSet<String>>> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        let mut dups: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for statement in statements {
+            if let Statement::ActionDefinition { name, .. } = statement {
+                let entry = counts.entry(name.as_str()).or_insert(0);
+                *entry += 1;
+                if *entry == 2 {
+                    dups.insert(name.clone());
+                }
+            }
+        }
+        if dups.is_empty() {
+            None
+        } else {
+            Some(Rc::new(dups))
+        }
+    }
+
+    /// Speculatively arms `enforce_param_types` on any same-scope function
+    /// that `statements` will merge a new definition into — the merge makes
+    /// that member overloaded, so its temporal window starts when the block
+    /// starts executing, not at the later merge. Inherited (parent-scope)
+    /// names are not mergeable — defining over them is a shadowing error —
+    /// so only the local scope is consulted. The returned guard reverts the
+    /// arming on drop for members whose merge never actually executed.
+    fn arm_block_members(
+        statements: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> ArmedEnforcementGuard {
+        let mut armed = Vec::new();
+        for statement in statements {
+            if let Statement::ActionDefinition { name, .. } = statement
+                && let Some(Value::Function(existing)) = env.borrow().get_local(name)
+            {
+                let prior_enforce = existing.enforce_param_types.get();
+                existing.enforce_param_types.set(true);
+                armed.push(ArmedMember {
+                    env: Rc::clone(env),
+                    name: name.clone(),
+                    member: existing,
+                    prior_enforce,
+                });
+            }
+        }
+        ArmedEnforcementGuard { armed }
+    }
+
+    /// Enters a statement block for overload enforcement: computes the
+    /// block's own duplicate set and speculatively arms mergeable members
+    /// (see [`Self::arm_block_members`]). Both guards restore on drop.
+    fn enter_block_overloads(
+        &self,
+        statements: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> (BlockDupsScope<'_>, ArmedEnforcementGuard) {
+        let armed = Self::arm_block_members(statements, env);
+        (
+            BlockDupsScope::enter(
+                &self.current_block_overload_dups,
+                Self::scan_block_overload_dups(statements),
+            ),
+            armed,
+        )
+    }
+
     /// The interpreter run body, executed inside the task-local budget scope
     /// established by [`Interpreter::interpret`].
     async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
@@ -3412,6 +3554,16 @@ impl Interpreter {
         // shares the parent's budget, clearing it would wrongly cancel the
         // parent's still-active main-loop exemption.
         self.assert_invariants();
+        // Names that will become overload sets in the top-level block enforce
+        // their declared types from the first definition on. Nested blocks
+        // get their own scan at block entry (`BlockDupsScope`), so
+        // enforcement stays scoped to the block that actually overloads.
+        // Same-scope members an incoming definition will merge with (a REPL
+        // interpreter reused across snippets) are armed the same way — and
+        // reverted on run exit if this run never executed the merge.
+        let _armed_members = Self::arm_block_members(&program.statements, &self.global_env);
+        *self.current_block_overload_dups.borrow_mut() =
+            Self::scan_block_overload_dups(&program.statements);
         self.call_stack.borrow_mut().clear();
 
         // Set up script arguments in the global environment
@@ -3615,10 +3767,15 @@ impl Interpreter {
 
         if errors.is_empty() {
             let main_func_opt = {
-                if let Some(Value::Function(main_func)) = self.global_env.borrow().get("main") {
-                    Some(main_func.clone())
-                } else {
-                    None
+                match self.global_env.borrow().get("main") {
+                    Some(Value::Function(main_func)) => Some(main_func.clone()),
+                    // An overloaded `main` runs its zero-argument overload.
+                    Some(Value::Overloaded(overloaded)) => overloaded
+                        .overloads
+                        .iter()
+                        .find(|func| func.params.is_empty())
+                        .cloned(),
+                    _ => None,
                 }
             };
 
@@ -3871,23 +4028,39 @@ impl Interpreter {
                 column,
             } => {
                 let param_names: Vec<String> = parameters.iter().map(|p| p.name.clone()).collect();
+                let param_types: Vec<Option<Type>> =
+                    parameters.iter().map(|p| p.param_type.clone()).collect();
 
                 let function = FunctionValue {
                     name: Some(name.clone()),
                     params: param_names,
+                    param_types,
                     body: body.clone(),
                     env: Rc::downgrade(&env),
                     line: *line,
                     column: *column,
+                    // Pre-scanned: true when this name has several definitions
+                    // in its block, so even the first member enforces its
+                    // declared types during the window before the second
+                    // definition executes ("the overloads defined so far").
+                    enforce_param_types: std::cell::Cell::new(
+                        self.current_block_overload_dups
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|dups| dups.contains(name)),
+                    ),
                 };
 
-                let function_value = Value::Function(Rc::new(function));
-                match env.borrow_mut().define(name, function_value.clone()) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                // A same-scope redefinition of an action name merges into an
+                // overload set instead of erroring; every other collision
+                // keeps its existing error.
+                match env
+                    .borrow_mut()
+                    .define_or_merge_action(name, Rc::new(function))
+                {
+                    Ok(defined_value) => Ok((defined_value, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                 }
-
-                Ok((function_value, ControlFlow::None))
             }
 
             Statement::ReturnStatement {
@@ -3924,6 +4097,21 @@ impl Interpreter {
                             .call_function(&func, vec![], *var_line, *var_column)
                             .await
                             .map(|value| (value, ControlFlow::None));
+                    } else if let Some(Value::Overloaded(overloaded)) = lookup {
+                        // A bare overloaded name auto-calls its zero-argument
+                        // overload, matching single-function behavior.
+                        if let Some(func) = overloaded
+                            .overloads
+                            .iter()
+                            .find(|func| func.params.is_empty())
+                        {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Executing bare overloaded action call: {}", name);
+                            return self
+                                .call_function(func, vec![], *var_line, *var_column)
+                                .await
+                                .map(|value| (value, ControlFlow::None));
+                        }
                     }
                 }
 
@@ -5308,7 +5496,7 @@ impl Interpreter {
                     ExportType::Action => {
                         // Check if action definition exists in local scope only
                         if let Some(value) = env.borrow().get_local(name) {
-                            if matches!(value, Value::Function(_)) {
+                            if matches!(value, Value::Function(_) | Value::Overloaded(_)) {
                                 Ok((Value::Null, ControlFlow::None))
                             } else {
                                 Err(RuntimeError::new(
@@ -6213,6 +6401,12 @@ impl Interpreter {
                             line: *line,
                             column: *column,
                         };
+                        // TODO(#638): container methods do not support
+                        // overloading — a repeated method name silently keeps
+                        // the last definition here. Route same-name methods
+                        // through an overload set (see
+                        // `Environment::define_or_merge_action` /
+                        // `select_overload` for the action equivalent).
                         container_methods.insert(name.clone(), container_method);
                     }
                 }
@@ -6311,10 +6505,12 @@ impl Interpreter {
                         let init_function = FunctionValue {
                             name: Some("initialize".to_string()),
                             params: init_method.params.clone(),
+                            param_types: vec![None; init_method.params.len()],
                             body: init_method.body.clone(),
                             env: init_method.env.clone(),
                             line: init_method.line,
                             column: init_method.column,
+                            enforce_param_types: std::cell::Cell::new(false),
                         };
 
                         // Create a new environment for the constructor execution
@@ -6582,10 +6778,12 @@ impl Interpreter {
                             let function = FunctionValue {
                                 name: Some(method_val.name.clone()),
                                 params: method_val.params.clone(),
+                                param_types: vec![None; method_val.params.len()],
                                 body: method_val.body.clone(),
                                 env: method_val.env.clone(),
                                 line: method_val.line,
                                 column: method_val.column,
+                                enforce_param_types: std::cell::Cell::new(false),
                             };
 
                             // Create a new environment for the method execution
@@ -8739,20 +8937,30 @@ impl Interpreter {
                 // This allows tests to access setup variables while remaining isolated from each other
                 let describe_env = Environment::new_child_env(&env);
 
-                // Run setup if present (runs in describe environment)
+                // Run setup if present (runs in describe environment).
+                // Setup/tests/teardown are three separate statement blocks,
+                // each with its own overload-duplicate scope.
                 if let Some(setup_stmts) = setup {
+                    let (_overload_dups, _armed_members) =
+                        self.enter_block_overloads(setup_stmts, &describe_env);
                     for stmt in setup_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
                 }
 
                 // Execute all tests (each gets a child of describe_env for isolation)
-                for test in tests {
-                    Box::pin(self._execute_statement(test, describe_env.clone())).await?;
+                {
+                    let (_overload_dups, _armed_members) =
+                        self.enter_block_overloads(tests, &describe_env);
+                    for test in tests {
+                        Box::pin(self._execute_statement(test, describe_env.clone())).await?;
+                    }
                 }
 
                 // Run teardown if present (runs in describe environment)
                 if let Some(teardown_stmts) = teardown {
+                    let (_overload_dups, _armed_members) =
+                        self.enter_block_overloads(teardown_stmts, &describe_env);
                     for stmt in teardown_stmts {
                         Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
@@ -8789,7 +8997,9 @@ impl Interpreter {
                 // ensuring each test gets a fresh copy for true isolation
                 let test_env = Environment::new_isolated_child_env(&env);
 
-                // Execute test body and catch assertion failures
+                // Execute test body and catch assertion failures. The body
+                // is its own statement block for overload enforcement.
+                let (_overload_dups, _armed_members) = self.enter_block_overloads(body, &test_env);
                 let mut test_passed = true;
 
                 for stmt in body {
@@ -9106,6 +9316,10 @@ impl Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         self.assert_invariants();
+        // Each block carries its own overload-duplicate set for temporal
+        // enforcement (restored on drop, including `?` early returns), and
+        // arms same-scope members its definitions will merge with.
+        let (_overload_dups, _armed_members) = self.enter_block_overloads(statements, &env);
         let mut last_value = Value::Null;
 
         #[cfg(debug_assertions)]
@@ -9262,6 +9476,10 @@ impl Interpreter {
                     if let Some(value) = env_borrowed.get(name) {
                         match &value {
                             Value::Function(func) => func.params.is_empty(), // Zero-arg user functions auto-call (async)
+                            Value::Overloaded(overloaded) => overloaded
+                                .overloads
+                                .iter()
+                                .any(|func| func.params.is_empty()),
                             Value::NativeFunction(_, _) => false, // Native functions evaluate sync
                             _ => false,
                         }
@@ -9313,6 +9531,18 @@ impl Interpreter {
             Value::Function(func) => {
                 if func.params.is_empty() {
                     // User functions are async -> return None to signal fallback to async
+                    Ok(None)
+                } else {
+                    Ok(Some(value))
+                }
+            }
+            Value::Overloaded(overloaded) => {
+                if overloaded
+                    .overloads
+                    .iter()
+                    .any(|func| func.params.is_empty())
+                {
+                    // The zero-arg overload auto-calls (async path)
                     Ok(None)
                 } else {
                     Ok(Some(value))
@@ -9579,10 +9809,12 @@ impl Interpreter {
                     let function = FunctionValue {
                         name: Some(method.name.clone()),
                         params: method.params.clone(),
+                        param_types: vec![None; method.params.len()],
                         body: method.body.clone(),
                         env: method.env.clone(),
                         line: method.line,
                         column: method.column,
+                        enforce_param_types: std::cell::Cell::new(false),
                     };
 
                     Ok(Value::Function(Rc::new(function)))
@@ -9663,10 +9895,12 @@ impl Interpreter {
                         let function = FunctionValue {
                             name: Some(method_val.name.clone()),
                             params: method_val.params.clone(),
+                            param_types: vec![None; method_val.params.len()],
                             body: method_val.body.clone(),
                             env: method_val.env.clone(),
                             line: method_val.line,
                             column: method_val.column,
+                            enforce_param_types: std::cell::Cell::new(false),
                         };
 
                         // Create a new environment for the method execution
@@ -9713,10 +9947,12 @@ impl Interpreter {
                         let method_function = FunctionValue {
                             name: function.name.clone(),
                             params: function.params.clone(),
+                            param_types: function.param_types.clone(),
                             body: function.body.clone(),
                             env: Rc::downgrade(&method_env),
                             line: function.line,
                             column: function.column,
+                            enforce_param_types: function.enforce_param_types.clone(),
                         };
 
                         // Call the function with the method environment
@@ -9827,6 +10063,19 @@ impl Interpreter {
                                 Ok(value)
                             }
                         }
+                        Value::Overloaded(overloaded) => {
+                            if let Some(func) = overloaded
+                                .overloads
+                                .iter()
+                                .find(|func| func.params.is_empty())
+                            {
+                                // Auto-call the zero-argument overload
+                                self.call_function(func, vec![], *line, *column).await
+                            } else {
+                                // Return the overload set for calls with arguments
+                                Ok(value)
+                            }
+                        }
                         _ => Ok(value),
                     }
                 } else if name == "count" {
@@ -9902,7 +10151,9 @@ impl Interpreter {
                     if let Some(value) = field {
                         let callee_is_function = matches!(
                             env.borrow().get(name),
-                            Some(Value::Function(_)) | Some(Value::NativeFunction(_, _))
+                            Some(Value::Function(_))
+                                | Some(Value::Overloaded(_))
+                                | Some(Value::NativeFunction(_, _))
                         ) || crate::builtins::is_builtin_function(name);
                         if !callee_is_function {
                             return Ok(value);
@@ -9910,7 +10161,23 @@ impl Interpreter {
                     }
                 }
 
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
+                // A bare-Variable callee that names an overload set must not
+                // be evaluated through the Variable arm: that would auto-call
+                // a zero-argument overload and then try to call its result.
+                // The set itself is the call target (PR #639 review).
+                let overloaded_callee = if let Expression::Variable(name, _, _) = function.as_ref()
+                {
+                    match env.borrow().get(name) {
+                        Some(value @ Value::Overloaded(_)) => Some(value),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let function_val = match overloaded_callee {
+                    Some(value) => value,
+                    None => self.evaluate_expression(function, Rc::clone(&env)).await?,
+                };
 
                 #[cfg(debug_assertions)]
                 let func_name = match &function_val {
@@ -9925,6 +10192,10 @@ impl Interpreter {
 
                 let result = match function_val {
                     Value::Function(func) => {
+                        self.call_function(&func, arg_values, *line, *column).await
+                    }
+                    Value::Overloaded(overloaded) => {
+                        let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
                         self.call_function(&func, arg_values, *line, *column).await
                     }
                     Value::NativeFunction(native_name, native_fn) => {
@@ -9977,6 +10248,17 @@ impl Interpreter {
                 })?;
 
                 match function_val {
+                    Value::Overloaded(overloaded) => {
+                        let mut arg_values = Vec::new();
+                        for arg in arguments.iter() {
+                            arg_values.push(
+                                self.evaluate_expression(&arg.value, Rc::clone(&env))
+                                    .await?,
+                            );
+                        }
+                        let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
+                        self.call_function(&func, arg_values, *line, *column).await
+                    }
                     Value::Function(func) => {
                         let mut arg_values = Vec::new();
                         for arg in arguments.iter() {
@@ -10821,6 +11103,160 @@ impl Interpreter {
         result
     }
 
+    /// Picks the overload whose parameter count and declared parameter types
+    /// match the actual argument values: filter by count, drop candidates
+    /// whose concrete annotations reject an argument, then prefer the
+    /// candidate with the most concretely-matched parameters (ties resolve to
+    /// definition order).
+    fn select_overload(
+        overloaded: &OverloadedFunction,
+        args: &[Value],
+        line: usize,
+        column: usize,
+    ) -> Result<Rc<FunctionValue>, RuntimeError> {
+        let arity_matches: Vec<&Rc<FunctionValue>> = overloaded
+            .overloads
+            .iter()
+            .filter(|func| func.params.len() == args.len())
+            .collect();
+
+        if arity_matches.is_empty() {
+            let mut arities: Vec<usize> = overloaded
+                .overloads
+                .iter()
+                .map(|func| func.params.len())
+                .collect();
+            arities.sort_unstable();
+            arities.dedup();
+            let arities_str = arities
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" or ");
+            return Err(RuntimeError::new(
+                format!(
+                    "No version of '{}' takes {} argument(s). It is defined with {} parameter(s).",
+                    overloaded.name,
+                    args.len(),
+                    arities_str
+                ),
+                line,
+                column,
+            ));
+        }
+
+        let mut best: Option<(&Rc<FunctionValue>, usize)> = None;
+        for func in &arity_matches {
+            let mut concrete_matches = 0usize;
+            let mut accepts = true;
+            for (param_type, arg) in func.param_types.iter().zip(args) {
+                if let Some(expected) = param_type {
+                    // `any`/`Unknown` annotations accept everything and earn
+                    // no specificity credit, matching untyped parameters.
+                    if matches!(expected, Type::Any | Type::Unknown) {
+                        continue;
+                    }
+                    if Self::value_matches_type(arg, expected) {
+                        // A `nothing` argument is accepted by every parameter
+                        // type but earns specificity credit only for an
+                        // explicit `as nothing` parameter (its exact match) —
+                        // otherwise versions accepting `nothing` stay tied
+                        // and definition order decides, as documented.
+                        if !matches!(arg, Value::Null | Value::Nothing)
+                            || matches!(expected, Type::Nothing)
+                        {
+                            concrete_matches += 1;
+                        }
+                    } else {
+                        accepts = false;
+                        break;
+                    }
+                }
+            }
+            if accepts && best.is_none_or(|(_, count)| concrete_matches > count) {
+                best = Some((func, concrete_matches));
+            }
+        }
+
+        match best {
+            Some((func, _)) => Ok(Rc::clone(func)),
+            None => {
+                let provided: Vec<&str> = args.iter().map(|arg| arg.type_name()).collect();
+                let mut message = format!(
+                    "No version of '{}' matches this call.\nYou provided ({}), but '{}' accepts:",
+                    overloaded.name,
+                    provided.join(", "),
+                    overloaded.name
+                );
+                for func in &arity_matches {
+                    message.push_str(&format!("\n  {}", Self::format_overload_signature(func)));
+                }
+                Err(RuntimeError::new(message, line, column))
+            }
+        }
+    }
+
+    /// Whether a runtime value satisfies a declared parameter type. Untyped
+    /// and unknown annotations accept everything; `Custom` types match a
+    /// container instance of that type or of a descendant (via the parent
+    /// instance chain).
+    fn value_matches_type(value: &Value, expected: &Type) -> bool {
+        // `nothing` is compatible with every parameter type, mirroring the
+        // static checkers' `(_, Type::Nothing) => true` rule; ties among
+        // overloads resolve by specificity then definition order.
+        if matches!(value, Value::Null | Value::Nothing) {
+            return true;
+        }
+        match expected {
+            Type::Number => matches!(value, Value::Number(_)),
+            Type::Text => matches!(value, Value::Text(_)),
+            Type::Boolean => matches!(value, Value::Bool(_)),
+            Type::Nothing => matches!(value, Value::Null | Value::Nothing),
+            Type::Pattern => matches!(value, Value::Pattern(_)),
+            Type::List(_) => matches!(value, Value::List(_)),
+            Type::Map(_, _) => matches!(value, Value::Object(_)),
+            Type::Custom(name) => {
+                if name.eq_ignore_ascii_case("any") {
+                    return true;
+                }
+                if let Value::ContainerInstance(instance) = value {
+                    let mut current = Some(Rc::clone(instance));
+                    while let Some(inst) = current {
+                        let inst_ref = inst.borrow();
+                        if inst_ref.container_type == *name {
+                            return true;
+                        }
+                        current = inst_ref.parent.clone();
+                    }
+                    false
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        }
+    }
+
+    /// Renders an overload's signature in WFL surface syntax for error
+    /// messages, e.g. `depict with value as number`.
+    fn format_overload_signature(func: &FunctionValue) -> String {
+        let name = func.name.as_deref().unwrap_or("anonymous");
+        if func.params.is_empty() {
+            return format!("{name} (no parameters)");
+        }
+        let params = func
+            .params
+            .iter()
+            .zip(&func.param_types)
+            .map(|(param, param_type)| match param_type {
+                Some(t) => format!("{param} as {}", crate::analyzer::format_param_type(t)),
+                None => param.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(" and ");
+        format!("{name} with {params}")
+    }
+
     async fn call_function(
         &self,
         func: &FunctionValue,
@@ -10847,6 +11283,36 @@ impl Interpreter {
                 line,
                 column,
             ));
+        }
+
+        // Declared parameter types are runtime-enforced only for actions
+        // participating in overload dispatch: a lone member of a
+        // not-yet-complete overload set rejects non-matching arguments instead
+        // of silently running the wrong body — calls dispatch on "the
+        // overloads defined so far". Plain single actions keep their
+        // historical dynamic behavior (annotations are static hints, not
+        // runtime guards), preserving backward compatibility. `nothing` and
+        // untyped/`any` parameters accept every value.
+        if func.enforce_param_types.get() {
+            for ((param_name, param_type), arg) in
+                func.params.iter().zip(&func.param_types).zip(args.iter())
+            {
+                if let Some(expected) = param_type
+                    && !matches!(expected, Type::Any | Type::Unknown)
+                    && !Self::value_matches_type(arg, expected)
+                {
+                    let action_name = func.name.as_deref().unwrap_or("anonymous");
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Argument '{param_name}' of '{action_name}' expects {}, but got {}",
+                            crate::analyzer::format_param_type(expected),
+                            arg.type_name()
+                        ),
+                        line,
+                        column,
+                    ));
+                }
+            }
         }
 
         let func_env = match func.env.upgrade() {

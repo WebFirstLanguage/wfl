@@ -26,6 +26,10 @@ pub enum Value {
     Null,
     Nothing, // Used for void returns
 
+    /// A set of same-name action overloads; calls dispatch on argument count
+    /// and runtime argument types (see `Interpreter::select_overload`).
+    Overloaded(Rc<OverloadedFunction>),
+
     // Container-related values
     ContainerDefinition(Rc<ContainerDefinitionValue>),
     ContainerInstance(Rc<RefCell<ContainerInstanceValue>>),
@@ -40,10 +44,31 @@ pub type NativeFunction = fn(Vec<Value>) -> Result<Value, RuntimeError>;
 pub struct FunctionValue {
     pub name: Option<String>,
     pub params: Vec<String>,
+    /// Declared parameter types, parallel to `params` (`None` = untyped).
+    /// Runtime overload dispatch matches argument values against these.
+    pub param_types: Vec<Option<crate::parser::ast::Type>>,
     pub body: Vec<Statement>,
     pub env: Weak<RefCell<Environment>>,
     pub line: usize,
     pub column: usize,
+    /// Whether `call_function` enforces the declared parameter types. Set only
+    /// for actions participating in overload dispatch (a member of an overload
+    /// set, or a definition whose name is overloaded later in the same block),
+    /// so a call against "the overloads defined so far" rejects non-matching
+    /// arguments instead of running the wrong body. Plain single actions keep
+    /// their historical dynamic behavior: annotations are static-analysis
+    /// hints, not runtime guards. A `Cell` so merging can flip existing
+    /// members already shared behind `Rc` (including captured snapshots).
+    pub enforce_param_types: std::cell::Cell<bool>,
+}
+
+/// The runtime value of an action name defined more than once in a scope:
+/// every overload in definition order. Calls pick the overload whose
+/// parameter count and declared parameter types match the actual arguments.
+#[derive(Clone)]
+pub struct OverloadedFunction {
+    pub name: String,
+    pub overloads: Vec<Rc<FunctionValue>>,
 }
 
 #[derive(Clone)]
@@ -61,6 +86,10 @@ pub struct ContainerDefinitionValue {
     pub extends: Option<String>,
     pub implements: Vec<String>,
     pub properties: HashMap<String, PropertyDefinition>,
+    /// TODO(#638): name-keyed maps mean container methods cannot overload —
+    /// a repeated method name silently keeps the last definition. Overload
+    /// support needs these to hold sets (cf. `OverloadedFunction`) plus
+    /// arity/type-aware inheritance and interface-conformance matching.
     pub methods: HashMap<String, ContainerMethodValue>,
     pub events: HashMap<String, ContainerEventValue>,
     pub static_properties: HashMap<String, Value>,
@@ -191,6 +220,7 @@ impl Value {
             Value::List(_) => "List",
             Value::Object(_) => "Object",
             Value::Function(_) => "Function",
+            Value::Overloaded(_) => "Function",
             Value::NativeFunction(_, _) => "NativeFunction",
             Value::Future(_) => "Future",
             Value::Date(_) => "Date",
@@ -216,7 +246,7 @@ impl Value {
             Value::Text(s) => !s.is_empty(),
             Value::List(list) => !list.borrow().is_empty(),
             Value::Object(obj) => !obj.borrow().is_empty(),
-            Value::Function(_) | Value::NativeFunction(_, _) => true,
+            Value::Function(_) | Value::Overloaded(_) | Value::NativeFunction(_, _) => true,
             Value::Future(future) => future.borrow().completed,
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
             Value::Pattern(_) => true,
@@ -400,6 +430,14 @@ impl Value {
                     func.name.as_deref().unwrap_or("anonymous")
                 )
             }
+            Value::Overloaded(overloaded) => {
+                write!(
+                    f,
+                    "Function({}, {} overloads)",
+                    overloaded.name,
+                    overloaded.overloads.len()
+                )
+            }
             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "Date({d})"),
@@ -502,6 +540,14 @@ impl Value {
             Value::Function(func) => {
                 write!(f, "action {}", func.name.as_deref().unwrap_or("anonymous"))
             }
+            Value::Overloaded(overloaded) => {
+                write!(
+                    f,
+                    "action {} ({} overloads)",
+                    overloaded.name,
+                    overloaded.overloads.len()
+                )
+            }
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
@@ -570,6 +616,7 @@ impl PartialEq for Value {
 
             // Types that don't need cycle detection can be handled directly here
             (Value::Function(a), Value::Function(b)) => return Rc::ptr_eq(a, b),
+            (Value::Overloaded(a), Value::Overloaded(b)) => return Rc::ptr_eq(a, b),
             (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
                 // Use cast to usize for MSRV 1.75 compatibility (fn_addr_eq is 1.85+)
                 // This compares the function code addresses directly
@@ -673,6 +720,7 @@ fn eq_with_visited(
         }
 
         (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
+        (Value::Overloaded(a), Value::Overloaded(b)) => Rc::ptr_eq(a, b),
         (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
             name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
         }

@@ -140,6 +140,39 @@ define action called <identifier> [with parameters <param-list>]:
 end action
 ```
 
+Parameters may declare a type with `as` (e.g. `value as number`). An action
+name may be defined more than once in the same scope (overloading) when every
+pair of same-name definitions differs in parameter count or has at least one
+position where both declare concrete, different parameter types. Exact
+duplicates, and same-count pairs with no such distinguishing position, are
+definition-time errors. Calls resolve by filtering candidates on argument
+count, then on argument types (statically when known, otherwise on the runtime
+values); among several runtime matches the version with the most
+concretely-matched parameters wins, with remaining ties resolved in definition
+order. A `nothing` argument is compatible with every parameter type and
+contributes no dispatch specificity except toward a parameter declared
+`as nothing`, which it matches exactly; a parameter annotated with a
+container name accepts instances of that container or any descendant via
+`extends`. For an action participating in overloading,
+declared parameter types are enforced when the action executes — a call whose
+argument a declared type rejects is a runtime error, so a call between two
+definitions dispatches over the overloads defined so far. This enforcement is
+scoped to the statement block whose definitions form the overload set; for
+definitions in different blocks that merge into one scope, enforcement of
+the existing members begins when the block containing the merging
+definition starts executing, and is reverted when that block exits without
+the merge having executed. An action defined exactly once in its block
+(and never merged) is not runtime-checked; its annotations inform static
+analysis only. A variable bound to an action by a
+bare reference (`store h as f`) is callable and dispatches with the
+signatures the action had at the point of the binding (snapshot semantics),
+statically and at runtime; a binding whose state cannot be determined
+statically — reassigned in one branch of a conditional, reassigned anywhere
+inside a loop or `try` body (an abrupt exit can expose the intermediate
+binding), or bound after a definition that sits inside a branch or loop —
+defers wholly to runtime dispatch. Container methods do not support
+overloading.
+
 **Action Call:**
 ```
 call <identifier> [with <argument-list>]

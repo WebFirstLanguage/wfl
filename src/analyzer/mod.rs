@@ -15,6 +15,75 @@ pub enum SymbolKind {
     Pattern,
 }
 
+/// Why two same-name signatures cannot coexist as overloads.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SignatureConflict {
+    /// Same parameter count and same (normalized) parameter types.
+    ExactDuplicate,
+    /// Same parameter count and no position where both declare concrete,
+    /// different types — an untyped parameter accepts every value, so no
+    /// call could ever be routed deterministically between the two.
+    Ambiguous,
+}
+
+fn signature_conflict(a: &FunctionSignature, b: &FunctionSignature) -> Option<SignatureConflict> {
+    if a.parameters.len() != b.parameters.len() {
+        return None;
+    }
+    let exact_same_types = a
+        .parameters
+        .iter()
+        .zip(&b.parameters)
+        .all(|(pa, pb)| pa.param_type == pb.param_type);
+    if exact_same_types {
+        return Some(SignatureConflict::ExactDuplicate);
+    }
+    // `any`/`Unknown` annotations accept every value, so — like untyped
+    // parameters — they cannot separate two overloads at a call site.
+    let is_concrete =
+        |t: &Option<Type>| matches!(t, Some(inner) if !matches!(inner, Type::Any | Type::Unknown));
+    let distinguishable = a.parameters.iter().zip(&b.parameters).any(|(pa, pb)| {
+        is_concrete(&pa.param_type) && is_concrete(&pb.param_type) && pa.param_type != pb.param_type
+    });
+    if distinguishable {
+        None
+    } else {
+        Some(SignatureConflict::Ambiguous)
+    }
+}
+
+/// Render a signature in WFL surface syntax for diagnostics, e.g.
+/// `describe with value as number` or `reset (no parameters)`.
+pub(crate) fn format_signature(name: &str, signature: &FunctionSignature) -> String {
+    if signature.parameters.is_empty() {
+        return format!("{name} (no parameters)");
+    }
+    let params = signature
+        .parameters
+        .iter()
+        .map(|p| match &p.param_type {
+            Some(t) => format!("{} as {}", p.name, format_param_type(t)),
+            None => p.name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(" and ");
+    format!("{name} with {params}")
+}
+
+/// Parameter types as they appear in source (`as number`, not `as Number`).
+pub(crate) fn format_param_type(t: &Type) -> String {
+    match t {
+        Type::Text => "text".to_string(),
+        Type::Number => "number".to_string(),
+        Type::Boolean => "boolean".to_string(),
+        Type::Nothing => "nothing".to_string(),
+        Type::Pattern => "pattern".to_string(),
+        Type::Any => "any".to_string(),
+        Type::Custom(name) => name.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ContainerInfo {
     pub name: String,
@@ -235,6 +304,82 @@ pub struct Analyzer {
     /// budget failure is fatal and must never be mistaken for an ordinary
     /// semantic diagnostic. Reset per `analyze` run.
     budget_error: Option<crate::exec::budget::BudgetExceeded>,
+    /// Variables that hold a stored action reference (`store h as f`), mapped
+    /// to what is statically known about them so calls through the variable
+    /// get real overload resolution. Removed again when the variable is
+    /// reassigned to anything that is not a bare action reference; degraded to
+    /// [`AliasState::Dynamic`] when control flow makes the binding uncertain.
+    /// Reset per `analyze` run.
+    action_aliases: HashMap<String, AliasState>,
+    /// Overload definitions *visited so far* in the PASS-2 walk, per action
+    /// name. PASS 1 registers signatures in lexical order, so an exact count
+    /// is a prefix length into the symbol's signature list — the overloads a
+    /// stored-action alias captured at its binding point (runtime snapshot
+    /// semantics). Path-sensitive: control-flow constructs snapshot and join
+    /// it alongside `action_aliases`, so a definition inside a branch that
+    /// may not execute degrades the count to [`OverloadCount::Unknown`].
+    /// Reset per `analyze` run.
+    defined_overloads: HashMap<String, OverloadCount>,
+    /// Stack of alias-mutation frames, one per loop/`try` body being
+    /// analyzed. Records which alias names were *written at any point*
+    /// during the body — endpoint flow states cannot see a binding that was
+    /// mutated and then restored, but a `break`/`continue` or an error
+    /// transferring to a `when` handler can expose exactly that
+    /// intermediate state at runtime. Popping a frame merges it into its
+    /// parent (an inner body's mutation is also the outer body's). Reset
+    /// per `analyze` run.
+    alias_mutation_frames: Vec<std::collections::HashSet<String>>,
+    /// What each alias call site resolved to, keyed by (callee, line, column).
+    /// The type checker reads this instead of the final alias map so it
+    /// observes the alias state that held *at that statement*, not whatever
+    /// the map ended up as. Reset per `analyze` run.
+    alias_call_sites: HashMap<(String, usize, usize), AliasState>,
+}
+
+/// Statically known state of a stored-action alias variable.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AliasState {
+    /// Bound to `action`, seeing only the first `visible_signatures` entries
+    /// of its signature list — the overloads lexically defined before the
+    /// binding, matching the runtime's snapshot semantics.
+    Bound {
+        action: String,
+        visible_signatures: usize,
+    },
+    /// Possibly an action (e.g. reassigned differently across branches):
+    /// static validation is skipped and the call defers to runtime dispatch.
+    Dynamic,
+}
+
+/// How many overloads of an action the PASS-2 walk has visited so far.
+/// `Exact(n)` is a faithful prefix length into the PASS-1 signature list;
+/// `Unknown` means the count depends on control flow (a definition sits in a
+/// branch or loop whose execution is undecidable), so aliases bound after
+/// that point defer to runtime dispatch instead of trusting a prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverloadCount {
+    Exact(usize),
+    Unknown,
+}
+
+impl OverloadCount {
+    fn bump(self) -> Self {
+        match self {
+            OverloadCount::Exact(n) => OverloadCount::Exact(n + 1),
+            OverloadCount::Unknown => OverloadCount::Unknown,
+        }
+    }
+}
+
+/// The control-flow-sensitive state snapshotted around branches: stored-
+/// action aliases plus the visible-overload counters. Both describe "what
+/// has executed so far", so they must travel through branch joins together —
+/// joining one without the other lets unexecuted code leak into the other's
+/// view (the round-4 review finding).
+#[derive(Clone)]
+struct FlowState {
+    aliases: HashMap<String, AliasState>,
+    overloads: HashMap<String, OverloadCount>,
 }
 
 impl Default for Analyzer {
@@ -440,6 +585,10 @@ impl Analyzer {
             try_depth: 0,
             active_loop_variables: Vec::new(),
             budget_error: None,
+            action_aliases: HashMap::new(),
+            defined_overloads: HashMap::new(),
+            alias_mutation_frames: Vec::new(),
+            alias_call_sites: HashMap::new(),
         }
     }
 
@@ -520,6 +669,12 @@ impl Analyzer {
         // Assign directly (not just set-to-true) so a reused analyzer instance
         // does not carry a stale flag from a previous program.
         self.has_includes = program_has_includes(program);
+
+        // Stored-action alias state is per-program.
+        self.action_aliases.clear();
+        self.defined_overloads.clear();
+        self.alias_mutation_frames.clear();
+        self.alias_call_sites.clear();
 
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
@@ -653,8 +808,14 @@ impl Analyzer {
                 // This is actually a property assignment, not a variable declaration
                 // Don't treat it as an error - the interpreter will handle it
 
-                if !is_property_assignment && let Err(error) = self.current_scope.define(symbol) {
-                    self.errors.push(error);
+                // Aliases only track real variable bindings: a container
+                // property assignment creates no binding, and a failed define
+                // must not disturb an outer variable's alias state.
+                if !is_property_assignment {
+                    match self.current_scope.define(symbol) {
+                        Err(error) => self.errors.push(error),
+                        Ok(()) => self.update_action_alias(name, value),
+                    }
                 }
             }
             Statement::Assignment {
@@ -664,10 +825,12 @@ impl Analyzer {
                 column,
             } => {
                 let mut skip_value_analysis = false;
+                let mut is_variable_assignment = false;
 
                 if let Some(symbol) = self.current_scope.resolve(name) {
                     match &symbol.kind {
                         SymbolKind::Variable { mutable } => {
+                            is_variable_assignment = *mutable;
                             if !mutable {
                                 self.errors.push(SemanticError::new(
                                     format!("Cannot modify constant '{name}' - constants are immutable once defined"),
@@ -707,11 +870,21 @@ impl Analyzer {
                 // Only analyze the value expression if the assignment is potentially valid
                 if !skip_value_analysis {
                     self.analyze_expression(value);
+                    // Aliases only track real variable rebinds; invalid or
+                    // property/undefined targets leave alias state untouched.
+                    if is_variable_assignment {
+                        self.update_action_alias(name, value);
+                    }
                 }
             }
-            Statement::ActionDefinition { .. } => {
+            Statement::ActionDefinition { name, .. } => {
                 // Signature was already registered in Pass 1
                 // Now analyze the body in Pass 2
+                let counter = self
+                    .defined_overloads
+                    .entry(name.clone())
+                    .or_insert(OverloadCount::Exact(0));
+                *counter = counter.bump();
                 self.analyze_action_body(statement);
             }
             Statement::IfStatement {
@@ -721,6 +894,7 @@ impl Analyzer {
                 ..
             } => {
                 self.analyze_expression(condition);
+                let flow_entry = self.flow_entry();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope.clone());
@@ -728,6 +902,7 @@ impl Analyzer {
                 for stmt in then_block {
                     self.analyze_statement(stmt);
                 }
+                let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 let mut defined_in_then = Vec::new();
@@ -750,6 +925,8 @@ impl Analyzer {
                     for stmt in else_stmts {
                         self.analyze_statement(stmt);
                     }
+                    let flow_else = self.take_flow_branch(&flow_entry);
+                    self.join_flow_branches(&[flow_then.clone(), flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
 
@@ -762,6 +939,9 @@ impl Analyzer {
                     if let Some(parent) = else_scope.parent {
                         self.current_scope = *parent;
                     }
+                } else {
+                    // No else: the construct may be skipped entirely.
+                    self.join_flow_branches(&[flow_then.clone(), flow_entry.clone()]);
                 }
 
                 // Variables defined in both branches are definitely defined
@@ -788,11 +968,13 @@ impl Analyzer {
                 ..
             } => {
                 self.analyze_expression(condition);
+                let flow_entry = self.flow_entry();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
                 self.analyze_statement(then_stmt);
+                let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = then_scope.parent {
@@ -804,11 +986,15 @@ impl Analyzer {
                     self.current_scope = Scope::with_parent(outer_scope);
 
                     self.analyze_statement(else_stmt);
+                    let flow_else = self.take_flow_branch(&flow_entry);
+                    self.join_flow_branches(&[flow_then, flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = else_scope.parent {
                         self.current_scope = *parent;
                     }
+                } else {
+                    self.join_flow_branches(&[flow_then, flow_entry]);
                 }
             }
             Statement::ForEachLoop {
@@ -837,9 +1023,20 @@ impl Analyzer {
                 // Add item to action_parameters to prevent it from being flagged as undefined
                 self.action_parameters.insert(item_name.clone());
 
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                // The body may run zero times: join it with the skip path.
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                // A break/continue can leave the loop while a mutated alias
+                // holds an intermediate binding the body later restores —
+                // endpoint states cannot see it, so mutated names defer to
+                // runtime dispatch.
+                self.degrade_mutated_aliases(&mutated);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(item_name);
@@ -905,9 +1102,20 @@ impl Analyzer {
                 self.action_parameters.insert(loop_var_name.to_string());
                 self.active_loop_variables.push(loop_var_name.to_string());
 
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                // The body may run zero times: join it with the skip path.
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                // A break/continue can leave the loop while a mutated alias
+                // holds an intermediate binding the body later restores —
+                // endpoint states cannot see it, so mutated names defer to
+                // runtime dispatch.
+                self.degrade_mutated_aliases(&mutated);
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(loop_var_name);
@@ -926,9 +1134,91 @@ impl Analyzer {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                // The body may run zero times: join it with the skip path.
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                // A break/continue can leave the loop while a mutated alias
+                // holds an intermediate binding the body later restores —
+                // endpoint states cannot see it, so mutated names defer to
+                // runtime dispatch.
+                self.degrade_mutated_aliases(&mutated);
+
+                let loop_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = loop_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
+            // The remaining loop forms get the same flow treatment. The
+            // pre-checked forms may run zero times, so the body joins with
+            // the entry (skip) path; `forever`/`main loop` exit only through
+            // an abrupt `break`, which the mutation-frame degradation
+            // covers, so including the entry path there is merely
+            // conservative, never wrong.
+            Statement::RepeatWhileLoop {
+                condition, body, ..
+            }
+            | Statement::RepeatUntilLoop {
+                condition, body, ..
+            } => {
+                self.analyze_expression(condition);
+
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.current_scope = Scope::with_parent(outer_scope);
+
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
+                let errors_before = self.errors.len();
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+                // These bodies were not analyzed before alias flow tracking
+                // reached them; new diagnostics inside would break existing
+                // programs (backward compatibility), so they demote to
+                // warnings — runtime behavior is authoritative in here. A
+                // latched budget breach is different: analysis was *aborted*,
+                // not diagnosed, and its rendered error must stay fatal.
+                if self.budget_error.is_none() {
+                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                    self.warnings.extend(demoted);
+                }
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                self.degrade_mutated_aliases(&mutated);
+
+                let loop_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = loop_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
+            Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.current_scope = Scope::with_parent(outer_scope);
+
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
+                let errors_before = self.errors.len();
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+                // Same demotion as the repeat forms: web-server main loops
+                // reference handler-provided names this analyzer cannot
+                // model, and these bodies were previously unanalyzed. A
+                // latched budget breach stays fatal (see the repeat forms).
+                if self.budget_error.is_none() {
+                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                    self.warnings.extend(demoted);
+                }
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                self.degrade_mutated_aliases(&mutated);
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
@@ -1012,11 +1302,24 @@ impl Analyzer {
 
                 // Undefined names inside a try body raise catchable runtime
                 // errors, so they are downgraded to warnings while in here.
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
                 self.try_depth += 1;
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
                 self.try_depth -= 1;
+                let flow_try = self.take_flow_branch(&flow_entry);
+                let mutated_in_body = self.pop_mutation_frame();
+                // Error clauses can be entered from any point in the body, so
+                // they start from the entry/body join — with every alias the
+                // body mutated *anywhere* degraded to Dynamic, because the
+                // error may fire while such an alias holds an intermediate
+                // binding the body's endpoint state has already restored.
+                self.join_flow_branches(&[flow_try.clone(), flow_entry.clone()]);
+                self.degrade_mutated_aliases(&mutated_in_body);
+                let flow_handler_entry = self.flow_entry();
+                let mut flow_paths: Vec<FlowState> = vec![flow_try];
 
                 let try_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = try_scope.parent {
@@ -1053,9 +1356,11 @@ impl Analyzer {
                         let _ = self.current_scope.define(error_message_symbol);
                     }
 
+                    self.restore_flow(&flow_handler_entry);
                     for stmt in &when_clause.body {
                         self.analyze_statement(stmt);
                     }
+                    flow_paths.push(self.take_flow_branch(&flow_handler_entry));
 
                     let when_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = when_scope.parent {
@@ -1067,15 +1372,20 @@ impl Analyzer {
                     let outer_scope = std::mem::take(&mut self.current_scope);
                     self.current_scope = Scope::with_parent(outer_scope);
 
+                    self.restore_flow(&flow_handler_entry);
                     for stmt in otherwise_stmts {
                         self.analyze_statement(stmt);
                     }
+                    flow_paths.push(self.take_flow_branch(&flow_handler_entry));
 
                     let otherwise_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = otherwise_scope.parent {
                         self.current_scope = *parent;
                     }
                 }
+
+                // After the construct, any of the recorded paths may have run.
+                self.join_flow_branches(&flow_paths);
 
                 if let Some(finally_stmts) = finally_block {
                     let outer_scope = std::mem::take(&mut self.current_scope);
@@ -1378,6 +1688,10 @@ impl Analyzer {
                             column: *method_column,
                         };
 
+                        // TODO(#638): container methods do not support
+                        // overloading — a repeated method name silently
+                        // replaces the earlier registration (contrast
+                        // `register_action_signature`, which merges or errors).
                         container_info
                             .methods
                             .insert(method_name.clone(), method_info);
@@ -1406,9 +1720,15 @@ impl Analyzer {
                             let _ = self.current_scope.define(symbol);
                         }
 
+                        // Same isolation as `analyze_action_body`: a method
+                        // body has not executed at definition time.
+                        let alias_entry = self.action_aliases.clone();
+                        let overloads_entry = self.defined_overloads.clone();
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        self.action_aliases = alias_entry;
+                        self.defined_overloads = overloads_entry;
 
                         // Restore previous container context
                         self.current_container = previous_container;
@@ -1439,6 +1759,8 @@ impl Analyzer {
                             column: *method_column,
                         };
 
+                        // TODO(#638): same silent last-wins as instance
+                        // methods above — no overloading for static methods.
                         container_info
                             .static_methods
                             .insert(method_name.clone(), method_info);
@@ -1481,9 +1803,15 @@ impl Analyzer {
                             let _ = self.current_scope.define(symbol);
                         }
 
+                        // Same isolation as `analyze_action_body`: a method
+                        // body has not executed at definition time.
+                        let alias_entry = self.action_aliases.clone();
+                        let overloads_entry = self.defined_overloads.clone();
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        self.action_aliases = alias_entry;
+                        self.defined_overloads = overloads_entry;
 
                         // Restore previous container context
                         self.current_container = previous_container;
@@ -1843,9 +2171,15 @@ impl Analyzer {
                     }
                 }
 
+                // Handler bodies run per event, not at registration — same
+                // alias isolation as action bodies.
+                let alias_entry = self.action_aliases.clone();
+                let overloads_entry = self.defined_overloads.clone();
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                self.action_aliases = alias_entry;
+                self.defined_overloads = overloads_entry;
 
                 for prop in newly_added {
                     self.action_parameters.remove(prop);
@@ -2035,13 +2369,56 @@ impl Analyzer {
             ..
         } = statement
         {
+            let new_signature = FunctionSignature {
+                parameters: parameters.clone(),
+                return_type: return_type.clone(),
+            };
+
+            // Same-scope redefinition of an existing action is the overload
+            // path: accumulate the signature instead of erroring, unless the
+            // pair is an exact duplicate or cannot be told apart at a call
+            // site. Collisions with non-function symbols and parent-scope
+            // shadowing keep their existing `Scope::define` errors.
+            if let Some(existing) = self.current_scope.symbols.get_mut(name)
+                && let SymbolKind::Function { signatures } = &mut existing.kind
+            {
+                let first_line = existing.line;
+                match signatures
+                    .iter()
+                    .find_map(|sig| signature_conflict(sig, &new_signature))
+                {
+                    Some(SignatureConflict::ExactDuplicate) => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "Action '{name}' was already defined with the same parameters at line {first_line}. \
+                                 Overloads must differ in parameter count or in their declared parameter types \
+                                 (e.g. 'value as number' vs 'value as text')."
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    Some(SignatureConflict::Ambiguous) => {
+                        self.errors.push(SemanticError::new(
+                            format!(
+                                "These two versions of '{name}' cannot be told apart when called with {} argument(s). \
+                                 Give every same-parameter-count overload distinct parameter types \
+                                 ('as number', 'as text', ...), or use different parameter counts.",
+                                new_signature.parameters.len()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    None => signatures.push(new_signature),
+                }
+                return;
+            }
+
             let symbol = Symbol {
                 name: name.clone(),
                 kind: SymbolKind::Function {
-                    signatures: vec![FunctionSignature {
-                        parameters: parameters.clone(),
-                        return_type: return_type.clone(),
-                    }],
+                    signatures: vec![new_signature],
                 },
                 symbol_type: None,
                 line: *line,
@@ -2131,10 +2508,19 @@ impl Analyzer {
                 }
             }
 
-            // Analyze body statements
+            // Analyze body statements. The body has not *executed* at the
+            // point of definition, so any alias mutations it performs must
+            // not leak into (or clobber) the surrounding scope's alias state;
+            // inside the body the definition-point state approximates what
+            // the closure captured. Nested definitions likewise must not
+            // inflate the outer visible-overload counters.
+            let alias_entry = self.action_aliases.clone();
+            let overloads_entry = self.defined_overloads.clone();
             for stmt in body {
                 self.analyze_statement(stmt);
             }
+            self.action_aliases = alias_entry;
+            self.defined_overloads = overloads_entry;
 
             // Clean up: remove parameter names from action_parameters
             for param_name in param_names_to_remove {
@@ -2314,6 +2700,247 @@ impl Analyzer {
         }
     }
 
+    /// Validates a call against every registered signature of `name`:
+    /// filters candidates by argument count, then (when several share the
+    /// count) by static argument types. A single surviving candidate gets the
+    /// full named-argument and type validation; several survivors — argument
+    /// types only known at runtime, `nothing` arguments (compatible with
+    /// every parameter type), or container-inheritance overlap — defer
+    /// dispatch to the interpreter with no diagnostic.
+    ///
+    /// `is_of_form` only selects the historical wording of the arity error
+    /// ("Function ... arguments" for the `of` form vs "Action ...
+    /// argument(s)" for the `call` form).
+    fn check_overloaded_call(
+        &mut self,
+        name: &str,
+        signatures: &[FunctionSignature],
+        arguments: &[crate::parser::ast::Argument],
+        is_of_form: bool,
+        line: usize,
+        column: usize,
+    ) {
+        let arity_matches: Vec<&FunctionSignature> = signatures
+            .iter()
+            .filter(|sig| sig.parameters.len() == arguments.len())
+            .collect();
+
+        if arity_matches.is_empty() {
+            let mut arities: Vec<usize> =
+                signatures.iter().map(|sig| sig.parameters.len()).collect();
+            arities.sort_unstable();
+            arities.dedup();
+            let arities_str = arities
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(" or ");
+            let message = if is_of_form {
+                format!(
+                    "Function '{name}' expects {arities_str} arguments, but {} were provided",
+                    arguments.len()
+                )
+            } else {
+                format!(
+                    "Action '{name}' expects {arities_str} argument(s), but {} were provided",
+                    arguments.len()
+                )
+            };
+            self.errors.push(SemanticError::new(message, line, column));
+            return;
+        }
+
+        if arity_matches.len() == 1 {
+            self.check_call_against_signature(name, arity_matches[0], arguments, line, column);
+            return;
+        }
+
+        let compatible: Vec<&FunctionSignature> = arity_matches
+            .iter()
+            .copied()
+            .filter(|sig| self.signature_accepts(sig, arguments))
+            .collect();
+
+        match compatible.len() {
+            1 => self.check_call_against_signature(name, compatible[0], arguments, line, column),
+            0 => {
+                let provided: Vec<String> = arguments
+                    .iter()
+                    .map(|arg| {
+                        Self::format_type_for_display(&self.infer_expression_type(&arg.value))
+                    })
+                    .collect();
+                let mut message = format!(
+                    "No version of '{name}' matches this call.\nYou provided ({}), but '{name}' accepts:",
+                    provided.join(", ")
+                );
+                for sig in &arity_matches {
+                    message.push_str(&format!("\n  {}", format_signature(name, sig)));
+                }
+                self.errors.push(SemanticError::new(message, line, column));
+            }
+            _ => {
+                // Several overloads still accept the call — runtime-only
+                // argument types, `nothing` arguments, or container-
+                // inheritance overlap. The interpreter dispatches on the
+                // actual values.
+            }
+        }
+    }
+
+    /// Whether `signature` could accept this call: every argument maps onto a
+    /// distinct parameter (by name or position) and no statically-known
+    /// argument type contradicts a concrete parameter annotation. Used to
+    /// filter same-arity overload candidates; unlike
+    /// `check_call_against_signature` it reports nothing.
+    fn signature_accepts(
+        &self,
+        signature: &FunctionSignature,
+        arguments: &[crate::parser::ast::Argument],
+    ) -> bool {
+        let mut mapped: Vec<Option<&Expression>> = vec![None; signature.parameters.len()];
+
+        for (arg_idx, arg) in arguments.iter().enumerate() {
+            let param_idx = if let Some(arg_name) = &arg.name {
+                match signature
+                    .parameters
+                    .iter()
+                    .position(|p| p.name == *arg_name)
+                {
+                    Some(idx) => idx,
+                    None => return false,
+                }
+            } else {
+                arg_idx
+            };
+            if mapped[param_idx].is_some() {
+                return false;
+            }
+            mapped[param_idx] = Some(&arg.value);
+        }
+
+        signature
+            .parameters
+            .iter()
+            .zip(mapped)
+            .all(|(param, arg_opt)| {
+                let (Some(expected_type), Some(arg_val)) = (&param.param_type, arg_opt) else {
+                    return true;
+                };
+                if matches!(expected_type, Type::Unknown | Type::Any) {
+                    return true;
+                }
+                let arg_type = self.infer_expression_type(arg_val);
+                arg_type == Type::Unknown || self.is_type_compatible(&arg_type, expected_type)
+            })
+    }
+
+    /// Full validation of a call against one resolved signature: argument
+    /// count, named-argument mapping (unknown parameter, duplicate argument),
+    /// and per-argument type compatibility.
+    fn check_call_against_signature(
+        &mut self,
+        name: &str,
+        signature: &FunctionSignature,
+        arguments: &[crate::parser::ast::Argument],
+        line: usize,
+        column: usize,
+    ) {
+        if arguments.len() != signature.parameters.len() {
+            self.errors.push(SemanticError::new(
+                format!(
+                    "Action '{}' expects {} argument(s), but {} were provided",
+                    name,
+                    signature.parameters.len(),
+                    arguments.len()
+                ),
+                line,
+                column,
+            ));
+
+            // Skip type validation if arity is mismatched to avoid noisy/cascading errors
+            return;
+        }
+
+        // Map arguments to parameters for type validation
+        let mut matched_args: Vec<Option<&Expression>> = vec![None; signature.parameters.len()];
+        let mut has_mapping_error = false;
+
+        for (arg_idx, arg) in arguments.iter().enumerate() {
+            let mut param_idx_opt = None;
+
+            if let Some(arg_name) = &arg.name {
+                // Named argument
+                if let Some(idx) = signature
+                    .parameters
+                    .iter()
+                    .position(|p| p.name == *arg_name)
+                {
+                    param_idx_opt = Some(idx);
+                } else {
+                    self.errors.push(SemanticError::new(
+                        format!("Unknown parameter '{arg_name}' for action '{name}'"),
+                        line,
+                        column,
+                    ));
+                    has_mapping_error = true;
+                }
+            } else {
+                // Positional argument
+                if arg_idx < signature.parameters.len() {
+                    param_idx_opt = Some(arg_idx);
+                }
+            }
+
+            if let Some(param_idx) = param_idx_opt {
+                if matched_args[param_idx].is_some() {
+                    let param_name = &signature.parameters[param_idx].name;
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "Duplicate argument for parameter '{param_name}' in action '{name}'"
+                        ),
+                        line,
+                        column,
+                    ));
+                    has_mapping_error = true;
+                } else {
+                    matched_args[param_idx] = Some(&arg.value);
+                }
+            }
+        }
+
+        // Skip type validation if argument mapping failed
+        if has_mapping_error {
+            return;
+        }
+
+        // Type validation
+        for (param, arg_opt) in signature.parameters.iter().zip(matched_args.iter()) {
+            if let Some(arg_val) = arg_opt
+                && let Some(expected_type) = &param.param_type
+            {
+                let arg_type = self.infer_expression_type(arg_val);
+
+                if arg_type != Type::Unknown
+                    && expected_type != &Type::Unknown
+                    && expected_type != &Type::Any
+                    && !self.is_type_compatible(&arg_type, expected_type)
+                {
+                    let expected_display = Self::format_type_for_display(expected_type);
+                    let actual_display = Self::format_type_for_display(&arg_type);
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "Argument '{}' of action '{}' expects {}, but got {}",
+                            param.name, name, expected_display, actual_display
+                        ),
+                        line,
+                        column,
+                    ));
+                }
+            }
+        }
+    }
+
     fn infer_expression_type(&self, expression: &Expression) -> Type {
         match expression {
             Expression::Literal(Literal::Integer(_), _, _) => Type::Number,
@@ -2386,6 +3013,11 @@ impl Analyzer {
             return true;
         }
 
+        // NOTE: the tuple below is deliberately (expected, actual) — the
+        // reverse of the parameter order — so every arm reads
+        // "(what the target requires, what the value is)". Keep new arms in
+        // that orientation (e.g. ancestry checks walk from `actual` up to
+        // `expected`).
         match (expected, actual) {
             (_, Type::Unknown) => true,
             (Type::Unknown, _) => true,
@@ -2452,13 +3084,258 @@ impl Analyzer {
                 true
             }
 
-            // Allow implicitly resolving custom types
+            // Allow implicitly resolving custom types; a descendant container
+            // is compatible with an ancestor-typed target.
             (Type::Custom(expected_name), Type::Custom(actual_name)) => {
                 expected_name == actual_name
+                    || self.container_is_or_extends(actual_name, expected_name)
+            }
+
+            // Container instances match a parameter annotated with their own
+            // container name (`value as Dog` parses as Custom("Dog")) or any
+            // ancestor via the `extends` chain.
+            (Type::Custom(expected_name), Type::ContainerInstance(actual_name))
+            | (Type::ContainerInstance(expected_name), Type::ContainerInstance(actual_name)) => {
+                self.container_is_or_extends(actual_name, expected_name)
             }
 
             _ => false,
         }
+    }
+
+    /// Records or removes the stored-action alias for `name` after a
+    /// `store`/`change`: a bare reference to an action (directly or through
+    /// another alias) makes `name` callable with that action's overload set;
+    /// any other value clears a previous alias.
+    fn update_action_alias(&mut self, name: &str, value: &Expression) {
+        let target = if let Expression::Variable(source, _, _) = value {
+            match self.current_scope.resolve(source) {
+                Some(symbol) if matches!(symbol.kind, SymbolKind::Function { .. }) => {
+                    // Snapshot semantics: the alias sees the overloads defined
+                    // *before this statement*, exactly like the runtime value
+                    // it will hold. A pure forward reference (zero defined so
+                    // far) has no runtime value yet, so no alias is recorded.
+                    match self.defined_overloads.get(source).copied() {
+                        Some(OverloadCount::Exact(visible)) if visible > 0 => {
+                            Some(AliasState::Bound {
+                                action: source.clone(),
+                                visible_signatures: visible,
+                            })
+                        }
+                        // Control flow made the visible set undecidable: keep
+                        // the alias, but let runtime dispatch judge its calls.
+                        Some(OverloadCount::Unknown) => Some(AliasState::Dynamic),
+                        _ => None,
+                    }
+                }
+                // Aliasing an alias copies its state — including the original
+                // snapshot, not a re-read of the current definition count.
+                _ => self.action_aliases.get(source).cloned(),
+            }
+        } else {
+            None
+        };
+        match target {
+            Some(state) => {
+                self.action_aliases.insert(name.to_string(), state);
+                self.record_alias_mutation(name);
+            }
+            None => {
+                if self.action_aliases.remove(name).is_some() {
+                    self.record_alias_mutation(name);
+                }
+            }
+        }
+    }
+
+    /// Records that `name`'s alias state was written while a loop/`try`
+    /// body frame is active (no-op at unframed depth).
+    fn record_alias_mutation(&mut self, name: &str) {
+        if let Some(top) = self.alias_mutation_frames.last_mut() {
+            top.insert(name.to_string());
+        }
+    }
+
+    fn push_mutation_frame(&mut self) {
+        self.alias_mutation_frames.push(Default::default());
+    }
+
+    /// Pops the current mutation frame, merging it into the parent frame —
+    /// an inner body's mutation is also a mutation within the outer body.
+    fn pop_mutation_frame(&mut self) -> std::collections::HashSet<String> {
+        let frame = self.alias_mutation_frames.pop().unwrap_or_default();
+        if let Some(parent) = self.alias_mutation_frames.last_mut() {
+            parent.extend(frame.iter().cloned());
+        }
+        frame
+    }
+
+    /// Degrades every mutated alias to [`AliasState::Dynamic`]: an abrupt
+    /// exit may expose an intermediate binding endpoint states cannot see,
+    /// so calls through these names defer to runtime dispatch.
+    fn degrade_mutated_aliases(&mut self, mutated: &std::collections::HashSet<String>) {
+        for name in mutated {
+            self.action_aliases
+                .insert(name.clone(), AliasState::Dynamic);
+        }
+    }
+
+    /// Snapshot of the control-flow-sensitive state at a construct's entry.
+    fn flow_entry(&self) -> FlowState {
+        FlowState {
+            aliases: self.action_aliases.clone(),
+            overloads: self.defined_overloads.clone(),
+        }
+    }
+
+    /// Ends one control-flow branch's analysis: returns the branch's
+    /// resulting flow state (aliases + visible-overload counters) and resets
+    /// the live state to the `entry` snapshot so the next branch starts from
+    /// the construct's entry state.
+    ///
+    /// Flow state is deliberately *not* threaded through unexecuted or
+    /// conditionally-executed code as if it ran — see `join_flow_branches`.
+    fn take_flow_branch(&mut self, entry: &FlowState) -> FlowState {
+        FlowState {
+            aliases: std::mem::replace(&mut self.action_aliases, entry.aliases.clone()),
+            overloads: std::mem::replace(&mut self.defined_overloads, entry.overloads.clone()),
+        }
+    }
+
+    /// Resets the live flow state to a snapshot (used by `try` handlers,
+    /// which can be entered from any point in the guarded body).
+    fn restore_flow(&mut self, state: &FlowState) {
+        self.action_aliases = state.aliases.clone();
+        self.defined_overloads = state.overloads.clone();
+    }
+
+    /// Joins the flow state of every path that can reach the statement after
+    /// a control-flow construct.
+    ///
+    /// Aliases: a name keeps its state only when every path agrees; any
+    /// disagreement (including absence on some path) degrades it to
+    /// [`AliasState::Dynamic`], so later calls defer to runtime dispatch
+    /// instead of being misjudged from one path's state.
+    ///
+    /// Overload counters: a count survives only when every path agrees on
+    /// the same exact value (absence counts as zero); disagreement — a
+    /// definition executed on one path but not another — degrades to
+    /// [`OverloadCount::Unknown`], which makes later alias bindings Dynamic.
+    fn join_flow_branches(&mut self, paths: &[FlowState]) {
+        let mut keys: std::collections::HashSet<&String> = std::collections::HashSet::new();
+        for path in paths {
+            keys.extend(path.aliases.keys());
+        }
+        let mut joined = HashMap::new();
+        for key in keys {
+            let first = paths[0].aliases.get(key);
+            let state = if paths.iter().all(|p| p.aliases.get(key) == first) {
+                first.cloned()
+            } else {
+                Some(AliasState::Dynamic)
+            };
+            if let Some(state) = state {
+                joined.insert(key.clone(), state);
+            }
+        }
+        self.action_aliases = joined;
+
+        let mut names: std::collections::HashSet<&String> = std::collections::HashSet::new();
+        for path in paths {
+            names.extend(path.overloads.keys());
+        }
+        let mut counters = HashMap::new();
+        for name in names {
+            let first = paths[0]
+                .overloads
+                .get(name)
+                .copied()
+                .unwrap_or(OverloadCount::Exact(0));
+            let agreed = paths.iter().all(|p| {
+                p.overloads
+                    .get(name)
+                    .copied()
+                    .unwrap_or(OverloadCount::Exact(0))
+                    == first
+            });
+            counters.insert(
+                name.clone(),
+                if agreed {
+                    first
+                } else {
+                    OverloadCount::Unknown
+                },
+            );
+        }
+        self.defined_overloads = counters;
+    }
+
+    /// The signatures a call through alias `name` may dispatch to right now:
+    /// the snapshot prefix for a bound alias, or `Dynamic` when static
+    /// knowledge was lost to control flow. `None` means `name` is not an
+    /// alias (or its action no longer resolves to a function).
+    fn alias_call_target(
+        &self,
+        name: &str,
+    ) -> Option<(AliasState, Option<Vec<FunctionSignature>>)> {
+        match self.action_aliases.get(name)? {
+            AliasState::Dynamic => Some((AliasState::Dynamic, None)),
+            state @ AliasState::Bound {
+                action,
+                visible_signatures,
+            } => {
+                let symbol = self.current_scope.resolve(action)?;
+                if let SymbolKind::Function { signatures } = &symbol.kind {
+                    // The walk can visit more definitions than PASS 1
+                    // registered top-level signatures (e.g. a definition
+                    // nested in the branch this alias sits in). The prefix is
+                    // then not a faithful description of the runtime value —
+                    // defer to runtime dispatch rather than validate against
+                    // a truncation.
+                    if *visible_signatures > signatures.len() {
+                        return Some((AliasState::Dynamic, None));
+                    }
+                    Some((
+                        state.clone(),
+                        Some(signatures[..*visible_signatures].to_vec()),
+                    ))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// What the alias call at (`name`, `line`, `column`) resolved to during
+    /// semantic analysis, for the type checker's per-statement view.
+    pub(crate) fn alias_call_resolution(
+        &self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<&AliasState> {
+        self.alias_call_sites.get(&(name.to_string(), line, column))
+    }
+
+    /// Whether container `child` is `ancestor` or extends it (directly or
+    /// transitively). The walk is depth-guarded so a cyclic `extends` chain
+    /// cannot hang analysis.
+    pub(crate) fn container_is_or_extends(&self, child: &str, ancestor: &str) -> bool {
+        let mut current = Some(child.to_string());
+        let mut depth = 0;
+        while let Some(name) = current {
+            if name == ancestor {
+                return true;
+            }
+            depth += 1;
+            if depth > 64 {
+                return false;
+            }
+            current = self
+                .get_container(&name)
+                .and_then(|info| info.extends.clone());
+        }
+        false
     }
 
     fn format_type_for_display(t: &Type) -> String {
@@ -2597,19 +3474,40 @@ impl Analyzer {
                 }
 
                 if let Expression::Variable(name, _, _) = &**function {
-                    if let Some(symbol) = self.current_scope.resolve(name) {
-                        match &symbol.kind {
-                            SymbolKind::Function { signatures } => {
-                                // For now, just check the first signature for compatibility
-                                // TODO: Implement proper overload resolution based on argument types and count
-                                if let Some(first_signature) = signatures.first()
-                                    && arguments.len() != first_signature.parameters.len()
-                                {
-                                    // Check if any signature matches the argument count
-                                    let matching_signature = signatures
-                                        .iter()
-                                        .find(|sig| sig.parameters.len() == arguments.len());
-                                    if matching_signature.is_none() {
+                    // Clone the resolved signature list (plus the symbol's
+                    // definition position, needed by the non-function arm) up
+                    // front so the symbol borrow doesn't overlap the mutable
+                    // calls below.
+                    type ResolvedCallee = (Option<Vec<FunctionSignature>>, usize, usize);
+                    let resolved_signatures: Option<ResolvedCallee> =
+                        self.current_scope.resolve(name).map(|symbol| {
+                            let signatures =
+                                if let SymbolKind::Function { signatures } = &symbol.kind {
+                                    Some(signatures.clone())
+                                } else {
+                                    None
+                                };
+                            (signatures, symbol.line, symbol.column)
+                        });
+                    if let Some((function_signatures, symbol_line, symbol_column)) =
+                        resolved_signatures
+                    {
+                        match function_signatures {
+                            Some(signatures) => {
+                                for arg in arguments {
+                                    self.analyze_expression(&arg.value);
+                                }
+
+                                if Self::is_builtin_function(name) {
+                                    // Builtins keep the historical arity-only
+                                    // check; their full validation lives in the
+                                    // stdlib layer.
+                                    if let Some(first_signature) = signatures.first()
+                                        && arguments.len() != first_signature.parameters.len()
+                                        && !signatures
+                                            .iter()
+                                            .any(|sig| sig.parameters.len() == arguments.len())
+                                    {
                                         let expected_arities: Vec<String> = signatures
                                             .iter()
                                             .map(|sig| sig.parameters.len().to_string())
@@ -2621,13 +3519,18 @@ impl Analyzer {
                                             *column,
                                         ));
                                     }
-                                }
-
-                                for arg in arguments {
-                                    self.analyze_expression(&arg.value);
+                                } else {
+                                    self.check_overloaded_call(
+                                        name,
+                                        &signatures,
+                                        arguments,
+                                        true,
+                                        *line,
+                                        *column,
+                                    );
                                 }
                             }
-                            _ => {
+                            None => {
                                 // The symbol resolved to something that is not a
                                 // function. Built-in stdlib functions (touppercase,
                                 // wflhash256, parse_json, ...) get injected into an
@@ -2640,14 +3543,38 @@ impl Analyzer {
                                 // "is not a function". Real builtin Function
                                 // symbols take the arm above (arity preserved).
                                 let is_injected_builtin = Self::is_builtin_function(name)
-                                    && symbol.line == 0
-                                    && symbol.column == 0;
+                                    && symbol_line == 0
+                                    && symbol_column == 0;
                                 // An action parameter or handler-property name
                                 // (e.g. `body of msg` inside a websocket handler)
                                 // is a relaxed `of`-form access even when an outer
                                 // scope also defines a non-function symbol of the
                                 // same name; the property read must win over it.
-                                if is_injected_builtin || self.action_parameters.contains(name) {
+                                // A stored action reference (`store h as f`)
+                                // is callable with the aliased action's
+                                // overload set.
+                                let alias_target = self.alias_call_target(name);
+                                if let Some((state, signatures)) = alias_target {
+                                    self.alias_call_sites
+                                        .insert((name.clone(), *line, *column), state);
+                                    for arg in arguments {
+                                        self.analyze_expression(&arg.value);
+                                    }
+                                    // A Dynamic alias defers wholly to runtime
+                                    // dispatch; only bound snapshots validate.
+                                    if let Some(signatures) = signatures {
+                                        self.check_overloaded_call(
+                                            name,
+                                            &signatures,
+                                            arguments,
+                                            true,
+                                            *line,
+                                            *column,
+                                        );
+                                    }
+                                } else if is_injected_builtin
+                                    || self.action_parameters.contains(name)
+                                {
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
                                     }
@@ -2784,128 +3711,54 @@ impl Analyzer {
                     return;
                 }
 
-                // Validate user-defined action exists and has correct signature
-                if let Some(symbol) = self.current_scope.resolve(name) {
-                    match &symbol.kind {
-                        SymbolKind::Function { signatures } => {
-                            // Get first signature (actions have single signature)
-                            if let Some(first_signature) = signatures.first() {
-                                // Validate argument count
-                                if arguments.len() != first_signature.parameters.len() {
-                                    self.errors.push(SemanticError::new(
-                                        format!(
-                                            "Action '{}' expects {} argument(s), but {} were provided",
-                                            name,
-                                            first_signature.parameters.len(),
-                                            arguments.len()
-                                        ),
-                                        *line,
-                                        *column,
-                                    ));
-
-                                    // Skip type validation if arity is mismatched to avoid noisy/cascading errors
-                                    return;
-                                }
-
-                                // Map arguments to parameters for type validation
-                                let mut matched_args: Vec<Option<&Expression>> =
-                                    vec![None; first_signature.parameters.len()];
-                                let mut has_mapping_error = false;
-
-                                for (arg_idx, arg) in arguments.iter().enumerate() {
-                                    let mut param_idx_opt = None;
-
-                                    if let Some(arg_name) = &arg.name {
-                                        // Named argument
-                                        if let Some(idx) = first_signature
-                                            .parameters
-                                            .iter()
-                                            .position(|p| p.name == *arg_name)
-                                        {
-                                            param_idx_opt = Some(idx);
-                                        } else {
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Unknown parameter '{}' for action '{}'",
-                                                    arg_name, name
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                            has_mapping_error = true;
-                                        }
-                                    } else {
-                                        // Positional argument
-                                        if arg_idx < first_signature.parameters.len() {
-                                            param_idx_opt = Some(arg_idx);
-                                        }
-                                    }
-
-                                    if let Some(param_idx) = param_idx_opt {
-                                        if matched_args[param_idx].is_some() {
-                                            let param_name =
-                                                &first_signature.parameters[param_idx].name;
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Duplicate argument for parameter '{}' in action '{}'",
-                                                    param_name, name
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                            has_mapping_error = true;
-                                        } else {
-                                            matched_args[param_idx] = Some(&arg.value);
-                                        }
-                                    }
-                                }
-
-                                // Skip type validation if argument mapping failed
-                                if has_mapping_error {
-                                    return;
-                                }
-
-                                // Type validation
-                                for (param, arg_opt) in
-                                    first_signature.parameters.iter().zip(matched_args.iter())
-                                {
-                                    if let Some(arg_val) = arg_opt
-                                        && let Some(expected_type) = &param.param_type
-                                    {
-                                        let arg_type = self.infer_expression_type(arg_val);
-
-                                        if arg_type != Type::Unknown
-                                            && expected_type != &Type::Unknown
-                                            && expected_type != &Type::Any
-                                            && !self.is_type_compatible(&arg_type, expected_type)
-                                        {
-                                            let expected_display =
-                                                Self::format_type_for_display(expected_type);
-                                            let actual_display =
-                                                Self::format_type_for_display(&arg_type);
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Argument '{}' of action '{}' expects {}, but got {}",
-                                                    param.name,
-                                                    name,
-                                                    expected_display,
-                                                    actual_display
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
+                // Validate user-defined action exists and has a matching
+                // signature (overload resolution across all registered
+                // signatures). Clone the signature list up front so the
+                // symbol borrow doesn't overlap the mutable calls below.
+                let resolved_signatures: Option<Option<Vec<FunctionSignature>>> =
+                    self.current_scope.resolve(name).map(|symbol| {
+                        if let SymbolKind::Function { signatures } = &symbol.kind {
+                            Some(signatures.clone())
+                        } else {
+                            None
                         }
-                        _ => {
-                            // Symbol exists but is not a function/action
-                            self.errors.push(SemanticError::new(
-                                format!("'{}' is not an action", name),
+                    });
+                if let Some(function_signatures) = resolved_signatures {
+                    match function_signatures {
+                        Some(signatures) => {
+                            self.check_overloaded_call(
+                                name,
+                                &signatures,
+                                arguments,
+                                false,
                                 *line,
                                 *column,
-                            ));
+                            );
+                        }
+                        None => {
+                            // A stored action reference (`store h as f`) is
+                            // callable with the aliased action's snapshot.
+                            if let Some((state, signatures)) = self.alias_call_target(name) {
+                                self.alias_call_sites
+                                    .insert((name.clone(), *line, *column), state);
+                                if let Some(signatures) = signatures {
+                                    self.check_overloaded_call(
+                                        name,
+                                        &signatures,
+                                        arguments,
+                                        false,
+                                        *line,
+                                        *column,
+                                    );
+                                }
+                            } else {
+                                // Symbol exists but is not a function/action
+                                self.errors.push(SemanticError::new(
+                                    format!("'{name}' is not an action"),
+                                    *line,
+                                    *column,
+                                ));
+                            }
                         }
                     }
                 } else if !self.warn_undefined_callee_if_includes(name, *line, *column) {

@@ -306,17 +306,18 @@ fn of_form_undefined_argument_without_include_is_reported() {
 }
 
 // ---------------------------------------------------------------------------
-// Shaken loose (documented, NOT fixed by #580): the analyzer never descends
-// into `main loop` / `describe` / `test` bodies (catch-all `_ => {}`), so a
-// genuine typo there is neither an error nor a warning at analyze time. This
-// test pins that CURRENT behavior; if a future change adds analyzer coverage of
-// those blocks (recommended follow-up), update this expectation deliberately.
+// Deliberately updated (was: bodies skipped entirely, pinned after #580): the
+// action-overloading work made the analyzer walk `repeat`/`forever`/`main
+// loop` bodies for stored-action alias flow. These bodies were never analyzed
+// before, so to keep existing programs running (several web-server
+// TestPrograms reference handler-provided names in `main loop`), diagnostics
+// arising inside them are demoted to warnings rather than fatal errors.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn main_loop_body_is_currently_not_statically_analyzed() {
-    // No `include from`: a bare undefined reference inside a main loop body is
-    // currently not reported by `--analyze` (the body is skipped entirely).
+fn main_loop_body_diagnostics_demote_to_warnings() {
+    // A bare undefined reference inside a main loop body is now surfaced by
+    // `--analyze` — but as a warning, never a fatal error.
     let dir = TempDir::new().expect("tempdir");
     fs::write(
         dir.path().join("main.wfl"),
@@ -324,9 +325,12 @@ fn main_loop_body_is_currently_not_statically_analyzed() {
     )
     .unwrap();
     let (out, _code) = run_file_status(&dir, "main.wfl", &["--analyze"]);
-    // Snapshot of today's behavior: the analyzer does not flag the reference.
     assert!(
-        !out.contains("totally_bogus_ref"),
-        "main-loop bodies are currently not analyzed; update this test if that changes: {out}"
+        out.contains("totally_bogus_ref") && out.contains("warning"),
+        "main-loop bodies are analyzed with demoted (warning) diagnostics: {out}"
+    );
+    assert!(
+        !out.contains("error["),
+        "in-body diagnostics must not be fatal: {out}"
     );
 }
