@@ -409,6 +409,42 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// Streaming outbound HTTP request:
+    /// `open url at "<url>" [with method .. and headers .. and body ..] and stream response as <name>`
+    ///
+    /// Unlike [`HttpRequestStatement`], this returns as soon as the status and
+    /// headers are received, WITHOUT buffering the body. It binds `<name>` to a
+    /// streaming response handle (an object exposing `status`, `ok`, `headers`,
+    /// and an internal `_stream` id). The body is pulled incrementally with
+    /// `wait for next chunk from <name>` / `wait for next line from <name>`.
+    HttpStreamStatement {
+        url: Expression,
+        method: Option<Expression>,
+        headers: Option<Expression>,
+        body: Option<Expression>,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `wait for next chunk from <stream> as <name>` — pull the next raw byte
+    /// chunk from a streaming response handle. Binds `<name>` to `Binary`, or to
+    /// `nothing` at a clean end of stream.
+    WaitForNextChunkStatement {
+        source: Expression,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `wait for next line from <stream> as <name>` — pull the next
+    /// newline-delimited line (trailing newline stripped) from a streaming
+    /// response handle. Binds `<name>` to `Text`, or to `nothing` at end of
+    /// stream.
+    WaitForNextLineStatement {
+        source: Expression,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
     PushStatement {
         list: Expression,
         value: Expression,

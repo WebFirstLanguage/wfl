@@ -1535,6 +1535,60 @@ impl Analyzer {
                 }
             }
 
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(url);
+                if let Some(method) = method {
+                    self.analyze_expression(method);
+                }
+                if let Some(headers) = headers {
+                    self.analyze_expression(headers);
+                }
+                if let Some(body) = body {
+                    self.analyze_expression(body);
+                }
+
+                // Binds a streaming-response handle object (status/ok/headers).
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None,
+                    line: 0,
+                    column: 0,
+                };
+                self.current_scope.define_or_replace(symbol);
+            }
+
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                ..
+            }
+            | Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(source);
+
+                // Binds the next chunk/line, or `nothing` at end of stream, so
+                // the type is left open. Refreshed on every wait (loop-friendly).
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None,
+                    line: 0,
+                    column: 0,
+                };
+                self.current_scope.define_or_replace(symbol);
+            }
+
             Statement::CreateDirectoryStatement { path, .. } => {
                 self.analyze_expression(path);
             }

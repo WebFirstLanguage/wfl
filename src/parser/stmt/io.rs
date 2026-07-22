@@ -255,6 +255,28 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         }
                     });
                 }
+                // `stream response as <name>` — return the status/headers
+                // immediately and bind a streaming handle instead of buffering
+                // the body. `stream` is a contextual identifier (not a
+                // keyword), so match it as one; `response` is a keyword.
+                Token::Identifier(name) if name == "stream" => {
+                    self.bump_sync(); // Consume "stream"
+                    self.expect_token(
+                        Token::KeywordResponse,
+                        "Expected 'response' after 'stream'",
+                    )?;
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after 'stream response'")?;
+                    let variable_name = parse_variable_name(self, open_token)?;
+                    return Ok(Statement::HttpStreamStatement {
+                        url: url_expr,
+                        method,
+                        headers,
+                        body,
+                        variable_name,
+                        line: open_token.line,
+                        column: open_token.column,
+                    });
+                }
                 // The lexer merges consecutive identifiers into multi-word
                 // names, so `headers auth_headers` arrives as the single
                 // token Identifier("headers auth_headers"). Match both the

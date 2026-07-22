@@ -105,6 +105,60 @@ request that is waiting on the remote peer.
 `body` introduce clauses, so use different variable names there (e.g.
 `request_headers`, `payload`).
 
+#### Streaming a response incrementally
+
+`read content` / `read response` buffer the whole body before returning. For a
+large download, or an upstream that emits output progressively (for example a
+model endpoint sending newline-delimited JSON), use `stream response` instead.
+It returns as soon as the status and headers arrive — **without buffering the
+body** — and binds a streaming handle you pull from piece by piece:
+
+```wfl
+open url at "https://api.example.com/events"
+    with method "POST"
+    and headers request_headers
+    and body payload
+    and stream response as upstream
+
+display "Status: " with upstream.status        // available immediately
+store content_type as upstream.headers["content-type"]
+
+// Pull the body one line at a time. Each read returns the next line, or
+// `nothing` once the stream ends cleanly.
+store done as no
+count from 1 to 1000000:
+    wait for next line from upstream as line
+    check if line is nothing:
+        break
+    otherwise:
+        display line
+    end check
+end count
+
+close upstream
+```
+
+Two incremental reads are available on a streaming handle:
+
+- `wait for next line from <handle> as <name>` — binds the next
+  newline-delimited line (the trailing newline, and a paired carriage return,
+  are stripped). A final line with no trailing newline is still delivered.
+- `wait for next chunk from <handle> as <name>` — binds the next raw byte chunk
+  (`binary`) exactly as it arrives off the network, for non-line-oriented
+  payloads.
+
+Both bind `nothing` at a clean end of stream, so `check if line is nothing`
+ends the loop. `close <handle>` releases the stream early and cancels the
+in-flight upstream request; reading from a closed (or fully-drained) handle
+raises a catchable error.
+
+The same limits as buffered requests apply: the running total of body bytes is
+held under `web_server_max_response_size`, each read is bounded by the request's
+timeout, and cooperative cancellation interrupts a read waiting on the peer. A
+mid-stream network error surfaces as a catchable error from the `wait for next
+...` statement, and every stream is closed when the handle is dropped on any
+exit path.
+
 ### 4. **Web Standards**
 
 WFL web servers work with standard HTTP:

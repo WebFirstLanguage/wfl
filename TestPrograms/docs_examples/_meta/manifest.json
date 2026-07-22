@@ -401,5 +401,22 @@
       "containers"
     ],
     "doc_purpose": "Docs README tour: containers/objects"
+  },
+  "docs_examples/interoperability/streaming_response.wfl": {
+    "doc_section": "Docs/04-advanced-features/interoperability.md#streaming-a-response-incrementally",
+    "type": "snippet",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "skip_execution": true,
+    "tags": [
+      "http-client",
+      "streaming",
+      "interoperability"
+    ],
+    "description": "Streaming an outbound HTTP response incrementally with stream response / wait for next line."
   }
 }

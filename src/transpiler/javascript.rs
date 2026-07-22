@@ -620,6 +620,18 @@ impl JavaScriptTranspiler {
                 })
             }
 
+            Statement::HttpStreamStatement { line, column, .. }
+            | Statement::WaitForNextChunkStatement { line, column, .. }
+            | Statement::WaitForNextLineStatement { line, column, .. } => {
+                // Streaming HTTP relies on the interpreter's parked-stream
+                // handles; emitting broken JS would be worse than a clear error.
+                Err(TranspileError {
+                    message: "Streaming HTTP statements are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
+                    line: *line,
+                    column: *column,
+                })
+            }
+
             Statement::WriteContentStatement {
                 content, target, ..
             } => {
@@ -2055,6 +2067,9 @@ impl JavaScriptTranspiler {
             | Statement::HttpGetStatement { .. }
             | Statement::HttpPostStatement { .. }
             | Statement::HttpRequestStatement { .. }
+            | Statement::HttpStreamStatement { .. }
+            | Statement::WaitForNextChunkStatement { .. }
+            | Statement::WaitForNextLineStatement { .. }
             | Statement::WaitForProcessStatement { .. }
             | Statement::WaitForRequestStatement { .. } => true,
 

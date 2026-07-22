@@ -870,6 +870,105 @@ impl TypeChecker {
                     });
                 }
             }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                line: _line,
+                column: _column,
+            } => {
+                let url_type = self.infer_expression_type(url);
+                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                    self.type_error(
+                        "URL must be a text string".to_string(),
+                        Some(Type::Text),
+                        Some(url_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                if let Some(method) = method {
+                    let method_type = self.infer_expression_type(method);
+                    if method_type != Type::Text
+                        && method_type != Type::Unknown
+                        && method_type != Type::Error
+                    {
+                        self.type_error(
+                            "HTTP method must be a text string".to_string(),
+                            Some(Type::Text),
+                            Some(method_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(headers) = headers {
+                    let headers_type = self.infer_expression_type(headers);
+                    if !matches!(
+                        headers_type,
+                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "HTTP headers must be a map of header names to values".to_string(),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(headers_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(body) = body {
+                    let body_type = self.infer_expression_type(body);
+                    if !matches!(
+                        body_type,
+                        Type::Text
+                            | Type::Number
+                            | Type::Boolean
+                            | Type::Unknown
+                            | Type::Any
+                            | Type::Error
+                    ) {
+                        self.type_error(
+                            "HTTP request body must be text".to_string(),
+                            Some(Type::Text),
+                            Some(body_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+
+                // Binds a streaming-response handle object (status/ok/headers).
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type =
+                        Some(Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)));
+                }
+            }
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                ..
+            }
+            | Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                ..
+            } => {
+                // Just validate the operand is inferable; the binding may be a
+                // chunk/line value or `nothing` at end of stream, so leave the
+                // bound variable's type open (Any) to avoid false errors on the
+                // `check if <name> is nothing` loop-termination pattern.
+                let _ = self.infer_expression_type(source);
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type = Some(Type::Any);
+                }
+            }
             Statement::VariableDeclaration {
                 name,
                 value,

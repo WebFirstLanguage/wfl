@@ -893,6 +893,15 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::HttpRequestStatement { variable_name, .. } => {
             format!("HttpRequestStatement '{variable_name}'")
         }
+        Statement::HttpStreamStatement { variable_name, .. } => {
+            format!("HttpStreamStatement '{variable_name}'")
+        }
+        Statement::WaitForNextChunkStatement { variable_name, .. } => {
+            format!("WaitForNextChunkStatement '{variable_name}'")
+        }
+        Statement::WaitForNextLineStatement { variable_name, .. } => {
+            format!("WaitForNextLineStatement '{variable_name}'")
+        }
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
         Statement::CreateListStatement { name, .. } => format!("CreateListStatement '{name}'"),
         Statement::MapCreation { name, .. } => format!("MapCreation '{name}'"),
@@ -1398,7 +1407,35 @@ pub struct IoClient {
     next_process_id: Mutex<usize>,
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
+    /// Live outbound streaming response bodies, keyed by handle id
+    /// ("httpstream1", ...). See [`HttpStreamHandle`].
+    stream_handles: Mutex<HashMap<String, HttpStreamHandle>>,
+    next_stream_id: Mutex<usize>,
     config: Arc<WflConfig>,
+}
+
+/// A live, parked outbound streaming response body.
+///
+/// The status and headers were already handed to the WFL program by
+/// `open url ... and stream response as <name>`; this holds the still-open body
+/// stream so `wait for next chunk|line` can pull it incrementally without ever
+/// buffering the whole body. Dropping the handle — on clean EOF, a mid-stream
+/// error, an explicit `close`, or interpreter teardown — drops the underlying
+/// reqwest body future and thereby cancels the in-flight upstream request.
+struct HttpStreamHandle {
+    /// The response body as a stream of raw byte chunks. `Vec<u8>` (not
+    /// `bytes::Bytes`) so the boxed trait object stays nameable here.
+    stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = reqwest::Result<Vec<u8>>> + Send>>,
+    /// Bytes read from the network but not yet handed to the program: the
+    /// remainder after a line split, plus bytes accumulated while scanning for
+    /// the next newline. Bounded by the run's `max_response_bytes` because
+    /// every byte placed here was counted against that ceiling as it was read.
+    buffer: Vec<u8>,
+    /// True once the underlying stream has yielded a clean end of stream.
+    done: bool,
+    /// Total body bytes pulled from the network so far, enforced against
+    /// `max_response_bytes`.
+    bytes_read: usize,
 }
 
 /// Errors raised while an outbound HTTP request is in flight.
@@ -1495,6 +1532,8 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
+            stream_handles: Mutex::new(HashMap::new()),
+            next_stream_id: Mutex::new(1),
             config,
         }
     }
@@ -1588,6 +1627,236 @@ impl IoClient {
         }
 
         self.send_http_request(request, method, budget).await
+    }
+
+    /// Open a streaming outbound request: send it and return
+    /// `(status, response headers, stream handle id)` as soon as the response
+    /// head arrives, WITHOUT buffering the body. The body stays open behind the
+    /// returned handle id for incremental `wait for next chunk|line` reads.
+    ///
+    /// The head phase (connect + headers) is bounded by the same finite
+    /// deadline and cooperative-cancellation machinery as a buffered request;
+    /// each later body read is bounded per-chunk in [`Self::stream_pull`].
+    async fn open_http_stream(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+        body: Option<String>,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<(u16, Vec<(String, String)>, String), HttpClientError> {
+        use futures_util::StreamExt;
+
+        let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
+        let mut request = self.http_client.request(parsed_method, url);
+        for (name, value) in headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        if let Some(body) = body {
+            request = request.body(body);
+        }
+
+        let method_owned = method.to_string();
+        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let op = async move {
+            request.send().await.map_err(|e| {
+                HttpClientError::Request(format!("Failed to send HTTP {method_owned} request: {e}"))
+            })
+        };
+        // Only the head is awaited here; dropping this future on
+        // timeout/cancel aborts the connection cleanly.
+        let response =
+            Self::run_http_with_budget(Arc::clone(&budget), configured_timeout, op).await?;
+
+        let status = response.status().as_u16();
+        let response_headers = response
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_ascii_lowercase(),
+                    String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                )
+            })
+            .collect();
+
+        // Reject an over-ceiling body up front when the length is advertised;
+        // per-chunk reads enforce the same ceiling for chunked/unknown lengths.
+        let max_response_bytes = budget.limits().max_response_bytes;
+        if let Some(content_length) = response.content_length() {
+            let max_as_u64 = u64::try_from(max_response_bytes).unwrap_or(u64::MAX);
+            if content_length > max_as_u64 {
+                return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                    limit: max_response_bytes,
+                    actual: usize::try_from(content_length).unwrap_or(usize::MAX),
+                }));
+            }
+        }
+
+        let stream = response
+            .bytes_stream()
+            .map(|chunk| chunk.map(|b| b.to_vec()));
+        let handle = HttpStreamHandle {
+            stream: Box::pin(stream),
+            buffer: Vec::new(),
+            done: false,
+            bytes_read: 0,
+        };
+        let handle_id = {
+            let mut next_id = self.next_stream_id.lock().await;
+            let id = format!("httpstream{}", *next_id);
+            *next_id += 1;
+            id
+        };
+        self.stream_handles
+            .lock()
+            .await
+            .insert(handle_id.clone(), handle);
+        Ok((status, response_headers, handle_id))
+    }
+
+    /// Remove a stream handle from the map so a body read can await without
+    /// holding the global handle lock across the network. Errors if the handle
+    /// is unknown (already closed, or forged).
+    async fn take_stream(&self, handle_id: &str) -> Result<HttpStreamHandle, HttpClientError> {
+        self.stream_handles
+            .lock()
+            .await
+            .remove(handle_id)
+            .ok_or_else(|| {
+                HttpClientError::Request(format!(
+                    "Unknown or already-closed stream handle '{handle_id}'"
+                ))
+            })
+    }
+
+    /// Return a still-open stream handle to the map after a body read.
+    async fn put_stream(&self, handle_id: &str, handle: HttpStreamHandle) {
+        self.stream_handles
+            .lock()
+            .await
+            .insert(handle_id.to_string(), handle);
+    }
+
+    /// Pull one network chunk into `handle.buffer`, bounded by the per-chunk
+    /// read deadline and the run's response-byte ceiling. Returns `Ok(true)`
+    /// when bytes were added, `Ok(false)` at clean EOF (sets `handle.done`).
+    async fn stream_pull(
+        &self,
+        handle: &mut HttpStreamHandle,
+        budget: &Arc<ExecutionBudget>,
+    ) -> Result<bool, HttpClientError> {
+        use futures_util::StreamExt;
+
+        if handle.done {
+            return Ok(false);
+        }
+        let max_response_bytes = budget.limits().max_response_bytes;
+        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let next = Self::run_http_with_budget(Arc::clone(budget), configured_timeout, async {
+            Ok::<Option<reqwest::Result<Vec<u8>>>, HttpClientError>(handle.stream.next().await)
+        })
+        .await?;
+
+        match next {
+            Some(Ok(bytes)) => {
+                let actual = handle.bytes_read.saturating_add(bytes.len());
+                if bytes.len() > max_response_bytes.saturating_sub(handle.bytes_read) {
+                    return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                        limit: max_response_bytes,
+                        actual,
+                    }));
+                }
+                handle.bytes_read = actual;
+                handle.buffer.extend_from_slice(&bytes);
+                Ok(true)
+            }
+            Some(Err(e)) => Err(HttpClientError::Request(format!(
+                "Failed to read response chunk: {e}"
+            ))),
+            None => {
+                handle.done = true;
+                Ok(false)
+            }
+        }
+    }
+
+    /// Pull the next raw byte chunk from a streaming response. Returns
+    /// `Ok(None)` at clean end of stream (handle is dropped). On error or EOF
+    /// the handle is not re-inserted, so the upstream request is released.
+    async fn next_chunk(
+        &self,
+        handle_id: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<Option<Vec<u8>>, HttpClientError> {
+        let mut handle = self.take_stream(handle_id).await?;
+
+        // Any bytes buffered by a prior `next line` are served first.
+        if !handle.buffer.is_empty() {
+            let chunk = std::mem::take(&mut handle.buffer);
+            self.put_stream(handle_id, handle).await;
+            return Ok(Some(chunk));
+        }
+
+        match self.stream_pull(&mut handle, &budget).await {
+            Ok(true) => {
+                let chunk = std::mem::take(&mut handle.buffer);
+                self.put_stream(handle_id, handle).await;
+                Ok(Some(chunk))
+            }
+            Ok(false) => Ok(None), // clean EOF: drop the handle
+            Err(e) => Err(e),      // error/timeout: drop the handle (cancels upstream)
+        }
+    }
+
+    /// Pull the next newline-delimited line (trailing `\n`, and a paired `\r`,
+    /// stripped) from a streaming response. A final unterminated line is
+    /// returned before EOF. Returns `Ok(None)` at clean end of stream.
+    async fn next_line(
+        &self,
+        handle_id: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<Option<String>, HttpClientError> {
+        let mut handle = self.take_stream(handle_id).await?;
+
+        loop {
+            if let Some(pos) = handle.buffer.iter().position(|&b| b == b'\n') {
+                let mut line: Vec<u8> = handle.buffer.drain(..=pos).collect();
+                line.pop(); // drop '\n'
+                if line.last() == Some(&b'\r') {
+                    line.pop(); // drop paired '\r' (CRLF)
+                }
+                self.put_stream(handle_id, handle).await;
+                return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+
+            if handle.done {
+                // No newline left. Emit any final unterminated line, then EOF.
+                if handle.buffer.is_empty() {
+                    return Ok(None); // drop the exhausted handle
+                }
+                let mut line = std::mem::take(&mut handle.buffer);
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                // Re-insert the now-drained (done, empty) handle so the *next*
+                // read cleanly returns `nothing` instead of erroring on a
+                // missing handle.
+                self.put_stream(handle_id, handle).await;
+                return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+
+            // Need more bytes to find a newline.
+            self.stream_pull(&mut handle, &budget).await?;
+        }
+    }
+
+    /// Close a streaming response handle if present. Dropping the handle
+    /// cancels the in-flight upstream request. Returns whether a handle was
+    /// found. Idempotent: closing an unknown/already-closed handle is a no-op.
+    async fn close_stream(&self, handle_id: &str) -> bool {
+        self.stream_handles.lock().await.remove(handle_id).is_some()
     }
 
     /// Send a request and consume its body without ever buffering more than the
@@ -3344,6 +3613,41 @@ impl Interpreter {
         }
     }
 
+    /// Resolve a `wait for next chunk|line from <source>` operand to a stream
+    /// handle id. Accepts either the streaming-response object bound by
+    /// `stream response as <name>` (reads its internal `_stream` id) or a bare
+    /// text handle id.
+    async fn resolve_stream_handle(
+        &self,
+        source: &Expression,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        let value = self.evaluate_expression(source, Rc::clone(env)).await?;
+        match &value {
+            Value::Object(obj) => match obj.borrow().get("_stream") {
+                Some(Value::Text(id)) => Ok(id.to_string()),
+                _ => Err(RuntimeError::new(
+                    "Expected a streaming response handle (from `stream response as ...`), \
+                     but this value has no open stream"
+                        .to_string(),
+                    line,
+                    column,
+                )),
+            },
+            Value::Text(id) => Ok(id.to_string()),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected a streaming response handle, got {}",
+                    value.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
     /// Preserve ordinary file I/O failures while classifying byte-ceiling
     /// breaches as catchable execution-budget resource errors.
     fn file_read_error(&self, error: FileReadError, line: usize, column: usize) -> RuntimeError {
@@ -3879,6 +4183,9 @@ impl Interpreter {
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
             Statement::HttpRequestStatement { line, column, .. } => (*line, *column),
+            Statement::HttpStreamStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForNextChunkStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForNextLineStatement { line, column, .. } => (*line, *column),
             Statement::PushStatement { line, column, .. } => (*line, *column),
             Statement::CreateListStatement { line, column, .. } => (*line, *column),
             Statement::MapCreation { line, column, .. } => (*line, *column),
@@ -4848,20 +5155,42 @@ impl Interpreter {
             Statement::CloseFileStatement { file, line, column } => {
                 let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
 
-                let file_str = match &file_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {file_value:?}"),
-                            *line,
-                            *column,
-                        ));
+                match &file_value {
+                    // A bare text handle closes a file (existing behavior).
+                    Value::Text(s) => match self.io_client.close_file(s).await {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    },
+                    // A streaming-response object closes its underlying stream,
+                    // cancelling the in-flight upstream request. `close` on a
+                    // stream is always safe, even after EOF.
+                    Value::Object(obj) => {
+                        let stream_id = obj.borrow().get("_stream").and_then(|v| match v {
+                            Value::Text(s) => Some(s.to_string()),
+                            _ => None,
+                        });
+                        match stream_id {
+                            Some(id) => {
+                                self.io_client.close_stream(&id).await;
+                                Ok((Value::Null, ControlFlow::None))
+                            }
+                            None => Err(RuntimeError::new(
+                                "Cannot close this value: it is not a file handle or a \
+                                 streaming response"
+                                    .to_string(),
+                                *line,
+                                *column,
+                            )),
+                        }
                     }
-                };
-
-                match self.io_client.close_file(&file_str).await {
-                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    _ => Err(RuntimeError::new(
+                        format!(
+                            "Expected a file handle or streaming response, got {}",
+                            file_value.type_name()
+                        ),
+                        *line,
+                        *column,
+                    )),
                 }
             }
             Statement::CreateDirectoryStatement { path, line, column } => {
@@ -6079,6 +6408,203 @@ impl Interpreter {
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
                     }
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
+                }
+            }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                line,
+                column,
+            } => {
+                let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
+                let url_str = match &url_val {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for URL, got {url_val:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let method_str = match method {
+                    Some(method_expr) => {
+                        let method_val = self
+                            .evaluate_expression(method_expr, Rc::clone(&env))
+                            .await?;
+                        match &method_val {
+                            Value::Text(s) => s.trim().to_ascii_uppercase(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Expected text for HTTP method, got {method_val:?}"),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => "GET".to_string(),
+                };
+
+                let mut header_list: Vec<(String, String)> = Vec::new();
+                if let Some(headers_expr) = headers {
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
+                    match &headers_val {
+                        Value::Object(obj) => {
+                            for (name, value) in obj.borrow().iter() {
+                                let value_str = match value {
+                                    Value::Text(s) => s.to_string(),
+                                    Value::Number(_) | Value::Bool(_) => value.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Header '{name}' must be text, got {}",
+                                                value.type_name()
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                };
+                                header_list.push((name.clone(), value_str));
+                            }
+                            header_list.sort();
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Expected a map for headers, got {}",
+                                    headers_val.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                }
+
+                let body_str = match body {
+                    Some(body_expr) => {
+                        let body_val = self.evaluate_expression(body_expr, Rc::clone(&env)).await?;
+                        match &body_val {
+                            Value::Text(s) => Some(s.to_string()),
+                            Value::Number(_) | Value::Bool(_) => Some(body_val.to_string()),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected text for request body, got {}",
+                                        body_val.type_name()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+                match self
+                    .io_client
+                    .open_http_stream(
+                        &method_str,
+                        &url_str,
+                        &header_list,
+                        body_str,
+                        Arc::clone(&self.budget),
+                    )
+                    .await
+                {
+                    Ok((status, response_headers, handle_id)) => {
+                        let mut headers_map = HashMap::new();
+                        for (name, value) in response_headers {
+                            headers_map.insert(name, Value::Text(value.into()));
+                        }
+
+                        let mut stream_map = HashMap::new();
+                        stream_map.insert("status".to_string(), Value::Number(status as f64));
+                        stream_map
+                            .insert("ok".to_string(), Value::Bool((200..300).contains(&status)));
+                        stream_map.insert(
+                            "headers".to_string(),
+                            Value::Object(Rc::new(RefCell::new(headers_map))),
+                        );
+                        // Internal id used by `wait for next chunk|line` and
+                        // `close`. Underscore-prefixed to signal "not for
+                        // direct program use", mirroring request objects.
+                        stream_map.insert("_stream".to_string(), Value::Text(handle_id.into()));
+
+                        let value = Value::Object(Rc::new(RefCell::new(stream_map)));
+                        match env.borrow_mut().define(variable_name, value) {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
+                }
+            }
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                line,
+                column,
+            } => {
+                let handle_id = self
+                    .resolve_stream_handle(source, &env, *line, *column)
+                    .await?;
+                match self
+                    .io_client
+                    .next_chunk(&handle_id, Arc::clone(&self.budget))
+                    .await
+                {
+                    // Raw bytes as Binary so callers can handle any payload.
+                    Ok(Some(bytes)) => {
+                        let value = Value::Binary(Arc::from(bytes.as_slice()));
+                        match env.borrow_mut().define(variable_name, value) {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    // Clean EOF binds `nothing` so `check if chunk is nothing` ends the loop.
+                    Ok(None) => match env.borrow_mut().define(variable_name, Value::Null) {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                    },
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
+                }
+            }
+            Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                line,
+                column,
+            } => {
+                let handle_id = self
+                    .resolve_stream_handle(source, &env, *line, *column)
+                    .await?;
+                match self
+                    .io_client
+                    .next_line(&handle_id, Arc::clone(&self.budget))
+                    .await
+                {
+                    Ok(Some(line_text)) => {
+                        let value = Value::Text(line_text.into());
+                        match env.borrow_mut().define(variable_name, value) {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    Ok(None) => match env.borrow_mut().define(variable_name, Value::Null) {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                    },
                     Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
             }
