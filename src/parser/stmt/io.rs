@@ -831,30 +831,41 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 .to_string();
             self.bump_sync(); // Consume the (possibly merged) marker
 
-            let value = if rest.is_empty() {
+            // Build the stream-write `value` and, for the ambiguous merged-
+            // identifier form (`write line <ident> to <target>`), the classic
+            // file-write `fallback_content`. The merged token `line <ident>` could
+            // equally be a variable literally named `line <ident>` (WFL allows
+            // space-separated names), so we carry the file-write interpretation
+            // and let the interpreter pick based on whether `target` is a stream.
+            let (value, fallback_content) = if rest.is_empty() {
                 // Value begins with a non-identifier (string/number), so the
                 // whole expression — including `with` concatenation — parses
-                // cleanly from here.
-                self.parse_expression()?
+                // cleanly from here. This form was never a valid classic file
+                // write (`write line "x" to f` did not parse), so no fallback.
+                (self.parse_expression()?, None)
             } else {
-                let left = Expression::Variable(rest, marker_line, marker_column);
+                // `<ident>` alone (stream) vs the full merged `line <ident>`
+                // (classic file write of that variable).
+                let stream_left = Expression::Variable(rest, marker_line, marker_column);
+                let file_left = Expression::Variable(id, marker_line, marker_column);
                 match self.cursor.peek().map(|t| &t.token) {
                     // `<field> of <object>`, e.g. `write line body of msg to out`.
                     Some(Token::KeywordOf) => {
                         self.bump_sync(); // Consume "of"
                         let object = self.parse_primary_expression()?;
-                        Expression::FunctionCall {
+                        let of = |left: Expression| Expression::FunctionCall {
                             function: Box::new(left),
                             arguments: vec![crate::parser::ast::Argument {
                                 name: None,
-                                value: object,
+                                value: object.clone(),
                             }],
                             line: marker_line,
                             column: marker_column,
-                        }
+                        };
+                        (of(stream_left), Some(Box::new(of(file_left))))
                     }
                     // A bare variable value: the next token starts `to ...`.
-                    _ => left,
+                    _ => (stream_left, Some(Box::new(file_left))),
                 }
             };
 
@@ -867,6 +878,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 value,
                 target,
                 is_line,
+                fallback_content,
                 line: token_pos.line,
                 column: token_pos.column,
             });

@@ -607,6 +607,16 @@ pub enum Statement {
         target: Expression,
         /// true for `write line` (newline appended), false for `write chunk`.
         is_line: bool,
+        /// Backward-compat fallback for the ambiguous surface form
+        /// `write line <ident> to <target>` — where `line <ident>` could equally
+        /// be the classic file write of a variable literally named `line <ident>`
+        /// (WFL allows space-separated identifiers). When present and the runtime
+        /// `target` is **not** a server response stream, the statement falls back
+        /// to `write <fallback_content> to <target>` (a `WriteToStatement`), so a
+        /// pre-existing file write is never silently reinterpreted as a stream
+        /// write. `None` when the form is unambiguous (e.g. a literal value, or a
+        /// bare marker directly before `to`).
+        fallback_content: Option<Box<Expression>>,
         line: usize,
         column: usize,
     },

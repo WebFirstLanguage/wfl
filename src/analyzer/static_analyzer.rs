@@ -1339,6 +1339,25 @@ impl Analyzer {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);
             }
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                ..
+            } => {
+                // Count both interpretations of the ambiguous merged form as
+                // usages (stream value AND the classic file-write fallback), so a
+                // variable named `line <ident>` written to a file is not falsely
+                // reported unused.
+                self.mark_used_in_expression(value, usages);
+                self.mark_used_in_expression(target, usages);
+                if let Some(fallback) = fallback_content {
+                    self.mark_used_in_expression(fallback, usages);
+                }
+            }
+            Statement::FlushStreamStatement { target, .. } => {
+                self.mark_used_in_expression(target, usages);
+            }
             Statement::WriteContentStatement {
                 content, target, ..
             }

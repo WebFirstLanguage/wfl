@@ -1618,9 +1618,24 @@ impl Analyzer {
                 self.current_scope.define_or_replace(symbol);
             }
 
-            Statement::StreamWriteStatement { value, target, .. } => {
-                self.analyze_expression(value);
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                ..
+            } => {
                 self.analyze_expression(target);
+                // For the unambiguous form, check the stream value. For the
+                // ambiguous merged form (`write line <ident> to <target>`,
+                // `fallback_content` is `Some`) the live interpretation — stream
+                // write of `<ident>` vs classic file write of the variable
+                // `line <ident>` — depends on the runtime target type, and the
+                // two reference different variables. Analyzing either here would
+                // reject a program that is valid under the other reading, so
+                // definedness is deferred to runtime for this form.
+                if fallback_content.is_none() {
+                    self.analyze_expression(value);
+                }
             }
 
             Statement::FlushStreamStatement { target, .. } => {

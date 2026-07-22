@@ -9113,12 +9113,60 @@ impl Interpreter {
                 value,
                 target,
                 is_line,
+                fallback_content,
                 line,
                 column,
             } => {
-                let handle_id = self
-                    .resolve_server_stream_handle(target, &env, *line, *column)
-                    .await?;
+                // The target decides the interpretation. Evaluate it once; if it
+                // is a server response stream, this is a stream write. If it is
+                // not and this parsed from the ambiguous merged form
+                // (`write line <ident> to <target>`), fall back to the classic
+                // file write `write <fallback_content> to <target>` so a
+                // pre-existing file write is never reinterpreted.
+                let target_val = self.evaluate_expression(target, Rc::clone(&env)).await?;
+                let handle_id = match &target_val {
+                    Value::Object(obj) => match obj.borrow().get("_server_stream") {
+                        Some(Value::Text(id)) => Some(id.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let handle_id = match handle_id {
+                    Some(id) => id,
+                    None => {
+                        if let Some(fallback) = fallback_content {
+                            // Classic file write: `write <fallback> to <target>`.
+                            let content_value =
+                                self.evaluate_expression(fallback, Rc::clone(&env)).await?;
+                            let file_str = match &target_val {
+                                Value::Text(s) => s.clone(),
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Expected a server response stream or a file handle, got {}",
+                                            target_val.type_name()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                            };
+                            let content_str = format!("{content_value}");
+                            return match self.io_client.write_file(&file_str, &content_str).await {
+                                Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                                Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                            };
+                        }
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected a server response stream (from `start streaming response as ...`), got {}",
+                                target_val.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
                 let val = self.evaluate_expression(value, Rc::clone(&env)).await?;
                 let mut bytes = match &val {
                     Value::Text(s) => s.as_bytes().to_vec(),

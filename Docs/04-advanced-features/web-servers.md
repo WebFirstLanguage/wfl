@@ -491,6 +491,14 @@ close out
   NDJSON). `value` may be text, a number, or a boolean.
 - `write chunk <value> to <out>` — write raw bytes verbatim, no newline added.
   `value` may be text or `binary`.
+
+  > **Note.** `write line <value> to <out>` / `write chunk <value> to <out>` only
+  > act as stream writes when `<out>` is a streaming-response handle. If `<out>`
+  > is instead a file handle or path, the statement falls back to the classic
+  > `write <value> to <file>` file write, so a variable literally named
+  > `line …`/`chunk …` written to a file keeps working. Prefer a plain single-word
+  > value variable (e.g. `write line payload to out`) to keep the streaming intent
+  > obvious.
 - `flush <out>` — advisory: yield so queued bytes are handed to the socket.
   (Chunks are already forwarded as you write them; hyper writes as it receives.)
 - `close <out>` — end the response body. Writing after `close` is an error.
