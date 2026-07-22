@@ -231,6 +231,48 @@ async fn test_next_line_returns_final_unterminated_line() {
 }
 
 #[tokio::test]
+async fn test_next_line_reusing_same_variable_in_one_scope() {
+    // Regression: reading successive lines into the SAME `as line` variable in
+    // one scope must work (define errors on an existing binding, so this needs
+    // define_or_replace — matching `wait for request ... as req`).
+    let url = spawn_body_server("a\nb\n").await;
+    let code = format!(
+        r#"
+        open url at "{url}" and stream response as up
+        wait for next line from up as line
+        store first as line
+        wait for next line from up as line
+        store second as line
+        "#
+    );
+    let interpreter = run_wfl(&code).await;
+    assert_eq!(get_text(&interpreter, "first"), "a");
+    assert_eq!(get_text(&interpreter, "second"), "b");
+}
+
+#[tokio::test]
+async fn test_next_line_count_loop_reusing_same_variable() {
+    // The common streaming pattern: a count loop reusing `as line`.
+    let url = spawn_body_server("a\nb\nc\n").await;
+    let code = format!(
+        r#"
+        open url at "{url}" and stream response as up
+        store collected as ""
+        count from 1 to 100:
+            wait for next line from up as line
+            check if line is nothing:
+                break
+            otherwise:
+                change collected to collected with line
+            end check
+        end count
+        "#
+    );
+    let interpreter = run_wfl(&code).await;
+    assert_eq!(get_text(&interpreter, "collected"), "abc");
+}
+
+#[tokio::test]
 async fn test_next_chunk_yields_binary_then_nothing() {
     let url = spawn_body_server("raw-bytes-payload").await;
     let code = format!(

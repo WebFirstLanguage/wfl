@@ -6709,10 +6709,10 @@ impl Interpreter {
                         stream_map.insert("_stream".to_string(), Value::Text(handle_id.into()));
 
                         let value = Value::Object(Rc::new(RefCell::new(stream_map)));
-                        match env.borrow_mut().define(variable_name, value) {
-                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                        }
+                        // define_or_replace so a `main loop` handler that rebinds
+                        // `upstream` on each request works.
+                        env.borrow_mut().define_or_replace(variable_name, value);
+                        Ok((Value::Null, ControlFlow::None))
                     }
                     Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
@@ -6732,18 +6732,20 @@ impl Interpreter {
                     .await
                 {
                     // Raw bytes as Binary so callers can handle any payload.
+                    // define_or_replace (not define) so re-reading into the same
+                    // variable across a loop refreshes it, matching
+                    // `wait for request ... as req`.
                     Ok(Some(bytes)) => {
                         let value = Value::Binary(Arc::from(bytes.as_slice()));
-                        match env.borrow_mut().define(variable_name, value) {
-                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                        }
+                        env.borrow_mut().define_or_replace(variable_name, value);
+                        Ok((Value::Null, ControlFlow::None))
                     }
                     // Clean EOF binds `nothing` so `check if chunk is nothing` ends the loop.
-                    Ok(None) => match env.borrow_mut().define(variable_name, Value::Null) {
-                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                    },
+                    Ok(None) => {
+                        env.borrow_mut()
+                            .define_or_replace(variable_name, Value::Null);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
                     Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
             }
@@ -6763,15 +6765,14 @@ impl Interpreter {
                 {
                     Ok(Some(line_text)) => {
                         let value = Value::Text(line_text.into());
-                        match env.borrow_mut().define(variable_name, value) {
-                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                        }
+                        env.borrow_mut().define_or_replace(variable_name, value);
+                        Ok((Value::Null, ControlFlow::None))
                     }
-                    Ok(None) => match env.borrow_mut().define(variable_name, Value::Null) {
-                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                    },
+                    Ok(None) => {
+                        env.borrow_mut()
+                            .define_or_replace(variable_name, Value::Null);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
                     Err(error) => Err(self.http_client_error(error, *line, *column)),
                 }
             }
@@ -8849,10 +8850,12 @@ impl Interpreter {
                 stream_map.insert("_server_stream".to_string(), Value::Text(handle_id.into()));
                 stream_map.insert("status".to_string(), Value::Number(status_code as f64));
                 let value = Value::Object(Rc::new(RefCell::new(stream_map)));
-                match env.borrow_mut().define(variable_name, value) {
-                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                }
+                // define_or_replace so a `main loop` handler that rebinds `out`
+                // each request works — and so binding never fails after the
+                // stream head was already committed (which would otherwise leak
+                // the sender and hang the client).
+                env.borrow_mut().define_or_replace(variable_name, value);
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::StreamWriteStatement {
                 value,
