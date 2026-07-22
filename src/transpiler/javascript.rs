@@ -351,7 +351,22 @@ impl JavaScriptTranspiler {
                 Ok(result)
             }
 
-            Statement::MainLoop { body, .. } => {
+            Statement::MainLoop {
+                body,
+                concurrent,
+                line,
+                column,
+            } => {
+                // `main loop concurrently:` has cooperative-concurrency semantics
+                // the serial `while (true)` translation cannot express. Fail
+                // rather than silently emit a serial loop.
+                if *concurrent {
+                    return Err(TranspileError {
+                        message: "`main loop concurrently:` is not supported in JavaScript transpilation (its cooperative concurrency semantics require the WFL interpreter).".to_string(),
+                        line: *line,
+                        column: *column,
+                    });
+                }
                 // Main loop is essentially a forever loop
                 let mut result = format!("{}while (true) {{\n", self.indent());
                 self.push_indent();

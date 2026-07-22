@@ -65,6 +65,10 @@ use tokio::sync::{mpsc, oneshot};
 // Type alias for complex pending response type
 type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<HandlerReply>>>>;
 
+/// An open server response stream: the bounded body-chunk sender plus the
+/// running total of body bytes written (enforced against `max_response_bytes`).
+type ServerResponseStream = (mpsc::Sender<Vec<u8>>, usize);
+
 /// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
 ///
 /// Holds only the response channel. The request's in-flight admission slot is
@@ -1149,9 +1153,11 @@ pub struct Interpreter {
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
     pending_responses: RefCell<HashMap<String, PendingResponse>>, // Pending responses (channel + admission slot) by request ID
     /// Open server response streams (`start streaming response`), keyed by
-    /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender;
-    /// `write line|chunk`/`flush` push to it, `close` drops it (ending the body).
-    server_response_streams: RefCell<HashMap<String, mpsc::Sender<Vec<u8>>>>,
+    /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender
+    /// plus the running total of body bytes written, enforced against
+    /// `max_response_bytes` so a stream cannot bypass the buffered response
+    /// ceiling. `write line|chunk`/`flush` push to it, `close` drops it.
+    server_response_streams: RefCell<HashMap<String, ServerResponseStream>>,
     next_response_stream_id: std::cell::Cell<usize>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
@@ -3682,10 +3688,9 @@ impl Interpreter {
                     column,
                 )),
             },
-            Value::Text(id) => Ok(id.to_string()),
             _ => Err(RuntimeError::new(
                 format!(
-                    "Expected a streaming response handle, got {}",
+                    "Expected a streaming response handle (from `stream response as ...`), got {}",
                     value.type_name()
                 ),
                 line,
@@ -3716,10 +3721,9 @@ impl Interpreter {
                     column,
                 )),
             },
-            Value::Text(id) => Ok(id.to_string()),
             _ => Err(RuntimeError::new(
                 format!(
-                    "Expected a server response stream handle, got {}",
+                    "Expected a server response stream (from `start streaming response as ...`), got {}",
                     value.type_name()
                 ),
                 line,
@@ -8844,7 +8848,7 @@ impl Interpreter {
                 };
                 self.server_response_streams
                     .borrow_mut()
-                    .insert(handle_id.clone(), tx);
+                    .insert(handle_id.clone(), (tx, 0));
 
                 let mut stream_map = HashMap::new();
                 stream_map.insert("_server_stream".to_string(), Value::Text(handle_id.into()));
@@ -8887,13 +8891,37 @@ impl Interpreter {
                     bytes.push(b'\n');
                 }
 
-                // Clone the sender out so the map borrow isn't held across the
-                // (possibly backpressured) send await.
-                let sender = self
-                    .server_response_streams
-                    .borrow()
-                    .get(&handle_id)
-                    .cloned();
+                // Enforce the response-byte ceiling on the running total (so a
+                // stream cannot bypass `web_server_max_response_size` via one
+                // huge chunk or many chunks), then clone the sender out so the
+                // map borrow is not held across the (possibly backpressured)
+                // send await.
+                let max_response_bytes = self.budget.limits().max_response_bytes;
+                let sender = {
+                    let mut map = self.server_response_streams.borrow_mut();
+                    match map.get_mut(&handle_id) {
+                        Some((tx, bytes_written)) => {
+                            let new_total = bytes_written.saturating_add(bytes.len());
+                            if new_total > max_response_bytes {
+                                let actual = new_total;
+                                // Drop the stream so the body ends rather than
+                                // silently truncating.
+                                map.remove(&handle_id);
+                                return Err(self.budget_error(
+                                    BudgetExceeded::ResponseBytes {
+                                        limit: max_response_bytes,
+                                        actual,
+                                    },
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                            *bytes_written = new_total;
+                            Some(tx.clone())
+                        }
+                        None => None,
+                    }
+                };
                 match sender {
                     Some(tx) => match tx.send(bytes).await {
                         Ok(()) => Ok((Value::Null, ControlFlow::None)),

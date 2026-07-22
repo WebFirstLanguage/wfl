@@ -146,6 +146,44 @@ async fn test_streamed_response_lines_and_headers() {
 }
 
 #[tokio::test]
+async fn test_write_after_close_does_not_reach_client() {
+    // Writing after `close out` is a catchable error and does NOT reach the
+    // client: the client sees only the bytes written before close.
+    let port = 8233;
+    let server_code = format!(
+        r#"
+        listen on port {port} as s
+        wait for request comes in on s as req with timeout 10000
+        start streaming response to req with status 200 and content type "text/plain" as out
+        write line "before" to out
+        close out
+        try:
+            write line "after" to out
+        catch:
+            display "write after close correctly errored"
+        end try
+        close server s
+    "#
+    );
+
+    let server_handle = start_server_thread(server_code);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/x"))
+        .send()
+        .await
+        .expect("request failed");
+    let body = response.text().await.unwrap();
+    assert_eq!(
+        body, "before\n",
+        "writes after close must not reach the client"
+    );
+
+    let _ = server_handle.join();
+}
+
+#[tokio::test]
 async fn test_streamed_response_write_chunk_verbatim() {
     let port = 8232;
     let server_code = format!(

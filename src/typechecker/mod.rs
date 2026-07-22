@@ -851,7 +851,7 @@ impl TypeChecker {
                             | Type::Error
                     ) {
                         self.type_error(
-                            "HTTP request body must be text".to_string(),
+                            "HTTP request body must be text (numbers and booleans are also accepted and converted)".to_string(),
                             Some(Type::Text),
                             Some(body_type),
                             *_line,
@@ -931,7 +931,7 @@ impl TypeChecker {
                             | Type::Error
                     ) {
                         self.type_error(
-                            "HTTP request body must be text".to_string(),
+                            "HTTP request body must be text (numbers and booleans are also accepted and converted)".to_string(),
                             Some(Type::Text),
                             Some(body_type),
                             *_line,
@@ -975,17 +975,57 @@ impl TypeChecker {
                 content_type,
                 headers,
                 variable_name,
-                ..
+                line: _line,
+                column: _column,
             } => {
                 let _ = self.infer_expression_type(request);
+                // Enforce the clause types (like RespondStatement) so obvious
+                // mistakes fail at typecheck rather than at runtime.
                 if let Some(status) = status {
-                    let _ = self.infer_expression_type(status);
+                    let status_type = self.infer_expression_type(status);
+                    if !matches!(
+                        status_type,
+                        Type::Number | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "Streaming response status must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(status_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
                 if let Some(content_type) = content_type {
-                    let _ = self.infer_expression_type(content_type);
+                    let ct_type = self.infer_expression_type(content_type);
+                    if !matches!(
+                        ct_type,
+                        Type::Text | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "Streaming response content type must be text".to_string(),
+                            Some(Type::Text),
+                            Some(ct_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
                 if let Some(headers) = headers {
-                    let _ = self.infer_expression_type(headers);
+                    let headers_type = self.infer_expression_type(headers);
+                    if !matches!(
+                        headers_type,
+                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "Streaming response headers must be a map of header names to values"
+                                .to_string(),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                            Some(headers_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
                 if !variable_name.is_empty()
                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)

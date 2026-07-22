@@ -614,10 +614,11 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 // keyword; `streaming` is a contextual identifier; `response` is
                 // a keyword.
                 Token::KeywordStart => self.parse_start_streaming_response(),
-                // `flush <out>` — a bare-identifier target merges into the token.
-                Token::Identifier(id) if id == "flush" || id.starts_with("flush ") => {
-                    self.parse_flush_stream()
-                }
+                // `flush <out>` — the target merges into the token
+                // (`flush out` -> Identifier("flush out")). Only match when an
+                // operand follows, so a bare `flush` used as an action/variable
+                // name still parses as an expression statement.
+                Token::Identifier(id) if id.starts_with("flush ") => self.parse_flush_stream(),
                 Token::Identifier(id) if id.starts_with("send websocket message") => {
                     self.parse_send_websocket_message()
                 }
