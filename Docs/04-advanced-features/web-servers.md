@@ -498,7 +498,7 @@ close out
 **Lifecycle & backpressure:** the body channel is bounded, so a slow client
 slows your `write` calls (backpressure) instead of buffering without bound. If
 the client disconnects, hyper drops the response body and your next `write` to
-that stream fails with a catchable error — use `try`/`when` to detect it and
+that stream fails with a catchable error — use `try`/`catch` to detect it and
 stop producing (and `close` any upstream you are proxying).
 
 **Always `close out`** to finalize the response — that is what signals the end

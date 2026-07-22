@@ -70,21 +70,25 @@ HARD RULES:
 > the language, so the guarantee rests on the wrapper + the `panic = "unwind"`
 > gate, not a regression test.
 >
-> **Known gap flagged in review (not yet fixed):** the concurrent loop isolates
-> the **environment** per handler, but interpreter-level run-state
-> (`current_count`/`in_count_loop`, `call_depth`, `call_stack`) still lives on
-> the shared `Interpreter`. A handler that yields at an await *inside a `count`
-> loop or a deep action call* can have that state overwritten by a concurrent
-> sibling. The correct fix is a per-handler execution context; it is a scoped
-> refactor and is called out for the maintainer review below.
+> **Run-state isolation (review gap — FIXED):** the concurrent loop already
+> isolates the **environment** per handler; it now also isolates interpreter
+> run-state. Each handler carries its own `RunState` (`current_count`/
+> `in_count_loop`, `call_depth`, `call_stack`, and the block overload-dup set),
+> and an `IsolatedHandler` poll wrapper swaps that state into the interpreter
+> only for the duration of each `poll`, swapping it back out the instant the poll
+> returns (ready *or* pending). While a handler is suspended at an `await`, its
+> count-loop/recursion/call-stack bookkeeping is parked in its own `RunState`, so
+> a sibling polled next neither sees nor clobbers it. Serial execution is
+> untouched (the wrapper is used only by `execute_concurrent_main_loop`).
+> Regression: `tests/concurrent_main_loop_test.rs::test_concurrent_handlers_do_not_share_count_loop_state`
+> (Red without the swap: `/a` observed `/b`'s entire count range).
 >
 > **Also lighter than the full 1b checklist:** request-ID *structured* logging is
 > not yet added; the eval-core `RefCell`-across-await audit is enforced
 > mechanically by the crate-wide `#![deny(clippy::await_holding_refcell_ref)]`
 > backstop rather than a written per-site walkthrough.
 >
-> **This is the maintainer STOP/review point** — please review (especially the
-> shared run-state gap) before Phase 2.
+> **This is the maintainer STOP/review point** — please review before Phase 2.
 | 2 | 2a | Structured nursery + join engine | ⬜ Not started |
 | 2 | 2b | `change shared` critical region | ⬜ Not started |
 | 3 | 3a | Multi-process workers (if profiling forces) | ⬜ Deferred |

@@ -179,6 +179,89 @@ async fn test_concurrent_handler_error_does_not_kill_server() {
 }
 
 #[tokio::test]
+async fn test_concurrent_handlers_do_not_share_count_loop_state() {
+    // Per-handler run-state isolation (P1 #1). Two concurrent handlers each run
+    // a `count` loop that yields (via `wait for`) mid-iteration and then reads
+    // `count`. The interpreter's count-loop state (`current_count`,
+    // `in_count_loop`) is a single shared field; without per-poll isolation, one
+    // handler's `count` bleeds into the other across the yield.
+    //
+    // The two ranges are disjoint (1..5 vs 100..104), so any cross-contamination
+    // is unmistakable: with isolation each handler observes only its own range.
+    let port = 8344;
+    let code = format!(
+        r#"
+        listen on port {port} as srv
+        main loop concurrently:
+            wait for request comes in on srv as req with timeout 20000
+            store p as req["path"]
+            check if p is equal to "/shutdown":
+                respond to req with "bye"
+                close server srv
+                break
+            otherwise:
+                check if p is equal to "/a":
+                    store seen as ""
+                    count from 1 to 5:
+                        wait for 80 milliseconds
+                        change seen to seen with count with "-"
+                    end count
+                    respond to req with seen
+                otherwise:
+                    store seen as ""
+                    count from 100 to 104:
+                        wait for 80 milliseconds
+                        change seen to seen with count with "-"
+                    end count
+                    respond to req with seen
+                end check
+            end check
+        end loop
+    "#
+    );
+    let server = start_server_thread(code);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let a_url = format!("http://127.0.0.1:{port}/a");
+    let b_url = format!("http://127.0.0.1:{port}/b");
+    // Fire both at once so their count loops interleave on the single thread.
+    let a = tokio::spawn(async move {
+        reqwest::Client::new()
+            .get(&a_url)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    });
+    let b = tokio::spawn(async move {
+        reqwest::Client::new()
+            .get(&b_url)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    });
+
+    let a_body = a.await.expect("/a task panicked");
+    let b_body = b.await.expect("/b task panicked");
+
+    assert_eq!(
+        a_body, "1-2-3-4-5-",
+        "/a handler observed a count from outside its own loop (shared count-loop state)"
+    );
+    assert_eq!(
+        b_body, "100-101-102-103-104-",
+        "/b handler observed a count from outside its own loop (shared count-loop state)"
+    );
+
+    shutdown(port, server).await;
+}
+
+#[tokio::test]
 async fn test_serial_slow_handler_blocks_next() {
     let port = 8343;
     let server = start_server_thread(server_code(port, false));

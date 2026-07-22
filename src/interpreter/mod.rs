@@ -787,6 +787,67 @@ impl Drop for CallDepthGuard<'_> {
     }
 }
 
+/// A snapshot of the interpreter's per-execution "run state" — the mutable
+/// bookkeeping that belongs to a single in-flight execution rather than to the
+/// interpreter as a whole: the count-loop variable, recursion depth, the
+/// diagnostic call stack, and the current block's overload-dup set.
+///
+/// Under serial execution this state lives directly on `Interpreter` and is
+/// never contended. Under `main loop concurrently:` several handler futures are
+/// interleaved cooperatively on one thread, so at every `await` point one
+/// handler's run state must not be visible to (or clobbered by) another. Each
+/// handler owns a `RunState` that is swapped into the interpreter only while
+/// that handler is actively being polled (see [`IsolatedHandler`]).
+#[derive(Default)]
+struct RunState {
+    current_count: Option<f64>,
+    in_count_loop: bool,
+    call_depth: usize,
+    call_stack: Vec<CallFrame>,
+    block_overload_dups: Option<Rc<std::collections::HashSet<String>>>,
+}
+
+impl RunState {
+    /// A fresh run state for a handler starting from `base_call_depth` (0 for a
+    /// top-level run; the parent's live depth for an `execute file` child).
+    fn fresh(base_call_depth: usize) -> Self {
+        RunState {
+            call_depth: base_call_depth,
+            ..RunState::default()
+        }
+    }
+}
+
+/// Wraps a handler future so its [`RunState`] is swapped into the interpreter
+/// for the duration of each `poll` and swapped back out again the instant the
+/// poll returns (ready **or** pending). This makes the interpreter's run-state
+/// fields effectively poll-local: while handler A is suspended at an `await`,
+/// its count-loop variable, recursion depth, and call stack are parked in A's
+/// own `RunState`, so handler B — polled next — neither sees nor corrupts them.
+///
+/// `inner` is a boxed handler future (already wrapped in `catch_unwind`); a
+/// panic therefore surfaces as `Poll::Ready` and the swap-back still runs,
+/// leaving the interpreter's scratch fields restored for the next sibling.
+struct IsolatedHandler<'a, T> {
+    interp: &'a Interpreter,
+    state: RunState,
+    inner: std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>,
+}
+
+impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
+    type Output = T;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<T> {
+        // Every field is `Unpin` (`&`, `RunState`, and `Pin<Box<..>>`), so the
+        // wrapper itself is `Unpin` and `get_mut` is sound.
+        let this = self.get_mut();
+        this.interp.swap_run_state(&mut this.state);
+        let result = this.inner.as_mut().poll(cx);
+        this.interp.swap_run_state(&mut this.state);
+        result
+    }
+}
+
 /// RAII guard that ensures module loading context is restored on scope exit.
 /// Automatically pops loading_stack and restores current_source_file when dropped.
 struct ModuleLoadGuard<'a> {
@@ -3666,9 +3727,9 @@ impl Interpreter {
     }
 
     /// Resolve a `wait for next chunk|line from <source>` operand to a stream
-    /// handle id. Accepts either the streaming-response object bound by
-    /// `stream response as <name>` (reads its internal `_stream` id) or a bare
-    /// text handle id.
+    /// handle id. Requires the streaming-response object bound by
+    /// `stream response as <name>` (reads its internal `_stream` id); a bare text
+    /// id is rejected so an arbitrary string can't be aimed at a stream handle.
     async fn resolve_stream_handle(
         &self,
         source: &Expression,
@@ -3700,8 +3761,9 @@ impl Interpreter {
     }
 
     /// Resolve a `write line|chunk`/`flush` operand to a server response-stream
-    /// handle id. Accepts the object bound by `start streaming response as ...`
-    /// (reads its internal `_server_stream` id) or a bare text handle id.
+    /// handle id. Requires the object bound by `start streaming response as ...`
+    /// (reads its internal `_server_stream` id); a bare text id is rejected so an
+    /// arbitrary string can't be aimed at a server response stream.
     async fn resolve_server_stream_handle(
         &self,
         target: &Expression,
@@ -3732,12 +3794,41 @@ impl Interpreter {
         }
     }
 
+    /// Swap the interpreter's per-execution run-state fields with `state`.
+    ///
+    /// Used by [`IsolatedHandler`] to make the run state poll-local under
+    /// concurrent execution: the interpreter's live fields and the parked
+    /// snapshot trade places, so exactly one handler's run state is installed at
+    /// a time. A plain field-by-field `mem::swap`, so it is its own inverse.
+    fn swap_run_state(&self, state: &mut RunState) {
+        std::mem::swap(
+            &mut *self.current_count.borrow_mut(),
+            &mut state.current_count,
+        );
+        std::mem::swap(
+            &mut *self.in_count_loop.borrow_mut(),
+            &mut state.in_count_loop,
+        );
+        let depth = self.call_depth.replace(state.call_depth);
+        state.call_depth = depth;
+        std::mem::swap(&mut *self.call_stack.borrow_mut(), &mut state.call_stack);
+        std::mem::swap(
+            &mut *self.current_block_overload_dups.borrow_mut(),
+            &mut state.block_overload_dups,
+        );
+    }
+
     /// Execute a `main loop concurrently:` body. Keeps up to
     /// `CONCURRENT_HANDLER_LIMIT` iterations of `body` in flight at once, each in
     /// its own isolated child scope, driven cooperatively on this single thread
     /// (no threads, no `Send`/`Arc` across the interpreter core). A handler that
     /// errors or panics is contained — its request is resolved with 500 by the
     /// response-completion drop guard — and its siblings keep running.
+    ///
+    /// Each handler also carries an isolated [`RunState`] (count-loop variable,
+    /// recursion depth, call stack, block overload set) via [`IsolatedHandler`],
+    /// so one handler's loop/recursion bookkeeping can never leak into another
+    /// across an `await`.
     async fn execute_concurrent_main_loop(
         &self,
         body: &[Statement],
@@ -3754,12 +3845,18 @@ impl Interpreter {
             self.check_time()?;
 
             // Refill to the concurrency cap. Each iteration gets a fresh isolated
-            // scope so concurrent requests never clobber each other's variables.
+            // scope so concurrent requests never clobber each other's variables,
+            // and a fresh `RunState` (wrapped by `IsolatedHandler`) so their
+            // count-loop/recursion/call-stack bookkeeping stays poll-local.
             while futs.len() < cap {
                 let scope = Environment::new_child_env(env);
-                futs.push(
-                    std::panic::AssertUnwindSafe(self.execute_block(body, scope)).catch_unwind(),
-                );
+                let handler =
+                    std::panic::AssertUnwindSafe(self.execute_block(body, scope)).catch_unwind();
+                futs.push(IsolatedHandler {
+                    interp: self,
+                    state: RunState::fresh(self.base_call_depth),
+                    inner: Box::pin(handler),
+                });
             }
 
             // With cap >= 1 the set is never empty, so `next()` never returns a
