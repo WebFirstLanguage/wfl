@@ -156,8 +156,14 @@ The same limits as buffered requests apply: the running total of body bytes is
 held under `web_server_max_response_size`, each read is bounded by the request's
 timeout, and cooperative cancellation interrupts a read waiting on the peer. A
 mid-stream network error surfaces as a catchable error from the `wait for next
-...` statement, and every stream is closed when the handle is dropped on any
-exit path.
+...` statement.
+
+A stream is released — cancelling the in-flight upstream request — when it
+reaches a clean end of stream, hits an error, or you `close` it explicitly, and
+in any case when the program exits. It is **not** released merely because the
+handle variable goes out of scope, so `close upstream` when you stop early (or
+break out of the read loop before EOF) to free the upstream connection promptly
+rather than holding it until the program ends.
 
 ### 4. **Web Standards**
 

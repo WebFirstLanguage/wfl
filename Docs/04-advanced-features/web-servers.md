@@ -499,8 +499,13 @@ close out
 slows your `write` calls (backpressure) instead of buffering without bound. If
 the client disconnects, hyper drops the response body and your next `write` to
 that stream fails with a catchable error — use `try`/`when` to detect it and
-stop producing (and `close` any upstream you are proxying). The stream is closed
-automatically when the handler ends on any path.
+stop producing (and `close` any upstream you are proxying).
+
+**Always `close out`** to finalize the response — that is what signals the end
+of the body to the client. A handler that starts a stream and returns without
+`close`ing it leaves the response body open (the client keeps waiting) until the
+program exits. Put the `close` on every path, e.g. in a `finally:` block if the
+handler can error partway through.
 
 **Proxying an upstream to the browser** — combine with the outbound streaming
 client ([Interoperability → Streaming a response

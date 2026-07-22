@@ -97,6 +97,17 @@ fn test_wait_for_next_line_parses() {
     }
 }
 
+#[test]
+fn test_wait_for_next_as_duration_variable_still_parses() {
+    // Backward compat: a variable literally named `next` in a duration wait must
+    // NOT be intercepted as `wait for next chunk|line` (regression).
+    let stmt = parse_single_statement("wait for next milliseconds");
+    match stmt {
+        Statement::WaitForDurationStatement { unit, .. } => assert_eq!(unit, "milliseconds"),
+        other => panic!("Expected WaitForDurationStatement, got {other:?}"),
+    }
+}
+
 // ----------------------------- runtime tests ------------------------------
 
 /// Spawn a one-shot server that answers 200 with the given body, streamed with

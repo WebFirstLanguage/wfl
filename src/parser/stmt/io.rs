@@ -798,7 +798,22 @@ impl<'a> IoParser<'a> for Parser<'a> {
         // identifiers; the lexer merges a following bare-identifier value into
         // the same token (`line payload` -> Identifier("line payload")), so
         // split the value off the marker, mirroring the websocket-message form.
-        if let Some(next_token) = self.cursor.peek()
+        //
+        // Do NOT intercept a bare `line`/`chunk` that is immediately followed by
+        // `to`: that is the classic `write <var> to <file>` form using a
+        // variable literally named `line`/`chunk` (common in line-by-line file
+        // processing). The streaming form always has a value between the marker
+        // and `to`, so a bare marker directly before `to` is not a stream write.
+        let bare_marker_before_to = matches!(
+            self.cursor.peek(),
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "line" || id == "chunk")
+        ) && matches!(
+            self.cursor.peek_kind_n(1),
+            Some(Token::KeywordTo)
+        );
+
+        if !bare_marker_before_to
+            && let Some(next_token) = self.cursor.peek()
             && let Token::Identifier(id) = &next_token.token
             && (id == "line"
                 || id == "chunk"

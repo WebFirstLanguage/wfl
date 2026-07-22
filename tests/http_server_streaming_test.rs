@@ -76,6 +76,19 @@ fn test_flush_parses() {
     }
 }
 
+#[test]
+fn test_write_bare_line_variable_to_file_still_parses() {
+    // Backward compat: `write <var> to <file>` with a variable literally named
+    // `line`/`chunk` must NOT be intercepted as a stream write (regression).
+    for src in ["write line to out", "write chunk to out"] {
+        let stmt = parse_single_statement(src);
+        match stmt {
+            Statement::WriteToStatement { .. } => {}
+            other => panic!("Expected WriteToStatement for {src:?}, got {other:?}"),
+        }
+    }
+}
+
 // ----------------------------- runtime tests ------------------------------
 
 fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {

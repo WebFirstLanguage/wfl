@@ -2075,6 +2075,7 @@ impl JavaScriptTranspiler {
             | Statement::WaitForNextLineStatement { .. }
             | Statement::StartStreamingResponseStatement { .. }
             | Statement::StreamWriteStatement { .. }
+            | Statement::FlushStreamStatement { .. }
             | Statement::WaitForProcessStatement { .. }
             | Statement::WaitForRequestStatement { .. } => true,
 

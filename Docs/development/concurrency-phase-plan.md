@@ -54,18 +54,37 @@ HARD RULES:
 > not the staged 1a→1b→1c sequence. What is covered: `main loop concurrently:`
 > surface (locked marker); plain `main loop` byte-compatible serial (tested);
 > `FuturesUnordered` of `!Send`, `&self`-borrowing handler futures on the
-> existing runtime; isolated-per-request scopes; `catch_unwind` panic
-> containment (siblings survive, tested via handler-error containment);
-> in-flight cap (`CONCURRENT_HANDLER_LIMIT`), with 503/504/500 provided by the
-> existing transport layer (bounded queue → 503, response deadline → 504,
+> existing runtime; isolated-per-request **environment** scopes; a slow handler
+> not blocking a fast sibling (tested); in-flight cap
+> (`CONCURRENT_HANDLER_LIMIT`), with 503/504/500 provided by the existing
+> transport layer (bounded queue → 503, response deadline → 504,
 > `ResponseCompletion` drop → 500); the empty-set busy-spin trap is avoided
-> (cap ≥ 1 keeps the set non-empty). **Lighter than the full 1b checklist:**
-> request-ID *structured* logging is not yet added (handler errors/panics are
-> logged, but not a per-request accept/complete/fail/shed/timeout ID scheme);
-> the eval-core `RefCell`-across-await audit is enforced mechanically by the
-> crate-wide `#![deny(clippy::await_holding_refcell_ref)]` backstop rather than a
-> written per-site walkthrough. **This is the maintainer STOP/review point** —
-> please review before Phase 2.
+> (cap ≥ 1 keeps the set non-empty). Cooperative, not parallel: handlers
+> interleave only at await points, so a CPU-bound handler with no await still
+> holds the interpreter thread (documented in `web-servers.md`).
+>
+> **Containment:** *runtime-error* containment is tested (an erroring handler
+> does not kill the server). *Panic* containment is by construction via
+> `catch_unwind` on each handler future but is **not** covered by a dedicated
+> test — a deterministic WFL-level Rust panic is not readily expressible from
+> the language, so the guarantee rests on the wrapper + the `panic = "unwind"`
+> gate, not a regression test.
+>
+> **Known gap flagged in review (not yet fixed):** the concurrent loop isolates
+> the **environment** per handler, but interpreter-level run-state
+> (`current_count`/`in_count_loop`, `call_depth`, `call_stack`) still lives on
+> the shared `Interpreter`. A handler that yields at an await *inside a `count`
+> loop or a deep action call* can have that state overwritten by a concurrent
+> sibling. The correct fix is a per-handler execution context; it is a scoped
+> refactor and is called out for the maintainer review below.
+>
+> **Also lighter than the full 1b checklist:** request-ID *structured* logging is
+> not yet added; the eval-core `RefCell`-across-await audit is enforced
+> mechanically by the crate-wide `#![deny(clippy::await_holding_refcell_ref)]`
+> backstop rather than a written per-site walkthrough.
+>
+> **This is the maintainer STOP/review point** — please review (especially the
+> shared run-state gap) before Phase 2.
 | 2 | 2a | Structured nursery + join engine | ⬜ Not started |
 | 2 | 2b | `change shared` critical region | ⬜ Not started |
 | 3 | 3a | Multi-process workers (if profiling forces) | ⬜ Deferred |

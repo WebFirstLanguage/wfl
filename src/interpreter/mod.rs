@@ -8715,7 +8715,21 @@ impl Interpreter {
                     Some(expr) => {
                         let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
                         match &v {
-                            Value::Number(n) => *n as u16,
+                            // Require a whole number in the HTTP status range
+                            // rather than silently wrapping a fractional or
+                            // out-of-range value through `as u16`.
+                            Value::Number(n) if n.fract() == 0.0 && *n >= 100.0 && *n <= 599.0 => {
+                                *n as u16
+                            }
+                            Value::Number(n) => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected a whole HTTP status code between 100 and 599, got {n}"
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
                             _ => {
                                 return Err(RuntimeError::new(
                                     format!("Expected number for status, got {}", v.type_name()),

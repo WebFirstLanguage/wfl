@@ -5,6 +5,10 @@
 //     stays serial (concurrent = false) — no silent upgrade.
 //   - Concurrent: a slow handler does NOT block a fast sibling.
 //   - Serial: a slow handler DOES block the next request (unchanged behavior).
+//   - A handler that errors is contained; the server keeps serving.
+//
+// Each server exposes a `/shutdown` path that closes the server and breaks the
+// loop, so the test can stop the server thread deterministically and join it.
 
 use std::time::{Duration, Instant};
 use wfl::Interpreter;
@@ -62,21 +66,36 @@ fn server_code(port: u16, concurrently: bool) -> String {
         main loop{marker}:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
-            check if p is equal to "/slow":
-                wait for 500 milliseconds
-                respond to req with "slow"
+            check if p is equal to "/shutdown":
+                respond to req with "bye"
+                close server srv
+                break
             otherwise:
-                respond to req with "fast"
+                check if p is equal to "/slow":
+                    wait for 500 milliseconds
+                    respond to req with "slow"
+                otherwise:
+                    respond to req with "fast"
+                end check
             end check
         end loop
     "#
     )
 }
 
+/// Send `/shutdown` so the server closes and its loop breaks, then join.
+async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
+    let _ = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/shutdown"))
+        .send()
+        .await;
+    let _ = tokio::task::spawn_blocking(move || server.join()).await;
+}
+
 #[tokio::test]
 async fn test_concurrent_slow_handler_does_not_block_fast() {
-    let port = 8241;
-    let _server = start_server_thread(server_code(port, true));
+    let port = 8341;
+    let server = start_server_thread(server_code(port, true));
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let client = reqwest::Client::new();
@@ -103,31 +122,39 @@ async fn test_concurrent_slow_handler_does_not_block_fast() {
         "fast request was blocked behind the slow handler ({fast_elapsed:?})"
     );
 
-    let slow_resp = slow.await.unwrap();
+    let slow_resp = slow.await.expect("slow request task panicked");
     assert_eq!(slow_resp.text().await.unwrap(), "slow");
+
+    shutdown(port, server).await;
 }
 
 #[tokio::test]
 async fn test_concurrent_handler_error_does_not_kill_server() {
     // A handler that errors mid-iteration (here: responding twice) must be
     // contained — the concurrent loop keeps serving other requests.
-    let port = 8243;
+    let port = 8342;
     let code = format!(
         r#"
         listen on port {port} as srv
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
-            check if p is equal to "/boom":
-                respond to req with "boom-ok"
-                respond to req with "this second respond errors"
+            check if p is equal to "/shutdown":
+                respond to req with "bye"
+                close server srv
+                break
             otherwise:
-                respond to req with "ok"
+                check if p is equal to "/boom":
+                    respond to req with "boom-ok"
+                    respond to req with "this second respond errors"
+                otherwise:
+                    respond to req with "ok"
+                end check
             end check
         end loop
     "#
     );
-    let _server = start_server_thread(code);
+    let server = start_server_thread(code);
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let client = reqwest::Client::new();
@@ -147,12 +174,14 @@ async fn test_concurrent_handler_error_does_not_kill_server() {
         .await
         .expect("follow-up request failed");
     assert_eq!(ok.text().await.unwrap(), "ok");
+
+    shutdown(port, server).await;
 }
 
 #[tokio::test]
 async fn test_serial_slow_handler_blocks_next() {
-    let port = 8242;
-    let _server = start_server_thread(server_code(port, false));
+    let port = 8343;
+    let server = start_server_thread(server_code(port, false));
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let client = reqwest::Client::new();
@@ -179,5 +208,8 @@ async fn test_serial_slow_handler_blocks_next() {
         "serial main loop should have blocked the fast request behind the slow one ({fast_elapsed:?})"
     );
 
-    let _ = slow.await;
+    let slow_resp = slow.await.expect("slow request task panicked");
+    assert_eq!(slow_resp.text().await.unwrap(), "slow");
+
+    shutdown(port, server).await;
 }

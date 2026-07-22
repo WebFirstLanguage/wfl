@@ -1,8 +1,10 @@
 // Concurrent request handling with `main loop concurrently:`.
 //
-// Iterations run in their own isolated scope, so a slow handler does not
-// block other requests. Plain `main loop` stays serial; adding `concurrently`
-// is the only way to opt in.
+// Iterations run in their own isolated scope. Concurrency is cooperative on one
+// thread: a slow handler yields to its siblings at await points (wait for,
+// outbound HTTP, stream reads/writes, respond), so it does not block them there
+// — but CPU-bound work with no await still holds the thread. Plain `main loop`
+// stays serial; adding `concurrently` is the only way to opt in.
 //
 // Validated for syntax/analysis/lint only (layers 1-4): running it needs live
 // clients, so execution is skipped.

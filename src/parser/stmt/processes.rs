@@ -397,34 +397,31 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                 // identifiers, so `next chunk` / `next line` arrive as a single
                 // token; a bare `next` (followed by chunk/line) is also handled.
                 Token::Identifier(id)
-                    if id == "next chunk" || id == "next line" || id == "next" =>
+                    if id == "next chunk"
+                        || id == "next line"
+                        || (id == "next"
+                            && matches!(
+                                self.cursor.peek_kind_n(1),
+                                Some(Token::Identifier(kind)) if kind == "chunk" || kind == "line"
+                            )) =>
                 {
+                    // A bare `next` NOT followed by `chunk`/`line` (e.g. a
+                    // variable named `next` in `wait for next milliseconds`)
+                    // falls through to the duration/expression handling below.
                     let is_line = id.ends_with("line");
                     let is_bare_next = id == "next";
                     self.bump_sync(); // Consume "next chunk"/"next line" (or bare "next")
 
                     let is_line = if is_bare_next {
-                        match self.cursor.peek() {
-                            Some(t) => match &t.token {
-                                Token::Identifier(kind) if kind == "chunk" => {
-                                    self.bump_sync();
-                                    false
-                                }
-                                Token::Identifier(kind) if kind == "line" => {
-                                    self.bump_sync();
-                                    true
-                                }
-                                _ => {
-                                    return Err(ParseError::from_token(
-                                        "Expected 'chunk' or 'line' after 'next'".to_string(),
-                                        t,
-                                    ));
-                                }
-                            },
-                            None => {
-                                return Err(self
-                                    .cursor
-                                    .error("Expected 'chunk' or 'line' after 'next'".to_string()));
+                        // The guard already confirmed `chunk`/`line` follows.
+                        match self.cursor.peek().map(|t| &t.token) {
+                            Some(Token::Identifier(kind)) if kind == "chunk" => {
+                                self.bump_sync();
+                                false
+                            }
+                            _ => {
+                                self.bump_sync();
+                                true
                             }
                         }
                     } else {
