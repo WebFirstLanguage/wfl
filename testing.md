@@ -17,8 +17,14 @@ project testing profile required by that policy's §4.
 | Tuple | Presubmit | Release |
 |---|---|---|
 | Linux x86-64 (ubuntu-latest), Rust stable (MSRV **1.94+**, edition 2024) | ✅ | ✅ |
-| Windows x86-64, Rust stable | ✅ (integration) | ✅ |
-| macOS (best-effort; not gated) | — | ⚠️ smoke only |
+| Windows x86-64 (windows-latest), Rust stable | ✅ (integration) | ✅ |
+| macOS | — | — |
+
+> **macOS is not a gated tuple.** CI runs only `ubuntu-latest` and
+> `windows-latest` (`.github/workflows/ci.yml`); there is no macOS runner in
+> presubmit or release. macOS is supported only best-effort by contributors and
+> is not verified by this pipeline. Add a macOS matrix entry before claiming any
+> gated macOS coverage here.
 
 Key runtime dependencies: `tokio`, `warp`/`hyper`, `reqwest`, `sqlx`, `logos`,
 `tower-lsp`. The interpreter core is single-threaded (`Rc`/`RefCell`); async I/O
@@ -135,6 +141,14 @@ behavior; touched code still follows Red→Green and the risk triggers above.
 ---
 
 ## Logbie Testing Policy
+
+> **Adoption note (this repository):** the text below is the organization policy
+> reproduced verbatim, so it keeps the canonical **Status: Proposed** label and
+> **Effective date: Upon adoption**. For WFL specifically, that adoption has
+> happened: this repository has adopted policy version 1.0 as **binding and in
+> force** (see the header at the top of this file, and `CLAUDE.md` / `AGENTS.md`),
+> effective **2026-07-22** (the testing-profile review date). Read the "Upon
+> adoption" below as "as of 2026-07-22" for this repo.
 
 **Status:** Proposed organization policy, version 1.0
 **Owner:** Logbie LLC Engineering

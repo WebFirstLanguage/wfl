@@ -54,14 +54,19 @@ HARD RULES:
 > not the staged 1a→1b→1c sequence. What is covered: `main loop concurrently:`
 > surface (locked marker); plain `main loop` byte-compatible serial (tested);
 > `FuturesUnordered` of `!Send`, `&self`-borrowing handler futures on the
-> existing runtime; isolated-per-request **environment** scopes; a slow handler
-> not blocking a fast sibling (tested); in-flight cap
-> (`CONCURRENT_HANDLER_LIMIT`), with 503/504/500 provided by the existing
-> transport layer (bounded queue → 503, response deadline → 504,
-> `ResponseCompletion` drop → 500); the empty-set busy-spin trap is avoided
-> (cap ≥ 1 keeps the set non-empty). Cooperative, not parallel: handlers
-> interleave only at await points, so a CPU-bound handler with no await still
-> holds the interpreter thread (documented in `web-servers.md`).
+> existing runtime; per-request isolation of both the **environment** scope
+> *and* interpreter run-state (see the run-state note below) — note that a
+> handler's environment is a fresh child of the shared parent, so top-level
+> (global) bindings and any shallow-shared collections reachable through them
+> remain shared, by design; a slow handler not blocking a fast sibling (tested);
+> in-flight cap (`CONCURRENT_HANDLER_LIMIT`), with 503/504/500 provided by the
+> transport plus the interpreter's per-handler exit sweep (bounded queue → 503,
+> response deadline → 504, `ResponseCompletion` drop → 500 mid-`respond`, and a
+> handler that dequeues a request and ends **without** responding → an immediate
+> 500 rather than waiting out the request timeout; tested); the empty-set
+> busy-spin trap is avoided (cap ≥ 1 keeps the set non-empty). Cooperative, not
+> parallel: handlers interleave only at await points, so a CPU-bound handler with
+> no await still holds the interpreter thread (documented in `web-servers.md`).
 >
 > **Containment:** *runtime-error* containment is tested (an erroring handler
 > does not kill the server). *Panic* containment is by construction via
@@ -243,31 +248,42 @@ HARD RULES:
 
 **Goal:** User-visible opt-in concurrent loop; serial path untouched.
 
+> **Status:** shipped in the single Phase 1 change (see the tracker note above).
+> The checklist below is updated to the as-shipped state; `[~]` marks items
+> provided by the existing transport layer rather than net-new here, and the two
+> remaining known gaps are called out explicitly.
+
 #### TODOs — language / runtime
 
-- [ ] Parser: `main loop concurrently:` (and matching `end`)
-- [ ] Analyzer / typechecker / keyword docs if needed
-- [ ] Runtime: concurrent path uses proven 1a bridge
-- [ ] **G1:** plain `main loop` remains serial and byte-compatible
-- [ ] Isolated-per-request scopes (default)
-- [ ] Semaphore / in-flight cap (default e.g. 256) → shed **503**
-- [ ] Per-request timeout (default e.g. 30s) → **504** (only at await points — document cliff)
+- [x] Parser: `main loop concurrently:` (and matching `end`)
+- [x] Analyzer / typechecker / keyword docs if needed
+- [x] Runtime: concurrent path uses proven 1a bridge
+- [x] **G1:** plain `main loop` remains serial and byte-compatible
+- [x] Isolated-per-request scopes (default) — plus per-handler run-state isolation
+- [~] Semaphore / in-flight cap (default e.g. 256) → shed **503** (cap in the
+  concurrent loop; 503 shedding from the transport's bounded queue)
+- [~] Per-request timeout (default e.g. 30s) → **504** (transport response
+  deadline; await-point cliff documented)
 - [ ] Request-ID structured logging on accept / complete / fail / shed / timeout
-- [ ] catch_unwind boundary → **500**, siblings survive
-- [ ] Eval-core audit: every `RefCell` borrow/borrow_mut on await paths drops before `.await`
-  - [ ] PR description lists each site and drop-before-await story
-- [ ] clippy `await_holding_refcell_ref` enabled/enforced where applicable (backstop only)
+  — **known gap** (not yet added)
+- [x] catch_unwind boundary → **500**, siblings survive
+- [x] Eval-core audit: every `RefCell` borrow/borrow_mut on await paths drops
+  before `.await` (enforced mechanically by the crate-wide clippy backstop)
+  - [~] PR description lists each site and drop-before-await story (mechanical
+    lint in lieu of a written per-site walkthrough)
+- [x] clippy `await_holding_refcell_ref` enabled/enforced where applicable (backstop only)
 
 #### TODOs — tests (write first where possible)
 
-- [ ] Serial `main loop` still processes one request at a time (no silent upgrade)
-- [ ] Concurrent loop: slow handler does not block fast sibling
-- [ ] Cap exceeded → 503
-- [ ] Timeout → 504
-- [ ] Panic in A → 500; B still completes
-- [ ] No empty-set busy-spin
-- [ ] Request IDs present in logs (if testable)
-- [ ] Existing web TestPrograms still pass on serial path
+- [x] Serial `main loop` still processes one request at a time (no silent upgrade)
+- [x] Concurrent loop: slow handler does not block fast sibling
+- [~] Cap exceeded → 503 (transport-provided; not a dedicated Phase 1 test)
+- [~] Timeout → 504 (transport-provided; not a dedicated Phase 1 test)
+- [ ] Panic in A → 500; B still completes — **known gap**: only *runtime-error*
+  containment is tested; panic containment is by construction (see tracker note)
+- [x] No empty-set busy-spin (cap ≥ 1 keeps the set non-empty)
+- [ ] Request IDs present in logs — **known gap** (tied to the logging item above)
+- [x] Existing web TestPrograms still pass on serial path
 
 #### TODOs — docs (minimum for ship; full honesty pass may be 1c)
 
