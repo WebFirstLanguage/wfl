@@ -830,7 +830,7 @@ impl TypeChecker {
                     ) {
                         self.type_error(
                             "HTTP headers must be a map of header names to values".to_string(),
-                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
                             Some(headers_type),
                             *_line,
                             *_column,
@@ -912,7 +912,7 @@ impl TypeChecker {
                     ) {
                         self.type_error(
                             "HTTP headers must be a map of header names to values".to_string(),
-                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
                             Some(headers_type),
                             *_line,
                             *_column,
@@ -2567,7 +2567,7 @@ impl TypeChecker {
                     ) {
                         self.type_error(
                             "Response headers must be a map of header names to values".to_string(),
-                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
                             Some(headers_type),
                             *_line,
                             *_column,

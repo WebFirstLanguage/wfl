@@ -262,6 +262,67 @@ async fn test_concurrent_handlers_do_not_share_count_loop_state() {
 }
 
 #[tokio::test]
+async fn test_handler_that_never_responds_gets_immediate_500() {
+    // Lifecycle guarantee (P1 #3): a handler that dequeues a request and ends
+    // WITHOUT responding must resolve the client with 500 immediately — not leave
+    // it waiting out the request timeout. The `/drop` path does no `respond`; the
+    // handler simply ends, and the client must still get a prompt 500.
+    let port = 8345;
+    let code = format!(
+        r#"
+        listen on port {port} as srv
+        main loop concurrently:
+            wait for request comes in on srv as req with timeout 20000
+            store p as req["path"]
+            check if p is equal to "/shutdown":
+                respond to req with "bye"
+                close server srv
+                break
+            otherwise:
+                check if p is equal to "/drop":
+                    store ignored as "handler returns without responding"
+                otherwise:
+                    respond to req with "ok"
+                end check
+            end check
+        end loop
+    "#
+    );
+    let server = start_server_thread(code);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let client = reqwest::Client::new();
+
+    // The un-answered request resolves promptly with 500 rather than hanging.
+    let t0 = Instant::now();
+    let dropped = client
+        .get(format!("http://127.0.0.1:{port}/drop"))
+        .send()
+        .await
+        .expect("/drop request failed");
+    let elapsed = t0.elapsed();
+    assert_eq!(
+        dropped.status().as_u16(),
+        500,
+        "a handler that never responds must yield 500"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "500 should arrive immediately on handler exit, not after the request timeout ({elapsed:?})"
+    );
+
+    // The server survived and keeps serving.
+    let ok = client
+        .get(format!("http://127.0.0.1:{port}/ok"))
+        .send()
+        .await
+        .expect("follow-up request failed");
+    assert_eq!(ok.text().await.unwrap(), "ok");
+
+    shutdown(port, server).await;
+}
+
+#[tokio::test]
 async fn test_serial_slow_handler_blocks_next() {
     let port = 8343;
     let server = start_server_thread(server_code(port, false));

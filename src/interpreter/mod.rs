@@ -810,6 +810,11 @@ struct RunState {
     /// `IsolatedHandler`'s `Drop` and the serial main loop's per-iteration
     /// drain), so a handler that forgets `close out` never hangs the client.
     open_response_streams: Vec<String>,
+    /// Request ids this handler dequeued (`wait for request comes in`) and has
+    /// not yet answered. If the handler ends on any path without responding, each
+    /// is answered 500 immediately instead of leaving the client to wait out the
+    /// request timeout (see `fail_unanswered_requests`).
+    open_pending_requests: Vec<String>,
 }
 
 impl RunState {
@@ -857,11 +862,14 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
     fn drop(&mut self) {
         // The handler is finished (normal return, error, panic contained by
         // `catch_unwind`, or cancellation as the loop tears down). After the
-        // final poll's swap-out, `state.open_response_streams` holds any server
-        // response streams it opened but never closed. Close them now so the
-        // client's body is finalized on every exit path — never left hanging.
+        // final poll's swap-out, `state` holds any streams it opened but never
+        // closed and any requests it dequeued but never answered. Close the
+        // streams (finalizing the client's body) and 500 the unanswered requests,
+        // so every exit path resolves the client instead of leaving it hanging.
         self.interp
             .close_response_streams(&self.state.open_response_streams);
+        self.interp
+            .fail_unanswered_requests(&self.state.open_pending_requests);
     }
 }
 
@@ -1244,6 +1252,11 @@ pub struct Interpreter {
     /// any path so the client's body is always finalized (see
     /// `close_response_streams`).
     open_response_streams: RefCell<Vec<String>>,
+    /// Request ids the currently executing handler dequeued but has not yet
+    /// answered. Part of the per-handler `RunState` (swapped per poll) so each
+    /// handler tracks only its own requests; any still unanswered when the handler
+    /// ends are answered 500 immediately (see `fail_unanswered_requests`).
+    open_pending_requests: RefCell<Vec<String>>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -3295,6 +3308,7 @@ impl Interpreter {
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             server_response_streams: RefCell::new(HashMap::new()),
             open_response_streams: RefCell::new(Vec::new()),
+            open_pending_requests: RefCell::new(Vec::new()),
             next_response_stream_id: std::cell::Cell::new(1),
             config,
             current_source_file: RefCell::new(None), // No source file initially
@@ -3845,6 +3859,10 @@ impl Interpreter {
             &mut *self.open_response_streams.borrow_mut(),
             &mut state.open_response_streams,
         );
+        std::mem::swap(
+            &mut *self.open_pending_requests.borrow_mut(),
+            &mut state.open_pending_requests,
+        );
     }
 
     /// Close (drop the sender for) each server response stream whose handle id is
@@ -3867,6 +3885,44 @@ impl Interpreter {
     fn close_open_response_streams(&self) {
         let ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
         self.close_response_streams(&ids);
+    }
+
+    /// Answer 500 for each request id in `ids` that is still unanswered (its
+    /// sender is still parked in `pending_responses`). A request the handler
+    /// already answered is gone from the map, so its `remove` is a no-op —
+    /// idempotent and safe to call over a handler's full dequeued list on exit.
+    ///
+    /// Fully synchronous (a non-blocking `try_lock` plus a `oneshot` send) so it
+    /// runs from `IsolatedHandler`'s `Drop`. The sender's mutex is only ever held
+    /// during `respond`, which the finished handler is no longer inside, so the
+    /// `try_lock` succeeds; if it somehow does not, the transport's request
+    /// timeout remains the backstop.
+    fn fail_unanswered_requests(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut pending = self.pending_responses.borrow_mut();
+        for id in ids {
+            if let Some(entry) = pending.remove(id)
+                && let Ok(mut guard) = entry.sender.try_lock()
+                && let Some(sender) = guard.take()
+            {
+                let _ = sender.send(HandlerReply::Buffered(WflHttpResponse {
+                    content: b"Internal Server Error\n".to_vec(),
+                    status: 500,
+                    content_type: "text/plain; charset=utf-8".to_string(),
+                    headers: HashMap::new(),
+                }));
+            }
+        }
+    }
+
+    /// Drain and 500 any requests the current (serial) handler dequeued but never
+    /// answered. Called at the end of each serial `main loop` iteration and at
+    /// program exit, mirroring the concurrent path's per-handler `Drop`.
+    fn fail_open_pending_requests(&self) {
+        let ids = std::mem::take(&mut *self.open_pending_requests.borrow_mut());
+        self.fail_unanswered_requests(&ids);
     }
 
     /// Execute a `main loop concurrently:` body. Keeps up to
@@ -4141,9 +4197,10 @@ impl Interpreter {
         // the invariant holds regardless of how the previous run ended.
         *self.in_count_loop.borrow_mut() = false;
         *self.current_count.borrow_mut() = None;
-        // A prior run that ended while a stream was open (REPL reuse) must not
-        // leave dangling ids tracked against this run.
+        // A prior run that ended while a stream was open or a request was
+        // unanswered (REPL reuse) must not leave dangling ids tracked here.
         self.open_response_streams.borrow_mut().clear();
+        self.open_pending_requests.borrow_mut().clear();
         // Reset to the inherited base depth (0 for a top-level run/REPL; the
         // parent's live depth for an `execute file` child) so recursion
         // accounting spans the execute-file boundary instead of granting the
@@ -4370,7 +4427,9 @@ impl Interpreter {
         // a `main loop`, which already closes per-iteration/per-handler) so a
         // script that starts a stream and exits without `close` still finalizes
         // the client's body rather than leaving it hanging until process death.
+        // Likewise 500 any top-level request dequeued but never answered.
         self.close_open_response_streams();
+        self.fail_open_pending_requests();
 
         if errors.is_empty() {
             let main_func_opt = {
@@ -5188,10 +5247,13 @@ impl Interpreter {
                     // OPTIMIZATION: Recycle environment if possible
                     let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
-                    // Close any server response streams this iteration left open,
-                    // on every path (including the error path below), so a handler
-                    // that forgets `close out` never leaves the client hanging.
+                    // On every path (including the error path below): close any
+                    // server response streams this iteration left open, and 500
+                    // any request it dequeued but never answered — so a handler
+                    // that forgets `close out`/`respond` never leaves the client
+                    // hanging or waiting out the request timeout.
                     self.close_open_response_streams();
+                    self.fail_open_pending_requests();
                     let result = result?;
                     _last_value = result.0;
 
@@ -8568,6 +8630,12 @@ impl Interpreter {
                         },
                     );
                 }
+                // Track it against the current handler so it is answered 500 if
+                // the handler ends without responding (rather than the client
+                // waiting out the request timeout).
+                self.open_pending_requests
+                    .borrow_mut()
+                    .push(request.id.clone());
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -8616,6 +8684,11 @@ impl Interpreter {
                     let mut pending = self.pending_responses.borrow_mut();
                     pending.remove(&request_id)
                 };
+                // Answered now: drop it from the handler's unanswered-request
+                // tracking so the exit-time 500 fallback skips it.
+                self.open_pending_requests
+                    .borrow_mut()
+                    .retain(|id| id != &request_id);
                 let mut completion = match pending_entry {
                     // The admission slot is released by the transport task when it
                     // finishes delivering this response (or on its timeout), so the
@@ -8858,6 +8931,11 @@ impl Interpreter {
                     let mut pending = self.pending_responses.borrow_mut();
                     pending.remove(&request_id)
                 };
+                // Answered now (streaming head about to be committed): drop it
+                // from the handler's unanswered-request tracking.
+                self.open_pending_requests
+                    .borrow_mut()
+                    .retain(|id| id != &request_id);
                 let mut completion = match pending_entry {
                     Some(entry) => match entry.sender.lock().await.take() {
                         Some(sender) => ResponseCompletion {
@@ -9075,8 +9153,12 @@ impl Interpreter {
                             if new_total > max_response_bytes {
                                 let actual = new_total;
                                 // Drop the stream so the body ends rather than
-                                // silently truncating.
+                                // silently truncating, and untrack it so a handler
+                                // that catches this error keeps no stale id.
                                 map.remove(&handle_id);
+                                self.open_response_streams
+                                    .borrow_mut()
+                                    .retain(|s| s != &handle_id);
                                 return Err(self.budget_error(
                                     BudgetExceeded::ResponseBytes {
                                         limit: max_response_bytes,
@@ -9099,7 +9181,12 @@ impl Interpreter {
                             // Receiver dropped => client disconnected. Drop the
                             // handle and surface a catchable error so the handler
                             // can stop (and close any upstream it is proxying).
+                            // Untrack it too so a handler that catches this error
+                            // keeps no stale id in its open-streams list.
                             self.server_response_streams.borrow_mut().remove(&handle_id);
+                            self.open_response_streams
+                                .borrow_mut()
+                                .retain(|s| s != &handle_id);
                             Err(RuntimeError::new(
                                 "Cannot write to response stream: the client has disconnected"
                                     .to_string(),
