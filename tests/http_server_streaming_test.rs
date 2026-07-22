@@ -184,6 +184,58 @@ async fn test_write_after_close_does_not_reach_client() {
 }
 
 #[tokio::test]
+async fn test_stream_auto_closes_when_handler_ends_without_close() {
+    // Lifecycle guarantee (spec item 5): a handler that starts a stream and ends
+    // WITHOUT `close out` must still finalize the client's body on the way out.
+    // Otherwise the sender lingers in the interpreter's stream table, the body is
+    // never terminated, and the client hangs forever (and the table leaks).
+    let port = 8234;
+    let server_code = format!(
+        r#"
+        listen on port {port} as s
+        main loop:
+            wait for request comes in on s as req with timeout 20000
+            store p as req["path"]
+            check if p is equal to "/shutdown":
+                respond to req with "bye"
+                close server s
+                break
+            otherwise:
+                start streaming response to req with status 200 and content type "text/plain" as out
+                write line "hello" to out
+            end check
+        end loop
+    "#
+    );
+
+    let server_handle = start_server_thread(server_code);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/x"))
+        .send()
+        .await
+        .expect("request failed");
+    assert_eq!(response.status().as_u16(), 200);
+
+    // Reading the body must COMPLETE (the stream was auto-closed). If the handler
+    // leaked the stream, this read hangs — the timeout turns that into a failure
+    // instead of a stuck test.
+    let body = tokio::time::timeout(Duration::from_secs(5), response.text())
+        .await
+        .expect("body did not finish — stream was not auto-closed when the handler ended")
+        .expect("failed to read body");
+    assert_eq!(body, "hello\n");
+
+    // Stop the server.
+    let _ = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/shutdown"))
+        .send()
+        .await;
+    let _ = server_handle.join();
+}
+
+#[tokio::test]
 async fn test_streamed_response_write_chunk_verbatim() {
     let port = 8232;
     let server_code = format!(

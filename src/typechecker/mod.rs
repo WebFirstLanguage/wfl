@@ -851,7 +851,7 @@ impl TypeChecker {
                             | Type::Error
                     ) {
                         self.type_error(
-                            "HTTP request body must be text (numbers and booleans are also accepted and converted)".to_string(),
+                            "HTTP request body must be text, a number, or a boolean (numbers and booleans are converted to text)".to_string(),
                             Some(Type::Text),
                             Some(body_type),
                             *_line,
@@ -931,7 +931,7 @@ impl TypeChecker {
                             | Type::Error
                     ) {
                         self.type_error(
-                            "HTTP request body must be text (numbers and booleans are also accepted and converted)".to_string(),
+                            "HTTP request body must be text, a number, or a boolean (numbers and booleans are converted to text)".to_string(),
                             Some(Type::Text),
                             Some(body_type),
                             *_line,

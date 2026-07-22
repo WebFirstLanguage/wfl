@@ -133,8 +133,16 @@ close out
   await points (the yield-cliff caveat from the concurrency plan).
 - Backpressure: bounded `mpsc` — a slow browser slows the handler's `write`.
 - Disconnect → upstream cancel: `write` error path (above).
-- Close-on-exit: dropping `ServerStreamHandle` (handler end, error, teardown)
-  drops `tx`, ending the response.
+- Close-on-exit (shipped): each handler tracks the `respstream*` ids it opened in
+  its per-handler run-state (`open_response_streams`, part of the `RunState`
+  swapped in/out per poll under `main loop concurrently:`). When the handler ends
+  on **any** path — normal return, caught error, or a panic contained by
+  `catch_unwind` — those ids are removed from `server_response_streams`, dropping
+  their `tx` and ending the response body. Concurrent handlers close via
+  `IsolatedHandler`'s `Drop`; the serial `main loop` drains per iteration; a
+  top-level stream closes at program exit. So a handler that forgets `close out`
+  never leaves the client hanging, and the table cannot leak dead senders.
+  Explicit `close out` is still preferred to finalize promptly.
 
 ### Tests (write first)
 

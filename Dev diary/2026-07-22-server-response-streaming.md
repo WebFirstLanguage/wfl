@@ -42,8 +42,11 @@ upstream to the browser line-by-line without buffering either side.
   `write` (it awaits a free slot). When the client disconnects, hyper drops the
   body, dropping the receiver; the handler's next `write` then fails with a
   catchable error — that is how a browser disconnect propagates to the handler
-  (which can then `close` the upstream it is proxying). `close` (or handler exit)
-  drops the sender, ending the response.
+  (which can then `close` the upstream it is proxying). An explicit `close out`
+  drops the sender, ending the response; and as a safety net the stream is
+  auto-closed when the handler ends on any path (see the follow-up entry
+  `2026-07-22-stream-auto-close-on-handler-exit.md`), so a forgotten `close`
+  never hangs the client.
 - **`start` is a keyword, `streaming`/`flush`/`line`/`chunk` are identifiers.**
   `start streaming response` dispatches on `Token::KeywordStart`; `flush <out>`
   and `write line|chunk <value> to <out>` handle the lexer's identifier-merging

@@ -501,11 +501,15 @@ the client disconnects, hyper drops the response body and your next `write` to
 that stream fails with a catchable error — use `try`/`catch` to detect it and
 stop producing (and `close` any upstream you are proxying).
 
-**Always `close out`** to finalize the response — that is what signals the end
-of the body to the client. A handler that starts a stream and returns without
-`close`ing it leaves the response body open (the client keeps waiting) until the
-program exits. Put the `close` on every path, e.g. in a `finally:` block if the
-handler can error partway through.
+**Prefer an explicit `close out`** to finalize the response promptly — that is
+what signals the end of the body to the client, and doing it as soon as you are
+done frees the connection without waiting. As a safety net, the stream is also
+**closed automatically when the handler ends on any path** (normal return, a
+caught error, or a panic contained by `main loop concurrently:`), so a handler
+that forgets `close out` still finalizes the client's body rather than leaving
+it hanging. For long-lived handlers, still `close` as soon as you are finished —
+and put it in a `finally:` block if the handler can error partway through — so
+the client is not left waiting until the handler happens to return.
 
 **Proxying an upstream to the browser** — combine with the outbound streaming
 client ([Interoperability → Streaming a response

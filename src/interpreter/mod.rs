@@ -805,6 +805,11 @@ struct RunState {
     call_depth: usize,
     call_stack: Vec<CallFrame>,
     block_overload_dups: Option<Rc<std::collections::HashSet<String>>>,
+    /// Server response streams opened by this handler and not yet explicitly
+    /// closed. Closed automatically when the handler ends on any path (see
+    /// `IsolatedHandler`'s `Drop` and the serial main loop's per-iteration
+    /// drain), so a handler that forgets `close out` never hangs the client.
+    open_response_streams: Vec<String>,
 }
 
 impl RunState {
@@ -845,6 +850,18 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
         let result = this.inner.as_mut().poll(cx);
         this.interp.swap_run_state(&mut this.state);
         result
+    }
+}
+
+impl<'a, T> Drop for IsolatedHandler<'a, T> {
+    fn drop(&mut self) {
+        // The handler is finished (normal return, error, panic contained by
+        // `catch_unwind`, or cancellation as the loop tears down). After the
+        // final poll's swap-out, `state.open_response_streams` holds any server
+        // response streams it opened but never closed. Close them now so the
+        // client's body is finalized on every exit path — never left hanging.
+        self.interp
+            .close_response_streams(&self.state.open_response_streams);
     }
 }
 
@@ -1220,6 +1237,13 @@ pub struct Interpreter {
     /// ceiling. `write line|chunk`/`flush` push to it, `close` drops it.
     server_response_streams: RefCell<HashMap<String, ServerResponseStream>>,
     next_response_stream_id: std::cell::Cell<usize>,
+    /// Handle ids of server response streams opened by the currently executing
+    /// handler and not yet explicitly closed. Part of the per-handler `RunState`
+    /// (swapped in/out per poll under `main loop concurrently:`) so each handler
+    /// tracks only its own streams; drained and closed when the handler ends on
+    /// any path so the client's body is always finalized (see
+    /// `close_response_streams`).
+    open_response_streams: RefCell<Vec<String>>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -3270,6 +3294,7 @@ impl Interpreter {
             ws_connections: Arc::new(std::sync::Mutex::new(HashMap::new())), // Live WebSocket connections
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             server_response_streams: RefCell::new(HashMap::new()),
+            open_response_streams: RefCell::new(Vec::new()),
             next_response_stream_id: std::cell::Cell::new(1),
             config,
             current_source_file: RefCell::new(None), // No source file initially
@@ -3816,6 +3841,32 @@ impl Interpreter {
             &mut *self.current_block_overload_dups.borrow_mut(),
             &mut state.block_overload_dups,
         );
+        std::mem::swap(
+            &mut *self.open_response_streams.borrow_mut(),
+            &mut state.open_response_streams,
+        );
+    }
+
+    /// Close (drop the sender for) each server response stream whose handle id is
+    /// in `ids`, ending its body so the client stops waiting. Idempotent — an id
+    /// already closed by an explicit `close out` (or a disconnect) is a no-op —
+    /// so it is safe to call over a handler's full opened-stream list on exit.
+    fn close_response_streams(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut map = self.server_response_streams.borrow_mut();
+        for id in ids {
+            map.remove(id);
+        }
+    }
+
+    /// Drain and close every server response stream the current (serial) handler
+    /// left open. Called at the end of each serial `main loop` iteration and at
+    /// program exit, mirroring the concurrent path's per-handler `Drop`.
+    fn close_open_response_streams(&self) {
+        let ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
+        self.close_response_streams(&ids);
     }
 
     /// Execute a `main loop concurrently:` body. Keeps up to
@@ -4090,6 +4141,9 @@ impl Interpreter {
         // the invariant holds regardless of how the previous run ended.
         *self.in_count_loop.borrow_mut() = false;
         *self.current_count.borrow_mut() = None;
+        // A prior run that ended while a stream was open (REPL reuse) must not
+        // leave dangling ids tracked against this run.
+        self.open_response_streams.borrow_mut().clear();
         // Reset to the inherited base depth (0 for a top-level run/REPL; the
         // parent's live depth for an `execute file` child) so recursion
         // accounting spans the execute-file boundary instead of granting the
@@ -4311,6 +4365,12 @@ impl Interpreter {
                 }
             }
         }
+
+        // Close any server response streams opened directly at top level (outside
+        // a `main loop`, which already closes per-iteration/per-handler) so a
+        // script that starts a stream and exits without `close` still finalizes
+        // the client's body rather than leaving it hanging until process death.
+        self.close_open_response_streams();
 
         if errors.is_empty() {
             let main_func_opt = {
@@ -5127,7 +5187,12 @@ impl Interpreter {
 
                     // OPTIMIZATION: Recycle environment if possible
                     let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
-                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await;
+                    // Close any server response streams this iteration left open,
+                    // on every path (including the error path below), so a handler
+                    // that forgets `close out` never leaves the client hanging.
+                    self.close_open_response_streams();
+                    let result = result?;
                     _last_value = result.0;
 
                     // Save environment for potential recycling in next iteration
@@ -5440,6 +5505,9 @@ impl Interpreter {
                         } else if let Some(id) = server_id {
                             // Dropping the sender ends the response body stream.
                             self.server_response_streams.borrow_mut().remove(&id);
+                            // Drop it from the handler's auto-close tracking so
+                            // the list stays bounded to actually-open streams.
+                            self.open_response_streams.borrow_mut().retain(|s| s != &id);
                             Ok((Value::Null, ControlFlow::None))
                         } else {
                             Err(RuntimeError::new(
@@ -8946,6 +9014,11 @@ impl Interpreter {
                 self.server_response_streams
                     .borrow_mut()
                     .insert(handle_id.clone(), (tx, 0));
+                // Track it against the current handler so it is auto-closed if
+                // the handler ends without an explicit `close out`.
+                self.open_response_streams
+                    .borrow_mut()
+                    .push(handle_id.clone());
 
                 let mut stream_map = HashMap::new();
                 stream_map.insert("_server_stream".to_string(), Value::Text(handle_id.into()));
