@@ -1,3 +1,4 @@
+// CI-SKIP: needs a live upstream; validated via docs-examples layers 1-4
 // Streaming an outbound response incrementally.
 //
 // `stream response as` returns as soon as the status and headers arrive,

@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client; validated via docs-examples layers 1-4
 // Streaming a server response.
 //
 // `start streaming response` sends status/headers immediately and binds a

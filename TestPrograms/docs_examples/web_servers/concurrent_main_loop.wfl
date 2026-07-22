@@ -1,3 +1,4 @@
+// CI-SKIP: starts a server + concurrent loop; needs HTTP clients (layers 1-4)
 // Concurrent request handling with `main loop concurrently:`.
 //
 // Iterations run in their own isolated scope. Concurrency is cooperative on one
