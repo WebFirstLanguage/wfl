@@ -14,12 +14,13 @@ Binding community and contribution policy lives at the **repo root** (not only u
 | `AI_POLICY.md` | **AI-assisted work is welcome** — WFL was built with AI; do not discriminate against AI use; human author remains accountable |
 | `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
 | `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
+| `testing.md` | **Binding Logbie Testing Policy + WFL testing profile** — Red→Green TDD evidence, required test layers, risk classes, and merge/release gates (see **Testing Policy** below) |
 
 **Agent implications (already in force via governance):**
 
 - **AI is first-class** — use coding agents freely; same quality bar as hand-written work (tests, docs, compatibility, reviewability).
 - **Backward compatibility is sacred** — never break existing WFL programs without the documented deprecation path.
-- **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`).
+- **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`). Governed by the binding **Logbie Testing Policy** in root `testing.md` (see **Testing Policy** below): every behavioral change needs auditable **Red→Green** evidence and coverage at the lowest useful layer plus every affected higher layer.
 - **Docs ship with the feature** — same change; validate examples; Dev Diary for non-trivial work.
 - **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
 - **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own merges and releases unless those responsibilities are **explicitly delegated**. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
@@ -159,13 +160,49 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - Types/Traits: `CamelCase`
   - Constants: `SCREAMING_SNAKE_CASE`
 
-## Testing Guidelines
-- **TDD is mandatory**: Write failing tests FIRST for any feature or bug fix.
+## Testing Policy (binding — root `testing.md`)
+
+WFL adopts the **Logbie Testing Policy** (full text + the WFL testing profile in
+root `testing.md`). It is binding for every behavioral change; the highlights an
+agent MUST follow:
+
+- **Red → Green → Refactor → Broaden → Record.** Write the smallest useful test
+  FIRST and run it to confirm it **fails for the intended reason**, then make it
+  pass. A defect fix MUST reproduce the defect. Keep auditable evidence (a Red
+  test-only commit that is an ancestor of the Green commit, or a timestamped CI
+  artifact) — a test first observed *after* the code already passed does **not**
+  establish Red. (§3, §6)
+- **Risk class first.** Classify R0–R3 before implementing; when ambiguous, the
+  higher class applies, and it MUST NOT be lowered to dodge a gate. Anything
+  touching **concurrency, cancellation, lifecycle, streaming, untrusted input,
+  crypto/secrets, or backward compatibility is R3** and needs negative/
+  failure-path + the §11.3/§11.1 risk-triggered tests. (§5, §11)
+- **Real boundaries.** A test MUST NOT mock the boundary it claims to verify;
+  "end-to-end" means the real binary/socket/file. Assert outcomes and side
+  effects, not "did not crash." Use negative assertions where absence matters
+  (cancellation, writes-after-close, denial). (§7, §8.3)
+- **No manufactured green.** Required tests are never made green via retries,
+  skips, ignores, quarantine, or relaxed assertions; a flaky required test is a
+  failing test. Non-executable docs examples use the runner's `// CI-SKIP:`
+  first-line directive and are still validated statically. (§8.2)
+- **Concurrency/streaming/lifecycle (§11.3) — always required for this repo's
+  async/web/streaming work:** prove races/ordering, cancellation, timeouts,
+  disconnects, bounded queues/backpressure, resource limits, clean shutdown, and
+  writes-after-close, and that one slow/failed handler does not block unrelated
+  work.
+- **PR evidence (§15).** Every behavioral PR records risk class, acceptance
+  criteria → tests, Red evidence, the layers run, and residual risk (template in
+  `testing.md`).
+- **Same bar for AI work.** AI-authored code/tests get the same verification —
+  "the model said it works" is not evidence.
+
+### Testing mechanics
 - **Locations**:
   - Rust Unit/Integration: `tests/`
   - WFL End-to-End: `TestPrograms/` (must pass with release build)
   - WFL Test Framework: Use `describe`/`test` blocks, run with `wfl --test <file>`
 - **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
+- **Commands & profile**: one command per layer + the "run all presubmit" block are in root `testing.md`.
 - **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
 
 ## Commit & Pull Request Guidelines
