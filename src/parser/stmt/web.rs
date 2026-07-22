@@ -426,16 +426,28 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     status = Some(self.parse_primary_expression()?);
                 }
                 // `content type <e>` — `content` keyword then optional `type`.
+                // When `<e>` is a bare identifier the lexer merges it into the
+                // `type` token (`type ct` -> Identifier("type ct")), so split the
+                // value off rather than binding the whole thing as the variable.
                 Token::KeywordContent => {
                     self.bump_sync(); // with/and
                     self.bump_sync(); // content
-                    if let Some(t) = self.cursor.peek()
+                    let merged_rest = if let Some(t) = self.cursor.peek()
                         && let Token::Identifier(id) = &t.token
-                        && id == "type"
+                        && (id == "type" || id.starts_with("type "))
                     {
-                        self.bump_sync(); // type
-                    }
-                    content_type = Some(self.parse_primary_expression()?);
+                        let id = id.clone();
+                        let pos = (t.line, t.column);
+                        self.bump_sync(); // (possibly merged) type
+                        let rest = id.strip_prefix("type").map(str::trim_start).unwrap_or("");
+                        (!rest.is_empty()).then(|| (rest.to_string(), pos))
+                    } else {
+                        None
+                    };
+                    content_type = Some(match merged_rest {
+                        Some((rest, (l, c))) => Expression::Variable(rest, l, c),
+                        None => self.parse_primary_expression()?,
+                    });
                 }
                 // Merged `content_type <var>` / `content type <var>` form.
                 Token::Identifier(id)

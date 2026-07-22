@@ -486,7 +486,9 @@ close out
 - `start streaming response to <req> [with status <e>] [and content type <e>]
   [and headers <e>] as <out>` — begin the response. The status defaults to 200
   and the content type to `application/octet-stream`. The body has no declared
-  length; it is sent with chunked transfer-encoding.
+  length (no `Content-Length`); it is streamed incrementally as you write (over
+  HTTP/1.1 that is chunked transfer-encoding; HTTP/2+ frames it without a
+  `Content-Length` instead).
 - `write line <value> to <out>` — write `value` followed by a newline (ideal for
   NDJSON). `value` may be text, a number, or a boolean.
 - `write chunk <value> to <out>` — write raw bytes verbatim, no newline added.

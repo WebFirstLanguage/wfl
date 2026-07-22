@@ -50,6 +50,23 @@ fn test_start_streaming_response_parses() {
 }
 
 #[test]
+fn test_content_type_variable_binds_correct_name() {
+    // `content type <var>` where <var> is a bare identifier: the lexer merges it
+    // into `type <var>`, so the parser must split the marker off and bind the
+    // variable, not `type <var>` as one name.
+    let stmt = parse_single_statement(
+        r#"start streaming response to req with status 200 and content type ct as out"#,
+    );
+    match stmt {
+        Statement::StartStreamingResponseStatement { content_type, .. } => match content_type {
+            Some(wfl::parser::ast::Expression::Variable(name, _, _)) => assert_eq!(name, "ct"),
+            other => panic!("Expected content type Variable(\"ct\"), got {other:?}"),
+        },
+        other => panic!("Expected StartStreamingResponseStatement, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_write_line_parses() {
     let stmt = parse_single_statement(r#"write line payload to out"#);
     match stmt {

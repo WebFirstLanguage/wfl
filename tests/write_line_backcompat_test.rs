@@ -53,6 +53,33 @@ fn test_write_line_multiword_variable_parses_with_fallback() {
         ),
         other => panic!("expected StreamWriteStatement, got {other:?}"),
     }
+
+    // `write chunk` has the same ambiguity and fallback contract as `write line`.
+    let stmt = &parse(r#"write chunk payload to out"#)[0];
+    match stmt {
+        Statement::StreamWriteStatement {
+            fallback_content,
+            is_line,
+            ..
+        } => {
+            assert!(!*is_line, "write chunk must not be a line write");
+            assert!(
+                fallback_content.is_some(),
+                "merged `write chunk <ident>` must keep a file-write fallback"
+            );
+        }
+        other => panic!("expected StreamWriteStatement, got {other:?}"),
+    }
+    let stmt = &parse(r#"write chunk "x" to out"#)[0];
+    match stmt {
+        Statement::StreamWriteStatement {
+            fallback_content, ..
+        } => assert!(
+            fallback_content.is_none(),
+            "literal-valued chunk write needs no fallback"
+        ),
+        other => panic!("expected StreamWriteStatement, got {other:?}"),
+    }
 }
 
 #[test]
@@ -61,10 +88,11 @@ fn test_write_multiword_line_variable_to_file_still_works() {
     // file path. Must analyze cleanly (no undefined-variable error, no spurious
     // unused warning) and, at runtime, write the VARIABLE'S value to the file —
     // not stream-write the token "note".
-    let dir = std::env::temp_dir();
-    let path = dir.join("wfl_write_line_backcompat.txt");
+    // Unique temp dir per invocation so parallel/sharded runs cannot collide or
+    // delete each other's output; `TempDir` cleans up on drop (even on panic).
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().join("wfl_write_line_backcompat.txt");
     let path_str = path.to_string_lossy().replace('\\', "/");
-    let _ = std::fs::remove_file(&path);
 
     let code = format!(
         r#"store line note as "kept across versions"

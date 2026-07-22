@@ -687,9 +687,12 @@ fn test_main_loop_concurrently_fails_to_transpile() {
     // error rather than silently emit a serial loop.
     let source = "main loop concurrently:\n    display \"x\"\nend loop";
     let result = transpile_wfl(source);
+    // Assert the specific transpiler rejection, not merely any error — so a
+    // future parse failure can't masquerade as the intended rejection.
+    let error = result.expect_err("main loop concurrently should fail to transpile");
     assert!(
-        result.is_err(),
-        "main loop concurrently should fail to transpile, got: {result:?}"
+        error.contains("not supported in JavaScript transpilation"),
+        "expected the unsupported-transpilation error, got: {error}"
     );
 
     // Plain `main loop` still transpiles.
