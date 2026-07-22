@@ -46,9 +46,26 @@ HARD RULES:
 | 0 | 0a | Docs honesty + `panic=unwind` CI | ✅ Done |
 | 0 | 0b | `spawn_blocking` for blocking crypto | ✅ Done |
 | 0 | 0c | Bound accept/queue (OOM shed) | ✅ Done |
-| 1 | 1a | Runtime spike (bridge, no surface) | ⬜ Not started |
-| 1 | 1b | `main loop concurrently:` surface + ops defaults | ⬜ Not started |
-| 1 | 1c | Honesty docs for real concurrent model | ⬜ Not started |
+| 1 | 1a | Runtime spike (bridge, no surface) | ✅ Done (folded into 1b) |
+| 1 | 1b | `main loop concurrently:` surface + ops defaults | ✅ Done — awaiting maintainer review |
+| 1 | 1c | Honesty docs for real concurrent model | ✅ Done |
+
+> **Phase 1 landed in one change** (`Dev diary/2026-07-22-concurrent-request-handlers.md`),
+> not the staged 1a→1b→1c sequence. What is covered: `main loop concurrently:`
+> surface (locked marker); plain `main loop` byte-compatible serial (tested);
+> `FuturesUnordered` of `!Send`, `&self`-borrowing handler futures on the
+> existing runtime; isolated-per-request scopes; `catch_unwind` panic
+> containment (siblings survive, tested via handler-error containment);
+> in-flight cap (`CONCURRENT_HANDLER_LIMIT`), with 503/504/500 provided by the
+> existing transport layer (bounded queue → 503, response deadline → 504,
+> `ResponseCompletion` drop → 500); the empty-set busy-spin trap is avoided
+> (cap ≥ 1 keeps the set non-empty). **Lighter than the full 1b checklist:**
+> request-ID *structured* logging is not yet added (handler errors/panics are
+> logged, but not a per-request accept/complete/fail/shed/timeout ID scheme);
+> the eval-core `RefCell`-across-await audit is enforced mechanically by the
+> crate-wide `#![deny(clippy::await_holding_refcell_ref)]` backstop rather than a
+> written per-site walkthrough. **This is the maintainer STOP/review point** —
+> please review before Phase 2.
 | 2 | 2a | Structured nursery + join engine | ⬜ Not started |
 | 2 | 2b | `change shared` critical region | ⬜ Not started |
 | 3 | 3a | Multi-process workers (if profiling forces) | ⬜ Deferred |

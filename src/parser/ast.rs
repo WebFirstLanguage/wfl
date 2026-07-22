@@ -190,6 +190,11 @@ pub enum Statement {
     },
     MainLoop {
         body: Vec<Statement>,
+        /// `main loop concurrently:` — run iterations of the body cooperatively
+        /// concurrently (each in its own isolated scope) instead of strictly
+        /// serially, so a slow request handler does not block its siblings.
+        /// Plain `main loop` keeps `concurrent = false` (byte-compatible serial).
+        concurrent: bool,
         line: usize,
         column: usize,
     },

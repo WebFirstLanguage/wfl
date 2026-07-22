@@ -68,6 +68,59 @@ wait for request [that] comes in on <server> as <request_variable>
 
 This blocks until a request arrives, then stores the request in the variable. Both "comes in" and "that comes in" are supported.
 
+### Concurrent request handling
+
+A typical server wraps `wait for request` … `respond to` in a `main loop`:
+
+```wfl
+listen on port 8080 as web_server
+main loop:
+    wait for request comes in on web_server as req
+    respond to req with "Hello!"
+end loop
+```
+
+A plain `main loop` is **serial**: it fully handles one request — including any
+`wait for`, outbound call, or stream — before accepting the next. That is simple
+and predictable, but one slow handler (say, proxying a slow model stream) makes
+every other request wait behind it.
+
+Write `main loop concurrently:` to handle requests **concurrently** instead:
+
+```wfl
+listen on port 8080 as web_server
+main loop concurrently:
+    wait for request comes in on web_server as req
+    // ... a slow handler here no longer blocks other requests ...
+    respond to req with "Hello!"
+end loop
+```
+
+Each iteration runs in its own isolated scope, so concurrent requests never
+clobber each other's variables. A login, a health check, or another chat is
+served while a slow stream is still running.
+
+**Important — concurrent, not parallel:** this is *cooperative* concurrency on a
+single thread. Handlers interleave at their `await` points (`wait for`, outbound
+HTTP, stream reads/writes, `respond`). A handler doing tight CPU-bound work with
+no such pause still holds the thread until it yields — concurrency helps I/O-
+bound work (the common web case), not CPU-bound loops.
+
+**What you get with `concurrently`:**
+
+- A slow handler does not block its siblings.
+- Each request handler is isolated (its own scope).
+- A handler that errors or panics is contained: that request fails on its own
+  (its client gets a 500/timeout) and the server keeps serving everyone else.
+- In-flight work is bounded; the transport still sheds excess load with 503 and
+  times out a stalled handler with 504, exactly as for the serial loop.
+
+Plain `main loop` keeps its exact serial behavior — adding `concurrently` is the
+only way to opt in; nothing changes silently.
+
+> `concurrently` is only special right after `main loop`; it is not a reserved
+> word, so existing programs that use `concurrently` as a name keep working.
+
 ### Responding to Requests
 
 Use `respond to` to send HTTP responses:
@@ -470,12 +523,11 @@ close upstream
 close out
 ```
 
-> **Concurrency note:** today a request handler runs to completion before the
-> next request is served (the loop is cooperative and single-threaded), so a
-> long-running stream occupies the handler until it finishes. Opt-in concurrent
-> handling (`main loop concurrently:`) is a planned, separate capability — see
-> [`concurrency-phase-plan.md`](../development/concurrency-phase-plan.md). Until
-> then, prefer bounded streams and per-request timeouts.
+> **Concurrency note:** a plain `main loop` handles one request at a time, so a
+> long-running stream occupies the handler until it finishes. To let a slow
+> stream run without blocking other requests (login, history, health checks,
+> other chats), opt into [concurrent handling](#concurrent-request-handling)
+> with `main loop concurrently:`.
 
 ## The QUERY Method (RFC 10008)
 

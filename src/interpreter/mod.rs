@@ -94,6 +94,13 @@ const COOP_YIELD_STRIDE: u64 = 1024;
 /// free slot) rather than letting queued chunks grow without bound.
 const RESPONSE_STREAM_BUFFER: usize = 64;
 
+/// Maximum number of `main loop concurrently:` iterations in flight at once. The
+/// transport already bounds the request *queue*; this bounds concurrent *handler*
+/// execution so a burst cannot spawn unbounded cooperative tasks. Requests
+/// beyond this run as handlers free up (and the transport sheds 503 if its queue
+/// also fills).
+const CONCURRENT_HANDLER_LIMIT: usize = 256;
+
 // Web server data structures
 #[derive(Debug)]
 pub struct WflHttpRequest {
@@ -3721,6 +3728,68 @@ impl Interpreter {
         }
     }
 
+    /// Execute a `main loop concurrently:` body. Keeps up to
+    /// `CONCURRENT_HANDLER_LIMIT` iterations of `body` in flight at once, each in
+    /// its own isolated child scope, driven cooperatively on this single thread
+    /// (no threads, no `Send`/`Arc` across the interpreter core). A handler that
+    /// errors or panics is contained — its request is resolved with 500 by the
+    /// response-completion drop guard — and its siblings keep running.
+    async fn execute_concurrent_main_loop(
+        &self,
+        body: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<(Value, ControlFlow), RuntimeError> {
+        use futures_util::FutureExt;
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+
+        let cap = CONCURRENT_HANDLER_LIMIT.max(1);
+        let mut futs = FuturesUnordered::new();
+        let mut last_value = Value::Null;
+
+        loop {
+            self.check_time()?;
+
+            // Refill to the concurrency cap. Each iteration gets a fresh isolated
+            // scope so concurrent requests never clobber each other's variables.
+            while futs.len() < cap {
+                let scope = Environment::new_child_env(env);
+                futs.push(
+                    std::panic::AssertUnwindSafe(self.execute_block(body, scope)).catch_unwind(),
+                );
+            }
+
+            // With cap >= 1 the set is never empty, so `next()` never returns a
+            // `Ready(None)` that would busy-spin the loop.
+            match futs.next().await {
+                Some(Ok(Ok((value, flow)))) => {
+                    last_value = value;
+                    match flow {
+                        ControlFlow::Break => break,
+                        ControlFlow::Exit => return Ok((last_value, ControlFlow::Exit)),
+                        ControlFlow::Return(val) => {
+                            return Ok((val.clone(), ControlFlow::Return(val)));
+                        }
+                        ControlFlow::Continue | ControlFlow::None => {}
+                    }
+                }
+                // A handler returned a runtime error: its request (if it took one)
+                // is answered 500 by the ResponseCompletion drop guard. Log and
+                // keep the server running instead of tearing it down.
+                Some(Ok(Err(err))) => {
+                    log::warn!("concurrent main loop: handler error: {err}");
+                }
+                // A handler panicked: catch_unwind contained it; the request is
+                // answered 500 by the drop guard. Siblings survive.
+                Some(Err(_panic)) => {
+                    log::warn!("concurrent main loop: handler panicked; request answered 500");
+                }
+                None => break, // unreachable while cap >= 1; end cleanly if reached
+            }
+        }
+
+        Ok((last_value, ControlFlow::None))
+    }
+
     /// Preserve ordinary file I/O failures while classifying byte-ceiling
     /// breaches as catchable execution-budget resource errors.
     fn file_read_error(&self, error: FileReadError, line: usize, column: usize) -> RuntimeError {
@@ -4925,6 +4994,7 @@ impl Interpreter {
 
             Statement::MainLoop {
                 body,
+                concurrent,
                 line: _line,
                 column: _column,
             } => {
@@ -4938,6 +5008,14 @@ impl Interpreter {
                 // leaked or cleared while an outer loop is still active. A child
                 // `execute file` sharing this budget inherits the exemption too.
                 let _main_loop_guard = self.budget.enter_main_loop();
+
+                // `main loop concurrently:` runs body iterations cooperatively
+                // concurrently, each in its own isolated scope, so a slow handler
+                // (e.g. one streaming a slow upstream) does not block its
+                // siblings. Plain `main loop` stays strictly serial below.
+                if *concurrent {
+                    return self.execute_concurrent_main_loop(body, &env).await;
+                }
 
                 let mut _last_value = Value::Null;
                 let mut loop_env_recycle = None;

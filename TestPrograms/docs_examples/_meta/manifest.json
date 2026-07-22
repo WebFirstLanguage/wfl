@@ -435,5 +435,22 @@
       "response"
     ],
     "description": "Streaming a server response with start streaming response / write line / flush / close."
+  },
+  "docs_examples/web_servers/concurrent_main_loop.wfl": {
+    "doc_section": "Docs/04-advanced-features/web-servers.md#concurrent-request-handling",
+    "type": "snippet",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "skip_execution": true,
+    "tags": [
+      "web-server",
+      "concurrency",
+      "main-loop"
+    ],
+    "description": "Concurrent request handling with main loop concurrently."
   }
 }

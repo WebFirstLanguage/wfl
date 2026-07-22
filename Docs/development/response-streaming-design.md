@@ -17,8 +17,8 @@ locked design for what remains. It complements — and defers to —
 | 1 | Outbound response streaming (`stream response as`) | ✅ Shipped |
 | 2 | Incremental reads (`wait for next chunk|line`) | ✅ Shipped |
 | 3 | Streamed server responses (start / write / flush / close) | ✅ Shipped |
-| 4 | Concurrent request handlers | ⬜ Phase 1 of `concurrency-phase-plan.md` |
-| 5 | Lifecycle (timeouts, backpressure, cancellation, catchable errors, close-on-exit) | ◐ Client + server body streaming shipped; per-handler isolation rides with 4 |
+| 4 | Concurrent request handlers | ✅ Shipped (`main loop concurrently:`; Phase 1 of `concurrency-phase-plan.md`, awaiting maintainer review) |
+| 5 | Lifecycle (timeouts, backpressure, cancellation, catchable errors, close-on-exit) | ✅ Client + server streaming + per-handler isolation/containment shipped |
 
 ---
 
