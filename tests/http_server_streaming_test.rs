@@ -121,6 +121,21 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
     })
 }
 
+/// Wait until the WFL server has bound `port` and is accepting connections,
+/// instead of a fixed sleep that flakes on a loaded CI runner (spurious
+/// `Connection refused` when binding takes longer than the guess). A bare TCP
+/// connect that drops immediately is a safe readiness probe.
+async fn wait_for_server(port: u16) {
+    let addr = format!("127.0.0.1:{port}");
+    for _ in 0..300 {
+        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("server on {addr} did not become ready in time");
+}
+
 #[tokio::test]
 async fn test_streamed_response_lines_and_headers() {
     let port = 8231;
@@ -139,7 +154,7 @@ async fn test_streamed_response_lines_and_headers() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let client = reqwest::Client::new();
     let response = client
@@ -184,7 +199,7 @@ async fn test_write_after_close_does_not_reach_client() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/x"))
@@ -226,7 +241,7 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/x"))
@@ -268,7 +283,7 @@ async fn test_streamed_response_write_chunk_verbatim() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let client = reqwest::Client::new();
     let response = client

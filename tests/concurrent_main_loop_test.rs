@@ -58,6 +58,23 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
     })
 }
 
+/// Wait until the WFL server has actually bound `port` and is accepting
+/// connections, rather than sleeping a fixed interval. A fixed sleep is flaky on
+/// a loaded CI runner where binding can take longer than the guess, producing
+/// spurious `Connection refused` failures. A bare TCP connect that drops
+/// immediately is a safe readiness probe: warp accepts and closes it without
+/// delivering an HTTP request to the handler.
+async fn wait_for_server(port: u16) {
+    let addr = format!("127.0.0.1:{port}");
+    for _ in 0..300 {
+        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("server on {addr} did not become ready in time");
+}
+
 fn server_code(port: u16, concurrently: bool) -> String {
     let marker = if concurrently { " concurrently" } else { "" };
     format!(
@@ -96,7 +113,7 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
 async fn test_concurrent_slow_handler_does_not_block_fast() {
     let port = 8341;
     let server = start_server_thread(server_code(port, true));
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let client = reqwest::Client::new();
 
@@ -155,7 +172,7 @@ async fn test_concurrent_handler_error_does_not_kill_server() {
     "#
     );
     let server = start_server_thread(code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let client = reqwest::Client::new();
 
@@ -220,7 +237,7 @@ async fn test_concurrent_handlers_do_not_share_count_loop_state() {
     "#
     );
     let server = start_server_thread(code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let a_url = format!("http://127.0.0.1:{port}/a");
     let b_url = format!("http://127.0.0.1:{port}/b");
@@ -289,7 +306,7 @@ async fn test_handler_that_never_responds_gets_immediate_500() {
     "#
     );
     let server = start_server_thread(code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let client = reqwest::Client::new();
 
@@ -326,7 +343,7 @@ async fn test_handler_that_never_responds_gets_immediate_500() {
 async fn test_serial_slow_handler_blocks_next() {
     let port = 8343;
     let server = start_server_thread(server_code(port, false));
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server(port).await;
 
     let client = reqwest::Client::new();
 
