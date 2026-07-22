@@ -418,5 +418,22 @@
       "interoperability"
     ],
     "description": "Streaming an outbound HTTP response incrementally with stream response / wait for next line."
+  },
+  "docs_examples/web_servers/streaming_response.wfl": {
+    "doc_section": "Docs/04-advanced-features/web-servers.md#streaming-a-response",
+    "type": "snippet",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "skip_execution": true,
+    "tags": [
+      "web-server",
+      "streaming",
+      "response"
+    ],
+    "description": "Streaming a server response with start streaming response / write line / flush / close."
   }
 }

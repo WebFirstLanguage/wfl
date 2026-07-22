@@ -622,7 +622,10 @@ impl JavaScriptTranspiler {
 
             Statement::HttpStreamStatement { line, column, .. }
             | Statement::WaitForNextChunkStatement { line, column, .. }
-            | Statement::WaitForNextLineStatement { line, column, .. } => {
+            | Statement::WaitForNextLineStatement { line, column, .. }
+            | Statement::StartStreamingResponseStatement { line, column, .. }
+            | Statement::StreamWriteStatement { line, column, .. }
+            | Statement::FlushStreamStatement { line, column, .. } => {
                 // Streaming HTTP relies on the interpreter's parked-stream
                 // handles; emitting broken JS would be worse than a clear error.
                 Err(TranspileError {
@@ -2070,6 +2073,8 @@ impl JavaScriptTranspiler {
             | Statement::HttpStreamStatement { .. }
             | Statement::WaitForNextChunkStatement { .. }
             | Statement::WaitForNextLineStatement { .. }
+            | Statement::StartStreamingResponseStatement { .. }
+            | Statement::StreamWriteStatement { .. }
             | Statement::WaitForProcessStatement { .. }
             | Statement::WaitForRequestStatement { .. } => true,
 

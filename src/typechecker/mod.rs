@@ -969,6 +969,38 @@ impl TypeChecker {
                     symbol.symbol_type = Some(Type::Any);
                 }
             }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                ..
+            } => {
+                let _ = self.infer_expression_type(request);
+                if let Some(status) = status {
+                    let _ = self.infer_expression_type(status);
+                }
+                if let Some(content_type) = content_type {
+                    let _ = self.infer_expression_type(content_type);
+                }
+                if let Some(headers) = headers {
+                    let _ = self.infer_expression_type(headers);
+                }
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type =
+                        Some(Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)));
+                }
+            }
+            Statement::StreamWriteStatement { value, target, .. } => {
+                let _ = self.infer_expression_type(value);
+                let _ = self.infer_expression_type(target);
+            }
+            Statement::FlushStreamStatement { target, .. } => {
+                let _ = self.infer_expression_type(target);
+            }
             Statement::VariableDeclaration {
                 name,
                 value,

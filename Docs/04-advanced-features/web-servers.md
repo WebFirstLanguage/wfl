@@ -412,6 +412,71 @@ respond to req with "Created!" and status 201 and content_type "application/json
 All optional clauses (`status`, `content_type`, `headers`) can appear in any
 order after the content.
 
+### Streaming a response
+
+`respond to` sends the whole body at once. When the body is large, or produced
+progressively (for example newline-delimited JSON streamed to a browser's
+`fetch()` reader), start a **streaming response** instead. It sends the status
+and headers immediately and binds a stream handle you write to piece by piece:
+
+```wfl
+start streaming response to req with status 200 and content type "application/x-ndjson" as out
+
+write line "{\"event\": \"start\"}" to out
+write line "{\"event\": \"tick\", \"n\": 1}" to out
+flush out
+write line "{\"event\": \"done\"}" to out
+
+close out
+```
+
+- `start streaming response to <req> [with status <e>] [and content type <e>]
+  [and headers <e>] as <out>` — begin the response. The status defaults to 200
+  and the content type to `application/octet-stream`. The body has no declared
+  length; it is sent with chunked transfer-encoding.
+- `write line <value> to <out>` — write `value` followed by a newline (ideal for
+  NDJSON). `value` may be text, a number, or a boolean.
+- `write chunk <value> to <out>` — write raw bytes verbatim, no newline added.
+  `value` may be text or `binary`.
+- `flush <out>` — advisory: yield so queued bytes are handed to the socket.
+  (Chunks are already forwarded as you write them; hyper writes as it receives.)
+- `close <out>` — end the response body. Writing after `close` is an error.
+
+**Lifecycle & backpressure:** the body channel is bounded, so a slow client
+slows your `write` calls (backpressure) instead of buffering without bound. If
+the client disconnects, hyper drops the response body and your next `write` to
+that stream fails with a catchable error — use `try`/`when` to detect it and
+stop producing (and `close` any upstream you are proxying). The stream is closed
+automatically when the handler ends on any path.
+
+**Proxying an upstream to the browser** — combine with the outbound streaming
+client ([Interoperability → Streaming a response
+incrementally](interoperability.md#streaming-a-response-incrementally)):
+
+```wfl
+open url at "https://model.example.com/generate" with method "POST" and body prompt and stream response as upstream
+start streaming response to req with status 200 and content type "application/x-ndjson" as out
+
+count from 1 to 1000000:
+    wait for next line from upstream as line
+    check if line is nothing:
+        break
+    otherwise:
+        write line line to out
+    end check
+end count
+
+close upstream
+close out
+```
+
+> **Concurrency note:** today a request handler runs to completion before the
+> next request is served (the loop is cooperative and single-threaded), so a
+> long-running stream occupies the handler until it finishes. Opt-in concurrent
+> handling (`main loop concurrently:`) is a planned, separate capability — see
+> [`concurrency-phase-plan.md`](../development/concurrency-phase-plan.md). Until
+> then, prefer bounded streams and per-request timeouts.
+
 ## The QUERY Method (RFC 10008)
 
 WFL supports [RFC 10008](https://www.rfc-editor.org/info/rfc10008/), the HTTP

@@ -1,0 +1,22 @@
+// Streaming a server response.
+//
+// `start streaming response` sends status/headers immediately and binds a
+// stream handle; `write line`/`write chunk` append body pieces incrementally,
+// and `close` ends the response.
+//
+// Validated for syntax/analysis/lint only (layers 1-4): running it needs a
+// live client, so execution is skipped.
+
+listen on port 8080 as site
+
+wait for request comes in on site as req with timeout 10000
+
+start streaming response to req with status 200 and content type "application/x-ndjson" as out
+
+write line "first line" to out
+write line "second line" to out
+flush out
+write chunk "no newline here" to out
+
+close out
+close server site

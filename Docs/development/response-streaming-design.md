@@ -16,9 +16,9 @@ locked design for what remains. It complements — and defers to —
 |---|------------|--------|
 | 1 | Outbound response streaming (`stream response as`) | ✅ Shipped |
 | 2 | Incremental reads (`wait for next chunk|line`) | ✅ Shipped |
-| 3 | Streamed server responses (start / write / flush / close) | 🔒 Designed (below) |
+| 3 | Streamed server responses (start / write / flush / close) | ✅ Shipped |
 | 4 | Concurrent request handlers | ⬜ Phase 1 of `concurrency-phase-plan.md` |
-| 5 | Lifecycle (timeouts, backpressure, cancellation, catchable errors, close-on-exit) | ◐ Client half shipped; server half rides with 3 & 4 |
+| 5 | Lifecycle (timeouts, backpressure, cancellation, catchable errors, close-on-exit) | ◐ Client + server body streaming shipped; per-handler isolation rides with 4 |
 
 ---
 
@@ -41,7 +41,15 @@ the handle (cancelling the upstream) on EOF/error/close/teardown.
 
 ---
 
-## Item 3 — Streamed server responses (locked surface)
+## Item 3 — Streamed server responses (✅ shipped)
+
+Shipped as designed below. Surface: `start streaming response to <req> [with
+status <e>] [and content type <e>] [and headers <e>] as <out>`, `write
+line|chunk <value> to <out>`, `flush <out>`, `close <out>`. See
+`tests/http_server_streaming_test.rs` and the web-servers guide's "Streaming a
+response" section. The original design (kept for reference):
+
+## Item 3 — Streamed server responses (design)
 
 ### Surface (chosen for consistency with the client side + existing `respond`)
 

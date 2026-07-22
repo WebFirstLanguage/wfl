@@ -63,7 +63,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 // Type alias for complex pending response type
-type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
+type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<HandlerReply>>>>;
 
 /// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
 ///
@@ -89,6 +89,11 @@ use warp::Filter;
 /// `count & (STRIDE - 1)` is exact; large enough that the yield is negligible.
 const COOP_YIELD_STRIDE: u64 = 1024;
 
+/// Bounded capacity of a server response stream's body-chunk channel. A slow
+/// client fills this and then backpressures the handler's `write` (it awaits a
+/// free slot) rather than letting queued chunks grow without bound.
+const RESPONSE_STREAM_BUFFER: usize = 64;
+
 // Web server data structures
 #[derive(Debug)]
 pub struct WflHttpRequest {
@@ -105,7 +110,7 @@ pub struct WflHttpRequest {
     /// binary value, so binary uploads survive intact.
     pub body: Vec<u8>,
     pub headers: HashMap<String, String>,
-    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
+    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<HandlerReply>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +124,26 @@ pub struct WflHttpResponse {
     pub headers: HashMap<String, String>,
 }
 
+/// What a request handler delivers back to its warp transport task over the
+/// per-request `oneshot`.
+///
+/// `respond` sends a fully-buffered `Buffered` reply; `start streaming response`
+/// sends a `Streaming` reply whose head (status/headers) is written immediately
+/// and whose body is fed chunk-by-chunk over a bounded channel by `write
+/// line|chunk`. A bounded channel gives backpressure: a slow client slows the
+/// handler's writes. Dropping the sender (handler end, `close`, or a caught
+/// error) closes the body stream and finalizes the response.
+#[derive(Debug)]
+pub enum HandlerReply {
+    Buffered(WflHttpResponse),
+    Streaming {
+        status: u16,
+        content_type: String,
+        headers: HashMap<String, String>,
+        body: mpsc::Receiver<Vec<u8>>,
+    },
+}
+
 /// Ensures an HTTP `respond` always resolves its request. The response sender is
 /// taken out of `pending_responses` (and out of its mutex) up front and held
 /// here; if a fallible step in `respond` returns early before a response is
@@ -127,11 +152,11 @@ pub struct WflHttpResponse {
 /// [`ResponseCompletion::take_sender`] to disarm the fallback and deliver the
 /// real response.
 struct ResponseCompletion {
-    sender: Option<oneshot::Sender<WflHttpResponse>>,
+    sender: Option<oneshot::Sender<HandlerReply>>,
 }
 
 impl ResponseCompletion {
-    fn take_sender(&mut self) -> Option<oneshot::Sender<WflHttpResponse>> {
+    fn take_sender(&mut self) -> Option<oneshot::Sender<HandlerReply>> {
         self.sender.take()
     }
 }
@@ -139,12 +164,12 @@ impl ResponseCompletion {
 impl Drop for ResponseCompletion {
     fn drop(&mut self) {
         if let Some(sender) = self.sender.take() {
-            let _ = sender.send(WflHttpResponse {
+            let _ = sender.send(HandlerReply::Buffered(WflHttpResponse {
                 content: b"Internal Server Error\n".to_vec(),
                 status: 500,
                 content_type: "text/plain; charset=utf-8".to_string(),
                 headers: HashMap::new(),
-            });
+            }));
         }
     }
 }
@@ -902,6 +927,13 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WaitForNextLineStatement { variable_name, .. } => {
             format!("WaitForNextLineStatement '{variable_name}'")
         }
+        Statement::StartStreamingResponseStatement { variable_name, .. } => {
+            format!("StartStreamingResponseStatement '{variable_name}'")
+        }
+        Statement::StreamWriteStatement { is_line, .. } => {
+            format!("StreamWriteStatement (line={is_line})")
+        }
+        Statement::FlushStreamStatement { .. } => "FlushStreamStatement".to_string(),
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
         Statement::CreateListStatement { name, .. } => format!("CreateListStatement '{name}'"),
         Statement::MapCreation { name, .. } => format!("MapCreation '{name}'"),
@@ -1109,6 +1141,11 @@ pub struct Interpreter {
     web_socket_servers: RefCell<HashMap<String, WflWebSocketServer>>, // WebSocket servers keyed by address
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
     pending_responses: RefCell<HashMap<String, PendingResponse>>, // Pending responses (channel + admission slot) by request ID
+    /// Open server response streams (`start streaming response`), keyed by
+    /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender;
+    /// `write line|chunk`/`flush` push to it, `close` drops it (ending the body).
+    server_response_streams: RefCell<HashMap<String, mpsc::Sender<Vec<u8>>>>,
+    next_response_stream_id: std::cell::Cell<usize>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -3158,6 +3195,8 @@ impl Interpreter {
             web_socket_servers: RefCell::new(HashMap::new()), // Initialize empty WebSocket servers map
             ws_connections: Arc::new(std::sync::Mutex::new(HashMap::new())), // Live WebSocket connections
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
+            server_response_streams: RefCell::new(HashMap::new()),
+            next_response_stream_id: std::cell::Cell::new(1),
             config,
             current_source_file: RefCell::new(None), // No source file initially
             loading_stack: RefCell::new(Vec::new()), // Empty loading stack
@@ -3640,6 +3679,40 @@ impl Interpreter {
             _ => Err(RuntimeError::new(
                 format!(
                     "Expected a streaming response handle, got {}",
+                    value.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    /// Resolve a `write line|chunk`/`flush` operand to a server response-stream
+    /// handle id. Accepts the object bound by `start streaming response as ...`
+    /// (reads its internal `_server_stream` id) or a bare text handle id.
+    async fn resolve_server_stream_handle(
+        &self,
+        target: &Expression,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        let value = self.evaluate_expression(target, Rc::clone(env)).await?;
+        match &value {
+            Value::Object(obj) => match obj.borrow().get("_server_stream") {
+                Some(Value::Text(id)) => Ok(id.to_string()),
+                _ => Err(RuntimeError::new(
+                    "Expected a server response stream (from `start streaming response as ...`), \
+                     but this value has no open stream"
+                        .to_string(),
+                    line,
+                    column,
+                )),
+            },
+            Value::Text(id) => Ok(id.to_string()),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected a server response stream handle, got {}",
                     value.type_name()
                 ),
                 line,
@@ -4186,6 +4259,9 @@ impl Interpreter {
             Statement::HttpStreamStatement { line, column, .. } => (*line, *column),
             Statement::WaitForNextChunkStatement { line, column, .. } => (*line, *column),
             Statement::WaitForNextLineStatement { line, column, .. } => (*line, *column),
+            Statement::StartStreamingResponseStatement { line, column, .. } => (*line, *column),
+            Statement::StreamWriteStatement { line, column, .. } => (*line, *column),
+            Statement::FlushStreamStatement { line, column, .. } => (*line, *column),
             Statement::PushStatement { line, column, .. } => (*line, *column),
             Statement::CreateListStatement { line, column, .. } => (*line, *column),
             Statement::MapCreation { line, column, .. } => (*line, *column),
@@ -5161,26 +5237,39 @@ impl Interpreter {
                         Ok(_) => Ok((Value::Null, ControlFlow::None)),
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     },
-                    // A streaming-response object closes its underlying stream,
-                    // cancelling the in-flight upstream request. `close` on a
-                    // stream is always safe, even after EOF.
+                    // A streaming-response object closes its underlying stream.
+                    // For a client upstream (`_stream`) this cancels the in-flight
+                    // request; for a server response stream (`_server_stream`)
+                    // this drops the body sender, ending the response. Closing a
+                    // stream is always safe, even after EOF / already closed.
                     Value::Object(obj) => {
-                        let stream_id = obj.borrow().get("_stream").and_then(|v| match v {
-                            Value::Text(s) => Some(s.to_string()),
-                            _ => None,
-                        });
-                        match stream_id {
-                            Some(id) => {
-                                self.io_client.close_stream(&id).await;
-                                Ok((Value::Null, ControlFlow::None))
-                            }
-                            None => Err(RuntimeError::new(
+                        let (client_id, server_id) = {
+                            let obj_ref = obj.borrow();
+                            let client = obj_ref.get("_stream").and_then(|v| match v {
+                                Value::Text(s) => Some(s.to_string()),
+                                _ => None,
+                            });
+                            let server = obj_ref.get("_server_stream").and_then(|v| match v {
+                                Value::Text(s) => Some(s.to_string()),
+                                _ => None,
+                            });
+                            (client, server)
+                        };
+                        if let Some(id) = client_id {
+                            self.io_client.close_stream(&id).await;
+                            Ok((Value::Null, ControlFlow::None))
+                        } else if let Some(id) = server_id {
+                            // Dropping the sender ends the response body stream.
+                            self.server_response_streams.borrow_mut().remove(&id);
+                            Ok((Value::Null, ControlFlow::None))
+                        } else {
+                            Err(RuntimeError::new(
                                 "Cannot close this value: it is not a file handle or a \
                                  streaming response"
                                     .to_string(),
                                 *line,
                                 *column,
-                            )),
+                            ))
                         }
                     }
                     _ => Err(RuntimeError::new(
@@ -7520,7 +7609,8 @@ impl Interpreter {
                                                     .map(|a| a.ip().to_string())
                                                     .unwrap_or_else(|| "unknown".to_string()),
                                             );
-                                            return Ok(request_timeout_response());
+                                            return Ok(request_timeout_response()
+                                                .map(warp::hyper::Body::from));
                                         }
                                     },
                                     None => read_fut.await,
@@ -7528,7 +7618,9 @@ impl Interpreter {
                                 let body_bytes = match body_read {
                                     Ok(bytes) => bytes,
                                     Err(BodyReadError::TooLarge) => {
-                                        return Ok(payload_too_large_response());
+                                        return Ok(
+                                            payload_too_large_response().map(warp::hyper::Body::from)
+                                        );
                                     }
                                     Err(BodyReadError::Io) => {
                                         return Err(warp::reject::custom(ServerError(
@@ -7555,7 +7647,7 @@ impl Interpreter {
 
                                 // Create response channel
                                 let (response_sender, response_receiver) =
-                                    oneshot::channel::<WflHttpResponse>();
+                                    oneshot::channel::<HandlerReply>();
 
                                 // Create the WFL request. The admission guard is
                                 // NOT moved in — it stays bound to this transport
@@ -7591,7 +7683,9 @@ impl Interpreter {
                                             shed.path,
                                             shed.client_ip
                                         );
-                                        return Ok(overloaded_response());
+                                        return Ok(
+                                            overloaded_response().map(warp::hyper::Body::from)
+                                        );
                                     }
                                     Err(mpsc::error::TrySendError::Closed(_)) => {
                                         return Err(warp::reject::custom(ServerError(
@@ -7618,7 +7712,8 @@ impl Interpreter {
                                                         .map(|a| a.ip().to_string())
                                                         .unwrap_or_else(|| "unknown".to_string()),
                                                 );
-                                                return Ok(gateway_timeout_response());
+                                                return Ok(gateway_timeout_response()
+                                                    .map(warp::hyper::Body::from));
                                             }
                                         }
                                     }
@@ -7626,7 +7721,7 @@ impl Interpreter {
                                 };
 
                                 match received {
-                                    Ok(response) => {
+                                    Ok(HandlerReply::Buffered(response)) => {
                                         let status_code =
                                             warp::http::StatusCode::from_u16(response.status)
                                                 .unwrap_or(warp::http::StatusCode::OK);
@@ -7648,10 +7743,53 @@ impl Interpreter {
                                             reply_builder = reply_builder.header(name, value);
                                         }
 
-                                        match reply_builder.body(content_bytes) {
+                                        match reply_builder.body(warp::hyper::Body::from(content_bytes)) {
                                             Ok(response) => Ok(response),
                                             Err(_) => Err(warp::reject::custom(ServerError(
                                                 "Failed to build response".to_string(),
+                                            ))),
+                                        }
+                                    }
+                                    Ok(HandlerReply::Streaming {
+                                        status,
+                                        content_type,
+                                        headers,
+                                        body,
+                                    }) => {
+                                        let status_code = warp::http::StatusCode::from_u16(status)
+                                            .unwrap_or(warp::http::StatusCode::OK);
+
+                                        // No Content-Length: the body length is unknown
+                                        // up front. hyper frames it with chunked
+                                        // transfer-encoding and writes each chunk as it
+                                        // arrives off the bounded channel.
+                                        let mut reply_builder = warp::http::Response::builder()
+                                            .status(status_code)
+                                            .header("Content-Type", content_type);
+                                        for (name, value) in headers {
+                                            reply_builder = reply_builder.header(name, value);
+                                        }
+
+                                        // Turn the chunk receiver into a body stream.
+                                        // When the client disconnects, hyper drops this
+                                        // body, dropping `body`, which makes the
+                                        // handler's next `write` fail (the interpreter
+                                        // observes the closed channel) — that is how a
+                                        // browser disconnect cancels the handler.
+                                        let stream = futures_util::stream::unfold(
+                                            body,
+                                            |mut rx| async move {
+                                                rx.recv()
+                                                    .await
+                                                    .map(|chunk| (Ok::<Vec<u8>, std::io::Error>(chunk), rx))
+                                            },
+                                        );
+                                        match reply_builder
+                                            .body(warp::hyper::Body::wrap_stream(stream))
+                                        {
+                                            Ok(response) => Ok(response),
+                                            Err(_) => Err(warp::reject::custom(ServerError(
+                                                "Failed to build streaming response".to_string(),
                                             ))),
                                         }
                                     }
@@ -8414,7 +8552,7 @@ impl Interpreter {
                 // sender was taken up front, so this is the sole delivery path.
                 match completion.take_sender() {
                     Some(sender) => {
-                        if sender.send(response).is_err() {
+                        if sender.send(HandlerReply::Buffered(response)).is_err() {
                             return Err(RuntimeError::new(
                                 "Failed to send response - client may have disconnected"
                                     .to_string(),
@@ -8432,6 +8570,281 @@ impl Interpreter {
                     }
                 }
 
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Resolve the request id, mirroring `respond`.
+                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                let request_id = match &request_val {
+                    Value::Object(obj) => match obj.borrow().get("_response_sender") {
+                        Some(Value::Text(id)) => id.as_ref().to_string(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Request object missing response sender ID".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected request object".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Take the oneshot into an RAII guard up front: an early error
+                // while evaluating status/content type/headers still resolves
+                // the client with 500 instead of hanging.
+                let pending_entry = {
+                    let mut pending = self.pending_responses.borrow_mut();
+                    pending.remove(&request_id)
+                };
+                let mut completion = match pending_entry {
+                    Some(entry) => match entry.sender.lock().await.take() {
+                        Some(sender) => ResponseCompletion {
+                            sender: Some(sender),
+                        },
+                        None => {
+                            return Err(RuntimeError::new(
+                                "Response already sent for this request".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Request ID not found - response may have already been sent"
+                                .to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let status_code = match status {
+                    Some(expr) => {
+                        let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                        match &v {
+                            Value::Number(n) => *n as u16,
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Expected number for status, got {}", v.type_name()),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => 200,
+                };
+
+                let content_type_str = match content_type {
+                    Some(expr) => {
+                        let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                        match &v {
+                            Value::Text(s) => s.to_string(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected text for content type, got {}",
+                                        v.type_name()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => "application/octet-stream".to_string(),
+                };
+
+                let mut custom_headers: HashMap<String, String> = HashMap::new();
+                if let Some(expr) = headers {
+                    let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                    match &v {
+                        Value::Object(obj) => {
+                            for (name, value) in obj.borrow().iter() {
+                                let value_str = match value {
+                                    Value::Text(s) => s.to_string(),
+                                    Value::Number(_) | Value::Bool(_) => value.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Header '{name}' must be text, got {}",
+                                                value.type_name()
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                };
+                                // The pipeline owns framing headers.
+                                if name.eq_ignore_ascii_case("content-type")
+                                    || name.eq_ignore_ascii_case("content-length")
+                                    || name.eq_ignore_ascii_case("transfer-encoding")
+                                {
+                                    continue;
+                                }
+                                custom_headers.insert(name.clone(), value_str);
+                            }
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Expected a map for response headers, got {}",
+                                    v.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                }
+
+                // Hand the streaming head (and body receiver) to the transport,
+                // disarming the guard's 500 fallback.
+                let (tx, rx) = mpsc::channel::<Vec<u8>>(RESPONSE_STREAM_BUFFER);
+                match completion.take_sender() {
+                    Some(sender) => {
+                        if sender
+                            .send(HandlerReply::Streaming {
+                                status: status_code,
+                                content_type: content_type_str,
+                                headers: custom_headers,
+                                body: rx,
+                            })
+                            .is_err()
+                        {
+                            return Err(RuntimeError::new(
+                                "Failed to start streaming response - client may have disconnected"
+                                    .to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Response already sent for this request".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                }
+
+                let handle_id = {
+                    let n = self.next_response_stream_id.get();
+                    self.next_response_stream_id.set(n + 1);
+                    format!("respstream{n}")
+                };
+                self.server_response_streams
+                    .borrow_mut()
+                    .insert(handle_id.clone(), tx);
+
+                let mut stream_map = HashMap::new();
+                stream_map.insert("_server_stream".to_string(), Value::Text(handle_id.into()));
+                stream_map.insert("status".to_string(), Value::Number(status_code as f64));
+                let value = Value::Object(Rc::new(RefCell::new(stream_map)));
+                match env.borrow_mut().define(variable_name, value) {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                }
+            }
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                is_line,
+                line,
+                column,
+            } => {
+                let handle_id = self
+                    .resolve_server_stream_handle(target, &env, *line, *column)
+                    .await?;
+                let val = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let mut bytes = match &val {
+                    Value::Text(s) => s.as_bytes().to_vec(),
+                    Value::Binary(b) => b.to_vec(),
+                    Value::Number(_) | Value::Bool(_) => val.to_string().into_bytes(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Can only write text or binary to a response stream, got {}",
+                                val.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                if *is_line {
+                    bytes.push(b'\n');
+                }
+
+                // Clone the sender out so the map borrow isn't held across the
+                // (possibly backpressured) send await.
+                let sender = self
+                    .server_response_streams
+                    .borrow()
+                    .get(&handle_id)
+                    .cloned();
+                match sender {
+                    Some(tx) => match tx.send(bytes).await {
+                        Ok(()) => Ok((Value::Null, ControlFlow::None)),
+                        Err(_) => {
+                            // Receiver dropped => client disconnected. Drop the
+                            // handle and surface a catchable error so the handler
+                            // can stop (and close any upstream it is proxying).
+                            self.server_response_streams.borrow_mut().remove(&handle_id);
+                            Err(RuntimeError::new(
+                                "Cannot write to response stream: the client has disconnected"
+                                    .to_string(),
+                                *line,
+                                *column,
+                            ))
+                        }
+                    },
+                    None => Err(RuntimeError::new(
+                        "Cannot write to a closed response stream".to_string(),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::FlushStreamStatement {
+                target,
+                line,
+                column,
+            } => {
+                let handle_id = self
+                    .resolve_server_stream_handle(target, &env, *line, *column)
+                    .await?;
+                let exists = self
+                    .server_response_streams
+                    .borrow()
+                    .contains_key(&handle_id);
+                if !exists {
+                    return Err(RuntimeError::new(
+                        "Cannot flush a closed response stream".to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+                // Advisory: chunks are already handed to the transport as they
+                // are written; yield so the transport task is scheduled to push
+                // them to the socket.
+                tokio::task::yield_now().await;
                 Ok((Value::Null, ControlFlow::None))
             }
             // Graceful shutdown and signal handling statements

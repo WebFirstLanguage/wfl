@@ -580,6 +580,38 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// `start streaming response to <req> [with status <e>] [and content type
+    /// <e>] [and headers <e>] as <out>` — begin a streamed server response.
+    /// Sends the status/headers immediately and binds a server response-stream
+    /// handle; the body is written incrementally with `write line|chunk` and
+    /// ended with `close`.
+    StartStreamingResponseStatement {
+        request: Expression,
+        status: Option<Expression>,
+        content_type: Option<Expression>,
+        headers: Option<Expression>,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `write line <value> to <out>` / `write chunk <value> to <out>` — append
+    /// a framed line (a trailing newline is added) or a raw chunk (text or
+    /// binary, verbatim) to a server response stream.
+    StreamWriteStatement {
+        value: Expression,
+        target: Expression,
+        /// true for `write line` (newline appended), false for `write chunk`.
+        is_line: bool,
+        line: usize,
+        column: usize,
+    },
+    /// `flush <out>` — advisory flush of a server response stream: hand any
+    /// queued bytes to the transport.
+    FlushStreamStatement {
+        target: Expression,
+        line: usize,
+        column: usize,
+    },
     // WebSocket statements. WebSockets mirror the HTTP server's design: warp
     // runs the socket in background tasks and the interpreter reacts to events
     // through registered handler blocks (dispatched while the program is inside

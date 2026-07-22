@@ -793,6 +793,70 @@ impl<'a> IoParser<'a> for Parser<'a> {
     fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError> {
         let token_pos = self.bump_sync().unwrap(); // Consume "write"
 
+        // `write line <value> to <out>` / `write chunk <value> to <out>` —
+        // append to a server response stream. `line`/`chunk` are contextual
+        // identifiers; the lexer merges a following bare-identifier value into
+        // the same token (`line payload` -> Identifier("line payload")), so
+        // split the value off the marker, mirroring the websocket-message form.
+        if let Some(next_token) = self.cursor.peek()
+            && let Token::Identifier(id) = &next_token.token
+            && (id == "line"
+                || id == "chunk"
+                || id.starts_with("line ")
+                || id.starts_with("chunk "))
+        {
+            let id = id.clone();
+            let (marker_line, marker_column) = (next_token.line, next_token.column);
+            let is_line = id.starts_with("line");
+            let marker = if is_line { "line" } else { "chunk" };
+            let rest = id
+                .strip_prefix(marker)
+                .map(str::trim_start)
+                .unwrap_or("")
+                .to_string();
+            self.bump_sync(); // Consume the (possibly merged) marker
+
+            let value = if rest.is_empty() {
+                // Value begins with a non-identifier (string/number), so the
+                // whole expression — including `with` concatenation — parses
+                // cleanly from here.
+                self.parse_expression()?
+            } else {
+                let left = Expression::Variable(rest, marker_line, marker_column);
+                match self.cursor.peek().map(|t| &t.token) {
+                    // `<field> of <object>`, e.g. `write line body of msg to out`.
+                    Some(Token::KeywordOf) => {
+                        self.bump_sync(); // Consume "of"
+                        let object = self.parse_primary_expression()?;
+                        Expression::FunctionCall {
+                            function: Box::new(left),
+                            arguments: vec![crate::parser::ast::Argument {
+                                name: None,
+                                value: object,
+                            }],
+                            line: marker_line,
+                            column: marker_column,
+                        }
+                    }
+                    // A bare variable value: the next token starts `to ...`.
+                    _ => left,
+                }
+            };
+
+            self.expect_token(
+                Token::KeywordTo,
+                "Expected 'to <stream>' after the value in a 'write line'/'write chunk' statement",
+            )?;
+            let target = self.parse_primary_expression()?;
+            return Ok(Statement::StreamWriteStatement {
+                value,
+                target,
+                is_line,
+                line: token_pos.line,
+                column: token_pos.column,
+            });
+        }
+
         // Check if next token is "binary" for "write binary X into Y" syntax
         if let Some(next_token) = self.cursor.peek()
             && matches!(&next_token.token, Token::KeywordBinary)

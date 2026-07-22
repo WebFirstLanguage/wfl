@@ -610,6 +610,14 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 // `send websocket message <msg> to <conn>` and
                 // `broadcast websocket message <msg> to <server>`. The command
                 // words (and a bare identifier message) lex as one merged token.
+                // `start streaming response to <req> ... as <out>`. `start` is a
+                // keyword; `streaming` is a contextual identifier; `response` is
+                // a keyword.
+                Token::KeywordStart => self.parse_start_streaming_response(),
+                // `flush <out>` — a bare-identifier target merges into the token.
+                Token::Identifier(id) if id == "flush" || id.starts_with("flush ") => {
+                    self.parse_flush_stream()
+                }
                 Token::Identifier(id) if id.starts_with("send websocket message") => {
                     self.parse_send_websocket_message()
                 }

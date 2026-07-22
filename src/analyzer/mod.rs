@@ -1589,6 +1589,44 @@ impl Analyzer {
                 self.current_scope.define_or_replace(symbol);
             }
 
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(request);
+                if let Some(status) = status {
+                    self.analyze_expression(status);
+                }
+                if let Some(content_type) = content_type {
+                    self.analyze_expression(content_type);
+                }
+                if let Some(headers) = headers {
+                    self.analyze_expression(headers);
+                }
+                // Binds a server response-stream handle object.
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None,
+                    line: 0,
+                    column: 0,
+                };
+                self.current_scope.define_or_replace(symbol);
+            }
+
+            Statement::StreamWriteStatement { value, target, .. } => {
+                self.analyze_expression(value);
+                self.analyze_expression(target);
+            }
+
+            Statement::FlushStreamStatement { target, .. } => {
+                self.analyze_expression(target);
+            }
+
             Statement::CreateDirectoryStatement { path, .. } => {
                 self.analyze_expression(path);
             }
