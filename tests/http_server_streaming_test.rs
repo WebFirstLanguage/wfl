@@ -13,6 +13,8 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::Statement;
 
+mod common;
+
 // ----------------------------- parser tests ------------------------------
 
 fn parse_single_statement(code: &str) -> Statement {
@@ -172,7 +174,7 @@ async fn wait_for_server(port: u16) {
 
 #[tokio::test]
 async fn test_streamed_response_lines_and_headers() {
-    let port = 8231;
+    let port = common::free_tcp_port();
     let server_code = format!(
         r#"
         listen on port {port} as s
@@ -215,7 +217,7 @@ async fn test_streamed_response_lines_and_headers() {
 async fn test_write_after_close_does_not_reach_client() {
     // Writing after `close out` is a catchable error and does NOT reach the
     // client: the client sees only the bytes written before close.
-    let port = 8233;
+    let port = common::free_tcp_port();
     let server_code = format!(
         r#"
         listen on port {port} as s
@@ -255,7 +257,7 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
     // WITHOUT `close out` must still finalize the client's body on the way out.
     // Otherwise the sender lingers in the interpreter's stream table, the body is
     // never terminated, and the client hangs forever (and the table leaks).
-    let port = 8234;
+    let port = common::free_tcp_port();
     let server_code = format!(
         r#"
         listen on port {port} as s
@@ -303,7 +305,7 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
 
 #[tokio::test]
 async fn test_streamed_response_write_chunk_verbatim() {
-    let port = 8232;
+    let port = common::free_tcp_port();
     let server_code = format!(
         r#"
         listen on port {port} as s

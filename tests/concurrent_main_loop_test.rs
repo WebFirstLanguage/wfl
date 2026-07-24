@@ -16,6 +16,8 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::Statement;
 
+mod common;
+
 fn parse_program(code: &str) -> Vec<Statement> {
     let tokens = lex_wfl_with_positions(code);
     let mut parser = Parser::new(&tokens);
@@ -121,7 +123,7 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
 
 #[tokio::test]
 async fn test_concurrent_slow_handler_does_not_block_fast() {
-    let port = 8341;
+    let port = common::free_tcp_port();
     let server = start_server_thread(server_code(port, true));
     wait_for_server(port).await;
 
@@ -159,7 +161,7 @@ async fn test_concurrent_slow_handler_does_not_block_fast() {
 async fn test_concurrent_handler_error_does_not_kill_server() {
     // A handler that errors mid-iteration (here: responding twice) must be
     // contained — the concurrent loop keeps serving other requests.
-    let port = 8342;
+    let port = common::free_tcp_port();
     let code = format!(
         r#"
         listen on port {port} as srv
@@ -215,7 +217,7 @@ async fn test_concurrent_handlers_do_not_share_count_loop_state() {
     //
     // The two ranges are disjoint (1..5 vs 100..104), so any cross-contamination
     // is unmistakable: with isolation each handler observes only its own range.
-    let port = 8344;
+    let port = common::free_tcp_port();
     let code = format!(
         r#"
         listen on port {port} as srv
@@ -294,7 +296,7 @@ async fn test_handler_that_never_responds_gets_immediate_500() {
     // WITHOUT responding must resolve the client with 500 immediately — not leave
     // it waiting out the request timeout. The `/drop` path does no `respond`; the
     // handler simply ends, and the client must still get a prompt 500.
-    let port = 8345;
+    let port = common::free_tcp_port();
     let code = format!(
         r#"
         listen on port {port} as srv
@@ -351,7 +353,7 @@ async fn test_handler_that_never_responds_gets_immediate_500() {
 
 #[tokio::test]
 async fn test_serial_slow_handler_blocks_next() {
-    let port = 8343;
+    let port = common::free_tcp_port();
     let server = start_server_thread(server_code(port, false));
     wait_for_server(port).await;
 

@@ -27,6 +27,8 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
+mod common;
+
 /// How many disconnecting clients to fire. Must exceed the concurrent loop's
 /// `MAX_CONSECUTIVE_FAILURES` (256) so, under the buggy behavior, the burst trips
 /// the structural breaker.
@@ -139,7 +141,7 @@ async fn fire_disconnect(proxy_port: u16) {
 async fn test_disconnect_burst_does_not_kill_concurrent_loop() {
     let (upstream_port, mut upstream_closes) = spawn_counting_stall_upstream().await;
 
-    let proxy_port = 8362;
+    let proxy_port = common::free_tcp_port();
     let code = format!(
         r#"
         listen on port {proxy_port} as srv

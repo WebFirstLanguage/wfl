@@ -15,6 +15,8 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
+mod common;
+
 /// Upstream: send a chunked head + one body chunk, then STALL (send nothing
 /// more, so the proxy's next read blocks). Detect the proxy dropping the
 /// connection via a blocking read that returns 0 at peer close.
@@ -80,7 +82,7 @@ async fn wait_for_server(port: u16) {
 async fn test_downstream_disconnect_cancels_blocked_upstream_read() {
     let (upstream_port, mut upstream_disconnect) = spawn_one_chunk_then_stall_upstream().await;
 
-    let proxy_port = 8351;
+    let proxy_port = common::free_tcp_port();
     // The handler proxies: read chunks from upstream and write them downstream.
     // After the first chunk it blocks on the stalled upstream. `outbound_stream_max_seconds`
     // is the default (300s), so ONLY a disconnect can cancel that blocked read
