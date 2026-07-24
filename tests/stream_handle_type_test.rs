@@ -59,6 +59,34 @@ fn test_close_non_file_custom_handle_is_rejected() {
 }
 
 #[test]
+fn test_outbound_stream_handle_fields_are_indexable() {
+    // The outbound handle now has a distinct `Custom("HttpStream")` type; reading
+    // its fields by index must still type-check (the field type is runtime-known).
+    // Mirrors the docs example: a direct field and a nested header lookup.
+    let code = "open url at \"http://example.com\" and stream response as resp\n\
+                store code as resp[\"status\"]\n\
+                store ct as resp[\"headers\"][\"content-type\"]\n\
+                close resp";
+    assert!(
+        typecheck(code).is_ok(),
+        "indexing a stream handle's fields must still type-check: {:?}",
+        typecheck(code).err()
+    );
+}
+
+#[test]
+fn test_close_ordinary_map_is_rejected() {
+    // A plain user map is NOT closeable — only file/stream handles are. This is
+    // the tightening that a distinct handle type buys over accepting any `Map`.
+    let code = "create map m:\n    \"k\" is \"v\"\nend map\nclose m";
+    let errors = typecheck(code).expect_err("closing an ordinary map must be a type error");
+    assert!(
+        errors.contains("file or stream handle") || errors.contains("File"),
+        "expected a close-operand type error for a plain map, got: {errors}"
+    );
+}
+
+#[test]
 fn test_close_scalar_is_still_rejected() {
     // A concrete non-handle value is still a type error — the fix widens `close`
     // to file/stream handles, it does not make `close` accept anything.

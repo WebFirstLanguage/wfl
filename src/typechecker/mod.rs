@@ -940,12 +940,14 @@ impl TypeChecker {
                     }
                 }
 
-                // Binds a streaming-response handle object (status/ok/headers).
+                // Binds an outbound streaming-response handle (exposes
+                // status/ok/headers via index/member access, and is closeable).
+                // A distinct handle type — not a bare `Map` — so `close` accepts
+                // it without also accepting an ordinary user map.
                 if !variable_name.is_empty()
                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
                 {
-                    symbol.symbol_type =
-                        Some(Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)));
+                    symbol.symbol_type = Some(Type::Custom("HttpStream".to_string()));
                 }
             }
             Statement::WaitForNextChunkStatement {
@@ -1027,8 +1029,10 @@ impl TypeChecker {
                 if !variable_name.is_empty()
                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
                 {
-                    symbol.symbol_type =
-                        Some(Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)));
+                    // A distinct server-response-stream handle type (not a bare
+                    // `Map`) so `close out` is accepted without `close` also
+                    // type-checking an ordinary user map.
+                    symbol.symbol_type = Some(Type::Custom("ResponseStream".to_string()));
                 }
             }
             Statement::StreamWriteStatement { value, target, .. } => {
@@ -3532,6 +3536,13 @@ impl TypeChecker {
                     // result) is indexable; the element type is only known
                     // at runtime (issue #553).
                     Type::Any => Type::Any,
+                    // Stream handles expose fields (`status`/`ok`/`headers`) by
+                    // index; the field type is only known at runtime.
+                    Type::Custom(ref name)
+                        if name == "HttpStream" || name == "ResponseStream" =>
+                    {
+                        Type::Any
+                    }
                     _ => {
                         self.type_error(
                             format!("Cannot index into {collection_type}"),
@@ -4689,21 +4700,18 @@ impl TypeChecker {
         }
     }
 
-    /// Whether a type can name a closeable resource: a file handle, a stream
-    /// handle, or a statically-unresolved value. Stream handles (server response
-    /// streams from `start streaming response as ...` and outbound streams from
-    /// `... stream response as ...`) bind as map-shaped objects, so a `close out`
-    /// / `close upstream` must be accepted here rather than flagged as "not a
-    /// File". Only the `File` custom type is closeable — other custom types
-    /// (`Database`, `Request`, …) are NOT, so `close db` / `close req` still
-    /// errors — and concrete scalars (`close 5`) are rejected too.
+    /// Whether a type can name a closeable resource: a file handle
+    /// (`Custom("File")`), a stream handle (`Custom("HttpStream")` outbound or
+    /// `Custom("ResponseStream")` server-side), or a statically-unresolved value.
+    /// These are the only things the runtime can close, so an ordinary map,
+    /// another custom type (`Database`/`Request`), or a scalar (`close 5`) is
+    /// rejected — keeping real mistakes as static errors rather than runtime-only.
     fn is_closeable_type(&self, ty: &Type) -> bool {
         match ty {
-            // The file handle from `open file ... as f`.
-            Type::Custom(name) => name == "File",
-            // Stream handles bind as Map<Text, _>; a statically-unresolved value
-            // is accepted to avoid false positives.
-            Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error => true,
+            Type::Custom(name) => {
+                name == "File" || name == "HttpStream" || name == "ResponseStream"
+            }
+            Type::Unknown | Type::Any | Type::Error => true,
             _ => false,
         }
     }
