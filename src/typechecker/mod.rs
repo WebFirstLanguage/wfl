@@ -1041,13 +1041,28 @@ impl TypeChecker {
                         );
                     }
                 }
-                if !variable_name.is_empty()
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
-                {
+                if !variable_name.is_empty() {
                     // A distinct server-response-stream handle type (not a bare
                     // `Map`) so `close out` is accepted without `close` also
                     // type-checking an ordinary user map.
-                    symbol.symbol_type = Some(Type::Custom("ResponseStream".to_string()));
+                    //
+                    // Always bind/refine in the *current* scope: analyzer loop
+                    // scopes are discarded after body analysis, so `out` from
+                    // `start streaming response ... as out` inside `main loop`
+                    // would otherwise be missing here and remain Unknown —
+                    // letting a gradual/file fallback mask an invalid stream
+                    // payload (issue #642).
+                    if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+                        symbol.symbol_type = Some(Type::Custom("ResponseStream".to_string()));
+                    } else {
+                        self.analyzer.define_or_replace_symbol(Symbol {
+                            name: variable_name.clone(),
+                            kind: SymbolKind::Variable { mutable: true },
+                            symbol_type: Some(Type::Custom("ResponseStream".to_string())),
+                            line: *_line,
+                            column: *_column,
+                        });
+                    }
                 }
             }
             Statement::StreamWriteStatement {
@@ -1071,44 +1086,31 @@ impl TypeChecker {
                     && !self.is_gradual_type(&target_type)
                 {
                     // Concrete response stream: the stream reading is taken.
+                    // Report undefined names on this branch (analyzer may have
+                    // stayed silent because the classic lead alone was defined).
+                    self.check_expression_names_defined(value, *line, *column);
                     let value_type = self.infer_expression_type(value);
                     self.check_streamable_payload(&value_type, *line, *column);
                 } else if matches!(target_type, Type::Text) && has_fallback {
                     // Concrete text path: the classic file-write reading is taken.
-                    // Validate the fallback, not the stream `value` the runtime
-                    // never evaluates here.
+                    // Validate the fallback (including definedness), not the stream
+                    // `value` the runtime never evaluates here.
                     if let Some(fallback) = fallback_content {
+                        self.check_expression_names_defined(fallback, *line, *column);
                         let _ = self.infer_expression_type(fallback);
                     }
                 } else if self.is_gradual_type(&target_type) {
                     // Gradual/unknown target: both readings are viable and the
-                    // runtime decides by the target's runtime type. Accept if EITHER
-                    // reading is well-typed; only report an error when the statement
-                    // is wrong under every interpretation (so a valid file write and
-                    // a valid stream write both pass). Speculative inference rolls
-                    // its emitted errors back.
-                    let stream_ok = {
-                        let checkpoint = self.errors.len();
-                        let value_type = self.infer_expression_type(value);
-                        let ok = self.errors.len() == checkpoint
-                            && self.is_streamable_payload(&value_type);
-                        self.errors.truncate(checkpoint);
-                        ok
-                    };
-                    let file_ok = if let Some(fallback) = fallback_content {
-                        let checkpoint = self.errors.len();
+                    // runtime decides by the target's runtime type. Conservatively
+                    // validate EVERY viable branch (not "accept if either is ok"),
+                    // so a valid file fallback cannot mask an invalid stream
+                    // payload or an undefined stream lead (issue #642).
+                    self.check_expression_names_defined(value, *line, *column);
+                    let value_type = self.infer_expression_type(value);
+                    self.check_streamable_payload(&value_type, *line, *column);
+                    if let Some(fallback) = fallback_content {
+                        self.check_expression_names_defined(fallback, *line, *column);
                         let _ = self.infer_expression_type(fallback);
-                        let ok = self.errors.len() == checkpoint;
-                        self.errors.truncate(checkpoint);
-                        ok
-                    } else {
-                        false
-                    };
-                    if !stream_ok && !file_ok {
-                        // Broken under both readings: surface the stream reading's
-                        // errors (sub-expression + payload) as the diagnostic.
-                        let value_type = self.infer_expression_type(value);
-                        self.check_streamable_payload(&value_type, *line, *column);
                     }
                 } else {
                     // Concrete non-stream, non-text target (or a text target with no
@@ -1130,16 +1132,18 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                // A merged `flush <ident>` may resolve at runtime to a
-                // zero-argument action named `flush <ident>` (backward
-                // compatibility — see `parse_flush_stream`). Stay lenient ONLY when
-                // such an action is actually defined; otherwise this is a stream
-                // flush and a concrete non-stream target is still a static error
-                // (`flush n` where `n` is a number).
-                let is_action_call = action_fallback
-                    .as_ref()
-                    .is_some_and(|name| self.action_signatures(name).is_some());
-                if !is_action_call {
+                // A merged `flush <ident>` may resolve at runtime to the full
+                // merged name as an ordinary expression statement (backward
+                // compatibility — see `parse_flush_stream` / issue #642). Stay
+                // lenient when the full name is bound as an action OR any other
+                // value; otherwise this is a stream flush and a concrete
+                // non-stream target is still a static error (`flush n` where
+                // `n` is a number and there is no binding named `flush n`).
+                let is_expression_fallback = action_fallback.as_ref().is_some_and(|name| {
+                    self.action_signatures(name).is_some()
+                        || self.analyzer.get_symbol(name).is_some()
+                });
+                if !is_expression_fallback {
                     let target_type = self.infer_expression_type(target);
                     if !self.is_response_stream_target_type(&target_type) {
                         self.type_error(
@@ -1619,14 +1623,22 @@ impl TypeChecker {
                 }
             }
             Statement::ForeverLoop { body, .. } => {
+                // Push a scope so bindings introduced in the body (e.g.
+                // `start streaming response ... as out`) remain visible to later
+                // statements in the same body for type checking. Analyzer loop
+                // scopes are discarded after analysis.
+                self.analyzer.push_scope();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::MainLoop { body, .. } => {
+                self.analyzer.push_scope();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::DisplayStatement { value, .. } => {
                 self.infer_expression_type(value);
@@ -4899,6 +4911,130 @@ impl TypeChecker {
                 line,
                 column,
             );
+        }
+    }
+
+    /// Whether a bare name is known to the typechecker/analyzer scopes (or is a
+    /// builtin / action parameter / loop counter). Used when validating the
+    /// concrete `write line|chunk` branch the runtime will select — the analyzer
+    /// may have stayed silent on a one-sided undefined lead because the other
+    /// reading was defined (issue #642).
+    fn name_is_defined_for_write(&self, name: &str) -> bool {
+        if self.analyzer.get_symbol(name).is_some()
+            || self.analyzer.get_action_parameters().contains(name)
+            || Analyzer::is_builtin_function(name)
+            || name == "count"
+            || name == "loopcounter"
+        {
+            return true;
+        }
+        false
+    }
+
+    /// Walk an expression and report every undefined bare name. Used for the
+    /// selected (or every viable gradual) `write line|chunk` branch so a missing
+    /// classic `line <ident>` lead is not accepted just because the stream lead
+    /// alone exists (and vice versa).
+    fn check_expression_names_defined(
+        &mut self,
+        expression: &Expression,
+        line: usize,
+        column: usize,
+    ) {
+        match expression {
+            Expression::Variable(name, l, c) => {
+                if !self.name_is_defined_for_write(name) {
+                    self.type_error(
+                        format!("Variable '{name}' is not defined"),
+                        None,
+                        None,
+                        *l,
+                        *c,
+                    );
+                }
+            }
+            Expression::BinaryOperation { left, right, .. }
+            | Expression::Concatenation { left, right, .. }
+            | Expression::PatternMatch {
+                text: left,
+                pattern: right,
+                ..
+            }
+            | Expression::PatternFind {
+                text: left,
+                pattern: right,
+                ..
+            }
+            | Expression::PatternSplit {
+                text: left,
+                pattern: right,
+                ..
+            }
+            | Expression::StringSplit {
+                text: left,
+                delimiter: right,
+                ..
+            } => {
+                self.check_expression_names_defined(left, line, column);
+                self.check_expression_names_defined(right, line, column);
+            }
+            Expression::UnaryOperation {
+                expression: inner, ..
+            }
+            | Expression::AwaitExpression {
+                expression: inner, ..
+            } => {
+                self.check_expression_names_defined(inner, line, column);
+            }
+            Expression::IndexAccess {
+                collection, index, ..
+            } => {
+                self.check_expression_names_defined(collection, line, column);
+                self.check_expression_names_defined(index, line, column);
+            }
+            Expression::PropertyAccess { object, .. } | Expression::MemberAccess { object, .. } => {
+                self.check_expression_names_defined(object, line, column);
+            }
+            Expression::MethodCall {
+                object, arguments, ..
+            } => {
+                self.check_expression_names_defined(object, line, column);
+                for arg in arguments {
+                    self.check_expression_names_defined(&arg.value, line, column);
+                }
+            }
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } => {
+                self.check_expression_names_defined(function, line, column);
+                for arg in arguments {
+                    self.check_expression_names_defined(&arg.value, line, column);
+                }
+            }
+            Expression::ActionCall { arguments, .. } => {
+                for arg in arguments {
+                    self.check_expression_names_defined(&arg.value, line, column);
+                }
+            }
+            Expression::PatternReplace {
+                text,
+                pattern,
+                replacement,
+                ..
+            } => {
+                self.check_expression_names_defined(text, line, column);
+                self.check_expression_names_defined(pattern, line, column);
+                self.check_expression_names_defined(replacement, line, column);
+            }
+            Expression::HeaderAccess { request, .. } => {
+                self.check_expression_names_defined(request, line, column);
+            }
+            // Literals and other leaves need no definedness walk.
+            _ => {
+                let _ = (line, column);
+            }
         }
     }
 

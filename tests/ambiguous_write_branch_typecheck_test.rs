@@ -88,3 +88,47 @@ fn text_and_binary_payloads_to_a_stream_still_typecheck() {
         typecheck(code).err()
     );
 }
+
+#[test]
+fn text_target_one_sided_undefined_classic_lead_is_caught() {
+    // Stream lead `value` is defined; classic lead `line value` is not. Target is
+    // concrete text, so runtime takes the classic branch — must be a static error
+    // (issue #642: previously analysis passed because only the stream lead existed).
+    let code = "store value as \"x\"\n\
+                write line value to \"/tmp/wfl_onesided_out\"";
+    assert!(
+        typecheck(code).is_err(),
+        "undefined classic lead on a concrete text target must be a static error"
+    );
+}
+
+#[test]
+fn main_loop_stream_binding_rejects_list_payload() {
+    // Inside main loop, `out` must be typed as ResponseStream so a list payload
+    // is rejected rather than masked by a gradual/file fallback (issue #642).
+    let code = "listen on port 8080 as s\n\
+                main loop:\n\
+                \x20\x20\x20\x20wait for request comes in on s as req\n\
+                \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
+                \x20\x20\x20\x20store items as [1 and 2]\n\
+                \x20\x20\x20\x20store line items as \"legacy\"\n\
+                \x20\x20\x20\x20write line items to out\n\
+                end loop";
+    assert!(
+        typecheck(code).is_err(),
+        "list payload to a main-loop response stream must be a static error, got: {:?}",
+        typecheck(code).err()
+    );
+}
+
+#[test]
+fn property_access_undefined_object_on_text_target_is_caught() {
+    // Merged lead with a `.field` postfix: stream reading is `upstream.status`,
+    // classic is `line upstream.status`. Neither object is defined; PropertyAccess
+    // must not evade definedness on the concrete text-target branch (issue #642).
+    let code = "write line upstream.status to \"/tmp/wfl_prop_out\"";
+    assert!(
+        typecheck(code).is_err(),
+        "undefined property object on a text target must be a static error"
+    );
+}

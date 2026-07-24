@@ -61,6 +61,8 @@ async fn test_opened_but_unread_stream_expires_at_the_absolute_cap() {
 wait for 6000 milliseconds"#
     );
 
+    // Capture whether setup (open) succeeded and the program completed.
+    let (result_tx, result_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let client = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("client runtime");
         rt.block_on(async {
@@ -72,7 +74,12 @@ wait for 6000 milliseconds"#
                 ..WflConfig::default()
             };
             let mut interp = Interpreter::with_config(Arc::new(config));
-            let _ = interp.interpret(&program).await;
+            let result = interp.interpret(&program).await;
+            let summary = match result {
+                Ok(_) => Ok(()),
+                Err(errs) => Err(format!("{errs:?}")),
+            };
+            let _ = result_tx.send(summary);
         });
     });
 
@@ -83,13 +90,28 @@ wait for 6000 milliseconds"#
         .expect("upstream close sender dropped");
     let elapsed = start.elapsed();
 
-    // ~1s (the cap). If enforcement were still read-triggered, the upstream would
-    // only close at the 6s program end — so a close well before then proves the
-    // real-time reaper fired.
+    // Lower bound: reaper should not fire instantly (setup must succeed and the
+    // 1s cap must be waited out). Upper bound: well before the 6s program park
+    // that would mask a missing reaper (issue #642 R3).
+    assert!(
+        elapsed >= Duration::from_millis(700),
+        "upstream should be reaped near the 1s absolute cap, not instantly; took {elapsed:?}"
+    );
     assert!(
         elapsed < Duration::from_secs(3),
         "the upstream should be reaped at the ~1s absolute cap, not at program end; \
          took {elapsed:?}"
+    );
+
+    let summary = result_rx
+        .recv_timeout(Duration::from_secs(8))
+        .expect("interpreter should finish after the program wait");
+    // Opening an unread stream is successful setup; the program parks 6s and
+    // completes cleanly (the reaper only drops the upstream handle — it does not
+    // fail an unread stream by itself).
+    assert!(
+        summary.is_ok(),
+        "opened-but-unread stream program should complete after setup; got: {summary:?}"
     );
 
     match tokio::task::spawn_blocking(move || client.join()).await {

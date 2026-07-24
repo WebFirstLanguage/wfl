@@ -103,6 +103,65 @@ fn streaming_response_content_type_clause_composes_property_then_index() {
 }
 
 #[test]
+fn write_line_at_indexing_parses() {
+    // Classic `write line values at 0 to "/tmp/out"` must parse (issue #642).
+    let program = parse(
+        "store line values as [\"first\" and \"second\"]\n\
+         write line values at 0 to \"/tmp/out\"\n",
+    );
+    assert!(
+        program.statements.len() >= 2,
+        "expected store + write, got {:#?}",
+        program.statements
+    );
+    let write = program
+        .statements
+        .iter()
+        .find(|s| matches!(s, Statement::StreamWriteStatement { .. }))
+        .expect("write statement");
+    // Stream reading value is IndexAccess over Variable("values").
+    assert!(
+        matches!(stream_write_value(write), Expression::IndexAccess { .. }),
+        "write value must be IndexAccess for `at` indexing, got {:#?}",
+        stream_write_value(write)
+    );
+}
+
+#[test]
+fn write_line_direct_integer_indexing_parses() {
+    // Classic `write line values 0 to "/tmp/out"` must parse (issue #642).
+    let program = parse("write line values 0 to \"/tmp/out\"\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    assert!(
+        matches!(
+            stream_write_value(&program.statements[0]),
+            Expression::IndexAccess { .. }
+        ),
+        "write value must be IndexAccess for direct integer indexing, got {:#?}",
+        stream_write_value(&program.statements[0])
+    );
+}
+
+#[test]
+fn streaming_response_content_type_of_call_parses() {
+    // `content type mime_type of path` — `of` continuation on the merged clause
+    // operand must compose like an ordinary expression (issue #642).
+    let program = parse(
+        "start streaming response to req with status 200 and content type mime_type of path as out\n",
+    );
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    match &program.statements[0] {
+        Statement::StartStreamingResponseStatement { content_type, .. } => {
+            assert!(
+                matches!(content_type, Some(Expression::FunctionCall { .. })),
+                "content type operand must be a FunctionCall (`mime_type of path`), got {content_type:#?}"
+            );
+        }
+        other => panic!("expected StartStreamingResponseStatement, got {other:#?}"),
+    }
+}
+
+#[test]
 fn write_line_of_call_argument_absorbs_arithmetic() {
     // `double of n minus 1` must parse as `double of (n minus 1)` — the same
     // precedence as an ordinary expression — not `(double of n) minus 1`.

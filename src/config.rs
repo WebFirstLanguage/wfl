@@ -830,6 +830,10 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                 "outbound_stream_max_seconds" => match value.parse::<u64>() {
                     Ok(secs) => {
                         // 0 disables the total cap (the documented sentinel).
+                        // Extreme values are accepted into config but clamped when
+                        // converted to an Instant deadline (see interpreter
+                        // `outbound_stream_deadline`) so Instant arithmetic cannot
+                        // panic.
                         config.outbound_stream_max_seconds = secs;
                         log::debug!(
                             "Loaded outbound_stream_max_seconds: {secs} from {}",

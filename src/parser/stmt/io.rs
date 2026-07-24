@@ -7,9 +7,14 @@ use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 use std::sync::Arc;
 
 impl<'a> Parser<'a> {
-    /// Parse a `write line|chunk` value from an already-chosen leading operand:
-    /// an optional `<field> of <object>` postfix, then any `with`/operator
-    /// continuation, exactly as a normal expression value would parse.
+    /// Parse a merged-command operand from an already-chosen leading identifier:
+    /// trailing postfix (`[]`, `.field`, `.method()`, `at`, direct-integer index),
+    /// an optional `<field> of <object>` call, then any `with`/operator
+    /// continuation — exactly as a normal expression value would parse.
+    ///
+    /// Shared by `write line|chunk` values and by merged `content type` / `headers`
+    /// clause operands so they all support the same postfix/call/operator grammar
+    /// (issue #642).
     ///
     /// The ambiguous merged `write line|chunk <ident> ...` form has two readings
     /// (stream: split-off `<ident>`; classic file write: whole `line <ident>`)
@@ -19,12 +24,14 @@ impl<'a> Parser<'a> {
     /// an `ActionCall`, `is between` duplicates the left, `starts/ends with` and
     /// the pattern operators build calls), so deriving one AST from the other by
     /// leaf-swapping silently corrupted the classic reading.
-    fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
-        // The lexer merges `write` with the operand identifier and leaves any
-        // bracket-index / dotted-property accessors as following tokens, so compose
-        // them onto the lead (`write line chunks[0] to out`,
-        // `write line upstream.status to out`, classic `write line values[0] to
-        // "/tmp/out"`) instead of leaving them to dangle after the statement.
+    pub(crate) fn parse_merged_operand_from_lead(
+        &mut self,
+        lead: Expression,
+    ) -> Result<Expression, ParseError> {
+        // The lexer merges the command word with the operand identifier and leaves
+        // any bracket-index / dotted-property / `at` / integer-index accessors as
+        // following tokens, so compose them onto the lead instead of leaving them
+        // to dangle after the statement.
         let lead = self.parse_trailing_postfix(lead)?;
         let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
             // Anchor the `<field> of <object>` call to the `of` keyword itself,
@@ -37,9 +44,7 @@ impl<'a> Parser<'a> {
             // Parse the `of`-call argument(s) EXACTLY as the primary parser does:
             // each argument absorbs arithmetic (`fibonacci of n minus 1` means
             // `fibonacci of (n minus 1)`, not `(fibonacci of n) minus 1`), and
-            // `and`/`from`/`by`/`length` join multiple arguments — so an `of`-call in
-            // a `write line|chunk` value parses identically to one in an ordinary
-            // expression.
+            // `and`/`from`/`by`/`length` join multiple arguments.
             let mut arguments = vec![crate::parser::ast::Argument {
                 name: None,
                 value: self.parse_of_call_argument()?,
@@ -71,6 +76,11 @@ impl<'a> Parser<'a> {
             lead
         };
         self.parse_binary_continuation(lead, 0)
+    }
+
+    /// Alias used by the write-statement parsers.
+    fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
+        self.parse_merged_operand_from_lead(lead)
     }
 }
 

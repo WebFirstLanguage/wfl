@@ -448,10 +448,11 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     };
                     content_type = Some(match merged_rest {
                         Some((rest, (l, c))) => {
-                            // Compose any dangling postfix accessors
-                            // (`content type upstream.headers["content-type"]`).
+                            // Full expression continuation (postfix + `of` +
+                            // operators), same as ordinary `<e>` — e.g.
+                            // `content type mime_type of path` (issue #642).
                             let lead = Expression::Variable(rest, l, c);
-                            self.parse_trailing_postfix(lead)?
+                            self.parse_merged_operand_from_lead(lead)?
                         }
                         None => self.parse_primary_expression()?,
                     });
@@ -478,7 +479,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                         content_type = Some(self.parse_primary_expression()?);
                     } else {
                         let lead = Expression::Variable(rest.to_string(), id_line, id_column);
-                        content_type = Some(self.parse_trailing_postfix(lead)?);
+                        content_type = Some(self.parse_merged_operand_from_lead(lead)?);
                     }
                 }
                 // `headers <map>` (bare or merged `headers <var>`).
@@ -494,10 +495,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     if rest.is_empty() {
                         headers = Some(self.parse_primary_expression()?);
                     } else {
-                        // Compose any dangling postfix accessors so direct
-                        // forwarding like `headers upstream.headers` binds fully.
+                        // Full expression continuation so direct forwarding like
+                        // `headers upstream.headers` and operator/`of` forms bind.
                         let lead = Expression::Variable(rest.to_string(), id_line, id_column);
-                        headers = Some(self.parse_trailing_postfix(lead)?);
+                        headers = Some(self.parse_merged_operand_from_lead(lead)?);
                     }
                 }
                 // A connective directly before `as` just joins the clause list to

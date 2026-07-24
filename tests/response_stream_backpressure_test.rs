@@ -60,7 +60,8 @@ async fn test_backpressured_write_to_a_non_reading_client_is_bounded() {
     "#
     );
 
-    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Duration>();
+    // Summary is Send (string), unlike Value/RuntimeError.
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<(Duration, Result<(), String>)>();
     let server = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -77,8 +78,12 @@ async fn test_backpressured_write_to_a_non_reading_client_is_bounded() {
             };
             let mut interp = Interpreter::with_config(Arc::new(config));
             let start = Instant::now();
-            let _ = interp.interpret(&program).await;
-            let _ = done_tx.send(start.elapsed());
+            let result = interp.interpret(&program).await;
+            let summary = match result {
+                Ok(_) => Ok(()),
+                Err(errs) => Err(format!("{errs:?}")),
+            };
+            let _ = done_tx.send((start.elapsed(), summary));
         });
     });
 
@@ -96,10 +101,29 @@ async fn test_backpressured_write_to_a_non_reading_client_is_bounded() {
 
     // `interpret()` must return once the stalled write times out (~2s). If the write
     // were unbounded it would pin the handler and this never fires.
-    let elapsed = tokio::time::timeout(Duration::from_secs(12), done_rx)
+    let (elapsed, summary) = tokio::time::timeout(Duration::from_secs(12), done_rx)
         .await
         .expect("interpret() never returned — the backpressured write pinned the handler forever")
         .expect("done sender dropped");
+    // Must fail with a write-timeout / cancelled class error — not succeed, and not
+    // exit for an unrelated reason (issue #642 R3: previously discarded interpret()).
+    let err = summary.expect_err(
+        "backpressured write to a non-reading client must error (write timeout), not succeed",
+    );
+    let err_l = err.to_lowercase();
+    assert!(
+        err_l.contains("timeout")
+            || err_l.contains("stopped reading")
+            || err_l.contains("cancelled")
+            || err_l.contains("write"),
+        "expected a write-timeout/stall error, got: {err}"
+    );
+    // Lower bound: the 2s response timeout must actually be waited out (not an
+    // immediate unrelated exit that would false-green the test).
+    assert!(
+        elapsed >= Duration::from_millis(1500),
+        "stall should wait for ~2s web_server_response_timeout_seconds; took only {elapsed:?}"
+    );
     assert!(
         elapsed < Duration::from_secs(9),
         "the stalled write should time out at ~2s (web_server_response_timeout_seconds), \

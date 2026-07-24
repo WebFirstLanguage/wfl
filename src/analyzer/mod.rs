@@ -3757,8 +3757,27 @@ impl Analyzer {
                     self.analyze_ambiguous_write(&v.value, &f.value, line, column);
                 }
             }
+            (
+                Expression::PropertyAccess {
+                    object: vo,
+                    property: vp,
+                    ..
+                },
+                Expression::PropertyAccess {
+                    object: fo,
+                    property: fp,
+                    ..
+                },
+            ) if vp == fp => {
+                // `write line missing.field to ...` — walk the object under both
+                // readings so a one-sided undefined lead is not skipped solely
+                // because PropertyAccess was absent from the parallel walker.
+                self.analyze_ambiguous_write(vo, fo, line, column);
+            }
             // Reached a differing leaf — the lead. Report only when NEITHER
             // reading resolves, so neither valid interpretation is rejected.
+            // Branch-specific one-sided undefined leads are enforced by the
+            // typechecker against the concrete target branch (issue #642).
             (Expression::Variable(sn, ..), Expression::Variable(fal, ..))
                 if !self.name_is_defined(sn) && !self.name_is_defined(fal) =>
             {
@@ -3767,6 +3786,20 @@ impl Analyzer {
                     line,
                     column,
                 );
+            }
+            // PropertyAccess leaf whose object is a Variable: treat the object
+            // name as the lead (e.g. `missing.field` vs `line missing.field`).
+            (
+                Expression::PropertyAccess {
+                    object: vo,
+                    ..
+                },
+                Expression::PropertyAccess {
+                    object: fo,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vo, fo, line, column);
             }
             // A diverging, non-decomposable shape (a call-based desugaring where the
             // lead is buried): defer to runtime rather than risk a false positive.

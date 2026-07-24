@@ -65,3 +65,50 @@ fn flush_without_a_matching_action_still_errors_as_a_stream_flush() {
         "a bare `flush cache` with no target must error; output:\n{out}"
     );
 }
+
+#[test]
+fn flush_non_callable_full_name_binding_is_expression_statement() {
+    // Pre-streaming: `store flush cache as 1` then `flush cache` evaluated the
+    // variable and completed. Must not try to flush an undefined stream `cache`
+    // (issue #642).
+    let src = "store flush cache as 1\n\
+               flush cache\n\
+               display flush cache\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "non-callable full-name binding must keep working as an expression statement; output:\n{out}"
+    );
+    assert!(
+        out.contains('1'),
+        "expected the bound value to still be readable; output:\n{out}"
+    );
+    assert!(
+        !out.to_lowercase().contains("stream"),
+        "`flush cache` must not be reinterpreted as a stream flush; output:\n{out}"
+    );
+}
+
+#[test]
+fn flush_overloaded_action_without_zero_arg_is_expression_statement() {
+    // An overloaded `flush cache` with only a one-parameter overload used to be
+    // an ordinary bare-expression evaluation (no-op success). Must not become a
+    // stream error (issue #642).
+    let src = "define action called flush cache with parameters x:\n\
+               \x20\x20\x20\x20display x\n\
+               end action\n\
+               \n\
+               flush cache\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "overloaded flush with no zero-arg overload must not error as a stream flush; output:\n{out}"
+    );
+    assert!(
+        out.contains("OK"),
+        "program should reach the trailing display; output:\n{out}"
+    );
+}

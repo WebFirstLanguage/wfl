@@ -220,6 +220,61 @@ impl<'a> Parser<'a> {
                         };
                     }
                 }
+                // Direct integer indexing (`values 0`) — same form as the ordinary
+                // primary postfix loop. Required so classic
+                // `write line values 0 to "/tmp/out"` still parses (issue #642).
+                Token::IntLiteral(index) => {
+                    if matches!(
+                        expr,
+                        Expression::Variable(_, _, _)
+                            | Expression::IndexAccess { .. }
+                            | Expression::FunctionCall { .. }
+                            | Expression::PropertyAccess { .. }
+                            | Expression::MethodCall { .. }
+                    ) {
+                        let index_val = *index;
+                        let (base_line, base_col) = match &expr {
+                            Expression::Variable(_, l, c)
+                            | Expression::IndexAccess {
+                                line: l, column: c, ..
+                            }
+                            | Expression::FunctionCall {
+                                line: l, column: c, ..
+                            }
+                            | Expression::PropertyAccess {
+                                line: l, column: c, ..
+                            }
+                            | Expression::MethodCall {
+                                line: l, column: c, ..
+                            } => (*l, *c),
+                            _ => (line, column),
+                        };
+                        self.bump_sync();
+                        expr = Expression::IndexAccess {
+                            collection: Box::new(expr),
+                            index: Box::new(Expression::Literal(
+                                Literal::Integer(index_val),
+                                line,
+                                column,
+                            )),
+                            line: base_line,
+                            column: base_col,
+                        };
+                    } else {
+                        break;
+                    }
+                }
+                // Natural-language indexing (`values at 0`) — same as primary.
+                Token::KeywordAt => {
+                    self.bump_sync();
+                    let index = self.parse_expression()?;
+                    expr = Expression::IndexAccess {
+                        collection: Box::new(expr),
+                        index: Box::new(index),
+                        line,
+                        column,
+                    };
+                }
                 _ => break,
             }
         }
