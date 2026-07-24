@@ -713,9 +713,6 @@ impl Analyzer {
         self.budget_error.take()
     }
 
-    /// Report an undefined-name reference. Inside a `try` body this is a
-    /// warning rather than a fatal error: the reference raises a catchable
-    /// runtime error, which is documented behavior that programs rely on.
     /// Analyze the body of an unbounded loop (`forever` / `main loop`). Shared by
     /// both so the scope handling, flow tracking, and the handler-body error
     /// demotion stay identical. Web-server main-loop bodies reference
@@ -748,6 +745,9 @@ impl Analyzer {
         }
     }
 
+    /// Report an undefined-name reference. Inside a `try` body this is a
+    /// warning rather than a fatal error: the reference raises a catchable
+    /// runtime error, which is documented behavior that programs rely on.
     fn report_undefined_name(&mut self, message: String, line: usize, column: usize) {
         let error = SemanticError::new(message, line, column);
         if self.try_depth > 0 {
