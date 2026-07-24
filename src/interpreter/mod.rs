@@ -9176,10 +9176,17 @@ impl Interpreter {
                     }
                 };
                 let val = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                let mut bytes = match &val {
-                    Value::Text(s) => s.as_bytes().to_vec(),
-                    Value::Binary(b) => b.to_vec(),
-                    Value::Number(_) | Value::Bool(_) => val.to_string().into_bytes(),
+                let newline = usize::from(*is_line);
+                // Compute the outgoing byte length WITHOUT cloning a large
+                // text/binary value, so an over-budget write is rejected *before*
+                // any big allocation/copy (a huge write must not be materialized
+                // just to be refused).
+                let incoming_len = match &val {
+                    Value::Text(s) => s.len() + newline,
+                    Value::Binary(b) => b.len() + newline,
+                    // Numbers/booleans render to a short string; the tiny
+                    // allocation to measure them is not a DoS concern.
+                    Value::Number(_) | Value::Bool(_) => val.to_string().len() + newline,
                     _ => {
                         return Err(RuntimeError::new(
                             format!(
@@ -9191,21 +9198,17 @@ impl Interpreter {
                         ));
                     }
                 };
-                if *is_line {
-                    bytes.push(b'\n');
-                }
 
-                // Enforce the response-byte ceiling on the running total (so a
-                // stream cannot bypass `web_server_max_response_size` via one
-                // huge chunk or many chunks), then clone the sender out so the
-                // map borrow is not held across the (possibly backpressured)
-                // send await.
+                // Reserve the response-byte budget on the running total FIRST (so a
+                // stream cannot bypass `web_server_max_response_size` via one huge
+                // chunk or many chunks), then clone the sender out so the map borrow
+                // is not held across the (possibly backpressured) send await.
                 let max_response_bytes = self.budget.limits().max_response_bytes;
                 let sender = {
                     let mut map = self.server_response_streams.borrow_mut();
                     match map.get_mut(&handle_id) {
                         Some((tx, bytes_written)) => {
-                            let new_total = bytes_written.saturating_add(bytes.len());
+                            let new_total = bytes_written.saturating_add(incoming_len);
                             if new_total > max_response_bytes {
                                 let actual = new_total;
                                 // Drop the stream so the body ends rather than
@@ -9231,26 +9234,38 @@ impl Interpreter {
                     }
                 };
                 match sender {
-                    Some(tx) => match tx.send(bytes).await {
-                        Ok(()) => Ok((Value::Null, ControlFlow::None)),
-                        Err(_) => {
-                            // Receiver dropped => client disconnected. Drop the
-                            // handle and surface a catchable error so the handler
-                            // can stop (and close any upstream it is proxying).
-                            // Untrack it too so a handler that catches this error
-                            // keeps no stale id in its open-streams list.
-                            self.server_response_streams.borrow_mut().remove(&handle_id);
-                            self.open_response_streams
-                                .borrow_mut()
-                                .retain(|s| s != &handle_id);
-                            Err(RuntimeError::new(
-                                "Cannot write to response stream: the client has disconnected"
-                                    .to_string(),
-                                *line,
-                                *column,
-                            ))
+                    Some(tx) => {
+                        // Within budget and the stream is open: materialize the
+                        // bytes now (after the ceiling check) and send them.
+                        let mut bytes = match &val {
+                            Value::Text(s) => s.as_bytes().to_vec(),
+                            Value::Binary(b) => b.to_vec(),
+                            _ => val.to_string().into_bytes(),
+                        };
+                        if *is_line {
+                            bytes.push(b'\n');
                         }
-                    },
+                        match tx.send(bytes).await {
+                            Ok(()) => Ok((Value::Null, ControlFlow::None)),
+                            Err(_) => {
+                                // Receiver dropped => client disconnected. Drop the
+                                // handle and surface a catchable error so the
+                                // handler can stop (and close any upstream it is
+                                // proxying). Untrack it too so a handler that
+                                // catches this error keeps no stale id.
+                                self.server_response_streams.borrow_mut().remove(&handle_id);
+                                self.open_response_streams
+                                    .borrow_mut()
+                                    .retain(|s| s != &handle_id);
+                                Err(RuntimeError::new(
+                                    "Cannot write to response stream: the client has disconnected"
+                                        .to_string(),
+                                    *line,
+                                    *column,
+                                ))
+                            }
+                        }
+                    }
                     None => Err(RuntimeError::new(
                         "Cannot write to a closed response stream".to_string(),
                         *line,
