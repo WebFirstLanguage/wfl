@@ -53,8 +53,12 @@ function Test-WflWebServer {
     Write-Host ""
     Write-Host "[INFO] Testing: $testName on port $Port" -ForegroundColor Blue
 
-    # Start the WFL server in background
-    $serverProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $TestFile -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+    # Start the WFL server in background. Start-Process rejects the same target
+    # for both redirects (the "NUL"/"NUL" collision errored on PowerShell 7), so
+    # discard stdout and stderr to two distinct, port-keyed temp files.
+    $outLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_$Port.out.log"
+    $errLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_$Port.err.log"
+    $serverProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $TestFile -NoNewWindow -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
     try {
         # Wait for server to start (with retries)
@@ -131,7 +135,11 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
     Write-Host ""
     Write-Host "[INFO] Testing: web_route_params_test.wfl on port 8096" -ForegroundColor Blue
 
-    $routeProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList "TestPrograms\web_route_params_test.wfl" -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+    # Distinct redirect targets (see the note in Test-WflWebServer): the same
+    # path for both streams errors on PowerShell 7.
+    $routeOutLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_route.out.log"
+    $routeErrLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_route.err.log"
+    $routeProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList "TestPrograms\web_route_params_test.wfl" -NoNewWindow -PassThru -RedirectStandardOutput $routeOutLog -RedirectStandardError $routeErrLog
 
     try {
         $serverReady = $false
@@ -215,7 +223,9 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
         # The test program uses relative cert paths, so run it from the temp dir
         $absBinary = Join-Path (Get-Location) $BinaryPath
         $absTest = Join-Path (Get-Location) "TestPrograms\web_server_tls.wfl"
-        $tlsProcess = Start-Process -FilePath $absBinary -ArgumentList $absTest -WorkingDirectory $tlsDir -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+        # Distinct redirect targets under the (auto-cleaned) temp dir; the same
+        # path for both streams errors on PowerShell 7.
+        $tlsProcess = Start-Process -FilePath $absBinary -ArgumentList $absTest -WorkingDirectory $tlsDir -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $tlsDir "server.out.log") -RedirectStandardError (Join-Path $tlsDir "server.err.log")
 
         try {
             # Probe readiness via the redirect port: it answers natively and does
