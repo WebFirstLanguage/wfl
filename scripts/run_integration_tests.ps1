@@ -163,8 +163,15 @@ if (-not (Test-Path "TestPrograms")) {
 
             Write-Host "[INFO] Testing: $($wflFile.Name)" -ForegroundColor Blue
 
-            # Run with timeout to prevent hangs
-            $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflArgs -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+            # Run with timeout to prevent hangs. Start-Process requires DISTINCT
+            # file targets for stdout and stderr — PowerShell 7 errors when the same
+            # path is reused for both, and "NUL" is not a valid redirect target
+            # there — so redirect to two temp files and discard them. (Redirecting
+            # both to a single "NUL" left the whole Windows integration command
+            # unrunnable, so its assertions never actually ran.)
+            $outFile = New-TemporaryFile
+            $errFile = New-TemporaryFile
+            $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflArgs -NoNewWindow -PassThru -RedirectStandardOutput $outFile.FullName -RedirectStandardError $errFile.FullName
             $completed = $process.WaitForExit($TestTimeout * 1000)
 
             $isExpectedFail = $ExpectedFailTests -contains $wflFile.Name
@@ -187,6 +194,7 @@ if (-not (Test-Path "TestPrograms")) {
                 Write-Host "[ERROR] FAIL $($wflFile.Name) (exit code: $($process.ExitCode))" -ForegroundColor Red
                 $failedPrograms++
             }
+            Remove-Item $outFile.FullName, $errFile.FullName -ErrorAction SilentlyContinue
         }
 
         Write-Host ""

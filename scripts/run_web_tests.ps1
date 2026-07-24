@@ -80,10 +80,16 @@ function Stop-ServerProcess {
     if ($Process -and -not $Process.HasExited) {
         # Kill() itself can throw (e.g. access denied, or the process exiting
         # concurrently), so guard it too rather than leaving it outside the try.
+        # A failure to kill/wait is a REAL failure — a leaked server holds its
+        # cert/log handles and can race the temp-dir cleanup — so record it so the
+        # run fails rather than reporting a false pass. (The pass count is
+        # incremented before the `finally` cleanup, so a leak here must be able to
+        # turn the overall result red.)
         try {
             $Process.Kill()
         } catch {
-            Write-Host "[WARN] Kill() on server process failed: $_" -ForegroundColor Yellow
+            Write-Host "[ERROR] Kill() on server process failed: $_" -ForegroundColor Red
+            $script:cleanupFailed = $true
         }
         # WaitForExit(ms) returns $true only if the process actually exited in
         # time; report honestly rather than always claiming success (a process
@@ -94,7 +100,8 @@ function Stop-ServerProcess {
         if ($exited) {
             Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
         } else {
-            Write-Host "[WARN] Server process did not exit within 5s of Kill()" -ForegroundColor Yellow
+            Write-Host "[ERROR] Server process did not exit within 5s of Kill()" -ForegroundColor Red
+            $script:cleanupFailed = $true
         }
     }
 }
@@ -189,6 +196,10 @@ function Test-WflWebServer {
 # Run web server tests
 $totalTests = 0
 $passedTests = 0
+# Set true by cleanup that leaks (a server that will not die, or a temp dir that
+# will not delete). Because a test's pass is counted before its `finally` cleanup
+# runs, a leak here must be able to fail the overall run — see the summary below.
+$script:cleanupFailed = $false
 
 # Test 1: simple_web_test.wfl
 if (Test-Path "TestPrograms\simple_web_test.wfl") {
@@ -399,12 +410,15 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                 Write-Host "[WARN] TLS server still running after Kill(); waiting briefly before temp cleanup" -ForegroundColor Yellow
                 try { $null = $tlsProcess.WaitForExit(2000) } catch { }
             }
-            # Attempt cleanup and SURFACE a failure (a leaked temp dir / still-open
-            # handle) instead of hiding it behind -ErrorAction SilentlyContinue.
+            # Attempt cleanup and FAIL the run on a leaked temp dir / still-open
+            # handle instead of hiding it behind a warning — the test's pass was
+            # already counted above, so a cleanup leak must be able to turn the
+            # result red.
             try {
                 Remove-Item -Recurse -Force $tlsDir -ErrorAction Stop
             } catch {
-                Write-Host "[WARN] Failed to remove TLS temp dir ${tlsDir}: $_" -ForegroundColor Yellow
+                Write-Host "[ERROR] Failed to remove TLS temp dir ${tlsDir}: $_" -ForegroundColor Red
+                $script:cleanupFailed = $true
             }
         }
     }
@@ -415,7 +429,10 @@ Write-Host ""
 Write-Host "[INFO] ============================" -ForegroundColor Blue
 Write-Host "[INFO] Results: $passedTests/$totalTests tests passed" -ForegroundColor Blue
 
-if ($passedTests -eq $totalTests) {
+if ($script:cleanupFailed) {
+    Write-Host "[ERROR] A server/temp-dir cleanup leaked; failing the run even though ${passedTests}/${totalTests} test assertions passed" -ForegroundColor Red
+    exit 1
+} elseif ($passedTests -eq $totalTests) {
     Write-Host "[SUCCESS] All web server tests passed!" -ForegroundColor Green
     exit 0
 } else {

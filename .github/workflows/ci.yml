@@ -128,9 +128,11 @@ jobs:
       - name: Build LSP
         run: cargo build -p wfl-lsp --verbose
 
-      # Run Clippy for code quality
+      # Run Clippy for code quality. `--all-features` matches the binding gate in
+      # testing.md (the only features are opt-in dhat profiling, so this just
+      # compiles the feature-gated code for linting — it never runs it).
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   # Cross-platform integration test verification
   integration-tests:
@@ -191,13 +193,22 @@ jobs:
           }
           Write-Host "✓ Release binary found: target/release/wfl.exe"
 
-      # Run integration tests specifically
-      - name: Run Integration Tests
-        run: cargo test --test split_functionality --verbose
+      # Run the DOCUMENTED WFL integration gate (testing.md): the same script a
+      # contributor runs locally. It executes the integration test binaries
+      # (`cargo test --test '*'`) AND the TestPrograms end-to-end programs —
+      # crucially including the intentional-error programs, which it asserts exit
+      # nonzero (previously those assertions lived only in this script and the
+      # script was never invoked in CI, so they never ran). Uses the release
+      # binary built above. Run on BOTH OSes so the declared Windows integration
+      # command is actually exercised, not merely documented.
+      - name: Run Integration Gate (Unix)
+        if: runner.os != 'Windows'
+        run: ./scripts/run_integration_tests.sh
 
-      # Run all integration tests to ensure comprehensive coverage
-      - name: Run All Integration Tests
-        run: cargo test --test '*' --verbose
+      - name: Run Integration Gate (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/run_integration_tests.ps1
 
       # Validate that documentation examples still parse/analyze/lint against the
       # current release binary (testing.md requires docs validation in CI).
