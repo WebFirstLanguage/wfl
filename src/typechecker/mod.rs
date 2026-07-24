@@ -3538,9 +3538,7 @@ impl TypeChecker {
                     Type::Any => Type::Any,
                     // Stream handles expose fields (`status`/`ok`/`headers`) by
                     // index; the field type is only known at runtime.
-                    Type::Custom(ref name)
-                        if name == "HttpStream" || name == "ResponseStream" =>
-                    {
+                    Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => {
                         Type::Any
                     }
                     _ => {
