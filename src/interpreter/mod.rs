@@ -1618,7 +1618,9 @@ struct HttpStreamHandle {
 enum HttpClientError {
     Request(String),
     Budget(BudgetExceeded),
-    Timeout { seconds: u64 },
+    Timeout {
+        seconds: u64,
+    },
     /// The downstream (browser) client disconnected while a proxy handler was
     /// blocked on this upstream read, so the read was cancelled cooperatively.
     /// A normal, expected event — distinct from a fault — surfaced with

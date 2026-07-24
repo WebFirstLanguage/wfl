@@ -227,7 +227,10 @@ async fn test_disconnect_burst_does_not_kill_concurrent_loop() {
         "`/ping` should be served after the disconnect burst"
     );
     let body = ping.text().await.expect("read /ping body");
-    assert_eq!(body, "pong", "`/ping` should return the live handler's response");
+    assert_eq!(
+        body, "pong",
+        "`/ping` should return the live handler's response"
+    );
 
     // Shut the server down and join everything.
     let _ = reqwest::Client::new()
