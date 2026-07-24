@@ -1339,6 +1339,53 @@ impl Analyzer {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);
             }
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                ..
+            } => {
+                // Count both interpretations of the ambiguous merged form as
+                // usages (stream value AND the classic file-write fallback), so a
+                // variable named `line <ident>` written to a file is not falsely
+                // reported unused.
+                self.mark_used_in_expression(value, usages);
+                self.mark_used_in_expression(target, usages);
+                if let Some(fallback) = fallback_content {
+                    self.mark_used_in_expression(fallback, usages);
+                }
+            }
+            Statement::FlushStreamStatement { target, .. } => {
+                self.mark_used_in_expression(target, usages);
+            }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                for expr in [method, headers, body].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
+            Statement::WaitForNextChunkStatement { source, .. }
+            | Statement::WaitForNextLineStatement { source, .. } => {
+                self.mark_used_in_expression(source, usages);
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                ..
+            } => {
+                self.mark_used_in_expression(request, usages);
+                for expr in [status, content_type, headers].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
             Statement::WriteContentStatement {
                 content, target, ..
             }
@@ -2154,6 +2201,51 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unused"));
         assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+    }
+
+    #[test]
+    fn test_streaming_statement_variables_are_not_reported_unused() {
+        // Variables referenced only inside the streaming/incremental-read
+        // statements must count as used — otherwise a program that opens a
+        // stream from a URL/body variable gets a false unused warning. Exercise
+        // every new arm and every metadata operand:
+        //   - HttpStreamStatement: url, method, body
+        //   - WaitForNextChunkStatement / WaitForNextLineStatement: source
+        //   - StartStreamingResponseStatement: status, content type
+        // and a genuinely-unused variable to prove the pass still flags real
+        // dead code (negative assertion).
+        let input = "store my_url as \"http://example.com/s\"\n\
+store my_method as \"POST\"\n\
+store my_body as \"payload\"\n\
+open url at my_url with method my_method and body my_body and stream response as upstream\n\
+wait for next chunk from upstream as ch\n\
+wait for next line from upstream as ln\n\
+store st as 200\n\
+store ctype as \"application/x-ndjson\"\n\
+start streaming response to req with status st and content type ctype as out\n\
+write line \"x\" to out\n\
+store dead as \"never read\"\n\
+display ch\n\
+display ln";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // The only unused variable is `dead`; every streaming operand counts as
+        // used (a missing arm would surface `my_url`/`my_method`/`my_body`/
+        // `upstream`/`st`/`ctype` here too).
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected only `dead` unused, got: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics[0].message.contains("dead"),
+            "expected the unused diagnostic to name `dead`, got: {:?}",
+            diagnostics[0].message
+        );
     }
 
     #[test]

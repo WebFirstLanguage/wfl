@@ -680,3 +680,25 @@ fn test_describe_and_test_descriptions_are_javascript_string_literals() {
     assert_contains(&js, "describe(\"quoted \\\"suite\\\"\", function()");
     assert_contains(&js, "it(\"quoted \\\"case\\\"\", function()");
 }
+
+#[test]
+fn test_main_loop_concurrently_fails_to_transpile() {
+    // `main loop concurrently:` has no serial JavaScript translation; it must
+    // error rather than silently emit a serial loop.
+    let source = "main loop concurrently:\n    display \"x\"\nend loop";
+    let result = transpile_wfl(source);
+    // Assert the specific transpiler rejection, not merely any error — so a
+    // future parse failure can't masquerade as the intended rejection.
+    let error = result.expect_err("main loop concurrently should fail to transpile");
+    assert!(
+        error.contains("not supported in JavaScript transpilation"),
+        "expected the unsupported-transpilation error, got: {error}"
+    );
+
+    // Plain `main loop` still transpiles.
+    let serial = transpile_wfl("main loop:\n    display \"x\"\nend loop");
+    assert!(
+        serial.is_ok(),
+        "plain main loop should transpile: {serial:?}"
+    );
+}

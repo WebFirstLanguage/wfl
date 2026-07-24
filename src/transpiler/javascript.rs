@@ -351,7 +351,22 @@ impl JavaScriptTranspiler {
                 Ok(result)
             }
 
-            Statement::MainLoop { body, .. } => {
+            Statement::MainLoop {
+                body,
+                concurrent,
+                line,
+                column,
+            } => {
+                // `main loop concurrently:` has cooperative-concurrency semantics
+                // the serial `while (true)` translation cannot express. Fail
+                // rather than silently emit a serial loop.
+                if *concurrent {
+                    return Err(TranspileError {
+                        message: "`main loop concurrently:` is not supported in JavaScript transpilation (its cooperative concurrency semantics require the WFL interpreter).".to_string(),
+                        line: *line,
+                        column: *column,
+                    });
+                }
                 // Main loop is essentially a forever loop
                 let mut result = format!("{}while (true) {{\n", self.indent());
                 self.push_indent();
@@ -615,6 +630,21 @@ impl JavaScriptTranspiler {
                 // JS, so fail like the other interpreter-only statements.
                 Err(TranspileError {
                     message: "Database statements are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
+                    line: *line,
+                    column: *column,
+                })
+            }
+
+            Statement::HttpStreamStatement { line, column, .. }
+            | Statement::WaitForNextChunkStatement { line, column, .. }
+            | Statement::WaitForNextLineStatement { line, column, .. }
+            | Statement::StartStreamingResponseStatement { line, column, .. }
+            | Statement::StreamWriteStatement { line, column, .. }
+            | Statement::FlushStreamStatement { line, column, .. } => {
+                // Streaming HTTP relies on the interpreter's parked-stream
+                // handles; emitting broken JS would be worse than a clear error.
+                Err(TranspileError {
+                    message: "Streaming HTTP statements are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
                     line: *line,
                     column: *column,
                 })
@@ -2055,6 +2085,12 @@ impl JavaScriptTranspiler {
             | Statement::HttpGetStatement { .. }
             | Statement::HttpPostStatement { .. }
             | Statement::HttpRequestStatement { .. }
+            | Statement::HttpStreamStatement { .. }
+            | Statement::WaitForNextChunkStatement { .. }
+            | Statement::WaitForNextLineStatement { .. }
+            | Statement::StartStreamingResponseStatement { .. }
+            | Statement::StreamWriteStatement { .. }
+            | Statement::FlushStreamStatement { .. }
             | Statement::WaitForProcessStatement { .. }
             | Statement::WaitForRequestStatement { .. } => true,
 

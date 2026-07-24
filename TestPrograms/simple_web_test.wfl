@@ -14,4 +14,11 @@ display "Got a request!"
 respond to incoming_request with "Hello from WFL!"
 
 display "Response sent!"
+
+// `respond` hands the reply to the async transport; reaching EOF immediately
+// can tear the runtime down before the socket flushes. `close server` has a
+// short grace that lets the pending response drain first, so the single-shot
+// client reliably receives the body.
+close server test_server
+
 display "=== Test Complete ==="

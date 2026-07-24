@@ -713,6 +713,38 @@ impl Analyzer {
         self.budget_error.take()
     }
 
+    /// Analyze the body of an unbounded loop (`forever` / `main loop`). Shared by
+    /// both so the scope handling, flow tracking, and the handler-body error
+    /// demotion stay identical. Web-server main-loop bodies reference
+    /// handler-provided names the analyzer cannot model, so errors raised *inside*
+    /// the body are demoted to warnings (a latched budget breach stays fatal);
+    /// errors the caller raises about the loop itself are pushed before this runs
+    /// and are not swept up.
+    fn analyze_loop_body(&mut self, body: &[Statement]) {
+        let outer_scope = std::mem::take(&mut self.current_scope);
+        self.current_scope = Scope::with_parent(outer_scope);
+
+        let flow_entry = self.flow_entry();
+        self.push_mutation_frame();
+        let errors_before = self.errors.len();
+        for stmt in body {
+            self.analyze_statement(stmt);
+        }
+        if self.budget_error.is_none() {
+            let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+            self.warnings.extend(demoted);
+        }
+        let flow_body = self.take_flow_branch(&flow_entry);
+        let mutated = self.pop_mutation_frame();
+        self.join_flow_branches(&[flow_body, flow_entry]);
+        self.degrade_mutated_aliases(&mutated);
+
+        let loop_scope = std::mem::take(&mut self.current_scope);
+        if let Some(parent) = loop_scope.parent {
+            self.current_scope = *parent;
+        }
+    }
+
     /// Report an undefined-name reference. Inside a `try` body this is a
     /// warning rather than a fatal error: the reference raises a catchable
     /// runtime error, which is documented behavior that programs rely on.
@@ -1197,33 +1229,41 @@ impl Analyzer {
                     self.current_scope = *parent;
                 }
             }
-            Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
-                let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
-
-                let flow_entry = self.flow_entry();
-                self.push_mutation_frame();
-                let errors_before = self.errors.len();
-                for stmt in body {
-                    self.analyze_statement(stmt);
+            Statement::ForeverLoop { body, .. } => {
+                self.analyze_loop_body(body);
+            }
+            Statement::MainLoop {
+                body,
+                concurrent,
+                line,
+                column,
+            } => {
+                // `main loop concurrently:` starts up to the concurrency cap of
+                // handler futures at once, each running the body from the top. Any
+                // statement before the first `wait for request` therefore runs
+                // once *per handler slot* before a single request is dequeued —
+                // speculative side effects the author almost never intends. Require
+                // the body to begin with `wait for request` so nothing runs before
+                // a request is in hand. (Serial `main loop` has no such hazard.)
+                // Emitted before the body is analyzed so it is NOT swept into the
+                // handler-body error demotion below.
+                if *concurrent
+                    && !matches!(
+                        body.first(),
+                        Some(Statement::WaitForRequestStatement { .. })
+                    )
+                {
+                    self.errors.push(SemanticError::new(
+                        "A `main loop concurrently:` body must begin with `wait for request ...`. \
+                         Concurrent handlers start before any request arrives, so statements before \
+                         the first `wait for request` run once per handler slot. Move that setup above \
+                         the loop, or make `wait for request` the first statement in the loop."
+                            .to_string(),
+                        *line,
+                        *column,
+                    ));
                 }
-                // Same demotion as the repeat forms: web-server main loops
-                // reference handler-provided names this analyzer cannot
-                // model, and these bodies were previously unanalyzed. A
-                // latched budget breach stays fatal (see the repeat forms).
-                if self.budget_error.is_none() {
-                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
-                    self.warnings.extend(demoted);
-                }
-                let flow_body = self.take_flow_branch(&flow_entry);
-                let mutated = self.pop_mutation_frame();
-                self.join_flow_branches(&[flow_body, flow_entry]);
-                self.degrade_mutated_aliases(&mutated);
-
-                let loop_scope = std::mem::take(&mut self.current_scope);
-                if let Some(parent) = loop_scope.parent {
-                    self.current_scope = *parent;
-                }
+                self.analyze_loop_body(body);
             }
             Statement::DisplayStatement { value, .. } => {
                 self.analyze_expression(value);
@@ -1532,6 +1572,140 @@ impl Analyzer {
 
                 if let Err(error) = self.current_scope.define(symbol) {
                     self.errors.push(error);
+                }
+            }
+
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(url);
+                if let Some(method) = method {
+                    self.analyze_expression(method);
+                }
+                if let Some(headers) = headers {
+                    self.analyze_expression(headers);
+                }
+                if let Some(body) = body {
+                    self.analyze_expression(body);
+                }
+
+                // Binds a streaming-response handle object (status/ok/headers).
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None,
+                    line: 0,
+                    column: 0,
+                };
+                self.current_scope.define_or_replace(symbol);
+            }
+
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                ..
+            }
+            | Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(source);
+
+                // Binds the next chunk/line, or `nothing` at end of stream, so
+                // the type is left open. Refreshed on every wait (loop-friendly).
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None,
+                    line: 0,
+                    column: 0,
+                };
+                self.current_scope.define_or_replace(symbol);
+            }
+
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(request);
+                if let Some(status) = status {
+                    self.analyze_expression(status);
+                }
+                if let Some(content_type) = content_type {
+                    self.analyze_expression(content_type);
+                }
+                if let Some(headers) = headers {
+                    self.analyze_expression(headers);
+                }
+                // Binds a server response-stream handle object.
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None,
+                    line: 0,
+                    column: 0,
+                };
+                self.current_scope.define_or_replace(symbol);
+            }
+
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                line,
+                column,
+                ..
+            } => {
+                self.analyze_expression(target);
+                match fallback_content {
+                    // Unambiguous form: check the stream value normally.
+                    None => self.analyze_expression(value),
+                    // Ambiguous merged form (`write line <ident> ... to <target>`):
+                    // the live reading — stream write of `<ident>` vs classic file
+                    // write of the variable `line <ident>` — depends on the runtime
+                    // target type, and the two readings differ ONLY at the leftmost
+                    // leaf (the merged lead). `analyze_ambiguous_write` walks both
+                    // readings in parallel: it analyzes every sub-expression they
+                    // share (operator right-hand sides, concatenation tails) so a
+                    // genuinely undefined variable in the continuation is still
+                    // caught, and at the lead reports undefined only when NEITHER
+                    // reading resolves. Call-based desugarings (`starts/ends with`,
+                    // `is between`, patterns) bury the lead inside a call where the
+                    // shapes diverge; those still defer to runtime rather than risk
+                    // rejecting a valid classic file write.
+                    Some(fallback) => {
+                        self.analyze_ambiguous_write(value, fallback, *line, *column);
+                    }
+                }
+            }
+
+            Statement::FlushStreamStatement {
+                target,
+                action_fallback,
+                ..
+            } => {
+                // When the legacy full-name expression's root is defined, analyze
+                // that expression (expression-statement path). Otherwise analyze
+                // the stream target.
+                let legacy_root_defined = action_fallback.as_ref().is_some_and(|expr| {
+                    Self::expression_root_name(expr).is_some_and(|n| self.name_is_defined(n))
+                });
+                if legacy_root_defined {
+                    if let Some(fb) = action_fallback {
+                        self.analyze_expression(fb);
+                    }
+                } else {
+                    self.analyze_expression(target);
                 }
             }
 
@@ -3379,6 +3553,300 @@ impl Analyzer {
         }
     }
 
+    /// Analyze an ambiguous `write line|chunk` value against its classic
+    /// file-write fallback. Both readings are parsed from the SAME tokens and
+    /// differ only at the leftmost leaf (the merged lead), so walk them in
+    /// parallel: analyze every shared sub-expression (an operator's right-hand
+    /// side, a concatenation's tail) so an undefined variable in the continuation
+    /// is caught, and at the lead report undefined only when NEITHER reading
+    /// resolves (so neither valid interpretation is rejected). Diverging,
+    /// call-based desugarings (`starts/ends with`, `is between`, patterns) bury the
+    /// lead where the shapes no longer line up; those hit the catch-all arm and are
+    /// left to runtime rather than risk rejecting a valid classic file write.
+    fn analyze_ambiguous_write(
+        &mut self,
+        value: &Expression,
+        fallback: &Expression,
+        line: usize,
+        column: usize,
+    ) {
+        // A subtree that is IDENTICAL under both readings carries no lead
+        // difference (the two readings are parsed from the same tokens, so a
+        // genuinely shared sub-expression has the same names AND positions) — it is
+        // pure continuation, so analyze it normally. This catches an undefined
+        // variable anywhere in the shared part, including inside a call or index.
+        if value == fallback {
+            self.analyze_expression(value);
+            return;
+        }
+        // Otherwise the lead lies somewhere below. Recurse in PARALLEL on both
+        // children so a lead that a desugaring DUPLICATED into the right operand
+        // (e.g. `is between`) is still matched against the fallback's copy — not
+        // mistaken for an undefined continuation variable.
+        match (value, fallback) {
+            (
+                Expression::BinaryOperation {
+                    left: vl,
+                    operator: vo,
+                    right: vr,
+                    ..
+                },
+                Expression::BinaryOperation {
+                    left: fl,
+                    operator: fo,
+                    right: fr,
+                    ..
+                },
+            ) if vo == fo => {
+                self.analyze_ambiguous_write(vl, fl, line, column);
+                self.analyze_ambiguous_write(vr, fr, line, column);
+            }
+            (
+                Expression::Concatenation {
+                    left: vl,
+                    right: vr,
+                    ..
+                },
+                Expression::Concatenation {
+                    left: fl,
+                    right: fr,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vl, fl, line, column);
+                self.analyze_ambiguous_write(vr, fr, line, column);
+            }
+            // Call- and pattern-based desugarings (`starts/ends with`, `contains`,
+            // pattern ops, indexing, method/function/action calls) bury the lead in
+            // one child while the OTHER children are shared continuation. When both
+            // readings are the same shape (same operator/name and arity), walk the
+            // corresponding children in parallel so an undefined name in a shared
+            // argument is still caught; only genuinely non-aligning shapes fall to
+            // the catch-all and defer to runtime.
+            (
+                Expression::PatternMatch {
+                    text: vt,
+                    pattern: vp,
+                    ..
+                },
+                Expression::PatternMatch {
+                    text: ft,
+                    pattern: fp,
+                    ..
+                },
+            )
+            | (
+                Expression::PatternFind {
+                    text: vt,
+                    pattern: vp,
+                    ..
+                },
+                Expression::PatternFind {
+                    text: ft,
+                    pattern: fp,
+                    ..
+                },
+            )
+            | (
+                Expression::PatternSplit {
+                    text: vt,
+                    pattern: vp,
+                    ..
+                },
+                Expression::PatternSplit {
+                    text: ft,
+                    pattern: fp,
+                    ..
+                },
+            )
+            | (
+                Expression::StringSplit {
+                    text: vt,
+                    delimiter: vp,
+                    ..
+                },
+                Expression::StringSplit {
+                    text: ft,
+                    delimiter: fp,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vt, ft, line, column);
+                self.analyze_ambiguous_write(vp, fp, line, column);
+            }
+            (
+                Expression::PatternReplace {
+                    text: vt,
+                    pattern: vp,
+                    replacement: vrp,
+                    ..
+                },
+                Expression::PatternReplace {
+                    text: ft,
+                    pattern: fp,
+                    replacement: frp,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vt, ft, line, column);
+                self.analyze_ambiguous_write(vp, fp, line, column);
+                self.analyze_ambiguous_write(vrp, frp, line, column);
+            }
+            (
+                Expression::IndexAccess {
+                    collection: vc,
+                    index: vi,
+                    ..
+                },
+                Expression::IndexAccess {
+                    collection: fc,
+                    index: fi,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vc, fc, line, column);
+                self.analyze_ambiguous_write(vi, fi, line, column);
+            }
+            (
+                Expression::FunctionCall {
+                    function: vf,
+                    arguments: va,
+                    ..
+                },
+                Expression::FunctionCall {
+                    function: ff,
+                    arguments: fa,
+                    ..
+                },
+            ) if va.len() == fa.len() => {
+                self.analyze_ambiguous_write(vf, ff, line, column);
+                for (v, f) in va.iter().zip(fa.iter()) {
+                    self.analyze_ambiguous_write(&v.value, &f.value, line, column);
+                }
+            }
+            (
+                Expression::ActionCall {
+                    name: vn,
+                    arguments: va,
+                    ..
+                },
+                Expression::ActionCall {
+                    name: fnn,
+                    arguments: fa,
+                    ..
+                },
+            ) if vn == fnn && va.len() == fa.len() => {
+                for (v, f) in va.iter().zip(fa.iter()) {
+                    self.analyze_ambiguous_write(&v.value, &f.value, line, column);
+                }
+            }
+            (
+                Expression::MethodCall {
+                    object: vo,
+                    method: vm,
+                    arguments: va,
+                    ..
+                },
+                Expression::MethodCall {
+                    object: fo,
+                    method: fm,
+                    arguments: fa,
+                    ..
+                },
+            ) if vm == fm && va.len() == fa.len() => {
+                self.analyze_ambiguous_write(vo, fo, line, column);
+                for (v, f) in va.iter().zip(fa.iter()) {
+                    self.analyze_ambiguous_write(&v.value, &f.value, line, column);
+                }
+            }
+            (
+                Expression::PropertyAccess {
+                    object: vo,
+                    property: vp,
+                    ..
+                },
+                Expression::PropertyAccess {
+                    object: fo,
+                    property: fp,
+                    ..
+                },
+            ) if vp == fp => {
+                // `write line missing.field to ...` — walk the object under both
+                // readings so a one-sided undefined lead is not skipped solely
+                // because PropertyAccess was absent from the parallel walker.
+                self.analyze_ambiguous_write(vo, fo, line, column);
+            }
+            // Reached a differing leaf — the lead. Report only when NEITHER
+            // reading resolves, so neither valid interpretation is rejected.
+            // Branch-specific one-sided undefined leads are enforced by the
+            // typechecker against the concrete target branch (issue #642).
+            (Expression::Variable(sn, ..), Expression::Variable(fal, ..))
+                if !self.name_is_defined(sn) && !self.name_is_defined(fal) =>
+            {
+                self.report_undefined_name(
+                    format!("Variable '{fal}' is not defined"),
+                    line,
+                    column,
+                );
+            }
+            // PropertyAccess leaf whose object is a Variable: treat the object
+            // name as the lead (e.g. `missing.field` vs `line missing.field`).
+            (
+                Expression::PropertyAccess { object: vo, .. },
+                Expression::PropertyAccess { object: fo, .. },
+            ) => {
+                self.analyze_ambiguous_write(vo, fo, line, column);
+            }
+            // A diverging, non-decomposable shape (a call-based desugaring where the
+            // lead is buried): defer to runtime rather than risk a false positive.
+            _ => {}
+        }
+    }
+
+    /// Whether a bare name resolves to something known (an action parameter, the
+    /// `count` loop variable, a builtin, an in-scope binding, or a container
+    /// property) — i.e. it would NOT be reported as an undefined variable. Used
+    /// to decide the ambiguous `write line|chunk` case without emitting.
+    fn name_is_defined(&self, name: &str) -> bool {
+        self.name_is_defined_for_write(name)
+    }
+
+    /// Public for the typechecker so write-branch definedness matches analysis
+    /// (container properties, inherited bindings, etc.).
+    pub fn name_is_defined_for_write(&self, name: &str) -> bool {
+        if self.action_parameters.contains(name)
+            || name == "count"
+            || name == "loopcounter"
+            || Self::is_builtin_function(name)
+            || self.current_scope.resolve(name).is_some()
+        {
+            return true;
+        }
+        if let Some(container_name) = &self.current_container {
+            return self.is_container_property(container_name, name);
+        }
+        false
+    }
+
+    /// Root variable name of an expression used as a flush legacy fallback
+    /// (`flush cache[0]` → `"flush cache"`).
+    fn expression_root_name(expr: &Expression) -> Option<&str> {
+        match expr {
+            Expression::Variable(name, ..) => Some(name.as_str()),
+            Expression::IndexAccess { collection, .. }
+            | Expression::PropertyAccess {
+                object: collection, ..
+            }
+            | Expression::MemberAccess {
+                object: collection, ..
+            }
+            | Expression::MethodCall {
+                object: collection, ..
+            } => Self::expression_root_name(collection),
+            _ => None,
+        }
+    }
+
     fn analyze_expression(&mut self, expression: &Expression) {
         // Recursive front-end checkpoint for expressions. `analyze_statement`
         // polls per statement, but one statement can hold an arbitrarily large
@@ -3936,6 +4404,58 @@ mod tests {
         let errors = analyzer.get_errors();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("not defined"));
+    }
+
+    #[test]
+    fn test_concurrent_main_loop_requires_wait_for_request_first() {
+        use crate::lexer::lex_wfl_with_positions;
+        use crate::parser::Parser;
+
+        fn analyze_src(src: &str) -> Result<(), Vec<SemanticError>> {
+            let program = Parser::new(&lex_wfl_with_positions(src))
+                .parse()
+                .expect("parse");
+            Analyzer::new().analyze(&program)
+        }
+
+        // A concurrent loop whose body does NOT begin with `wait for request`
+        // would run its opening statements once per handler slot before any
+        // request arrives. Static analysis must reject it with an actionable error
+        // (and that error must survive the handler-body error demotion).
+        let bad = "listen on port 8080 as srv\n\
+                   main loop concurrently:\n    \
+                   store tick as 1\n    \
+                   wait for request comes in on srv as req\n    \
+                   respond to req with \"ok\"\nend loop";
+        let errs =
+            analyze_src(bad).expect_err("setup-before-wait concurrent loop must be rejected");
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("must begin with `wait for request")),
+            "expected the concurrent-loop ordering error, got: {errs:?}"
+        );
+
+        // The identical body under a plain serial `main loop` is fine — a serial
+        // loop runs one iteration at a time, so there is no speculative fan-out.
+        let serial = "listen on port 8080 as srv\n\
+                      main loop:\n    \
+                      store tick as 1\n    \
+                      wait for request comes in on srv as req\n    \
+                      respond to req with \"ok\"\nend loop";
+        assert!(
+            analyze_src(serial).is_ok(),
+            "serial main loop must not require wait-for-request first"
+        );
+
+        // A concurrent loop that DOES begin with `wait for request` is accepted.
+        let good = "listen on port 8080 as srv\n\
+                    main loop concurrently:\n    \
+                    wait for request comes in on srv as req\n    \
+                    respond to req with \"ok\"\nend loop";
+        assert!(
+            analyze_src(good).is_ok(),
+            "concurrent loop starting with wait-for-request must analyze cleanly"
+        );
     }
 
     // Issue #592: a bare unresolved name in a program that uses `include from`

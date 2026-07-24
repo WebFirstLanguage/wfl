@@ -68,6 +68,73 @@ wait for request [that] comes in on <server> as <request_variable>
 
 This blocks until a request arrives, then stores the request in the variable. Both "comes in" and "that comes in" are supported.
 
+### Concurrent request handling
+
+A typical server wraps `wait for request` … `respond to` in a `main loop`:
+
+```wfl
+listen on port 8080 as web_server
+main loop:
+    wait for request comes in on web_server as req
+    respond to req with "Hello!"
+end loop
+```
+
+A plain `main loop` is **serial**: it fully handles one request — including any
+`wait for`, outbound call, or stream — before accepting the next. That is simple
+and predictable, but one slow handler (say, proxying a slow model stream) makes
+every other request wait behind it.
+
+Write `main loop concurrently:` to handle requests **concurrently** instead:
+
+```wfl
+listen on port 8080 as web_server
+main loop concurrently:
+    wait for request comes in on web_server as req
+    // ... a slow handler here no longer blocks other requests ...
+    respond to req with "Hello!"
+end loop
+```
+
+Each iteration runs in its own isolated scope, so concurrent requests never
+clobber each other's variables. A login, a health check, or another chat is
+served while a slow stream is still running.
+
+**Important — concurrent, not parallel:** this is *cooperative* concurrency on a
+single thread. Handlers interleave at their `await` points (`wait for`, outbound
+HTTP, stream reads/writes, `respond`). A handler doing tight CPU-bound work with
+no such pause still holds the thread until it yields — concurrency helps I/O-
+bound work (the common web case), not CPU-bound loops.
+
+**What you get with `concurrently`:**
+
+- A slow handler does not block its siblings.
+- Each request handler is isolated (its own scope).
+- A handler that errors or panics is contained: that request fails on its own and
+  the server keeps serving everyone else. How the client sees the failure depends
+  on how far the handler got: if it had **not** sent a response yet, the client
+  gets a `500` (or a `504` if the handler never answers in time); if it had already
+  called `start streaming response`, the status and headers are on the wire
+  (typically `200`), so the error cannot change them — the response body is just
+  ended early (the stream is closed), leaving the client a truncated body under the
+  already-sent status.
+- In-flight work is bounded; the transport still sheds excess load with 503 and
+  times out a stalled handler with 504, exactly as for the serial loop.
+
+Plain `main loop` keeps its exact serial behavior — adding `concurrently` is the
+only way to opt in; nothing changes silently.
+
+> **A `main loop concurrently:` body must begin with `wait for request`.** A
+> concurrent loop starts its handler slots up front, each running the body from
+> the top, so any statement placed *before* the first `wait for request` would
+> run once per slot before a single request arrives. WFL rejects that at analysis
+> time with a clear error. Put per-server setup **above** the loop; the loop body
+> starts by waiting for the next request. (Serial `main loop` has no such
+> requirement — it runs one iteration at a time.)
+
+> `concurrently` is only special right after `main loop`; it is not a reserved
+> word, so existing programs that use `concurrently` as a name keep working.
+
 ### Responding to Requests
 
 Use `respond to` to send HTTP responses:
@@ -411,6 +478,105 @@ respond to req with "Created!" and status 201 and content_type "application/json
 
 All optional clauses (`status`, `content_type`, `headers`) can appear in any
 order after the content.
+
+### Streaming a response
+
+`respond to` sends the whole body at once. When the body is large, or produced
+progressively (for example newline-delimited JSON streamed to a browser's
+`fetch()` reader), start a **streaming response** instead. It sends the status
+and headers immediately and binds a stream handle you write to piece by piece:
+
+```wfl
+start streaming response to req with status 200 and content type "application/x-ndjson" as out
+
+write line "{\"event\": \"start\"}" to out
+write line "{\"event\": \"tick\", \"n\": 1}" to out
+flush out
+write line "{\"event\": \"done\"}" to out
+
+close out
+```
+
+- `start streaming response to <req> [with status <e>] [and content type <e>]
+  [and headers <e>] as <out>` — begin the response. The status defaults to 200
+  and the content type to `application/octet-stream`. The body has no declared
+  length (no `Content-Length`); it is streamed incrementally as you write (over
+  HTTP/1.1 that is chunked transfer-encoding; HTTP/2+ frames it without a
+  `Content-Length` instead).
+- `write line <value> to <out>` — write `value` followed by a newline (ideal for
+  NDJSON). `value` may be text, a number, or a boolean.
+- `write chunk <value> to <out>` — write raw bytes verbatim, no newline added.
+  `value` may be text or `binary` (a number or boolean is also accepted and
+  written as its text form).
+
+  > **Note (backward compatibility).** `write line <var> to <out>` /
+  > `write chunk <var> to <out>` shares its surface with the classic file write
+  > `write <content> to <file>`, and WFL allows space-separated variable names, so
+  > the form `write line <bareword> to <out>` is ambiguous. Only that ambiguous
+  > **bare-identifier** form carries a fallback: if `<out>` turns out to be a file
+  > handle or path rather than a streaming handle, it runs the classic file write
+  > (so a variable literally named `line …`/`chunk …` keeps working). The
+  > unambiguous forms — a literal, number, or boolean value (e.g.
+  > `write line "x" to out`) — are **stream-only** and error if `<out>` is not a
+  > streaming-response handle.
+  >
+  > **Value operators.** The value accepts `with`-concatenation and the usual
+  > arithmetic/comparison operators directly in the statement — e.g.
+  > `write line prefix with json to out`. (An identifier-led value is a variable
+  > or `field of object` followed by such operators; postfix accessors on the
+  > leading identifier — indexing `payload[1]` or property access `payload.field`
+  > — are composed onto it, so `write line chunks[0] to out` and `write line
+  > upstream.status to out` work.) For the ambiguous bare-identifier form,
+  > the continuation applies to both readings: `write line note with "!" to out`
+  > streams `note` + `"!"`, while the same statement targeting a file writes the
+  > variable `line note` + `"!"` — so pre-existing classic file writes that
+  > concatenate keep working.
+- `flush <out>` — advisory: yield so queued bytes are handed to the socket.
+  (Chunks are already forwarded as you write them; hyper writes as it receives.)
+- `close <out>` — end the response body. Writing after `close` is an error.
+
+**Lifecycle & backpressure:** the body channel is bounded, so a slow client
+slows your `write` calls (backpressure) instead of buffering without bound. If
+the client disconnects, hyper drops the response body and your next `write` to
+that stream fails with a catchable error — use `try`/`catch` to detect it and
+stop producing (and `close` any upstream you are proxying).
+
+**Prefer an explicit `close out`** to finalize the response promptly — that is
+what signals the end of the body to the client, and doing it as soon as you are
+done frees the connection without waiting. As a safety net, the stream is also
+**closed automatically when the handler ends on any path** (normal return, a
+caught error, or a panic contained by `main loop concurrently:`), so a handler
+that forgets `close out` still finalizes the client's body rather than leaving
+it hanging. For long-lived handlers, still `close` as soon as you are finished —
+and put it in a `finally:` block if the handler can error partway through — so
+the client is not left waiting until the handler happens to return.
+
+**Proxying an upstream to the browser** — combine with the outbound streaming
+client ([Interoperability → Streaming a response
+incrementally](interoperability.md#streaming-a-response-incrementally)):
+
+```wfl
+open url at "https://model.example.com/generate" with method "POST" and body prompt and stream response as upstream
+start streaming response to req with status 200 and content type "application/x-ndjson" as out
+
+count from 1 to 1000000:
+    wait for next line from upstream as line
+    check if line is nothing:
+        break
+    otherwise:
+        write line line to out
+    end check
+end count
+
+close upstream
+close out
+```
+
+> **Concurrency note:** a plain `main loop` handles one request at a time, so a
+> long-running stream occupies the handler until it finishes. To let a slow
+> stream run without blocking other requests (login, history, health checks,
+> other chats), opt into [concurrent handling](#concurrent-request-handling)
+> with `main loop concurrently:`.
 
 ## The QUERY Method (RFC 10008)
 

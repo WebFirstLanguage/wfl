@@ -12,12 +12,13 @@ Binding community and contribution policy lives at the **repo root** (not only u
 | `AI_POLICY.md` | **AI-assisted work is welcome** — WFL was built with AI; do not discriminate against AI use; human author remains accountable |
 | `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
 | `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
+| `testing.md` | **Binding Logbie Testing Policy + WFL testing profile** — Red→Green TDD evidence, required test layers, risk classes, and merge/release gates (see **Testing Guidelines** below) |
 
 **Agent implications (already in force via governance):**
 
 - **AI is first-class** — use coding agents freely; same quality bar as hand-written work (tests, docs, compatibility, reviewability).
 - **Backward compatibility is sacred** — never break existing WFL programs without the documented deprecation path.
-- **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`).
+- **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`), governed by the binding **Logbie Testing Policy** in root `testing.md`: auditable **Red→Green** evidence for every behavioral change, coverage at the lowest useful layer plus every affected higher layer.
 - **Docs ship with the feature** — same change; validate examples; Dev Diary for non-trivial work.
 - **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
 - **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own merges and releases unless those responsibilities are **explicitly delegated**. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
@@ -121,12 +122,40 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - Constants: `SCREAMING_SNAKE_CASE`
 
 ## Testing Guidelines
-- **TDD is mandatory**: Write failing tests FIRST for any feature or bug fix.
+
+**Binding policy:** root `testing.md` holds the **Logbie Testing Policy** and the
+WFL testing profile. It governs every behavioral change. Non-negotiables an agent
+MUST follow:
+
+- **Red → Green → Refactor → Broaden → Record** — write the smallest useful test
+  FIRST, run it, confirm it **fails for the intended reason**, then make it pass;
+  a defect fix reproduces the defect. Keep auditable Red evidence (a Red commit
+  that is an ancestor of Green, or a timestamped CI artifact). A test first
+  observed after the code already passed is **not** a valid Red step. (§3, §6)
+- **Classify risk first (R0–R3)** — concurrency, cancellation, lifecycle,
+  streaming, untrusted input, crypto/secrets, and backward compatibility are
+  **R3** and require negative/failure-path plus §11 risk-triggered tests. Risk is
+  never lowered to dodge a gate. (§5, §11)
+- **Real boundaries, real assertions** — don't mock the boundary under test;
+  assert outcomes + side effects (not "didn't crash"); use negative assertions
+  for cancellation, writes-after-close, denial. (§7, §8.3)
+- **No manufactured green** — never retry/skip/quarantine a required test to go
+  green; a flaky required test is failing. Non-executable docs programs use the
+  runner's `// CI-SKIP:` first-line directive and stay statically validated. (§8.2)
+- **Concurrency/streaming/lifecycle (§11.3)** — for this repo's async/web/
+  streaming work, prove races/ordering, cancellation, timeouts, disconnects,
+  bounded queues/backpressure, resource limits, clean shutdown, writes-after-
+  close, and that one slow/failed handler doesn't block unrelated work.
+- **PR evidence (§15)** — record risk class, acceptance criteria → tests, Red
+  evidence, layers run, and residual risk (template in `testing.md`).
+
+### Mechanics
 - **Locations**:
   - Rust Unit/Integration: `tests/`
   - WFL End-to-End: `TestPrograms/` (must pass with release build)
   - WFL Test Framework: Use `describe`/`test` blocks, run with `wfl --test <file>`
 - **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
+- **Commands & profile**: one command per layer + the "run all presubmit" block are in root `testing.md`.
 - **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
 
 ## Commit & Pull Request Guidelines

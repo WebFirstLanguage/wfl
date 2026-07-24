@@ -190,6 +190,11 @@ pub enum Statement {
     },
     MainLoop {
         body: Vec<Statement>,
+        /// `main loop concurrently:` — run iterations of the body cooperatively
+        /// concurrently (each in its own isolated scope) instead of strictly
+        /// serially, so a slow request handler does not block its siblings.
+        /// Plain `main loop` keeps `concurrent = false` (byte-compatible serial).
+        concurrent: bool,
         line: usize,
         column: usize,
     },
@@ -409,6 +414,42 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// Streaming outbound HTTP request:
+    /// `open url at "<url>" [with method .. and headers .. and body ..] and stream response as <name>`
+    ///
+    /// Unlike [`HttpRequestStatement`], this returns as soon as the status and
+    /// headers are received, WITHOUT buffering the body. It binds `<name>` to a
+    /// streaming response handle (an object exposing `status`, `ok`, `headers`,
+    /// and an internal `_stream` id). The body is pulled incrementally with
+    /// `wait for next chunk from <name>` / `wait for next line from <name>`.
+    HttpStreamStatement {
+        url: Expression,
+        method: Option<Expression>,
+        headers: Option<Expression>,
+        body: Option<Expression>,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `wait for next chunk from <stream> as <name>` — pull the next raw byte
+    /// chunk from a streaming response handle. Binds `<name>` to `Binary`, or to
+    /// `nothing` at a clean end of stream.
+    WaitForNextChunkStatement {
+        source: Expression,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `wait for next line from <stream> as <name>` — pull the next
+    /// newline-delimited line (trailing newline stripped) from a streaming
+    /// response handle. Binds `<name>` to `Text`, or to `nothing` at end of
+    /// stream.
+    WaitForNextLineStatement {
+        source: Expression,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
     PushStatement {
         list: Expression,
         value: Expression,
@@ -541,6 +582,55 @@ pub enum Statement {
         /// Optional map of extra response headers, e.g. `Accept-Query` /
         /// `Content-Location` / `Location` for RFC 10008 (HTTP QUERY).
         headers: Option<Expression>,
+        line: usize,
+        column: usize,
+    },
+    /// `start streaming response to <req> [with status <e>] [and content type
+    /// <e>] [and headers <e>] as <out>` — begin a streamed server response.
+    /// Sends the status/headers immediately and binds a server response-stream
+    /// handle; the body is written incrementally with `write line|chunk` and
+    /// ended with `close`.
+    StartStreamingResponseStatement {
+        request: Expression,
+        status: Option<Expression>,
+        content_type: Option<Expression>,
+        headers: Option<Expression>,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `write line <value> to <out>` / `write chunk <value> to <out>` — append
+    /// a framed line (a trailing newline is added) or a raw chunk (text or
+    /// binary, verbatim) to a server response stream.
+    StreamWriteStatement {
+        value: Expression,
+        target: Expression,
+        /// true for `write line` (newline appended), false for `write chunk`.
+        is_line: bool,
+        /// Backward-compat fallback for the ambiguous surface form
+        /// `write line <ident> to <target>` — where `line <ident>` could equally
+        /// be the classic file write of a variable literally named `line <ident>`
+        /// (WFL allows space-separated identifiers). When present and the runtime
+        /// `target` is **not** a server response stream, the statement falls back
+        /// to `write <fallback_content> to <target>` (a `WriteToStatement`), so a
+        /// pre-existing file write is never silently reinterpreted as a stream
+        /// write. `None` when the form is unambiguous (e.g. a literal value, or a
+        /// bare marker directly before `to`).
+        fallback_content: Option<Box<Expression>>,
+        line: usize,
+        column: usize,
+    },
+    /// `flush <out>` — advisory flush of a server response stream: hand any
+    /// queued bytes to the transport.
+    FlushStreamStatement {
+        target: Expression,
+        /// Complete old expression-statement AST for the merged `flush …` form
+        /// (e.g. `Variable("flush cache")`, or `IndexAccess`/`PropertyAccess` over
+        /// that full name). Before streaming, `flush cache[0]` was an ordinary
+        /// expression statement; when the root binding exists the interpreter
+        /// evaluates this fallback instead of a stream flush. `None` when the
+        /// form cannot collide with a legacy expression (bare non-merged target).
+        action_fallback: Option<Expression>,
         line: usize,
         column: usize,
     },

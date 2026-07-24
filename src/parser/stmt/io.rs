@@ -3,8 +3,161 @@
 use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
 use super::database::DatabaseParser;
 use crate::lexer::token::Token;
-use crate::parser::expr::{ExprParser, PrimaryExprParser};
+use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 use std::sync::Arc;
+
+impl<'a> Parser<'a> {
+    /// Parse a merged-command operand from an already-chosen leading identifier:
+    /// trailing postfix (`[]`, `.field`, `.method()`, `at`, direct-integer index),
+    /// an optional `<field> of <object>` call, then any `with`/operator
+    /// continuation — exactly as a normal expression value would parse.
+    ///
+    /// Shared by `write line|chunk` values and by merged `content type` / `headers`
+    /// clause operands so they all support the same postfix/call/operator grammar
+    /// (issue #642).
+    ///
+    /// The ambiguous merged `write line|chunk <ident> ...` form has two readings
+    /// (stream: split-off `<ident>`; classic file write: whole `line <ident>`)
+    /// that differ only in the leading operand. They are parsed independently —
+    /// same tokens, via a cursor rewind between the two calls — because a
+    /// continuation can desugar differently per operand (a builtin name becomes
+    /// an `ActionCall`, `is between` duplicates the left, `starts/ends with` and
+    /// the pattern operators build calls), so deriving one AST from the other by
+    /// leaf-swapping silently corrupted the classic reading.
+    pub(crate) fn parse_merged_operand_from_lead(
+        &mut self,
+        lead: Expression,
+    ) -> Result<Expression, ParseError> {
+        // The lexer merges the command word with the operand identifier and leaves
+        // any bracket-index / dotted-property / `at` / integer-index accessors as
+        // following tokens, so compose them onto the lead instead of leaving them
+        // to dangle after the statement.
+        let lead = self.parse_trailing_postfix(lead)?;
+        let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
+            // Anchor the `<field> of <object>` call to the `of` keyword itself,
+            // matching how the rest of the parser positions FunctionCall nodes so
+            // error spans point at the operator, not the lead (review feedback).
+            let (of_line, of_column) = self
+                .bump_sync()
+                .map(|t| (t.line, t.column))
+                .expect("peeked `of` immediately above");
+            // Parse the `of`-call argument(s) EXACTLY as the primary parser does:
+            // each argument absorbs arithmetic (`fibonacci of n minus 1` means
+            // `fibonacci of (n minus 1)`, not `(fibonacci of n) minus 1`), and
+            // `and`/`from`/`by`/`length` join multiple arguments.
+            let mut arguments = vec![crate::parser::ast::Argument {
+                name: None,
+                value: self.parse_of_call_argument()?,
+            }];
+            while let Some(sep) = self.cursor.peek() {
+                let is_separator = matches!(
+                    &sep.token,
+                    Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
+                ) || matches!(
+                    &sep.token,
+                    Token::Identifier(id) if id.eq_ignore_ascii_case("length")
+                );
+                if !is_separator {
+                    break;
+                }
+                self.bump_sync(); // Consume the separator
+                arguments.push(crate::parser::ast::Argument {
+                    name: None,
+                    value: self.parse_of_call_argument()?,
+                });
+            }
+            Expression::FunctionCall {
+                function: Box::new(lead),
+                arguments,
+                line: of_line,
+                column: of_column,
+            }
+        } else {
+            lead
+        };
+        self.parse_binary_continuation(lead, 0)
+    }
+
+    /// Like [`parse_merged_operand_from_lead`], but binary continuation stops
+    /// before clause connectives (`and`/`with`/`as`) so
+    /// `content type mime_type of path and headers h` does not swallow `headers`
+    /// as a Boolean-AND operand (issue #642 re-review).
+    pub(crate) fn parse_clause_operand_from_lead(
+        &mut self,
+        lead: Expression,
+    ) -> Result<Expression, ParseError> {
+        let lead = self.parse_trailing_postfix(lead)?;
+        let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
+            let (of_line, of_column) = self
+                .bump_sync()
+                .map(|t| (t.line, t.column))
+                .expect("peeked `of` immediately above");
+            let mut arguments = vec![crate::parser::ast::Argument {
+                name: None,
+                value: self.parse_of_call_argument()?,
+            }];
+            while let Some(sep) = self.cursor.peek() {
+                let is_separator = matches!(
+                    &sep.token,
+                    Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
+                ) || matches!(
+                    &sep.token,
+                    Token::Identifier(id) if id.eq_ignore_ascii_case("length")
+                );
+                // For multi-arg `of` calls, `and` between arguments is fine —
+                // only stop when we've finished the of-call and the next token
+                // would start a new clause (handled by binary continuation stop).
+                if !is_separator {
+                    break;
+                }
+                // If `and` is followed by a clause keyword (headers/content/as),
+                // it is a clause connective, not an of-arg separator.
+                if matches!(&sep.token, Token::KeywordAnd)
+                    && Self::is_streaming_clause_keyword(self.cursor.peek_n(1).map(|t| &t.token))
+                {
+                    break;
+                }
+                self.bump_sync();
+                arguments.push(crate::parser::ast::Argument {
+                    name: None,
+                    value: self.parse_of_call_argument()?,
+                });
+            }
+            Expression::FunctionCall {
+                function: Box::new(lead),
+                arguments,
+                line: of_line,
+                column: of_column,
+            }
+        } else {
+            lead
+        };
+        self.parse_binary_continuation_stopping_at_clause(lead, 0)
+    }
+
+    fn is_streaming_clause_keyword(tok: Option<&Token>) -> bool {
+        match tok {
+            Some(Token::KeywordAs) | Some(Token::KeywordContent) | Some(Token::KeywordStatus) => {
+                true
+            }
+            Some(Token::Identifier(id)) => {
+                id == "headers"
+                    || id.starts_with("headers ")
+                    || id == "content_type"
+                    || id.starts_with("content_type ")
+                    || id.starts_with("content type")
+                    || id == "type"
+                    || id.starts_with("type ")
+            }
+            _ => false,
+        }
+    }
+
+    /// Alias used by the write-statement parsers.
+    fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
+        self.parse_merged_operand_from_lead(lead)
+    }
+}
 
 pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError>;
@@ -253,6 +406,28 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             line: open_token.line,
                             column: open_token.column,
                         }
+                    });
+                }
+                // `stream response as <name>` — return the status/headers
+                // immediately and bind a streaming handle instead of buffering
+                // the body. `stream` is a contextual identifier (not a
+                // keyword), so match it as one; `response` is a keyword.
+                Token::Identifier(name) if name == "stream" => {
+                    self.bump_sync(); // Consume "stream"
+                    self.expect_token(
+                        Token::KeywordResponse,
+                        "Expected 'response' after 'stream'",
+                    )?;
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after 'stream response'")?;
+                    let variable_name = parse_variable_name(self, open_token)?;
+                    return Ok(Statement::HttpStreamStatement {
+                        url: url_expr,
+                        method,
+                        headers,
+                        body,
+                        variable_name,
+                        line: open_token.line,
+                        column: open_token.column,
                     });
                 }
                 // The lexer merges consecutive identifiers into multi-word
@@ -770,6 +945,119 @@ impl<'a> IoParser<'a> for Parser<'a> {
 
     fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError> {
         let token_pos = self.bump_sync().unwrap(); // Consume "write"
+
+        // `write line <value> to <out>` / `write chunk <value> to <out>` —
+        // append to a server response stream. `line`/`chunk` are contextual
+        // identifiers; the lexer merges a following bare-identifier value into
+        // the same token (`line payload` -> Identifier("line payload")), so
+        // split the value off the marker, mirroring the websocket-message form.
+        //
+        // Do NOT intercept a bare `line`/`chunk` that is immediately followed by
+        // `to`: that is the classic `write <var> to <file>` form using a
+        // variable literally named `line`/`chunk` (common in line-by-line file
+        // processing). The streaming form always has a value between the marker
+        // and `to`, so a bare marker directly before `to` is not a stream write.
+        let bare_marker_before_to = matches!(
+            self.cursor.peek(),
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "line" || id == "chunk")
+        ) && matches!(
+            self.cursor.peek_kind_n(1),
+            Some(Token::KeywordTo)
+        );
+
+        if !bare_marker_before_to
+            && let Some(next_token) = self.cursor.peek()
+            && let Token::Identifier(id) = &next_token.token
+            && (id == "line"
+                || id == "chunk"
+                || id.starts_with("line ")
+                || id.starts_with("chunk "))
+        {
+            let id = id.clone();
+            let (marker_line, marker_column) = (next_token.line, next_token.column);
+            let is_line = id.starts_with("line");
+            let marker = if is_line { "line" } else { "chunk" };
+            let rest = id
+                .strip_prefix(marker)
+                .map(str::trim_start)
+                .unwrap_or("")
+                .to_string();
+            self.bump_sync(); // Consume the (possibly merged) marker
+
+            // Build the stream-write `value` and, for the ambiguous merged-
+            // identifier form (`write line <ident> to <target>`), the classic
+            // file-write `fallback_content`. The merged token `line <ident>` could
+            // equally be a variable literally named `line <ident>` (WFL allows
+            // space-separated names), so we carry the file-write interpretation
+            // and let the interpreter pick based on whether `target` is a stream.
+            let (value, fallback_content) = if rest.is_empty() {
+                // Value begins with a non-identifier (string/number), so the
+                // whole expression — including `with` concatenation — parses
+                // cleanly from here. This form was never a valid classic file
+                // write (`write line "x" to f` did not parse), so no fallback.
+                (self.parse_expression()?, None)
+            } else {
+                // Ambiguous merged form: `<ident>` alone (stream) vs the full
+                // merged `line <ident>` (classic file write of that variable).
+                // Parse the two readings INDEPENDENTLY from the same continuation
+                // tokens via cursor rewind — NOT by deriving one AST from the
+                // other. A trailing `with`/operator continuation desugars
+                // differently per leading operand: a builtin name becomes an
+                // `ActionCall`, `is between` duplicates the left operand,
+                // `starts/ends with` and the pattern operators build calls — none
+                // of which survive a leftmost-leaf swap, which silently dropped or
+                // mangled the continuation for the classic file-write reading.
+                let value_start = self.cursor.checkpoint();
+
+                // Stream reading: split-off `<rest>` as the leading operand.
+                let stream_left = Expression::Variable(rest, marker_line, marker_column);
+                let value = self.parse_write_value_from_lead(stream_left)?;
+                let after_stream = self.cursor.checkpoint();
+
+                // Rewind and parse the classic file-write reading with the whole
+                // merged `line <ident>` as the leading operand, over the very same
+                // tokens. This alternate interpretation is only USED at runtime
+                // when the target turns out to be a file, so it must not be
+                // REQUIRED to parse: a value whose stream reading uses grammar the
+                // classic reading can't (e.g. a builtin call with named arguments,
+                // `write line substring with text: "x" and start: 1 to out`) still
+                // has a valid stream reading. If the classic reading fails to
+                // parse, drop the fallback rather than failing the statement.
+                self.cursor.rewind(value_start);
+                let file_left = Expression::Variable(id, marker_line, marker_column);
+                let fallback = self.parse_write_value_from_lead(file_left).ok();
+                // Only keep the classic fallback when it consumed EXACTLY the same
+                // continuation span as the stream reading. A fallback that parses
+                // a shorter (or longer) span is a different interpretation of the
+                // tokens — e.g. `write line min with a: 1 and b: 2 to <target>`,
+                // where the stream reading is the builtin call `min` with named
+                // args but `line min with a` only parses up to the `:`. Retaining
+                // that partial parse and pairing it with the SAME trailing
+                // `to <target>` would silently corrupt a file write, so require the
+                // spans to match before trusting the fallback.
+                let fallback_end = self.cursor.checkpoint();
+                let fallback = fallback.filter(|_| fallback_end == after_stream);
+                // Always resume right after the stream value, whatever the
+                // (speculative) fallback parse consumed, so `to <target>` follows.
+                self.cursor.rewind(after_stream);
+
+                (value, fallback.map(Box::new))
+            };
+
+            self.expect_token(
+                Token::KeywordTo,
+                "Expected 'to <stream>' after the value in a 'write line'/'write chunk' statement",
+            )?;
+            let target = self.parse_primary_expression()?;
+            return Ok(Statement::StreamWriteStatement {
+                value,
+                target,
+                is_line,
+                fallback_content,
+                line: token_pos.line,
+                column: token_pos.column,
+            });
+        }
 
         // Check if next token is "binary" for "write binary X into Y" syntax
         if let Some(next_token) = self.cursor.peek()

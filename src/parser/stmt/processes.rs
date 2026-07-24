@@ -391,6 +391,67 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                         column: wait_token_pos.column,
                     });
                 }
+                // "wait for next chunk from <stream> as <name>" and
+                // "wait for next line from <stream> as <name>" pull the next
+                // piece of a streaming response body. The lexer glues the two
+                // identifiers, so `next chunk` / `next line` arrive as a single
+                // token; a bare `next` (followed by chunk/line) is also handled.
+                Token::Identifier(id)
+                    if id == "next chunk"
+                        || id == "next line"
+                        || (id == "next"
+                            && matches!(
+                                self.cursor.peek_kind_n(1),
+                                Some(Token::Identifier(kind)) if kind == "chunk" || kind == "line"
+                            )) =>
+                {
+                    // A bare `next` NOT followed by `chunk`/`line` (e.g. a
+                    // variable named `next` in `wait for next milliseconds`)
+                    // falls through to the duration/expression handling below.
+                    let is_line = id.ends_with("line");
+                    let is_bare_next = id == "next";
+                    self.bump_sync(); // Consume "next chunk"/"next line" (or bare "next")
+
+                    let is_line = if is_bare_next {
+                        // The guard already confirmed `chunk`/`line` follows.
+                        match self.cursor.peek().map(|t| &t.token) {
+                            Some(Token::Identifier(kind)) if kind == "chunk" => {
+                                self.bump_sync();
+                                false
+                            }
+                            _ => {
+                                self.bump_sync();
+                                true
+                            }
+                        }
+                    } else {
+                        is_line
+                    };
+
+                    self.expect_token(
+                        Token::KeywordFrom,
+                        "Expected 'from' after 'next chunk'/'next line'",
+                    )?;
+                    let source = self.parse_primary_expression()?;
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after the stream handle")?;
+                    let variable_name = self.parse_variable_name_simple()?;
+
+                    return Ok(if is_line {
+                        Statement::WaitForNextLineStatement {
+                            source,
+                            variable_name,
+                            line: wait_token_pos.line,
+                            column: wait_token_pos.column,
+                        }
+                    } else {
+                        Statement::WaitForNextChunkStatement {
+                            source,
+                            variable_name,
+                            line: wait_token_pos.line,
+                            column: wait_token_pos.column,
+                        }
+                    });
+                }
                 _ => {
                     // Try to parse as "wait for X milliseconds/seconds"
                     let checkpoint = self.cursor.checkpoint();

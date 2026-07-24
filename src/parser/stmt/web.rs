@@ -10,6 +10,8 @@ pub(crate) trait WebParser<'a>: ExprParser<'a> + PrimaryExprParser<'a> {
     fn parse_listen_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_tls_path_value(&mut self, marker: &str) -> Result<Expression, ParseError>;
     fn parse_respond_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_start_streaming_response(&mut self) -> Result<Statement, ParseError>;
+    fn parse_flush_stream(&mut self) -> Result<Statement, ParseError>;
     fn parse_register_signal_handler_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_stop_accepting_connections_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_close_server_statement(&mut self) -> Result<Statement, ParseError>;
@@ -359,6 +361,213 @@ impl<'a> WebParser<'a> for Parser<'a> {
             headers,
             line: respond_token.line,
             column: respond_token.column,
+        })
+    }
+
+    fn parse_start_streaming_response(&mut self) -> Result<Statement, ParseError> {
+        // Consume the `start` keyword, then the `streaming` contextual identifier.
+        let start_token = self.bump_sync().unwrap();
+        let (line, column) = (start_token.line, start_token.column);
+
+        match self.cursor.peek() {
+            Some(t) => match &t.token {
+                Token::Identifier(id) if id == "streaming" => {
+                    self.bump_sync(); // Consume "streaming"
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        "Expected 'streaming' after 'start'".to_string(),
+                        t,
+                    ));
+                }
+            },
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'streaming response' after 'start'".to_string(),
+                    start_token,
+                ));
+            }
+        }
+
+        self.expect_token(
+            Token::KeywordResponse,
+            "Expected 'response' after 'start streaming'",
+        )?;
+        self.expect_token(
+            Token::KeywordTo,
+            "Expected 'to <request>' after 'start streaming response'",
+        )?;
+        let request = self.parse_primary_expression()?;
+
+        let mut status = None;
+        let mut content_type = None;
+        let mut headers = None;
+
+        // Optional clauses joined by `with`/`and`, in any order: `status <e>`,
+        // `content type <e>`, `headers <e>`. Mirrors the `respond` clause loop.
+        // A connective directly before `as` is the end-of-clauses join and is
+        // consumed so the `as <name>` binding parses; a connective before any
+        // other unrecognized token ends the loop WITHOUT being consumed, so the
+        // trailing `expect_token(as)` reports the malformed clause.
+        loop {
+            let connective = matches!(
+                self.cursor.peek(),
+                Some(t) if t.token == Token::KeywordWith || t.token == Token::KeywordAnd
+            );
+            if !connective {
+                break;
+            }
+            let Some(next_token) = self.cursor.peek_next() else {
+                break;
+            };
+
+            match &next_token.token {
+                Token::KeywordStatus => {
+                    self.bump_sync(); // with/and
+                    self.bump_sync(); // status
+                    status = Some(self.parse_primary_expression()?);
+                }
+                // `content type <e>` — `content` keyword then optional `type`.
+                // When `<e>` is a bare identifier the lexer merges it into the
+                // `type` token (`type ct` -> Identifier("type ct")), so split the
+                // value off rather than binding the whole thing as the variable.
+                Token::KeywordContent => {
+                    self.bump_sync(); // with/and
+                    self.bump_sync(); // content
+                    let merged_rest = if let Some(t) = self.cursor.peek()
+                        && let Token::Identifier(id) = &t.token
+                        && (id == "type" || id.starts_with("type "))
+                    {
+                        let id = id.clone();
+                        let pos = (t.line, t.column);
+                        self.bump_sync(); // (possibly merged) type
+                        let rest = id.strip_prefix("type").map(str::trim_start).unwrap_or("");
+                        (!rest.is_empty()).then(|| (rest.to_string(), pos))
+                    } else {
+                        None
+                    };
+                    content_type = Some(match merged_rest {
+                        Some((rest, (l, c))) => {
+                            // Full expression continuation (postfix + `of` +
+                            // operators), same as ordinary `<e>` — e.g.
+                            // `content type mime_type of path` (issue #642).
+                            let lead = Expression::Variable(rest, l, c);
+                            self.parse_clause_operand_from_lead(lead)?
+                        }
+                        None => self.parse_primary_expression()?,
+                    });
+                }
+                // Merged `content_type <var>` / `content type <var>` form.
+                Token::Identifier(id)
+                    if id == "content_type"
+                        || id.starts_with("content_type ")
+                        || id.starts_with("content type") =>
+                {
+                    let id = id.clone();
+                    let (id_line, id_column) = (next_token.line, next_token.column);
+                    self.bump_sync(); // with/and
+                    self.bump_sync(); // merged marker
+                    let rest = id
+                        .strip_prefix("content_type")
+                        .map(str::trim_start)
+                        .unwrap_or_else(|| {
+                            id.strip_prefix("content type")
+                                .map(str::trim_start)
+                                .unwrap_or("")
+                        });
+                    if rest.is_empty() {
+                        content_type = Some(self.parse_primary_expression()?);
+                    } else {
+                        let lead = Expression::Variable(rest.to_string(), id_line, id_column);
+                        content_type = Some(self.parse_clause_operand_from_lead(lead)?);
+                    }
+                }
+                // `headers <map>` (bare or merged `headers <var>`).
+                Token::Identifier(id) if id == "headers" || id.starts_with("headers ") => {
+                    let id = id.clone();
+                    let (id_line, id_column) = (next_token.line, next_token.column);
+                    self.bump_sync(); // with/and
+                    self.bump_sync(); // merged marker
+                    let rest = id
+                        .strip_prefix("headers")
+                        .map(str::trim_start)
+                        .unwrap_or("");
+                    if rest.is_empty() {
+                        headers = Some(self.parse_primary_expression()?);
+                    } else {
+                        // Clause operand: postfix/`of`/operators but stop before
+                        // the next clause connective (`and content type`, `as`).
+                        let lead = Expression::Variable(rest.to_string(), id_line, id_column);
+                        headers = Some(self.parse_clause_operand_from_lead(lead)?);
+                    }
+                }
+                // A connective directly before `as` just joins the clause list to
+                // the binding; consume it so `as <name>` parses cleanly instead of
+                // `expect_token(as)` tripping over the leftover `and`/`with`.
+                Token::KeywordAs => {
+                    self.bump_sync(); // consume the connective; `as` stays next
+                    break;
+                }
+                _ => break,
+            }
+        }
+
+        self.expect_token(
+            Token::KeywordAs,
+            "Expected 'as <name>' after 'start streaming response ...'",
+        )?;
+        let variable_name = self.parse_variable_name_simple()?;
+
+        Ok(Statement::StartStreamingResponseStatement {
+            request,
+            status,
+            content_type,
+            headers,
+            variable_name,
+            line,
+            column,
+        })
+    }
+
+    fn parse_flush_stream(&mut self) -> Result<Statement, ParseError> {
+        // `flush <out>` — the lexer merges a bare-identifier target into the
+        // command token (`flush out` -> Identifier("flush out")).
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        let phrase = match &token.token {
+            Token::Identifier(id) => id.clone(),
+            _ => {
+                return Err(ParseError::from_token(
+                    "Expected 'flush <stream>'".to_string(),
+                    token,
+                ));
+            }
+        };
+        let rest = phrase
+            .strip_prefix("flush")
+            .map(str::trim_start)
+            .unwrap_or("");
+        let (target, action_fallback) = if rest.is_empty() {
+            (self.parse_primary_expression()?, None)
+        } else {
+            // Stream reading: postfix on the split-off rest (`cache` from
+            // `flush cache`). Legacy expression: same postfix on the FULL phrase
+            // (`flush cache`) so `flush cache[0]` / `.property` / `.method()` /
+            // `at` keep their old expression-statement AST (issue #642 re-review).
+            let cp = self.cursor.checkpoint();
+            let stream_lead = Expression::Variable(rest.to_string(), line, column);
+            let target = self.parse_trailing_postfix(stream_lead)?;
+            self.cursor.rewind(cp);
+            let legacy_lead = Expression::Variable(phrase.clone(), line, column);
+            let fallback = self.parse_trailing_postfix(legacy_lead)?;
+            (target, Some(fallback))
+        };
+
+        Ok(Statement::FlushStreamStatement {
+            target,
+            action_fallback,
+            line,
+            column,
         })
     }
 
