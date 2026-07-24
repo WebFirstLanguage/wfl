@@ -116,6 +116,49 @@ fn test_flush_parses() {
 }
 
 #[test]
+fn test_flush_with_index_operand_parses() {
+    // `flush streams["a"]`: the lexer merges `flush streams`; the trailing `["a"]`
+    // must bind to the operand (one IndexAccess), not leave dangling tokens that
+    // split into a bogus second statement.
+    let tokens = lex_wfl_with_positions(r#"flush streams["a"]"#);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    assert_eq!(
+        program.statements.len(),
+        1,
+        "`flush <op>[idx]` must be one statement, got {:#?}",
+        program.statements
+    );
+    match &program.statements[0] {
+        Statement::FlushStreamStatement { target, .. } => assert!(
+            matches!(target, wfl::parser::ast::Expression::IndexAccess { .. }),
+            "flush operand must be an IndexAccess, got {target:#?}"
+        ),
+        other => panic!("expected FlushStreamStatement, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_flush_with_property_operand_parses() {
+    // `flush obj.out`: the lexer merges `flush obj`; the trailing `.out` must bind
+    // to the operand (a PropertyAccess), not split off.
+    let tokens = lex_wfl_with_positions("flush obj.out");
+    let program = Parser::new(&tokens).parse().expect("parse");
+    assert_eq!(
+        program.statements.len(),
+        1,
+        "`flush <op>.prop` must be one statement, got {:#?}",
+        program.statements
+    );
+    match &program.statements[0] {
+        Statement::FlushStreamStatement { target, .. } => assert!(
+            matches!(target, wfl::parser::ast::Expression::PropertyAccess { .. }),
+            "flush operand must be a PropertyAccess, got {target:#?}"
+        ),
+        other => panic!("expected FlushStreamStatement, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_write_bare_line_variable_to_file_still_parses() {
     // Backward compat: `write <var> to <file>` with a variable literally named
     // `line`/`chunk` must NOT be intercepted as a stream write (regression).
