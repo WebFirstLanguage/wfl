@@ -3948,6 +3948,16 @@ impl Interpreter {
         let mut futs = FuturesUnordered::new();
         let mut last_value = Value::Null;
 
+        // A handler that fails *before* it ever awaits (a deterministic bad
+        // expression, or `wait for request` on a server that was closed without
+        // the loop breaking) completes instantly, so a naive refill-and-repoll
+        // would spin the CPU (and the log) forever — and this loop is exempt from
+        // the wall-clock deadline. Count consecutive failures with no successful
+        // iteration in between: back off between them, and terminate the loop once
+        // it's clearly a structural failure rather than incidental handler errors.
+        let mut consecutive_failures: u32 = 0;
+        const MAX_CONSECUTIVE_FAILURES: u32 = 256;
+
         loop {
             self.check_time()?;
 
@@ -3970,6 +3980,8 @@ impl Interpreter {
             // `Ready(None)` that would busy-spin the loop.
             match futs.next().await {
                 Some(Ok(Ok((value, flow)))) => {
+                    // A completed iteration (request handled) — not a failure.
+                    consecutive_failures = 0;
                     last_value = value;
                     match flow {
                         ControlFlow::Break => break,
@@ -3985,17 +3997,56 @@ impl Interpreter {
                 // keep the server running instead of tearing it down.
                 Some(Ok(Err(err))) => {
                     log::warn!("concurrent main loop: handler error: {err}");
+                    if self
+                        .backoff_or_break_concurrent(
+                            &mut consecutive_failures,
+                            MAX_CONSECUTIVE_FAILURES,
+                        )
+                        .await
+                    {
+                        break;
+                    }
                 }
                 // A handler panicked: catch_unwind contained it; the request is
                 // answered 500 by the drop guard. Siblings survive.
                 Some(Err(_panic)) => {
                     log::warn!("concurrent main loop: handler panicked; request answered 500");
+                    if self
+                        .backoff_or_break_concurrent(
+                            &mut consecutive_failures,
+                            MAX_CONSECUTIVE_FAILURES,
+                        )
+                        .await
+                    {
+                        break;
+                    }
                 }
                 None => break, // unreachable while cap >= 1; end cleanly if reached
             }
         }
 
         Ok((last_value, ControlFlow::None))
+    }
+
+    /// Handle a failed concurrent-handler iteration: bump the consecutive-failure
+    /// counter, back off proportionally (capped) so instant failures cannot hot-
+    /// spin the CPU/log while the loop is deadline-exempt, and report whether the
+    /// caller should break the loop because failures have crossed the structural-
+    /// failure threshold (e.g. the server was closed without the loop breaking).
+    /// Returns `true` to break.
+    async fn backoff_or_break_concurrent(&self, consecutive_failures: &mut u32, max: u32) -> bool {
+        *consecutive_failures += 1;
+        if *consecutive_failures >= max {
+            log::error!(
+                "concurrent main loop: {consecutive_failures} consecutive handler failures with no successful request; stopping the loop to avoid a hot spin"
+            );
+            return true;
+        }
+        // Small, capped backoff so a burst of instant failures yields the thread
+        // (and rate-limits the log) instead of spinning.
+        let backoff_ms = (*consecutive_failures).min(50) as u64;
+        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+        false
     }
 
     /// Preserve ordinary file I/O failures while classifying byte-ceiling
