@@ -282,6 +282,32 @@ fn test_ambiguous_write_line_accepts_valid_classic_with_continuation() {
 }
 
 #[test]
+fn test_ambiguous_write_line_accepts_desugared_classic_writes() {
+    // Regression (maintainer review): the analyzer must NOT reject a valid classic
+    // file write whose value desugars to a call/comparison/pattern, where the
+    // ambiguous lead is not the plain leftmost leaf. Only the multiword `line …`
+    // variable is defined; the split stream name is not — and yet each of these
+    // is a valid pre-existing program that must analyze cleanly.
+    let cases = [
+        "store line path as \"/api\"\nwrite line path starts with \"/\" to \"/tmp/out\"",
+        "store line score as 3\nwrite line score is between 1 and 5 to \"/tmp/out\"",
+        "store line subject as \"abc\"\nwrite line subject matches pattern \"a\" to \"/tmp/out\"",
+        // `write chunk` shares the same ambiguity.
+        "store chunk path as \"/api\"\nwrite chunk path starts with \"/\" to \"/tmp/out\"",
+    ];
+    for code in cases {
+        let tokens = lex_wfl_with_positions(code);
+        let program = Parser::new(&tokens).parse().expect("parse");
+        let mut analyzer = Analyzer::new();
+        assert!(
+            analyzer.analyze(&program).is_ok(),
+            "a valid classic desugared write must not be rejected.\n  code: {code}\n  errors: {:?}",
+            analyzer.get_errors()
+        );
+    }
+}
+
+#[test]
 fn test_ambiguous_write_line_still_flags_when_neither_candidate_defined() {
     // The ambiguous form defers definedness to runtime, but a genuine typo where
     // NEITHER reading resolves (`payload` as a stream value, nor `line payload`

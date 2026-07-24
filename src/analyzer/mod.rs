@@ -1674,27 +1674,38 @@ impl Analyzer {
                     // the live reading — stream write of `<ident>` vs classic
                     // file write of the variable `line <ident>` — depends on the
                     // runtime target type, and the two differ only in the leading
-                    // operand. So (1) analyze the shared continuation (everything
-                    // to the right of the lead) so a genuinely undefined variable
-                    // there is still caught, and (2) report the leading operand as
-                    // undefined only when *neither* reading's name resolves — so a
-                    // real typo is caught without rejecting either valid reading.
+                    // operand. Analyze ONLY the shapes where that lead is
+                    // unambiguously the single leftmost bare variable: a bare
+                    // `Variable`, or `<var> with <continuation>` (a `Concatenation`
+                    // whose left is that variable). Desugared forms place the lead
+                    // where a generic walk cannot separate it from the shared
+                    // continuation — `starts/ends with` makes the lead a call
+                    // argument, `is between` duplicates it, pattern/`of`/builtin-
+                    // `with` bury it in a call — so analyzing them would reject a
+                    // valid classic file write (a back-compat regression). Defer
+                    // those entirely to runtime.
                     Some(fallback) => {
-                        self.analyze_stream_write_continuation(value);
-                        let stream_name = Self::stream_write_lead_name(value);
-                        let fallback_name = Self::stream_write_lead_name(fallback);
-                        if let (Some(sn), Some(fal)) = (stream_name, fallback_name)
-                            && !self.name_is_defined(sn)
-                            && !self.name_is_defined(fal)
-                        {
-                            // Neither reading resolves — report the classic
-                            // (file-write) name, matching the runtime fallback.
-                            self.report_undefined_name(
-                                format!("Variable '{fal}' is not defined"),
-                                *line,
-                                *column,
-                            );
+                        let stream_name = Self::stream_write_simple_lead(value);
+                        let fallback_name = Self::stream_write_simple_lead(fallback);
+                        if let (Some(sn), Some(fal)) = (stream_name, fallback_name) {
+                            // Shared continuation (`with <rhs>`): the right side is
+                            // identical under both readings and unambiguous, so a
+                            // genuinely undefined variable there is still caught.
+                            if let Expression::Concatenation { right, .. } = value {
+                                self.analyze_expression(right);
+                            }
+                            // Report the lead undefined only when NEITHER reading's
+                            // name resolves — a real typo caught without rejecting
+                            // either valid reading.
+                            if !self.name_is_defined(sn) && !self.name_is_defined(fal) {
+                                self.report_undefined_name(
+                                    format!("Variable '{fal}' is not defined"),
+                                    *line,
+                                    *column,
+                                );
+                            }
                         }
+                        // Any other (desugared) shape: no analysis — runtime decides.
                     }
                 }
             }
@@ -3547,59 +3558,22 @@ impl Analyzer {
         }
     }
 
-    /// The ambiguous leading operand name of a `write line|chunk` value — the
-    /// leftmost leaf of the (possibly nested) expression. The two readings of the
-    /// merged form differ ONLY here (stream `<rest>` vs classic `line <rest>`);
-    /// everything to the right is a shared continuation. Reaches the leaf through
-    /// `with`/binary `left`, an `of`-call `function`, or an `ActionCall`'s callee
-    /// name (a builtin used with `with`).
-    fn stream_write_lead_name(expr: &Expression) -> Option<&str> {
+    /// The ambiguous leading operand name of a `write line|chunk` value, but ONLY
+    /// for the shapes where that lead is provably the single leftmost bare
+    /// variable and cleanly separable from the shared continuation: a bare
+    /// `Variable`, or `<var> with <continuation>` (a `Concatenation` whose left is
+    /// that variable). Returns `None` for every other shape — including the
+    /// desugared `starts/ends with` (call), `is between` (duplicated operand),
+    /// and pattern/`of`/builtin-`with` forms — so the caller skips analysis of
+    /// those rather than risk rejecting a valid classic file write.
+    fn stream_write_simple_lead(expr: &Expression) -> Option<&str> {
         match expr {
             Expression::Variable(name, ..) => Some(name),
-            Expression::ActionCall { name, .. } => Some(name),
-            Expression::Concatenation { left, .. } | Expression::BinaryOperation { left, .. } => {
-                Self::stream_write_lead_name(left)
-            }
-            Expression::FunctionCall { function, .. } => Self::stream_write_lead_name(function),
+            Expression::Concatenation { left, .. } => match &**left {
+                Expression::Variable(name, ..) => Some(name),
+                _ => None,
+            },
             _ => None,
-        }
-    }
-
-    /// Analyze the shared continuation of a `write line|chunk` value — every
-    /// sub-expression EXCEPT the ambiguous leading operand (its leftmost leaf).
-    /// This catches a genuinely undefined variable in the continuation (e.g. the
-    /// RHS of `<lead> with missing_suffix`) without flagging the leading operand,
-    /// which is valid under whichever of the two readings the runtime picks.
-    fn analyze_stream_write_continuation(&mut self, expr: &Expression) {
-        match expr {
-            // The leftmost leaf itself is the ambiguous lead — checked separately.
-            Expression::Variable(..) => {}
-            Expression::Concatenation { left, right, .. } => {
-                self.analyze_stream_write_continuation(left);
-                self.analyze_expression(right);
-            }
-            Expression::BinaryOperation { left, right, .. } => {
-                self.analyze_stream_write_continuation(left);
-                self.analyze_expression(right);
-            }
-            Expression::FunctionCall {
-                function,
-                arguments,
-                ..
-            } => {
-                self.analyze_stream_write_continuation(function);
-                for arg in arguments {
-                    self.analyze_expression(&arg.value);
-                }
-            }
-            Expression::ActionCall { arguments, .. } => {
-                // The callee name is the leading lead (skip); analyze the args.
-                for arg in arguments {
-                    self.analyze_expression(&arg.value);
-                }
-            }
-            // Any other shape has no ambiguous lead to protect — analyze it whole.
-            other => self.analyze_expression(other),
         }
     }
 
