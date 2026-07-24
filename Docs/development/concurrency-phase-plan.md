@@ -48,7 +48,7 @@ HARD RULES:
 | 0 | 0c | Bound accept/queue (OOM shed) | ✅ Done |
 | 1 | 1a | Runtime spike (bridge, no surface) | ✅ Done (folded into 1b) |
 | 1 | 1b | `main loop concurrently:` surface + ops defaults | ✅ Done — awaiting maintainer review |
-| 1 | 1c | Honesty docs for real concurrent model | ✅ Done |
+| 1 | 1c | Honesty docs for real concurrent model | ✅ Docs landed — some 1b/1c checklist items still open (request-ID logging; RefCell shutdown/signal-path audit), see notes below |
 
 > **Phase 1 landed in one change** (`Dev diary/2026-07-22-concurrent-request-handlers.md`),
 > not the staged 1a→1b→1c sequence. What is covered: `main loop concurrently:`
@@ -63,7 +63,9 @@ HARD RULES:
 > transport plus the interpreter's per-handler exit sweep (bounded queue → 503,
 > response deadline → 504, `ResponseCompletion` drop → 500 mid-`respond`, and a
 > handler that dequeues a request and ends **without** responding → an immediate
-> 500 rather than waiting out the request timeout; tested); the empty-set
+> 500 rather than waiting out the request timeout — *this immediate-500 case is
+> covered by a dedicated test*; the 503/504 cases are transport-provided and are
+> **not** exercised by a dedicated Phase-1 test); the empty-set
 > busy-spin trap is avoided (cap ≥ 1 keeps the set non-empty). Cooperative, not
 > parallel: handlers interleave only at await points, so a CPU-bound handler with
 > no await still holds the interpreter thread (documented in `web-servers.md`).
@@ -88,10 +90,14 @@ HARD RULES:
 > Regression: `tests/concurrent_main_loop_test.rs::test_concurrent_handlers_do_not_share_count_loop_state`
 > (Red without the swap: `/a` observed `/b`'s entire count range).
 >
-> **Also lighter than the full 1b checklist:** request-ID *structured* logging is
-> not yet added; the eval-core `RefCell`-across-await audit is enforced
-> mechanically by the crate-wide `#![deny(clippy::await_holding_refcell_ref)]`
-> backstop rather than a written per-site walkthrough.
+> **Also lighter than the full 1b checklist (open items):** request-ID
+> *structured* logging is not yet added; the eval-core `RefCell`-across-await
+> audit is **only partially covered** — the crate-wide
+> `#![deny(clippy::await_holding_refcell_ref)]` backstop catches borrows held
+> across `.await`, but the **shutdown/signal lifecycle paths** (dropped borrows on
+> teardown, e.g. `close server`'s `web_servers.borrow_mut()` held across a short
+> await) are **not yet separately audited or tested**. Treat the RefCell audit as
+> **open**, with the clippy lint as supplementary — not complete — coverage.
 >
 > **This is the maintainer STOP/review point** — please review before Phase 2.
 | 2 | 2a | Structured nursery + join engine | ⬜ Not started |
@@ -267,8 +273,10 @@ HARD RULES:
 - [ ] Request-ID structured logging on accept / complete / fail / shed / timeout
   — **known gap** (not yet added)
 - [x] catch_unwind boundary → **500**, siblings survive
-- [x] Eval-core audit: every `RefCell` borrow/borrow_mut on await paths drops
-  before `.await` (enforced mechanically by the crate-wide clippy backstop)
+- [~] Eval-core audit: every `RefCell` borrow/borrow_mut on await paths drops
+  before `.await` — **partial**: the clippy backstop catches await-holding
+  borrows, but the shutdown/signal lifecycle paths are not yet separately audited
+  (see the "open items" note above); treat as open
   - [~] PR description lists each site and drop-before-await story (mechanical
     lint in lieu of a written per-site walkthrough)
 - [x] clippy `await_holding_refcell_ref` enabled/enforced where applicable (backstop only)

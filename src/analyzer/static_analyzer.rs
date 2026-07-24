@@ -2207,11 +2207,25 @@ mod tests {
     fn test_streaming_statement_variables_are_not_reported_unused() {
         // Variables referenced only inside the streaming/incremental-read
         // statements must count as used — otherwise a program that opens a
-        // stream from a URL/body variable gets a false unused warning.
+        // stream from a URL/body variable gets a false unused warning. Exercise
+        // every new arm and every metadata operand:
+        //   - HttpStreamStatement: url, method, body
+        //   - WaitForNextChunkStatement / WaitForNextLineStatement: source
+        //   - StartStreamingResponseStatement: status, content type
+        // and a genuinely-unused variable to prove the pass still flags real
+        // dead code (negative assertion).
         let input = "store my_url as \"http://example.com/s\"\n\
+store my_method as \"POST\"\n\
 store my_body as \"payload\"\n\
-open url at my_url with method \"POST\" and body my_body and stream response as upstream\n\
+open url at my_url with method my_method and body my_body and stream response as upstream\n\
+wait for next chunk from upstream as ch\n\
 wait for next line from upstream as ln\n\
+store st as 200\n\
+store ctype as \"application/x-ndjson\"\n\
+start streaming response to req with status st and content type ctype as out\n\
+write line \"x\" to out\n\
+store dead as \"never read\"\n\
+display ch\n\
 display ln";
         let tokens = crate::lexer::lex_wfl_with_positions(input);
         let program = crate::parser::Parser::new(&tokens).parse().unwrap();
@@ -2219,9 +2233,18 @@ display ln";
         let analyzer = Analyzer::new();
         let diagnostics = analyzer.check_unused_variables(&program, 0);
 
+        // The only unused variable is `dead`; every streaming operand counts as
+        // used (a missing arm would surface `my_url`/`my_method`/`my_body`/
+        // `upstream`/`st`/`ctype` here too).
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected only `dead` unused, got: {diagnostics:?}"
+        );
         assert!(
-            diagnostics.is_empty(),
-            "streaming-statement variables must not be reported unused, got: {diagnostics:?}"
+            diagnostics[0].message.contains("dead"),
+            "expected the unused diagnostic to name `dead`, got: {:?}",
+            diagnostics[0].message
         );
     }
 
