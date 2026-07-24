@@ -3,8 +3,63 @@
 use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
 use super::database::DatabaseParser;
 use crate::lexer::token::Token;
-use crate::parser::expr::{ExprParser, PrimaryExprParser};
+use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 use std::sync::Arc;
+
+/// Replace the leftmost leaf operand of a (possibly nested) expression.
+///
+/// The merged `write line|chunk <ident> ...` form parses one value expression
+/// for the stream reading; the classic file-write reading differs only in its
+/// leading operand (the full merged `line <ident>` variable instead of the
+/// split `<ident>`). Rather than re-parse, we clone the parsed value and swap
+/// its leftmost operand — so a trailing `with`/operator continuation applies to
+/// both readings identically. `with`/binary chains here are right-associative
+/// (`a with b with c` => `Concat(a, Concat(b, c))`) and `<field> of <object>`
+/// is a `FunctionCall`, so the leading operand is always reached via `.left`,
+/// `.function`, or the leaf itself.
+fn replace_leftmost_leaf(expr: Expression, replacement: Expression) -> Expression {
+    match expr {
+        Expression::Concatenation {
+            left,
+            right,
+            line,
+            column,
+        } => Expression::Concatenation {
+            left: Box::new(replace_leftmost_leaf(*left, replacement)),
+            right,
+            line,
+            column,
+        },
+        Expression::BinaryOperation {
+            left,
+            operator,
+            right,
+            line,
+            column,
+        } => Expression::BinaryOperation {
+            left: Box::new(replace_leftmost_leaf(*left, replacement)),
+            operator,
+            right,
+            line,
+            column,
+        },
+        Expression::FunctionCall {
+            function,
+            arguments,
+            line,
+            column,
+        } => Expression::FunctionCall {
+            function: Box::new(replace_leftmost_leaf(*function, replacement)),
+            arguments,
+            line,
+            column,
+        },
+        // Leaf (a bare `Variable`, the common case) or a form whose leading
+        // operand is not a nested `Expression` (e.g. an `ActionCall`, from the
+        // rare `<builtin> with ...`): swap wholesale.
+        _ => replacement,
+    }
+}
 
 pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError>;
@@ -845,28 +900,38 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 (self.parse_expression()?, None)
             } else {
                 // `<ident>` alone (stream) vs the full merged `line <ident>`
-                // (classic file write of that variable).
+                // (classic file write of that variable). Build the stream
+                // reading's leading operand — `<ident>`, or `<field> of <object>`
+                // — then absorb any trailing `with`/operator continuation so the
+                // value parses like any other expression (a `write line payload
+                // with "!" to out` value, and the pre-existing classic file write
+                // `write line payload with "!" to file`, must not be truncated).
                 let stream_left = Expression::Variable(rest, marker_line, marker_column);
                 let file_left = Expression::Variable(id, marker_line, marker_column);
-                match self.cursor.peek().map(|t| &t.token) {
+                let value_lead = match self.cursor.peek().map(|t| &t.token) {
                     // `<field> of <object>`, e.g. `write line body of msg to out`.
                     Some(Token::KeywordOf) => {
                         self.bump_sync(); // Consume "of"
                         let object = self.parse_primary_expression()?;
-                        let of = |left: Expression| Expression::FunctionCall {
-                            function: Box::new(left),
+                        Expression::FunctionCall {
+                            function: Box::new(stream_left),
                             arguments: vec![crate::parser::ast::Argument {
                                 name: None,
-                                value: object.clone(),
+                                value: object,
                             }],
                             line: marker_line,
                             column: marker_column,
-                        };
-                        (of(stream_left), Some(Box::new(of(file_left))))
+                        }
                     }
-                    // A bare variable value: the next token starts `to ...`.
-                    _ => (stream_left, Some(Box::new(file_left))),
-                }
+                    // A bare variable value (possibly followed by `with ...`).
+                    _ => stream_left,
+                };
+                let value = self.parse_binary_continuation(value_lead, 0)?;
+                // The classic file-write reading is identical except its leading
+                // operand is the full merged `line <ident>`; mirror the parsed
+                // continuation onto it by swapping the leftmost leaf.
+                let fallback = replace_leftmost_leaf(value.clone(), file_left);
+                (value, Some(Box::new(fallback)))
             };
 
             self.expect_token(

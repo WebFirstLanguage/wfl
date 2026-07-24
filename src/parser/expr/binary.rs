@@ -21,6 +21,20 @@ pub(crate) trait BinaryExprParser<'a> {
     /// Returns an `Expression` representing the parsed binary expression, or a `ParseError` if the syntax is invalid.
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError>;
 
+    /// Continue a binary expression from an already-parsed left-hand side.
+    ///
+    /// `parse_binary_expression` parses a fresh primary and then runs the
+    /// operator loop; this exposes just the loop so a caller that consumed the
+    /// leading operand itself (e.g. the merged `write line <ident>` form) can
+    /// still absorb trailing `with`/operator continuations — so
+    /// `write line payload with "!" to out` parses its value like any other
+    /// expression instead of stopping at the bare variable.
+    fn parse_binary_continuation(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError>;
+
     /// Parses a function/action call expression.
     ///
     /// # Parameters
@@ -53,8 +67,15 @@ pub(crate) trait BinaryExprParser<'a> {
 
 impl<'a> BinaryExprParser<'a> for Parser<'a> {
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
-        let mut left = self.parse_primary_expression()?;
+        let left = self.parse_primary_expression()?;
+        self.parse_binary_continuation(left, precedence)
+    }
 
+    fn parse_binary_continuation(
+        &mut self,
+        mut left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError> {
         while let Some(token_pos) = self.cursor.peek() {
             let token = &token_pos.token;
             let line = token_pos.line;

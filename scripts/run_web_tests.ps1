@@ -79,8 +79,16 @@ function Stop-ServerProcess {
     param($Process)
     if ($Process -and -not $Process.HasExited) {
         $Process.Kill()
-        try { $Process.WaitForExit(5000) | Out-Null } catch { }
-        Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+        # WaitForExit(ms) returns $true only if the process actually exited in
+        # time; report honestly rather than always claiming success (a process
+        # still alive can race temp-file/cert cleanup that follows).
+        $exited = $false
+        try { $exited = $Process.WaitForExit(5000) } catch { }
+        if ($exited) {
+            Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+        } else {
+            Write-Host "[WARN] Server process did not exit within 5s of Kill()" -ForegroundColor Yellow
+        }
     }
 }
 
@@ -93,7 +101,11 @@ function Stop-ServerProcess {
 function Get-LocationHeader {
     param($Response)
     if ($null -eq $Response) { return $null }
-    if ($Response -is [System.Net.Http.HttpResponseMessage]) {
+    # Match the HttpResponseMessage shape by type NAME, not the type literal
+    # [System.Net.Http.HttpResponseMessage]: a clean Windows PowerShell 5.1
+    # process may not have System.Net.Http loaded, so resolving the literal would
+    # throw before the HttpWebResponse string-indexer fallback below.
+    if ($Response.GetType().FullName -eq 'System.Net.Http.HttpResponseMessage') {
         if ($Response.Headers.Location) { return $Response.Headers.Location.AbsoluteUri }
         return $null
     }

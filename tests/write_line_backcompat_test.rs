@@ -11,7 +11,7 @@ use wfl::Interpreter;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::parser::ast::Statement;
+use wfl::parser::ast::{Expression, Statement};
 
 fn parse(code: &str) -> Vec<Statement> {
     let tokens = lex_wfl_with_positions(code);
@@ -80,6 +80,84 @@ fn test_write_line_multiword_variable_parses_with_fallback() {
         ),
         other => panic!("expected StreamWriteStatement, got {other:?}"),
     }
+}
+
+#[test]
+fn test_write_line_with_continuation_parses_for_both_readings() {
+    // `write line payload with "!" to out`: the value must absorb the `with`
+    // continuation for the stream reading, and the classic file-write fallback
+    // must mirror it (leading variable `line payload`, same continuation) — not
+    // truncate at the bare variable and fail at `with`.
+    let stmt = &parse(r#"write line payload with "!" to out"#)[0];
+    match stmt {
+        Statement::StreamWriteStatement {
+            value,
+            fallback_content,
+            ..
+        } => {
+            // Stream reading: Concatenation(Variable("payload"), "!").
+            match value {
+                Expression::Concatenation { left, .. } => match &**left {
+                    Expression::Variable(name, ..) => assert_eq!(name, "payload"),
+                    other => panic!("stream value left should be Variable(payload), got {other:?}"),
+                },
+                other => panic!("stream value should be a Concatenation, got {other:?}"),
+            }
+            // Classic file-write fallback: Concatenation(Variable("line payload"), "!").
+            let fb = fallback_content
+                .as_ref()
+                .expect("merged `write line <ident> with ...` keeps a file-write fallback");
+            match &**fb {
+                Expression::Concatenation { left, .. } => match &**left {
+                    Expression::Variable(name, ..) => assert_eq!(name, "line payload"),
+                    other => {
+                        panic!("fallback left should be Variable(line payload), got {other:?}")
+                    }
+                },
+                other => panic!("fallback should mirror the continuation, got {other:?}"),
+            }
+        }
+        other => panic!("expected StreamWriteStatement, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_write_line_variable_with_continuation_to_file_preserves_concatenation() {
+    // A pre-existing classic file write with a `with` continuation on a variable
+    // literally named `line note`. Before continuation parsing this failed to
+    // parse (the interception expected `to` right after the variable); it must
+    // now write the concatenated value to the file.
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().join("wfl_write_line_continuation.txt");
+    let path_str = path.to_string_lossy().replace('\\', "/");
+
+    let code = format!(
+        r#"store line note as "kept"
+write line note with "!" to "{path_str}""#
+    );
+
+    let program = {
+        let tokens = lex_wfl_with_positions(&code);
+        let mut parser = Parser::new(&tokens);
+        parser.parse().expect("parse")
+    };
+
+    let mut analyzer = Analyzer::new();
+    analyzer
+        .analyze(&program)
+        .expect("analysis must accept `write line <var> with ... to <file>`");
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut interp = Interpreter::new();
+        interp.interpret(&program).await.expect("interpret");
+    });
+
+    let contents = std::fs::read_to_string(&path).expect("output file should exist");
+    assert_eq!(
+        contents, "kept!",
+        "the concatenated value (variable `line note` with \"!\") must reach the file"
+    );
 }
 
 #[test]
