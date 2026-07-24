@@ -1619,6 +1619,12 @@ enum HttpClientError {
     Request(String),
     Budget(BudgetExceeded),
     Timeout { seconds: u64 },
+    /// The downstream (browser) client disconnected while a proxy handler was
+    /// blocked on this upstream read, so the read was cancelled cooperatively.
+    /// A normal, expected event — distinct from a fault — surfaced with
+    /// `ErrorKind::Cancelled` so the concurrent loop does not count it as a
+    /// handler failure.
+    Disconnected,
 }
 
 impl From<BudgetExceeded> for HttpClientError {
@@ -3848,6 +3854,12 @@ impl Interpreter {
                 column,
                 ErrorKind::Timeout,
             ),
+            HttpClientError::Disconnected => RuntimeError::with_kind(
+                "Client disconnected; upstream read cancelled".to_string(),
+                line,
+                column,
+                ErrorKind::Cancelled,
+            ),
         }
     }
 
@@ -4145,6 +4157,17 @@ impl Interpreter {
                         }
                         ControlFlow::Continue | ControlFlow::None => {}
                     }
+                }
+                // A client disconnect cancelled the handler cooperatively. That is
+                // an EXPECTED external event, not a fault — releasing this handler
+                // must not feed the structural consecutive-failure breaker (else a
+                // burst of disconnects would back off and eventually tear the loop
+                // down, turning "the browser hung up" into a denial of service).
+                // The handler's owned streams are already closed on unwind; leave
+                // the failure counter untouched (a disconnect is neither progress
+                // nor failure) and keep serving.
+                Some(Ok(Err(err))) if err.kind == ErrorKind::Cancelled => {
+                    log::debug!("concurrent main loop: handler cancelled (client disconnected)");
                 }
                 // A handler returned a runtime error: its request (if it took one)
                 // is answered 500 by the ResponseCompletion drop guard. Log and
@@ -7206,9 +7229,10 @@ impl Interpreter {
                         _ = &mut disconnect => {
                             // Client gone: dropping `read` above already cancels
                             // the upstream; close the handle too in case the read
-                            // had not yet taken it, and report cancellation.
+                            // had not yet taken it, and report the disconnect as a
+                            // cooperative cancellation (not a handler failure).
                             self.io_client.close_stream(&handle_id).await;
-                            Err(HttpClientError::Budget(BudgetExceeded::Cancelled))
+                            Err(HttpClientError::Disconnected)
                         }
                     }
                 };
@@ -7260,7 +7284,7 @@ impl Interpreter {
                         r = &mut read => r,
                         _ = &mut disconnect => {
                             self.io_client.close_stream(&handle_id).await;
-                            Err(HttpClientError::Budget(BudgetExceeded::Cancelled))
+                            Err(HttpClientError::Disconnected)
                         }
                     }
                 };
