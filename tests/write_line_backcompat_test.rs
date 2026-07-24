@@ -125,3 +125,23 @@ write line note to "{path_str}""#
     );
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn test_ambiguous_write_line_still_flags_when_neither_candidate_defined() {
+    // The ambiguous form defers definedness to runtime, but a genuine typo where
+    // NEITHER reading resolves (`payload` as a stream value, nor `line payload`
+    // as a file-write variable) must still be caught by static analysis.
+    let code = "listen on port 8080 as srv\nwrite line payload to srv";
+    let tokens = lex_wfl_with_positions(code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+
+    let mut analyzer = Analyzer::new();
+    let result = analyzer.analyze(&program);
+    let errors = result.expect_err("neither `payload` nor `line payload` is defined");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("line payload") && e.message.contains("not defined")),
+        "expected an undefined-variable error naming `line payload`, got: {errors:?}"
+    );
+}

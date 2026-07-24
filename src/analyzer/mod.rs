@@ -1622,19 +1622,46 @@ impl Analyzer {
                 value,
                 target,
                 fallback_content,
+                line,
+                column,
                 ..
             } => {
                 self.analyze_expression(target);
-                // For the unambiguous form, check the stream value. For the
-                // ambiguous merged form (`write line <ident> to <target>`,
-                // `fallback_content` is `Some`) the live interpretation — stream
-                // write of `<ident>` vs classic file write of the variable
-                // `line <ident>` — depends on the runtime target type, and the
-                // two reference different variables. Analyzing either here would
-                // reject a program that is valid under the other reading, so
-                // definedness is deferred to runtime for this form.
-                if fallback_content.is_none() {
-                    self.analyze_expression(value);
+                match fallback_content {
+                    // Unambiguous form: check the stream value normally.
+                    None => self.analyze_expression(value),
+                    // Ambiguous merged form (`write line <ident> to <target>`):
+                    // the live reading — stream write of `<ident>` vs classic
+                    // file write of the variable `line <ident>` — depends on the
+                    // runtime target type, and the two read different variables.
+                    // Still (1) analyze any unambiguous subexpression (the
+                    // `<object>` in `<field> of <object>`), and (2) report an
+                    // undefined variable only when *neither* candidate name is
+                    // defined, so a genuine typo is still caught without breaking
+                    // either valid reading.
+                    Some(fallback) => {
+                        // The `of <object>` argument is the same under both
+                        // readings and is unambiguous — analyze it.
+                        if let Expression::FunctionCall { arguments, .. } = value {
+                            for arg in arguments {
+                                self.analyze_expression(&arg.value);
+                            }
+                        }
+                        let stream_name = Self::stream_write_candidate_name(value);
+                        let fallback_name = Self::stream_write_candidate_name(fallback);
+                        if let (Some(sn), Some(fal)) = (stream_name, fallback_name)
+                            && !self.name_is_defined(sn)
+                            && !self.name_is_defined(fal)
+                        {
+                            // Neither reading resolves — report the classic
+                            // (file-write) name, matching the runtime fallback.
+                            self.report_undefined_name(
+                                format!("Variable '{fal}' is not defined"),
+                                *line,
+                                *column,
+                            );
+                        }
+                    }
                 }
             }
 
@@ -3484,6 +3511,37 @@ impl Analyzer {
             Type::Async(inner) => format!("Async {}", Self::format_type_for_display(inner)),
             _ => format!("{:?}", t).replace("Type::", ""),
         }
+    }
+
+    /// The candidate variable name referenced by a `write line|chunk` value: a
+    /// bare `Variable`, or the callee of a `<field> of <object>` call.
+    fn stream_write_candidate_name(expr: &Expression) -> Option<&str> {
+        match expr {
+            Expression::Variable(name, ..) => Some(name),
+            Expression::FunctionCall { function, .. } => match &**function {
+                Expression::Variable(name, ..) => Some(name),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether a bare name resolves to something known (an action parameter, the
+    /// `count` loop variable, a builtin, an in-scope binding, or a container
+    /// property) — i.e. it would NOT be reported as an undefined variable. Used
+    /// to decide the ambiguous `write line|chunk` case without emitting.
+    fn name_is_defined(&self, name: &str) -> bool {
+        if self.action_parameters.contains(name)
+            || name == "count"
+            || Self::is_builtin_function(name)
+            || self.current_scope.resolve(name).is_some()
+        {
+            return true;
+        }
+        if let Some(container_name) = &self.current_container {
+            return self.is_container_property(container_name, name);
+        }
+        false
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {
