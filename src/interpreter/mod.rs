@@ -3989,6 +3989,36 @@ impl Interpreter {
             .retain(|id| id != handle_id);
     }
 
+    /// Clone the sender of every downstream response stream this handler owns. A
+    /// client disconnect drops the stream's `Receiver`, so `Sender::closed()` on
+    /// a clone resolves — a proactive disconnect signal that a blocked upstream
+    /// read can select against, so a proxy handler wakes and cancels its upstream
+    /// the moment the browser goes away, instead of only discovering it at the
+    /// next downstream `write` or when the absolute stream deadline elapses.
+    /// Returns owned clones (no `RefCell` borrow is held across the later await).
+    fn downstream_disconnect_senders(&self) -> Vec<mpsc::Sender<Vec<u8>>> {
+        let open = self.open_response_streams.borrow();
+        if open.is_empty() {
+            return Vec::new();
+        }
+        let map = self.server_response_streams.borrow();
+        open.iter()
+            .filter_map(|id| map.get(id).map(|(tx, _)| tx.clone()))
+            .collect()
+    }
+
+    /// Await until ANY of `senders`' downstream clients has disconnected (its
+    /// `Receiver` dropped). Never resolves if `senders` is empty — the caller
+    /// guards that case so `select!` still has a live branch.
+    async fn any_downstream_disconnected(senders: Vec<mpsc::Sender<Vec<u8>>>) {
+        if senders.is_empty() {
+            std::future::pending::<()>().await;
+            return;
+        }
+        let closes: Vec<_> = senders.iter().map(|tx| Box::pin(tx.closed())).collect();
+        let _ = futures_util::future::select_all(closes).await;
+    }
+
     /// Close (drop the sender for) each server response stream whose handle id is
     /// in `ids`, ending its body so the client stops waiting. Idempotent — an id
     /// already closed by an explicit `close out` (or a disconnect) is a no-op —
@@ -7160,11 +7190,29 @@ impl Interpreter {
                 let handle_id = self
                     .resolve_stream_handle(source, &env, *line, *column)
                     .await?;
-                match self
+                // Race the upstream read against a downstream client disconnect so
+                // a blocked proxy read is cancelled promptly when the browser goes
+                // away (see `downstream_disconnect_senders`).
+                let disconnect =
+                    Self::any_downstream_disconnected(self.downstream_disconnect_senders());
+                let read = self
                     .io_client
-                    .next_chunk(&handle_id, Arc::clone(&self.budget))
-                    .await
-                {
+                    .next_chunk(&handle_id, Arc::clone(&self.budget));
+                let outcome = {
+                    tokio::pin!(read);
+                    tokio::pin!(disconnect);
+                    tokio::select! {
+                        r = &mut read => r,
+                        _ = &mut disconnect => {
+                            // Client gone: dropping `read` above already cancels
+                            // the upstream; close the handle too in case the read
+                            // had not yet taken it, and report cancellation.
+                            self.io_client.close_stream(&handle_id).await;
+                            Err(HttpClientError::Budget(BudgetExceeded::Cancelled))
+                        }
+                    }
+                };
+                match outcome {
                     // Raw bytes as Binary so callers can handle any payload.
                     // define_or_replace (not define) so re-reading into the same
                     // variable across a loop refreshes it, matching
@@ -7198,11 +7246,25 @@ impl Interpreter {
                 let handle_id = self
                     .resolve_stream_handle(source, &env, *line, *column)
                     .await?;
-                match self
+                // Race the upstream read against a downstream client disconnect
+                // (see the `wait for next chunk` handler).
+                let disconnect =
+                    Self::any_downstream_disconnected(self.downstream_disconnect_senders());
+                let read = self
                     .io_client
-                    .next_line(&handle_id, Arc::clone(&self.budget))
-                    .await
-                {
+                    .next_line(&handle_id, Arc::clone(&self.budget));
+                let outcome = {
+                    tokio::pin!(read);
+                    tokio::pin!(disconnect);
+                    tokio::select! {
+                        r = &mut read => r,
+                        _ = &mut disconnect => {
+                            self.io_client.close_stream(&handle_id).await;
+                            Err(HttpClientError::Budget(BudgetExceeded::Cancelled))
+                        }
+                    }
+                };
+                match outcome {
                     Ok(Some(line_text)) => {
                         let value = Value::Text(line_text.into());
                         env.borrow_mut().define_or_replace(variable_name, value);
