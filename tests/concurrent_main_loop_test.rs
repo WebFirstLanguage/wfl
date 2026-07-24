@@ -53,7 +53,11 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
             let mut parser = Parser::new(&tokens);
             let ast = parser.parse().expect("parse");
             let mut interpreter = Interpreter::new();
-            let _ = interpreter.interpret(&ast).await;
+            // Surface an unexpected interpreter error as a thread panic so
+            // `shutdown` re-raises it instead of the test silently passing.
+            if let Err(errors) = interpreter.interpret(&ast).await {
+                panic!("server interpreter failed: {errors:?}");
+            }
         });
     })
 }
@@ -106,7 +110,13 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
         .get(format!("http://127.0.0.1:{port}/shutdown"))
         .send()
         .await;
-    let _ = tokio::task::spawn_blocking(move || server.join()).await;
+    // Re-raise a server-thread panic (or interpreter error) instead of dropping
+    // it, so a server-side failure fails the test loudly.
+    match tokio::task::spawn_blocking(move || server.join()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(panic)) => std::panic::resume_unwind(panic),
+        Err(join_err) => panic!("server join task failed: {join_err}"),
+    }
 }
 
 #[tokio::test]

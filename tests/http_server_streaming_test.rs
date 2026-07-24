@@ -116,9 +116,23 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
             let mut parser = Parser::new(&tokens);
             let ast = parser.parse().expect("Failed to parse WFL code");
             let mut interpreter = Interpreter::new();
-            let _ = interpreter.interpret(&ast).await;
+            // Surface an unexpected interpreter error as a thread panic, so the
+            // test's `join_server` re-raises it instead of silently passing.
+            if let Err(errors) = interpreter.interpret(&ast).await {
+                panic!("server interpreter failed: {errors:?}");
+            }
         });
     })
+}
+
+/// Join the server thread and re-raise its panic (if any) in the test thread, so
+/// a server-side panic or interpreter error fails the test loudly rather than
+/// being dropped. `JoinHandle::join`'s error is `Box<dyn Any>` (no `Debug`), so
+/// `resume_unwind` is the way to propagate it with its original message.
+fn join_server(handle: std::thread::JoinHandle<()>) {
+    if let Err(panic) = handle.join() {
+        std::panic::resume_unwind(panic);
+    }
 }
 
 /// Wait until the WFL server has bound `port` and is accepting connections,
@@ -174,7 +188,7 @@ async fn test_streamed_response_lines_and_headers() {
     let body = response.text().await.expect("Failed to read body");
     assert_eq!(body, "alpha\nbeta\ngamma\n");
 
-    let _ = server_handle.join();
+    join_server(server_handle);
 }
 
 #[tokio::test]
@@ -212,7 +226,7 @@ async fn test_write_after_close_does_not_reach_client() {
         "writes after close must not reach the client"
     );
 
-    let _ = server_handle.join();
+    join_server(server_handle);
 }
 
 #[tokio::test]
@@ -264,7 +278,7 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
         .get(format!("http://127.0.0.1:{port}/shutdown"))
         .send()
         .await;
-    let _ = server_handle.join();
+    join_server(server_handle);
 }
 
 #[tokio::test]
@@ -297,5 +311,5 @@ async fn test_streamed_response_write_chunk_verbatim() {
     // write chunk does not append newlines.
     assert_eq!(body, "onetwo");
 
-    let _ = server_handle.join();
+    join_server(server_handle);
 }
