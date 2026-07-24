@@ -8,6 +8,7 @@
 
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
+use wfl::parser::ast::{Expression, Statement};
 use wfl::typechecker::TypeChecker;
 
 fn typecheck(code: &str) -> Result<(), String> {
@@ -87,6 +88,27 @@ fn test_outbound_stream_handle_dot_access_typechecks() {
         typecheck(code).is_ok(),
         "dot access on a stream handle must type-check: {:?}",
         typecheck(code).err()
+    );
+
+    // Type-checking alone is a false green here: even when
+    // `upstream.headers["content-type"]` mis-parses into two statements
+    // (`store ct as upstream.headers` + a stray `["content-type"]` list literal)
+    // both halves type-check. Assert the *structure*: the header lookup binds as
+    // one IndexAccess over the PropertyAccess, so the key is not silently dropped.
+    let tokens = lex_wfl_with_positions(code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    let ct_stmt = program
+        .statements
+        .iter()
+        .find_map(|s| match s {
+            Statement::VariableDeclaration { name, value, .. } if name == "ct" => Some(value),
+            _ => None,
+        })
+        .expect("a `store ct as ...` statement");
+    assert!(
+        matches!(ct_stmt, Expression::IndexAccess { .. }),
+        "`upstream.headers[\"content-type\"]` must bind `ct` to an IndexAccess over the \
+         PropertyAccess (the lookup must not split off), got {ct_stmt:#?}"
     );
 }
 
