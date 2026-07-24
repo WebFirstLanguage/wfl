@@ -4661,16 +4661,29 @@ impl TypeChecker {
     }
 
     /// Whether an inferred type is acceptable as an HTTP header map. Header names
-    /// must be text, so a map with a concretely-typed non-text key (e.g.
-    /// `Map<Number, _>`) is rejected. `Unknown`/`Any`/`Error` — whether as the
-    /// whole type or as the key type of a map whose key the checker could not pin
-    /// down (map literals often infer an unknown key) — are accepted so a header
-    /// set the checker cannot fully resolve is not falsely flagged.
+    /// must be text, and header values are what the interpreter accepts and
+    /// stringifies — text, number, or boolean (see the `respond`/HTTP header
+    /// handling); a concretely-typed non-text key or a value type the runtime
+    /// rejects (e.g. `Map<Text, Binary>`) is flagged. `Unknown`/`Any`/`Error` —
+    /// whether as the whole type or as the key/value type of a map the checker
+    /// could not fully pin down (map literals often infer unknown key/value
+    /// types) — are always accepted so a header set the checker cannot resolve is
+    /// never falsely flagged.
     fn is_valid_header_map_type(&self, ty: &Type) -> bool {
         match ty {
             Type::Unknown | Type::Any | Type::Error => true,
-            Type::Map(key, _) => {
-                matches!(**key, Type::Text | Type::Unknown | Type::Any | Type::Error)
+            Type::Map(key, value) => {
+                let key_ok = matches!(**key, Type::Text | Type::Unknown | Type::Any | Type::Error);
+                let value_ok = matches!(
+                    **value,
+                    Type::Text
+                        | Type::Number
+                        | Type::Boolean
+                        | Type::Unknown
+                        | Type::Any
+                        | Type::Error
+                );
+                key_ok && value_ok
             }
             _ => false,
         }
@@ -4751,10 +4764,14 @@ mod tests {
         // text-keyed maps and any map whose key the checker could not pin down.
         let tc = TypeChecker::new();
 
-        // Accepted: text keys, or an unresolved/loose key type.
+        // Accepted: text keys with a value type the runtime stringifies
+        // (text/number/bool), or an unresolved/loose key or value type.
         for ok in [
-            Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
             Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Number)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Boolean)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
             Type::Map(Box::new(Type::Unknown), Box::new(Type::Unknown)),
             Type::Map(Box::new(Type::Any), Box::new(Type::Text)),
             Type::Unknown,
@@ -4766,10 +4783,16 @@ mod tests {
             );
         }
 
-        // Rejected: a map with a concrete non-text key, or a non-map entirely.
+        // Rejected: a concrete non-text key, a value type the runtime rejects
+        // (e.g. Binary or a nested list), or a non-map entirely.
         for bad in [
             Type::Map(Box::new(Type::Number), Box::new(Type::Text)),
             Type::Map(Box::new(Type::Boolean), Box::new(Type::Any)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Binary)),
+            Type::Map(
+                Box::new(Type::Text),
+                Box::new(Type::List(Box::new(Type::Text))),
+            ),
             Type::Number,
             Type::Text,
         ] {

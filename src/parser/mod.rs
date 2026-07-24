@@ -612,14 +612,18 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 // words (and a bare identifier message) lex as one merged token.
                 // `start streaming response to <req> ... as <out>`. `start` is a
                 // keyword; `streaming` is a contextual identifier; `response` is
-                // a keyword. Only intercept when `streaming` actually follows, so
-                // any other statement-initial use of the `start` keyword (e.g.
-                // the `start of text` pattern anchor) is not hijacked and can
-                // fall through to its own handling.
+                // a keyword. `response` being a keyword means it never merges into
+                // the identifier, so `streaming` always arrives as the *exact*
+                // token `Identifier("streaming")`. Match only that exact token —
+                // NOT `starts_with("streaming ")`, which would hijack an unrelated
+                // `start streaming <ident> ...` (the lexer merges those into
+                // `Identifier("streaming <ident>")`) into a confusing parse error.
+                // Any other statement-initial use of `start` (e.g. the
+                // `start of text` pattern anchor) falls through to its own handler.
                 Token::KeywordStart
                     if matches!(
                         self.cursor.peek_next().map(|t| &t.token),
-                        Some(Token::Identifier(id)) if id == "streaming" || id.starts_with("streaming ")
+                        Some(Token::Identifier(id)) if id == "streaming"
                     ) =>
                 {
                     self.parse_start_streaming_response()

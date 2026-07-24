@@ -84,6 +84,27 @@ function Stop-ServerProcess {
     }
 }
 
+# Extract the Location header from a redirect response across PowerShell/response
+# shapes. With -MaximumRedirection 0, pwsh 7 throws and $_.Exception.Response is
+# an HttpResponseMessage whose Headers has NO string indexer, so ["Location"]
+# silently returns $null; its Location is the strongly-typed .Headers.Location
+# (a Uri). Invoke-WebRequest's own response object (and Windows PowerShell 5.1's
+# HttpWebResponse) use a string indexer instead, whose value may be a string[].
+function Get-LocationHeader {
+    param($Response)
+    if ($null -eq $Response) { return $null }
+    if ($Response -is [System.Net.Http.HttpResponseMessage]) {
+        if ($Response.Headers.Location) { return $Response.Headers.Location.AbsoluteUri }
+        return $null
+    }
+    try {
+        $loc = $Response.Headers["Location"]
+        if ($loc -is [array]) { $loc = $loc[0] }
+        if ($loc) { return [string]$loc }
+    } catch { }
+    return $null
+}
+
 # Function to test a web server
 function Test-WflWebServer {
     param(
@@ -308,10 +329,10 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                 $location = $null
                 try {
                     $redirectResponse = Invoke-WebRequest -Uri "http://127.0.0.1:8090/some/path?x=1" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
-                    $location = $redirectResponse.Headers["Location"]
+                    $location = Get-LocationHeader -Response $redirectResponse
                 } catch {
                     if ($_.Exception.Response) {
-                        $location = $_.Exception.Response.Headers["Location"]
+                        $location = Get-LocationHeader -Response $_.Exception.Response
                     }
                 }
                 if ($location -eq "https://127.0.0.1:8443/some/path?x=1") {
