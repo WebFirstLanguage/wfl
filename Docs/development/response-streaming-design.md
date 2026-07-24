@@ -141,12 +141,26 @@ close out
   and the caller's configured timeout (which already carries the stream's idle +
   absolute bound), and the absolute clock starts at request initiation.
 - Backpressure: bounded `mpsc` — a slow browser slows the handler's `write`.
-- Disconnect → upstream cancel: the `write` error path AND a proactive
-  `Sender::closed()` `select!` against a blocked upstream read (above).
+- Disconnect → upstream cancel, in BOTH phases: a blocked upstream operation is
+  `select!`ed against `any_client_disconnected`, which fires on EITHER an open
+  downstream response stream's `Sender::closed()` (post-`start streaming
+  response`, event-driven) OR the request's oneshot receiver being dropped
+  (pre-`start streaming response` — the head phase — polled via
+  `is_closed()`). So a browser disconnect cancels the handler whether it is
+  blocked opening the upstream head or reading its body, dropping the upstream.
+- Disconnect is a normal cancellation, not a handler failure: it unwinds with
+  `ErrorKind::Cancelled`, which the concurrent `main loop` treats as an expected
+  outcome (it does NOT feed the structural consecutive-failure breaker), so a
+  burst of disconnects cannot tear the loop down.
+- Absolute lifetime (`outbound_stream_max_seconds`) is enforced before EVERY
+  read return — including reads served from locally-buffered bytes — not only on
+  a network read, so a buffered drain cannot outlive the stream's absolute cap.
 - Outbound close-on-exit (shipped): outbound `httpstream*` handles are also
   handler-owned — tracked in `RunState.open_http_streams` (swapped per poll) and
   dropped from `IoClient.stream_handles` when the handler ends on any path,
   cancelling the in-flight upstream request so an abandoned proxy read never leaks.
+  A cancelled/dropped `interpret()` future (an embedder cancels the run) also
+  closes them via an RAII guard, rather than leaking until interpreter teardown.
 - Close-on-exit (shipped): each handler tracks the `respstream*` ids it opened in
   its per-handler run-state (`open_response_streams`, part of the `RunState`
   swapped in/out per poll under `main loop concurrently:`). When the handler ends
