@@ -1690,6 +1690,13 @@ enum OutboundHttpDeadline {
 /// quickly an in-flight socket operation observes `ExecutionBudget::cancel()`.
 const HTTP_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// How often a blocked upstream operation polls its handler's pending requests
+/// for a client disconnect (the transport drops the oneshot receiver). Polled
+/// because the sender lives behind an `Arc<Mutex<Option<..>>>` shared with the
+/// transport rather than an awaitable primitive; small so a disconnect is
+/// observed promptly.
+const REQUEST_DISCONNECT_POLL_INTERVAL: Duration = Duration::from_millis(20);
+
 #[derive(Debug)]
 enum FileReadError {
     Io(String),
@@ -4104,6 +4111,60 @@ impl Interpreter {
         }
         let closes: Vec<_> = senders.iter().map(|tx| Box::pin(tx.closed())).collect();
         let _ = futures_util::future::select_all(closes).await;
+    }
+
+    /// Await until any of this handler's open pending requests has had its client
+    /// disconnect — the transport route task drops the oneshot receiver when the
+    /// client goes away, so the parked sender reports `is_closed()`. This is the
+    /// disconnect signal that is valid BEFORE `start streaming response` (when no
+    /// downstream response stream exists yet), so a handler blocked opening an
+    /// upstream head can still be cancelled by a browser disconnect. Polled (the
+    /// sender lives behind an `Arc<Mutex<Option<..>>>` shared with the transport,
+    /// not an awaitable primitive); never resolves when the handler holds no
+    /// pending request, so the caller's `select!` still has a live branch.
+    async fn any_pending_request_disconnected(&self) {
+        loop {
+            // Compute in a tight scope so no `RefCell`/`Mutex` guard is held across
+            // the await below. `None` => nothing to watch.
+            let any_closed = {
+                let open = self.open_pending_requests.borrow();
+                if open.is_empty() {
+                    None
+                } else {
+                    let pending = self.pending_responses.borrow();
+                    Some(open.iter().any(|id| {
+                        pending.get(id).is_some_and(|p| match p.sender.try_lock() {
+                            Ok(guard) => guard.as_ref().is_some_and(|s| s.is_closed()),
+                            // Being responded to right now — not a disconnect.
+                            Err(_) => false,
+                        })
+                    }))
+                }
+            };
+            match any_closed {
+                None => {
+                    std::future::pending::<()>().await;
+                    return;
+                }
+                Some(true) => return,
+                Some(false) => {
+                    tokio::time::sleep(REQUEST_DISCONNECT_POLL_INTERVAL).await;
+                }
+            }
+        }
+    }
+
+    /// Await until this handler's client has disconnected by EITHER signal: an
+    /// open downstream response stream's receiver dropped (post-`start streaming
+    /// response`, event-driven) OR an open pending request's oneshot receiver
+    /// dropped (pre-`start streaming response`, polled). Racing an upstream head
+    /// open / body read against this cancels it the moment the browser goes away,
+    /// whichever phase the handler is in.
+    async fn any_client_disconnected(&self, senders: Vec<mpsc::Sender<Vec<u8>>>) {
+        tokio::select! {
+            _ = Self::any_downstream_disconnected(senders) => {}
+            _ = self.any_pending_request_disconnected() => {}
+        }
     }
 
     /// Close (drop the sender for) each server response stream whose handle id is
@@ -7241,17 +7302,29 @@ impl Interpreter {
                     None => None,
                 };
 
-                match self
-                    .io_client
-                    .open_http_stream(
-                        &method_str,
-                        &url_str,
-                        &header_list,
-                        body_str,
-                        Arc::clone(&self.budget),
-                    )
-                    .await
-                {
+                // Race the head open (connect + await response head) against a
+                // client disconnect, so a browser that goes away while the upstream
+                // withholds its head cancels the open promptly (dropping `open_fut`
+                // aborts the upstream connection) instead of waiting out the head
+                // timeout. Valid before `start streaming response` via the pending
+                // request's oneshot (see `any_pending_request_disconnected`).
+                let open_fut = self.io_client.open_http_stream(
+                    &method_str,
+                    &url_str,
+                    &header_list,
+                    body_str,
+                    Arc::clone(&self.budget),
+                );
+                let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
+                let opened = {
+                    tokio::pin!(open_fut);
+                    tokio::pin!(disconnect);
+                    tokio::select! {
+                        r = &mut open_fut => r,
+                        _ = &mut disconnect => Err(HttpClientError::Disconnected),
+                    }
+                };
+                match opened {
                     Ok((status, response_headers, handle_id)) => {
                         // Track the outbound handle as handler-owned so it is
                         // dropped (cancelling the upstream) if the handler ends
@@ -7293,11 +7366,12 @@ impl Interpreter {
                 let handle_id = self
                     .resolve_stream_handle(source, &env, *line, *column)
                     .await?;
-                // Race the upstream read against a downstream client disconnect so
-                // a blocked proxy read is cancelled promptly when the browser goes
-                // away (see `downstream_disconnect_senders`).
-                let disconnect =
-                    Self::any_downstream_disconnected(self.downstream_disconnect_senders());
+                // Race the upstream read against a client disconnect (either an
+                // open downstream response stream, or — if the handler has not
+                // called `start streaming response` yet — the pending request's
+                // oneshot) so a blocked proxy read is cancelled promptly when the
+                // browser goes away.
+                let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
                 let read = self
                     .io_client
                     .next_chunk(&handle_id, Arc::clone(&self.budget));
