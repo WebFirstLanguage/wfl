@@ -6,58 +6,40 @@ use crate::lexer::token::Token;
 use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 use std::sync::Arc;
 
-/// Replace the leftmost leaf operand of a (possibly nested) expression.
-///
-/// The merged `write line|chunk <ident> ...` form parses one value expression
-/// for the stream reading; the classic file-write reading differs only in its
-/// leading operand (the full merged `line <ident>` variable instead of the
-/// split `<ident>`). Rather than re-parse, we clone the parsed value and swap
-/// its leftmost operand — so a trailing `with`/operator continuation applies to
-/// both readings identically. `with`/binary chains here are right-associative
-/// (`a with b with c` => `Concat(a, Concat(b, c))`) and `<field> of <object>`
-/// is a `FunctionCall`, so the leading operand is always reached via `.left`,
-/// `.function`, or the leaf itself.
-fn replace_leftmost_leaf(expr: Expression, replacement: Expression) -> Expression {
-    match expr {
-        Expression::Concatenation {
-            left,
-            right,
-            line,
-            column,
-        } => Expression::Concatenation {
-            left: Box::new(replace_leftmost_leaf(*left, replacement)),
-            right,
-            line,
-            column,
-        },
-        Expression::BinaryOperation {
-            left,
-            operator,
-            right,
-            line,
-            column,
-        } => Expression::BinaryOperation {
-            left: Box::new(replace_leftmost_leaf(*left, replacement)),
-            operator,
-            right,
-            line,
-            column,
-        },
-        Expression::FunctionCall {
-            function,
-            arguments,
-            line,
-            column,
-        } => Expression::FunctionCall {
-            function: Box::new(replace_leftmost_leaf(*function, replacement)),
-            arguments,
-            line,
-            column,
-        },
-        // Leaf (a bare `Variable`, the common case) or a form whose leading
-        // operand is not a nested `Expression` (e.g. an `ActionCall`, from the
-        // rare `<builtin> with ...`): swap wholesale.
-        _ => replacement,
+impl<'a> Parser<'a> {
+    /// Parse a `write line|chunk` value from an already-chosen leading operand:
+    /// an optional `<field> of <object>` postfix, then any `with`/operator
+    /// continuation, exactly as a normal expression value would parse.
+    ///
+    /// The ambiguous merged `write line|chunk <ident> ...` form has two readings
+    /// (stream: split-off `<ident>`; classic file write: whole `line <ident>`)
+    /// that differ only in the leading operand. They are parsed independently —
+    /// same tokens, via a cursor rewind between the two calls — because a
+    /// continuation can desugar differently per operand (a builtin name becomes
+    /// an `ActionCall`, `is between` duplicates the left, `starts/ends with` and
+    /// the pattern operators build calls), so deriving one AST from the other by
+    /// leaf-swapping silently corrupted the classic reading.
+    fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
+        let (line, column) = match &lead {
+            Expression::Variable(_, l, c) => (*l, *c),
+            _ => (0, 0),
+        };
+        let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
+            self.bump_sync(); // Consume "of"
+            let object = self.parse_primary_expression()?;
+            Expression::FunctionCall {
+                function: Box::new(lead),
+                arguments: vec![crate::parser::ast::Argument {
+                    name: None,
+                    value: object,
+                }],
+                line,
+                column,
+            }
+        } else {
+            lead
+        };
+        self.parse_binary_continuation(lead, 0)
     }
 }
 
@@ -899,38 +881,29 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 // write (`write line "x" to f` did not parse), so no fallback.
                 (self.parse_expression()?, None)
             } else {
-                // `<ident>` alone (stream) vs the full merged `line <ident>`
-                // (classic file write of that variable). Build the stream
-                // reading's leading operand — `<ident>`, or `<field> of <object>`
-                // — then absorb any trailing `with`/operator continuation so the
-                // value parses like any other expression (a `write line payload
-                // with "!" to out` value, and the pre-existing classic file write
-                // `write line payload with "!" to file`, must not be truncated).
+                // Ambiguous merged form: `<ident>` alone (stream) vs the full
+                // merged `line <ident>` (classic file write of that variable).
+                // Parse the two readings INDEPENDENTLY from the same continuation
+                // tokens via cursor rewind — NOT by deriving one AST from the
+                // other. A trailing `with`/operator continuation desugars
+                // differently per leading operand: a builtin name becomes an
+                // `ActionCall`, `is between` duplicates the left operand,
+                // `starts/ends with` and the pattern operators build calls — none
+                // of which survive a leftmost-leaf swap, which silently dropped or
+                // mangled the continuation for the classic file-write reading.
+                let value_start = self.cursor.checkpoint();
+
+                // Stream reading: split-off `<rest>` as the leading operand.
                 let stream_left = Expression::Variable(rest, marker_line, marker_column);
+                let value = self.parse_write_value_from_lead(stream_left)?;
+
+                // Rewind and parse the classic file-write reading with the whole
+                // merged `line <ident>` as the leading operand, over the very same
+                // tokens, so the two interpretations stay faithful to the source.
+                self.cursor.rewind(value_start);
                 let file_left = Expression::Variable(id, marker_line, marker_column);
-                let value_lead = match self.cursor.peek().map(|t| &t.token) {
-                    // `<field> of <object>`, e.g. `write line body of msg to out`.
-                    Some(Token::KeywordOf) => {
-                        self.bump_sync(); // Consume "of"
-                        let object = self.parse_primary_expression()?;
-                        Expression::FunctionCall {
-                            function: Box::new(stream_left),
-                            arguments: vec![crate::parser::ast::Argument {
-                                name: None,
-                                value: object,
-                            }],
-                            line: marker_line,
-                            column: marker_column,
-                        }
-                    }
-                    // A bare variable value (possibly followed by `with ...`).
-                    _ => stream_left,
-                };
-                let value = self.parse_binary_continuation(value_lead, 0)?;
-                // The classic file-write reading is identical except its leading
-                // operand is the full merged `line <ident>`; mirror the parsed
-                // continuation onto it by swapping the leftmost leaf.
-                let fallback = replace_leftmost_leaf(value.clone(), file_left);
+                let fallback = self.parse_write_value_from_lead(file_left)?;
+
                 (value, Some(Box::new(fallback)))
             };
 

@@ -1670,25 +1670,19 @@ impl Analyzer {
                 match fallback_content {
                     // Unambiguous form: check the stream value normally.
                     None => self.analyze_expression(value),
-                    // Ambiguous merged form (`write line <ident> to <target>`):
+                    // Ambiguous merged form (`write line <ident> ... to <target>`):
                     // the live reading — stream write of `<ident>` vs classic
                     // file write of the variable `line <ident>` — depends on the
-                    // runtime target type, and the two read different variables.
-                    // Still (1) analyze any unambiguous subexpression (the
-                    // `<object>` in `<field> of <object>`), and (2) report an
-                    // undefined variable only when *neither* candidate name is
-                    // defined, so a genuine typo is still caught without breaking
-                    // either valid reading.
+                    // runtime target type, and the two differ only in the leading
+                    // operand. So (1) analyze the shared continuation (everything
+                    // to the right of the lead) so a genuinely undefined variable
+                    // there is still caught, and (2) report the leading operand as
+                    // undefined only when *neither* reading's name resolves — so a
+                    // real typo is caught without rejecting either valid reading.
                     Some(fallback) => {
-                        // The `of <object>` argument is the same under both
-                        // readings and is unambiguous — analyze it.
-                        if let Expression::FunctionCall { arguments, .. } = value {
-                            for arg in arguments {
-                                self.analyze_expression(&arg.value);
-                            }
-                        }
-                        let stream_name = Self::stream_write_candidate_name(value);
-                        let fallback_name = Self::stream_write_candidate_name(fallback);
+                        self.analyze_stream_write_continuation(value);
+                        let stream_name = Self::stream_write_lead_name(value);
+                        let fallback_name = Self::stream_write_lead_name(fallback);
                         if let (Some(sn), Some(fal)) = (stream_name, fallback_name)
                             && !self.name_is_defined(sn)
                             && !self.name_is_defined(fal)
@@ -3553,16 +3547,59 @@ impl Analyzer {
         }
     }
 
-    /// The candidate variable name referenced by a `write line|chunk` value: a
-    /// bare `Variable`, or the callee of a `<field> of <object>` call.
-    fn stream_write_candidate_name(expr: &Expression) -> Option<&str> {
+    /// The ambiguous leading operand name of a `write line|chunk` value — the
+    /// leftmost leaf of the (possibly nested) expression. The two readings of the
+    /// merged form differ ONLY here (stream `<rest>` vs classic `line <rest>`);
+    /// everything to the right is a shared continuation. Reaches the leaf through
+    /// `with`/binary `left`, an `of`-call `function`, or an `ActionCall`'s callee
+    /// name (a builtin used with `with`).
+    fn stream_write_lead_name(expr: &Expression) -> Option<&str> {
         match expr {
             Expression::Variable(name, ..) => Some(name),
-            Expression::FunctionCall { function, .. } => match &**function {
-                Expression::Variable(name, ..) => Some(name),
-                _ => None,
-            },
+            Expression::ActionCall { name, .. } => Some(name),
+            Expression::Concatenation { left, .. } | Expression::BinaryOperation { left, .. } => {
+                Self::stream_write_lead_name(left)
+            }
+            Expression::FunctionCall { function, .. } => Self::stream_write_lead_name(function),
             _ => None,
+        }
+    }
+
+    /// Analyze the shared continuation of a `write line|chunk` value — every
+    /// sub-expression EXCEPT the ambiguous leading operand (its leftmost leaf).
+    /// This catches a genuinely undefined variable in the continuation (e.g. the
+    /// RHS of `<lead> with missing_suffix`) without flagging the leading operand,
+    /// which is valid under whichever of the two readings the runtime picks.
+    fn analyze_stream_write_continuation(&mut self, expr: &Expression) {
+        match expr {
+            // The leftmost leaf itself is the ambiguous lead — checked separately.
+            Expression::Variable(..) => {}
+            Expression::Concatenation { left, right, .. } => {
+                self.analyze_stream_write_continuation(left);
+                self.analyze_expression(right);
+            }
+            Expression::BinaryOperation { left, right, .. } => {
+                self.analyze_stream_write_continuation(left);
+                self.analyze_expression(right);
+            }
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } => {
+                self.analyze_stream_write_continuation(function);
+                for arg in arguments {
+                    self.analyze_expression(&arg.value);
+                }
+            }
+            Expression::ActionCall { arguments, .. } => {
+                // The callee name is the leading lead (skip); analyze the args.
+                for arg in arguments {
+                    self.analyze_expression(&arg.value);
+                }
+            }
+            // Any other shape has no ambiguous lead to protect — analyze it whole.
+            other => self.analyze_expression(other),
         }
     }
 

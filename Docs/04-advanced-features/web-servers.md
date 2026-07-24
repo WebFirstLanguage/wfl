@@ -514,9 +514,12 @@ close out
   > `write line "x" to out`) — are **stream-only** and error if `<out>` is not a
   > streaming-response handle.
   >
-  > **Value operators.** The value is a full expression, so `with`-concatenation
-  > (and other operators) work directly in the statement — e.g.
-  > `write line prefix with json to out`. For the ambiguous bare-identifier form,
+  > **Value operators.** The value accepts `with`-concatenation and the usual
+  > arithmetic/comparison operators directly in the statement — e.g.
+  > `write line prefix with json to out`. (An identifier-led value is a variable
+  > or `field of object` followed by such operators; postfix forms like indexing
+  > `payload[1]` or `payload.field` on the leading identifier are not parsed here
+  > — build those into a variable first.) For the ambiguous bare-identifier form,
   > the continuation applies to both readings: `write line note with "!" to out`
   > streams `note` + `"!"`, while the same statement targeting a file writes the
   > variable `line note` + `"!"` — so pre-existing classic file writes that

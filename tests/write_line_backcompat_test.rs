@@ -161,6 +161,46 @@ write line note with "!" to "{path_str}""#
 }
 
 #[test]
+fn test_write_line_builtin_named_variable_with_continuation_preserves_concatenation() {
+    // Regression (maintainer review): the stream reading of `length with "!"`
+    // desugars to an ActionCall because `length` is a builtin. The classic
+    // file-write reading must still be the variable `line length` concatenated
+    // with "!" — parsed INDEPENDENTLY (cursor rewind), not derived from the
+    // stream AST, which would drop the `with "!"` and write only "kept".
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().join("wfl_write_line_builtin_named.txt");
+    let path_str = path.to_string_lossy().replace('\\', "/");
+
+    let code = format!(
+        r#"store line length as "kept"
+write line length with "!" to "{path_str}""#
+    );
+
+    let program = {
+        let tokens = lex_wfl_with_positions(&code);
+        let mut parser = Parser::new(&tokens);
+        parser.parse().expect("parse")
+    };
+
+    let mut analyzer = Analyzer::new();
+    analyzer
+        .analyze(&program)
+        .expect("analysis must accept the builtin-named continuation file write");
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut interp = Interpreter::new();
+        interp.interpret(&program).await.expect("interpret");
+    });
+
+    let contents = std::fs::read_to_string(&path).expect("output file should exist");
+    assert_eq!(
+        contents, "kept!",
+        "the classic file write must keep the `with \"!\"` continuation even though `length` is a builtin"
+    );
+}
+
+#[test]
 fn test_write_multiword_line_variable_to_file_still_works() {
     // A pre-existing program: a variable literally named `line note` written to a
     // file path. Must analyze cleanly (no undefined-variable error, no spurious
@@ -202,6 +242,43 @@ write line note to "{path_str}""#
         "the variable `line note` must be written to the file, not the token `note`"
     );
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn test_ambiguous_write_line_flags_undefined_in_continuation() {
+    // The continuation (everything right of the ambiguous lead) is shared by both
+    // readings, so a genuinely undefined variable there must still be caught even
+    // though the leading operand itself is ambiguous.
+    let code = "listen on port 8080 as srv\nstore payload as \"x\"\nwrite line payload with missing_suffix to srv";
+    let tokens = lex_wfl_with_positions(code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    let mut analyzer = Analyzer::new();
+    let errors = analyzer
+        .analyze(&program)
+        .expect_err("`missing_suffix` in the continuation is undefined");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("missing_suffix") && e.message.contains("not defined")),
+        "expected an undefined-variable error naming `missing_suffix`, got: {errors:?}"
+    );
+}
+
+#[test]
+fn test_ambiguous_write_line_accepts_valid_classic_with_continuation() {
+    // A valid pre-existing program: a variable literally named `line path`,
+    // written with a continuation to a file. The split stream name `path` is
+    // undefined, but the classic file-write reading resolves — analysis must NOT
+    // reject it (no false positive from the ambiguous split).
+    let code = "store line path as \"/tmp/x\"\nstore suffix as \"!\"\nwrite line path with suffix to \"/tmp/out\"";
+    let tokens = lex_wfl_with_positions(code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    let mut analyzer = Analyzer::new();
+    assert!(
+        analyzer.analyze(&program).is_ok(),
+        "a valid classic `write line <var> with ... to <file>` must not be rejected: {:?}",
+        analyzer.get_errors()
+    );
 }
 
 #[test]
