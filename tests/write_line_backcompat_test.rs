@@ -377,6 +377,48 @@ fn test_span_mismatched_write_line_to_file_does_not_corrupt() {
 }
 
 #[test]
+fn test_ambiguous_write_line_flags_undefined_in_desugared_continuation() {
+    // The continuation of a DESUGARED (operator) ambiguous value is shared by both
+    // readings, so an undefined variable there must still be flagged even though
+    // the lead itself is target-dependent. `value` is defined; `missing_suffix` is
+    // not — and it lives in the `plus` continuation, not at the ambiguous lead.
+    let code = "listen on port 8080 as srv\n\
+                store value as 1\n\
+                write line value plus missing_suffix to srv";
+    let tokens = lex_wfl_with_positions(code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    let mut analyzer = Analyzer::new();
+    let errors = analyzer
+        .analyze(&program)
+        .expect_err("`missing_suffix` in the operator continuation is undefined");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("missing_suffix") && e.message.contains("not defined")),
+        "expected an undefined-variable error naming `missing_suffix`, got: {errors:?}"
+    );
+}
+
+#[test]
+fn test_ambiguous_write_line_operator_continuation_all_defined_ok() {
+    // A valid classic file write whose value desugars to an operator expression
+    // with a fully-defined continuation must NOT be rejected: the split stream
+    // lead `value` is undefined, but the classic reading (`line value`) and the
+    // shared continuation (`addend`) both resolve.
+    let code = "store line value as 3\n\
+                store addend as 4\n\
+                write line value plus addend to \"/tmp/out\"";
+    let tokens = lex_wfl_with_positions(code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    let mut analyzer = Analyzer::new();
+    assert!(
+        analyzer.analyze(&program).is_ok(),
+        "a valid operator-continuation classic write must not be rejected: {:?}",
+        analyzer.get_errors()
+    );
+}
+
+#[test]
 fn test_ambiguous_write_line_still_flags_when_neither_candidate_defined() {
     // The ambiguous form defers definedness to runtime, but a genuine typo where
     // NEITHER reading resolves (`payload` as a stream value, nor `line payload`
