@@ -20,10 +20,6 @@ impl<'a> Parser<'a> {
     /// the pattern operators build calls), so deriving one AST from the other by
     /// leaf-swapping silently corrupted the classic reading.
     fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
-        let (line, column) = match &lead {
-            Expression::Variable(_, l, c) => (*l, *c),
-            _ => (0, 0),
-        };
         // The lexer merges `write` with the operand identifier and leaves any
         // bracket-index / dotted-property accessors as following tokens, so compose
         // them onto the lead (`write line chunks[0] to out`,
@@ -31,7 +27,13 @@ impl<'a> Parser<'a> {
         // "/tmp/out"`) instead of leaving them to dangle after the statement.
         let lead = self.parse_trailing_postfix(lead)?;
         let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
-            self.bump_sync(); // Consume "of"
+            // Anchor the `<field> of <object>` call to the `of` keyword itself,
+            // matching how the rest of the parser positions FunctionCall nodes so
+            // error spans point at the operator, not the lead (review feedback).
+            let (of_line, of_column) = self
+                .bump_sync()
+                .map(|t| (t.line, t.column))
+                .expect("peeked `of` immediately above");
             let object = self.parse_primary_expression()?;
             Expression::FunctionCall {
                 function: Box::new(lead),
@@ -39,8 +41,8 @@ impl<'a> Parser<'a> {
                     name: None,
                     value: object,
                 }],
-                line,
-                column,
+                line: of_line,
+                column: of_column,
             }
         } else {
             lead
