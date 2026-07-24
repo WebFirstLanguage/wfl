@@ -910,6 +910,17 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 self.cursor.rewind(value_start);
                 let file_left = Expression::Variable(id, marker_line, marker_column);
                 let fallback = self.parse_write_value_from_lead(file_left).ok();
+                // Only keep the classic fallback when it consumed EXACTLY the same
+                // continuation span as the stream reading. A fallback that parses
+                // a shorter (or longer) span is a different interpretation of the
+                // tokens — e.g. `write line min with a: 1 and b: 2 to <target>`,
+                // where the stream reading is the builtin call `min` with named
+                // args but `line min with a` only parses up to the `:`. Retaining
+                // that partial parse and pairing it with the SAME trailing
+                // `to <target>` would silently corrupt a file write, so require the
+                // spans to match before trusting the fallback.
+                let fallback_end = self.cursor.checkpoint();
+                let fallback = fallback.filter(|_| fallback_end == after_stream);
                 // Always resume right after the stream value, whatever the
                 // (speculative) fallback parse consumed, so `to <target>` follows.
                 self.cursor.rewind(after_stream);
