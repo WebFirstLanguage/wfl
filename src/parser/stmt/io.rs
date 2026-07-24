@@ -896,15 +896,25 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 // Stream reading: split-off `<rest>` as the leading operand.
                 let stream_left = Expression::Variable(rest, marker_line, marker_column);
                 let value = self.parse_write_value_from_lead(stream_left)?;
+                let after_stream = self.cursor.checkpoint();
 
                 // Rewind and parse the classic file-write reading with the whole
                 // merged `line <ident>` as the leading operand, over the very same
-                // tokens, so the two interpretations stay faithful to the source.
+                // tokens. This alternate interpretation is only USED at runtime
+                // when the target turns out to be a file, so it must not be
+                // REQUIRED to parse: a value whose stream reading uses grammar the
+                // classic reading can't (e.g. a builtin call with named arguments,
+                // `write line substring with text: "x" and start: 1 to out`) still
+                // has a valid stream reading. If the classic reading fails to
+                // parse, drop the fallback rather than failing the statement.
                 self.cursor.rewind(value_start);
                 let file_left = Expression::Variable(id, marker_line, marker_column);
-                let fallback = self.parse_write_value_from_lead(file_left)?;
+                let fallback = self.parse_write_value_from_lead(file_left).ok();
+                // Always resume right after the stream value, whatever the
+                // (speculative) fallback parse consumed, so `to <target>` follows.
+                self.cursor.rewind(after_stream);
 
-                (value, Some(Box::new(fallback)))
+                (value, fallback.map(Box::new))
             };
 
             self.expect_token(
