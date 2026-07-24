@@ -1616,12 +1616,9 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let file_type = self.infer_expression_type(file);
-                if file_type != Type::Custom("File".to_string())
-                    && file_type != Type::Unknown
-                    && file_type != Type::Error
-                {
+                if !self.is_closeable_type(&file_type) {
                     self.type_error(
-                        "Expected a File object".to_string(),
+                        "Expected a file or stream handle".to_string(),
                         Some(Type::Custom("File".to_string())),
                         Some(file_type),
                         *_line,
@@ -4687,6 +4684,24 @@ impl TypeChecker {
             }
             _ => false,
         }
+    }
+
+    /// Whether a type can name a closeable resource: a file handle, a stream
+    /// handle, or a statically-unresolved value. Stream handles (server response
+    /// streams from `start streaming response as ...` and outbound streams from
+    /// `... stream response as ...`) bind as map-shaped objects, so a `close out`
+    /// / `close upstream` must be accepted here rather than flagged as "not a
+    /// File". Concrete scalars (a number, boolean, list, …) are still rejected so
+    /// an obviously-wrong `close 5` errors.
+    fn is_closeable_type(&self, ty: &Type) -> bool {
+        matches!(
+            ty,
+            Type::Custom(_)        // File, or any handle object
+                | Type::Map(_, _)  // stream handles bind as Map<Text, _>
+                | Type::Unknown
+                | Type::Any
+                | Type::Error
+        )
     }
 
     fn are_types_compatible(&self, target_type: &Type, source_type: &Type) -> bool {
