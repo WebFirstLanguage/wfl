@@ -177,12 +177,48 @@ impl<'a> Parser<'a> {
                         }
                     };
                     self.bump_sync(); // Consume the property name
-                    expr = Expression::PropertyAccess {
-                        object: Box::new(expr),
-                        property,
-                        line,
-                        column,
-                    };
+                    // `.method(args)` — a method call, not a bare property access.
+                    // Mirrors the primary dispatch so merged-command operands like
+                    // `write line obj.method() to out` / `flush obj.method()` compose
+                    // the call instead of leaving the `(...)` to dangle.
+                    if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::LeftParen)) {
+                        self.bump_sync(); // Consume '('
+                        let mut arguments = Vec::new();
+                        if let Some(next) = self.cursor.peek()
+                            && next.token != Token::RightParen
+                        {
+                            arguments.push(Argument {
+                                name: None,
+                                value: self.parse_expression()?,
+                            });
+                            while matches!(self.cursor.peek().map(|t| &t.token), Some(Token::Comma))
+                            {
+                                self.bump_sync(); // Consume ','
+                                arguments.push(Argument {
+                                    name: None,
+                                    value: self.parse_expression()?,
+                                });
+                            }
+                        }
+                        self.expect_token(
+                            Token::RightParen,
+                            "Expected ')' after method arguments",
+                        )?;
+                        expr = Expression::MethodCall {
+                            object: Box::new(expr),
+                            method: property,
+                            arguments,
+                            line,
+                            column,
+                        };
+                    } else {
+                        expr = Expression::PropertyAccess {
+                            object: Box::new(expr),
+                            property,
+                            line,
+                            column,
+                        };
+                    }
                 }
                 _ => break,
             }

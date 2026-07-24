@@ -34,13 +34,36 @@ impl<'a> Parser<'a> {
                 .bump_sync()
                 .map(|t| (t.line, t.column))
                 .expect("peeked `of` immediately above");
-            let object = self.parse_primary_expression()?;
+            // Parse the `of`-call argument(s) EXACTLY as the primary parser does:
+            // each argument absorbs arithmetic (`fibonacci of n minus 1` means
+            // `fibonacci of (n minus 1)`, not `(fibonacci of n) minus 1`), and
+            // `and`/`from`/`by`/`length` join multiple arguments — so an `of`-call in
+            // a `write line|chunk` value parses identically to one in an ordinary
+            // expression.
+            let mut arguments = vec![crate::parser::ast::Argument {
+                name: None,
+                value: self.parse_of_call_argument()?,
+            }];
+            while let Some(sep) = self.cursor.peek() {
+                let is_separator = matches!(
+                    &sep.token,
+                    Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
+                ) || matches!(
+                    &sep.token,
+                    Token::Identifier(id) if id.eq_ignore_ascii_case("length")
+                );
+                if !is_separator {
+                    break;
+                }
+                self.bump_sync(); // Consume the separator
+                arguments.push(crate::parser::ast::Argument {
+                    name: None,
+                    value: self.parse_of_call_argument()?,
+                });
+            }
             Expression::FunctionCall {
                 function: Box::new(lead),
-                arguments: vec![crate::parser::ast::Argument {
-                    name: None,
-                    value: object,
-                }],
+                arguments,
                 line: of_line,
                 column: of_column,
             }
