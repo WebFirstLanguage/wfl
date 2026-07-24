@@ -1584,6 +1584,11 @@ struct HttpStreamHandle {
     /// Total body bytes pulled from the network so far, enforced against
     /// `max_response_bytes`.
     bytes_read: usize,
+    /// Absolute deadline for the whole stream, set from
+    /// `outbound_stream_max_seconds` at open time. Distinct from the per-read
+    /// idle timeout: an upstream that trickles a byte before every idle timeout
+    /// still cannot run past this. `None` disables the total cap.
+    total_deadline: Option<Instant>,
 }
 
 /// Errors raised while an outbound HTTP request is in flight.
@@ -1845,11 +1850,16 @@ impl IoClient {
         let stream = response
             .bytes_stream()
             .map(|chunk| chunk.map(|b| b.to_vec()));
+        let total_deadline = match self.config.outbound_stream_max_seconds {
+            0 => None, // sentinel: no absolute total cap
+            secs => Some(Instant::now() + Duration::from_secs(secs)),
+        };
         let handle = HttpStreamHandle {
             stream: Box::pin(stream),
             buffer: Vec::new(),
             done: false,
             bytes_read: 0,
+            total_deadline,
         };
         let handle_id = {
             let mut next_id = self.next_stream_id.lock().await;
@@ -1901,7 +1911,23 @@ impl IoClient {
             return Ok(false);
         }
         let max_response_bytes = budget.limits().max_response_bytes;
-        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        // Per-read idle timeout, bounded by the remaining time to the stream's
+        // absolute total deadline so a single read can never wait past the total
+        // (and a trickling upstream cannot outlive the total cap).
+        let idle_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let configured_timeout = match handle.total_deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    // Already past the absolute total lifetime.
+                    return Err(HttpClientError::Timeout {
+                        seconds: self.config.outbound_stream_max_seconds,
+                    });
+                }
+                idle_timeout.min(remaining)
+            }
+            None => idle_timeout,
+        };
         let next = Self::run_http_with_budget(Arc::clone(budget), configured_timeout, async {
             Ok::<Option<reqwest::Result<Vec<u8>>>, HttpClientError>(handle.stream.next().await)
         })

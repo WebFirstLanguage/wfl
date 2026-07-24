@@ -214,6 +214,7 @@ All keys currently loaded from config files, with defaults.
 | `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max handler or outbound HTTP response body size (bytes) |
 | `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
 | `web_server_response_timeout_seconds` | integer ≥ 0 | `300` | Seconds to await a handler before shedding with 504; `0` disables |
+| `outbound_stream_max_seconds` | integer ≥ 0 | `300` | Absolute total lifetime (seconds) of one outbound streaming response, distinct from the per-read idle timeout; `0` disables |
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
 | `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
 | `web_socket_max_message_size` | integer ≥ 1 | `1048576` (1 MiB) | Max size of a single WebSocket text message (bytes); larger frames are dropped |
@@ -565,6 +566,16 @@ Maximum time, in seconds, the transport waits for a handler to answer an accepte
 - **Example:** `web_server_response_timeout_seconds = 30`
 
 A value of `0` disables the timeout. The in-flight request cap (`web_server_request_queue_bound`) is enforced globally across every `listen` server via one shared budget, and a request's slot is held from the moment its body starts streaming until the handler responds, this timeout fires, or the client disconnects.
+
+#### `outbound_stream_max_seconds`
+
+Absolute total lifetime, in seconds, of a single **outbound** streaming response opened with `open url ... and stream response as <name>`, measured from when the stream is opened. This is distinct from `timeout_seconds`, which is the per-read **idle** timeout: an upstream that trickles one byte just before every idle timeout would otherwise run forever, but it can never live past this hard cap. Each incremental read (`wait for next line/chunk`) is additionally bounded by the time remaining to this deadline, so no single read waits past the total.
+
+- **Type:** Integer (0 or more)
+- **Default:** `300`
+- **Example:** `outbound_stream_max_seconds = 60`
+
+A value of `0` disables the absolute cap (the idle timeout still applies per read).
 
 #### `web_socket_queue_bound`
 
