@@ -514,11 +514,13 @@ close out
   > `write line "x" to out`) — are **stream-only** and error if `<out>` is not a
   > streaming-response handle.
   >
-  > **Value operators.** When the value is a bare variable, `write line`/
-  > `write chunk` currently accept only that variable (optionally `field of
-  > object`) before `to`; `with`-concatenation directly in the statement (e.g.
-  > `write line prefix with json to out`) is not yet supported. Build the value
-  > first — `store payload as prefix with json`, then `write line payload to out`.
+  > **Value operators.** The value is a full expression, so `with`-concatenation
+  > (and other operators) work directly in the statement — e.g.
+  > `write line prefix with json to out`. For the ambiguous bare-identifier form,
+  > the continuation applies to both readings: `write line note with "!" to out`
+  > streams `note` + `"!"`, while the same statement targeting a file writes the
+  > variable `line note` + `"!"` — so pre-existing classic file writes that
+  > concatenate keep working.
 - `flush <out>` — advisory: yield so queued bytes are handed to the socket.
   (Chunks are already forwarded as you write them; hyper writes as it receives.)
 - `close <out>` — end the response body. Writing after `close` is an error.
