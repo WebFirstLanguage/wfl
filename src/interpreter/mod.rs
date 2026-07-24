@@ -884,30 +884,78 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
     }
 }
 
-/// RAII guard that closes the interpreter's still-open outbound stream handles
+/// RAII guard that finalizes the interpreter's still-open server-request state
 /// when the running `interpret()` future ends — crucially including when that
 /// future is *dropped* (an embedder cancels the run) before the normal
 /// handler-exit / program-cleanup sites execute. It shares the interpreter's
-/// `open_http_streams` list and its `IoClient` via `Rc`, so its `Drop` runs even
-/// as the interpreter itself stays alive (e.g. a reused REPL). On a normal run
-/// the cleanup sites have already drained the list, so this is a no-op.
+/// tracking lists and maps via `Rc`, so its `Drop` runs even as the interpreter
+/// itself stays alive (e.g. a reused REPL). It covers, for the top-level/serial
+/// context whose state lives directly on the interpreter (concurrent handlers
+/// finalize their own via `IsolatedHandler`'s `Drop`):
+///
+/// - **outbound streams** — dropped from `IoClient.stream_handles`, cancelling
+///   the in-flight upstream request;
+/// - **server response streams** — dropped from `server_response_streams`, ending
+///   the client's body so a `start streaming response` that never `close`d does
+///   not leave the connection hanging;
+/// - **pending requests** — answered 500 so a dequeued-but-unanswered request is
+///   resolved instead of waiting out the request timeout.
+///
+/// On a normal run the cleanup sites have already drained the lists, so this is a
+/// no-op. All work is synchronous and best-effort (`try_lock` never blocks in a
+/// `Drop`).
 struct OutboundStreamCleanup {
     io_client: Rc<IoClient>,
     open_http_streams: Rc<RefCell<Vec<String>>>,
+    open_response_streams: Rc<RefCell<Vec<String>>>,
+    server_response_streams: Rc<RefCell<HashMap<String, ServerResponseStream>>>,
+    open_pending_requests: Rc<RefCell<Vec<String>>>,
+    pending_responses: Rc<RefCell<HashMap<String, PendingResponse>>>,
 }
 
 impl Drop for OutboundStreamCleanup {
     fn drop(&mut self) {
-        let ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
-        if ids.is_empty() {
-            return;
-        }
-        // Best-effort like the other handler-exit cleanup: `try_lock` never
-        // blocks in a `Drop`. Removing a handle drops its reqwest stream, which
-        // cancels the in-flight upstream request.
-        if let Ok(mut map) = self.io_client.stream_handles.try_lock() {
-            for id in &ids {
+        // Outbound upstream streams: removing a handle drops its reqwest stream,
+        // cancelling the in-flight upstream request.
+        let http_ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
+        if !http_ids.is_empty()
+            && let Ok(mut map) = self.io_client.stream_handles.try_lock()
+        {
+            for id in &http_ids {
                 map.remove(id);
+            }
+        }
+
+        // Server response streams: dropping the sender ends the client's body.
+        let stream_ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
+        if !stream_ids.is_empty() {
+            let mut map = self.server_response_streams.borrow_mut();
+            for id in &stream_ids {
+                map.remove(id);
+            }
+        }
+
+        // Pending requests dequeued but never answered: resolve each with 500 so
+        // the client is not left waiting out its request timeout. Mirrors
+        // `fail_unanswered_requests`, but operates on the shared `Rc` maps so it
+        // runs even when the interpreter's own methods are unreachable (future
+        // dropped). The sender mutex is only held during `respond`, which a
+        // dropped run is no longer inside, so `try_lock` succeeds.
+        let request_ids = std::mem::take(&mut *self.open_pending_requests.borrow_mut());
+        if !request_ids.is_empty() {
+            let mut pending = self.pending_responses.borrow_mut();
+            for id in &request_ids {
+                if let Some(entry) = pending.remove(id)
+                    && let Ok(mut guard) = entry.sender.try_lock()
+                    && let Some(sender) = guard.take()
+                {
+                    let _ = sender.send(HandlerReply::Buffered(WflHttpResponse {
+                        content: b"Internal Server Error\n".to_vec(),
+                        status: 500,
+                        content_type: "text/plain; charset=utf-8".to_string(),
+                        headers: HashMap::new(),
+                    }));
+                }
             }
         }
     }
@@ -1277,13 +1325,13 @@ pub struct Interpreter {
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     web_socket_servers: RefCell<HashMap<String, WflWebSocketServer>>, // WebSocket servers keyed by address
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
-    pending_responses: RefCell<HashMap<String, PendingResponse>>, // Pending responses (channel + admission slot) by request ID
+    pending_responses: Rc<RefCell<HashMap<String, PendingResponse>>>, // Pending responses (channel + admission slot) by request ID
     /// Open server response streams (`start streaming response`), keyed by
     /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender
     /// plus the running total of body bytes written, enforced against
     /// `max_response_bytes` so a stream cannot bypass the buffered response
     /// ceiling. `write line|chunk`/`flush` push to it, `close` drops it.
-    server_response_streams: RefCell<HashMap<String, ServerResponseStream>>,
+    server_response_streams: Rc<RefCell<HashMap<String, ServerResponseStream>>>,
     next_response_stream_id: std::cell::Cell<usize>,
     /// Handle ids of server response streams opened by the currently executing
     /// handler and not yet explicitly closed. Part of the per-handler `RunState`
@@ -1291,12 +1339,20 @@ pub struct Interpreter {
     /// tracks only its own streams; drained and closed when the handler ends on
     /// any path so the client's body is always finalized (see
     /// `close_response_streams`).
-    open_response_streams: RefCell<Vec<String>>,
+    /// `Rc<RefCell<..>>` (not a bare `RefCell`) so the `interpret()`-scoped
+    /// cleanup guard can share it and finalize any still-open server response
+    /// bodies if the future is dropped before its normal exit sites run (see
+    /// `OutboundStreamCleanup`).
+    open_response_streams: Rc<RefCell<Vec<String>>>,
     /// Request ids the currently executing handler dequeued but has not yet
     /// answered. Part of the per-handler `RunState` (swapped per poll) so each
     /// handler tracks only its own requests; any still unanswered when the handler
     /// ends are answered 500 immediately (see `fail_unanswered_requests`).
-    open_pending_requests: RefCell<Vec<String>>,
+    /// `Rc<RefCell<..>>` (not a bare `RefCell`) so the `interpret()`-scoped
+    /// cleanup guard can share it and 500 any still-unanswered requests if the
+    /// future is dropped before its normal exit sites run (see
+    /// `OutboundStreamCleanup`).
+    open_pending_requests: Rc<RefCell<Vec<String>>>,
     /// Outbound stream handle ids (`... stream response as <name>`) the currently
     /// executing handler opened and has not yet closed/exhausted. Part of the
     /// per-handler `RunState` (swapped per poll); any still open when the handler
@@ -1606,8 +1662,10 @@ pub struct IoClient {
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
     /// Live outbound streaming response bodies, keyed by handle id
-    /// ("httpstream1", ...). See [`HttpStreamHandle`].
-    stream_handles: Mutex<HashMap<String, HttpStreamHandle>>,
+    /// ("httpstream1", ...). See [`HttpStreamHandle`]. Behind an `Arc` so the
+    /// per-stream absolute-lifetime reaper (spawned in `open_http_stream`) can
+    /// share it and drop an expired handle in real time, independent of reads.
+    stream_handles: Arc<Mutex<HashMap<String, HttpStreamHandle>>>,
     next_stream_id: Mutex<usize>,
     config: Arc<WflConfig>,
 }
@@ -1750,7 +1808,7 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
-            stream_handles: Mutex::new(HashMap::new()),
+            stream_handles: Arc::new(Mutex::new(HashMap::new())),
             next_stream_id: Mutex::new(1),
             config,
         }
@@ -1956,6 +2014,27 @@ impl IoClient {
             .lock()
             .await
             .insert(handle_id.clone(), handle);
+
+        // Enforce `outbound_stream_max_seconds` as a TRUE absolute lifetime, not a
+        // read-triggered one: a handler that opens a stream and then parks (or does
+        // other work) without reading would otherwise keep the upstream connection
+        // alive past the cap, since the deadline is only re-checked on the next
+        // read. Spawn a reaper that drops the handle from the shared map when the
+        // absolute deadline elapses; dropping it drops the reqwest body stream and
+        // closes the upstream connection. Reads that happen first take the handle
+        // out of the map, so the reaper's later `remove` is then a harmless no-op;
+        // and a stream closed early leaves only a cheap parked timer (bounded by the
+        // cap) that no-ops when it fires.
+        if let Some(deadline) = total_deadline {
+            let handles = Arc::clone(&self.stream_handles);
+            let reap_id = handle_id.clone();
+            tokio::spawn(async move {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                tokio::time::sleep(remaining).await;
+                handles.lock().await.remove(&reap_id);
+            });
+        }
+
         Ok((status, response_headers, handle_id))
     }
 
@@ -3465,10 +3544,10 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             web_socket_servers: RefCell::new(HashMap::new()), // Initialize empty WebSocket servers map
             ws_connections: Arc::new(std::sync::Mutex::new(HashMap::new())), // Live WebSocket connections
-            pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
-            server_response_streams: RefCell::new(HashMap::new()),
-            open_response_streams: RefCell::new(Vec::new()),
-            open_pending_requests: RefCell::new(Vec::new()),
+            pending_responses: Rc::new(RefCell::new(HashMap::new())), // Initialize empty pending responses map
+            server_response_streams: Rc::new(RefCell::new(HashMap::new())),
+            open_response_streams: Rc::new(RefCell::new(Vec::new())),
+            open_pending_requests: Rc::new(RefCell::new(Vec::new())),
             open_http_streams: Rc::new(RefCell::new(Vec::new())),
             next_response_stream_id: std::cell::Cell::new(1),
             config,
@@ -4063,6 +4142,10 @@ impl Interpreter {
         OutboundStreamCleanup {
             io_client: Rc::clone(&self.io_client),
             open_http_streams: Rc::clone(&self.open_http_streams),
+            open_response_streams: Rc::clone(&self.open_response_streams),
+            server_response_streams: Rc::clone(&self.server_response_streams),
+            open_pending_requests: Rc::clone(&self.open_pending_requests),
+            pending_responses: Rc::clone(&self.pending_responses),
         }
     }
 
@@ -4132,12 +4215,23 @@ impl Interpreter {
                     None
                 } else {
                     let pending = self.pending_responses.borrow();
-                    Some(open.iter().any(|id| {
-                        pending.get(id).is_some_and(|p| match p.sender.try_lock() {
+                    Some(open.iter().any(|id| match pending.get(id) {
+                        Some(p) => match p.sender.try_lock() {
                             Ok(guard) => guard.as_ref().is_some_and(|s| s.is_closed()),
                             // Being responded to right now — not a disconnect.
                             Err(_) => false,
-                        })
+                        },
+                        // Owned by this handler yet absent from the map: the only
+                        // removal that leaves an id in `open_pending_requests` is a
+                        // sibling handler's `wait for request` global prune, which
+                        // deletes ONLY closed (disconnected) senders — and a handler
+                        // that answered its own request drops the id from
+                        // `open_pending_requests` in the same step. So a missing
+                        // owned id is a terminal disconnect, not "still connected";
+                        // reporting it as connected here is exactly the bug where a
+                        // parked handler waits out its timeout after a sibling pruned
+                        // its since-disconnected entry.
+                        None => true,
                     }))
                 }
             };
@@ -7424,10 +7518,12 @@ impl Interpreter {
                 let handle_id = self
                     .resolve_stream_handle(source, &env, *line, *column)
                     .await?;
-                // Race the upstream read against a downstream client disconnect
-                // (see the `wait for next chunk` handler).
-                let disconnect =
-                    Self::any_downstream_disconnected(self.downstream_disconnect_senders());
+                // Race the upstream read against a client disconnect by EITHER
+                // signal (open downstream stream OR the pre-response pending
+                // request's oneshot), exactly like the `wait for next chunk`
+                // handler — a line read blocked before `start streaming response`
+                // must also be cancelled the moment the browser goes away.
+                let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
                 let read = self
                     .io_client
                     .next_line(&handle_id, Arc::clone(&self.budget));
@@ -9331,11 +9427,17 @@ impl Interpreter {
                 match completion.take_sender() {
                     Some(sender) => {
                         if sender.send(HandlerReply::Buffered(response)).is_err() {
-                            return Err(RuntimeError::new(
-                                "Failed to send response - client may have disconnected"
-                                    .to_string(),
+                            // Receiver dropped => the client hung up before the
+                            // buffered reply landed. That is a cooperative
+                            // cancellation, not a handler fault — mark it `Cancelled`
+                            // so the concurrent loop's structural-failure breaker
+                            // skips it (a burst of post-dequeue disconnects must not
+                            // tear the server down).
+                            return Err(RuntimeError::with_kind(
+                                "Client disconnected before the response was sent".to_string(),
                                 *line,
                                 *column,
+                                ErrorKind::Cancelled,
                             ));
                         }
                     }
@@ -9524,11 +9626,16 @@ impl Interpreter {
                             })
                             .is_err()
                         {
-                            return Err(RuntimeError::new(
-                                "Failed to start streaming response - client may have disconnected"
+                            // Client hung up before the streaming head committed —
+                            // cooperative cancellation, not a fault (see the buffered
+                            // `respond` path). `Cancelled` keeps the concurrent
+                            // breaker from counting a disconnect as a failure.
+                            return Err(RuntimeError::with_kind(
+                                "Client disconnected before the streaming response started"
                                     .to_string(),
                                 *line,
                                 *column,
+                                ErrorKind::Cancelled,
                             ));
                         }
                     }
@@ -9694,23 +9801,57 @@ impl Interpreter {
                         if *is_line {
                             bytes.push(b'\n');
                         }
-                        match tx.send(bytes).await {
+                        // Bound the (possibly backpressured) send. Once the 64-slot
+                        // channel fills, `tx.send(..).await` parks until the client
+                        // reads — a client that stays connected but stops reading
+                        // would otherwise pin this handler forever (`main loop` is
+                        // deadline-exempt). Cap the wait at
+                        // `web_server_response_timeout_seconds` (0 = disabled, the
+                        // documented sentinel — keep the unbounded behavior). A
+                        // dropped receiver (disconnect) still returns immediately.
+                        let write_timeout = self.config.web_server_response_timeout_seconds;
+                        // `Ok(())` sent; `Err(false)` receiver dropped (disconnect);
+                        // `Err(true)` timed out with the client still connected but
+                        // not reading (a stall).
+                        let outcome: Result<(), bool> = if write_timeout == 0 {
+                            tx.send(bytes).await.map_err(|_| false)
+                        } else {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(write_timeout),
+                                tx.send(bytes),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => Ok(()),
+                                Ok(Err(_)) => Err(false),
+                                Err(_) => Err(true),
+                            }
+                        };
+                        match outcome {
                             Ok(()) => Ok((Value::Null, ControlFlow::None)),
-                            Err(_) => {
-                                // Receiver dropped => client disconnected. Drop the
-                                // handle and surface a catchable error so the
-                                // handler can stop (and close any upstream it is
-                                // proxying). Untrack it too so a handler that
-                                // catches this error keeps no stale id.
+                            Err(stalled) => {
+                                // Disconnect or stall: drop the handle so the body
+                                // ends, untrack it so a handler that catches this
+                                // keeps no stale id, and surface a `Cancelled` error.
+                                // Both are client-caused cooperative cancellations,
+                                // not handler faults — `Cancelled` keeps the
+                                // concurrent breaker from counting them (256 stalled
+                                // or hung-up clients must not tear the server down).
                                 self.server_response_streams.borrow_mut().remove(&handle_id);
                                 self.open_response_streams
                                     .borrow_mut()
                                     .retain(|s| s != &handle_id);
-                                Err(RuntimeError::new(
+                                let message = if stalled {
+                                    "Cannot write to response stream: the client stopped reading \
+                                     (write timed out)"
+                                } else {
                                     "Cannot write to response stream: the client has disconnected"
-                                        .to_string(),
+                                };
+                                Err(RuntimeError::with_kind(
+                                    message.to_string(),
                                     *line,
                                     *column,
+                                    ErrorKind::Cancelled,
                                 ))
                             }
                         }
@@ -9724,9 +9865,42 @@ impl Interpreter {
             }
             Statement::FlushStreamStatement {
                 target,
+                action_fallback,
                 line,
                 column,
             } => {
+                // Backward compatibility: before `flush` was a streaming command,
+                // `flush cache` was an expression statement that auto-invoked a
+                // zero-argument action named `flush cache`. If such an action is
+                // defined, call it — a pre-existing program that named an action
+                // `flush <x>` must keep working rather than being reinterpreted as
+                // a flush of a stream `<x>`. Only the bare-identifier form carries a
+                // fallback (see `parse_flush_stream`).
+                if let Some(name) = action_fallback {
+                    let lookup = env.borrow().get(name);
+                    match lookup {
+                        Some(Value::Function(func)) => {
+                            return self
+                                .call_function(&func, vec![], *line, *column)
+                                .await
+                                .map(|value| (value, ControlFlow::None));
+                        }
+                        Some(Value::Overloaded(overloaded)) => {
+                            if let Some(func) = overloaded
+                                .overloads
+                                .iter()
+                                .find(|func| func.params.is_empty())
+                            {
+                                let func = Rc::clone(func);
+                                return self
+                                    .call_function(&func, vec![], *line, *column)
+                                    .await
+                                    .map(|value| (value, ControlFlow::None));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 let handle_id = self
                     .resolve_server_stream_handle(target, &env, *line, *column)
                     .await?;

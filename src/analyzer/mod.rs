@@ -1689,8 +1689,22 @@ impl Analyzer {
                 }
             }
 
-            Statement::FlushStreamStatement { target, .. } => {
-                self.analyze_expression(target);
+            Statement::FlushStreamStatement {
+                target,
+                action_fallback,
+                ..
+            } => {
+                // A merged `flush <ident>` may resolve at runtime to a zero-argument
+                // action named `flush <ident>` (backward compatibility — see
+                // `parse_flush_stream`). When such an action is defined this is an
+                // action call, not a stream flush, so analyzing the operand as a
+                // stream variable would raise a spurious "undefined variable".
+                let is_action_call = action_fallback
+                    .as_ref()
+                    .is_some_and(|name| self.name_is_defined(name));
+                if !is_action_call {
+                    self.analyze_expression(target);
+                }
             }
 
             Statement::CreateDirectoryStatement { path, .. } => {
@@ -3599,6 +3613,149 @@ impl Analyzer {
             ) => {
                 self.analyze_ambiguous_write(vl, fl, line, column);
                 self.analyze_ambiguous_write(vr, fr, line, column);
+            }
+            // Call- and pattern-based desugarings (`starts/ends with`, `contains`,
+            // pattern ops, indexing, method/function/action calls) bury the lead in
+            // one child while the OTHER children are shared continuation. When both
+            // readings are the same shape (same operator/name and arity), walk the
+            // corresponding children in parallel so an undefined name in a shared
+            // argument is still caught; only genuinely non-aligning shapes fall to
+            // the catch-all and defer to runtime.
+            (
+                Expression::PatternMatch {
+                    text: vt,
+                    pattern: vp,
+                    ..
+                },
+                Expression::PatternMatch {
+                    text: ft,
+                    pattern: fp,
+                    ..
+                },
+            )
+            | (
+                Expression::PatternFind {
+                    text: vt,
+                    pattern: vp,
+                    ..
+                },
+                Expression::PatternFind {
+                    text: ft,
+                    pattern: fp,
+                    ..
+                },
+            )
+            | (
+                Expression::PatternSplit {
+                    text: vt,
+                    pattern: vp,
+                    ..
+                },
+                Expression::PatternSplit {
+                    text: ft,
+                    pattern: fp,
+                    ..
+                },
+            )
+            | (
+                Expression::StringSplit {
+                    text: vt,
+                    delimiter: vp,
+                    ..
+                },
+                Expression::StringSplit {
+                    text: ft,
+                    delimiter: fp,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vt, ft, line, column);
+                self.analyze_ambiguous_write(vp, fp, line, column);
+            }
+            (
+                Expression::PatternReplace {
+                    text: vt,
+                    pattern: vp,
+                    replacement: vrp,
+                    ..
+                },
+                Expression::PatternReplace {
+                    text: ft,
+                    pattern: fp,
+                    replacement: frp,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vt, ft, line, column);
+                self.analyze_ambiguous_write(vp, fp, line, column);
+                self.analyze_ambiguous_write(vrp, frp, line, column);
+            }
+            (
+                Expression::IndexAccess {
+                    collection: vc,
+                    index: vi,
+                    ..
+                },
+                Expression::IndexAccess {
+                    collection: fc,
+                    index: fi,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vc, fc, line, column);
+                self.analyze_ambiguous_write(vi, fi, line, column);
+            }
+            (
+                Expression::FunctionCall {
+                    function: vf,
+                    arguments: va,
+                    ..
+                },
+                Expression::FunctionCall {
+                    function: ff,
+                    arguments: fa,
+                    ..
+                },
+            ) if va.len() == fa.len() => {
+                self.analyze_ambiguous_write(vf, ff, line, column);
+                for (v, f) in va.iter().zip(fa.iter()) {
+                    self.analyze_ambiguous_write(&v.value, &f.value, line, column);
+                }
+            }
+            (
+                Expression::ActionCall {
+                    name: vn,
+                    arguments: va,
+                    ..
+                },
+                Expression::ActionCall {
+                    name: fnn,
+                    arguments: fa,
+                    ..
+                },
+            ) if vn == fnn && va.len() == fa.len() => {
+                for (v, f) in va.iter().zip(fa.iter()) {
+                    self.analyze_ambiguous_write(&v.value, &f.value, line, column);
+                }
+            }
+            (
+                Expression::MethodCall {
+                    object: vo,
+                    method: vm,
+                    arguments: va,
+                    ..
+                },
+                Expression::MethodCall {
+                    object: fo,
+                    method: fm,
+                    arguments: fa,
+                    ..
+                },
+            ) if vm == fm && va.len() == fa.len() => {
+                self.analyze_ambiguous_write(vo, fo, line, column);
+                for (v, f) in va.iter().zip(fa.iter()) {
+                    self.analyze_ambiguous_write(&v.value, &f.value, line, column);
+                }
             }
             // Reached a differing leaf — the lead. Report only when NEITHER
             // reading resolves, so neither valid interpretation is rejected.

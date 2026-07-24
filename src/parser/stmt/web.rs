@@ -447,7 +447,12 @@ impl<'a> WebParser<'a> for Parser<'a> {
                         None
                     };
                     content_type = Some(match merged_rest {
-                        Some((rest, (l, c))) => Expression::Variable(rest, l, c),
+                        Some((rest, (l, c))) => {
+                            // Compose any dangling postfix accessors
+                            // (`content type upstream.headers["content-type"]`).
+                            let lead = Expression::Variable(rest, l, c);
+                            self.parse_trailing_postfix(lead)?
+                        }
                         None => self.parse_primary_expression()?,
                     });
                 }
@@ -472,8 +477,8 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     if rest.is_empty() {
                         content_type = Some(self.parse_primary_expression()?);
                     } else {
-                        content_type =
-                            Some(Expression::Variable(rest.to_string(), id_line, id_column));
+                        let lead = Expression::Variable(rest.to_string(), id_line, id_column);
+                        content_type = Some(self.parse_trailing_postfix(lead)?);
                     }
                 }
                 // `headers <map>` (bare or merged `headers <var>`).
@@ -489,7 +494,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     if rest.is_empty() {
                         headers = Some(self.parse_primary_expression()?);
                     } else {
-                        headers = Some(Expression::Variable(rest.to_string(), id_line, id_column));
+                        // Compose any dangling postfix accessors so direct
+                        // forwarding like `headers upstream.headers` binds fully.
+                        let lead = Expression::Variable(rest.to_string(), id_line, id_column);
+                        headers = Some(self.parse_trailing_postfix(lead)?);
                     }
                 }
                 // A connective directly before `as` just joins the clause list to
@@ -538,19 +546,32 @@ impl<'a> WebParser<'a> for Parser<'a> {
             .strip_prefix("flush")
             .map(str::trim_start)
             .unwrap_or("");
-        let target = if rest.is_empty() {
-            self.parse_primary_expression()?
+        let (target, action_fallback) = if rest.is_empty() {
+            (self.parse_primary_expression()?, None)
         } else {
             // The lexer merged `flush` with the operand identifier, so any postfix
             // accessors (`flush streams["a"]`, `flush obj.out`) are left as separate
             // tokens. Compose them onto the split-off lead so the operand parses
             // consistently with a normal expression instead of dangling.
             let lead = Expression::Variable(rest.to_string(), line, column);
-            self.parse_trailing_postfix(lead)?
+            let composed = self.parse_trailing_postfix(lead)?;
+            // Backward compatibility: `flush <ident>` used to auto-invoke a
+            // zero-argument action named "flush <ident>". Carry the full phrase so
+            // the interpreter can prefer that action when it exists. Only a
+            // bare-identifier operand can collide with such an action name; a
+            // postfix operand (`flush obj.out`) cannot, so it carries no fallback
+            // (else a defined `flush obj` action would wrongly swallow `.out`).
+            let fallback = if matches!(composed, Expression::Variable(..)) {
+                Some(phrase.clone())
+            } else {
+                None
+            };
+            (composed, fallback)
         };
 
         Ok(Statement::FlushStreamStatement {
             target,
+            action_fallback,
             line,
             column,
         })

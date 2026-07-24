@@ -624,6 +624,14 @@ pub enum Statement {
     /// queued bytes to the transport.
     FlushStreamStatement {
         target: Expression,
+        /// The full merged command phrase (`"flush cache"`) when this parsed from
+        /// the merged `flush <ident>` form. Backward compatibility: before `flush`
+        /// existed, `flush cache` was an expression statement that auto-invoked a
+        /// zero-argument action named `flush cache`. If such an action is defined,
+        /// the interpreter calls it instead of treating `cache` as a stream, so a
+        /// pre-existing program is never hijacked. `None` when no action shadowing
+        /// is possible (e.g. a postfix operand like `flush obj.out`).
+        action_fallback: Option<String>,
         line: usize,
         column: usize,
     },

@@ -1058,16 +1058,61 @@ impl TypeChecker {
                 column,
                 ..
             } => {
-                let _ = self.infer_expression_type(value);
+                // Branch-aware: the runtime picks the reading by the TARGET's type
+                // (a response-stream handle -> stream write of `value`; anything
+                // else with a fallback -> classic file write of `fallback_content`).
+                // Type-check the reading the runtime will actually take, so a valid
+                // pre-existing file write is never rejected on the stream branch it
+                // never runs (and vice versa).
                 let target_type = self.infer_expression_type(target);
-                // The target is a server response-stream handle. The AMBIGUOUS
-                // merged form (`write line <ident> ... to <target>`) also has a
-                // classic file-write reading, so a text file-path target is valid
-                // there — but an unambiguous stream write (no fallback) to a
-                // concrete non-stream type is a static error.
-                let file_target_ok =
-                    fallback_content.is_some() && matches!(target_type, Type::Text);
-                if !self.is_response_stream_target_type(&target_type) && !file_target_ok {
+                let has_fallback = fallback_content.is_some();
+
+                if self.is_response_stream_target_type(&target_type)
+                    && !self.is_gradual_type(&target_type)
+                {
+                    // Concrete response stream: the stream reading is taken.
+                    let value_type = self.infer_expression_type(value);
+                    self.check_streamable_payload(&value_type, *line, *column);
+                } else if matches!(target_type, Type::Text) && has_fallback {
+                    // Concrete text path: the classic file-write reading is taken.
+                    // Validate the fallback, not the stream `value` the runtime
+                    // never evaluates here.
+                    if let Some(fallback) = fallback_content {
+                        let _ = self.infer_expression_type(fallback);
+                    }
+                } else if self.is_gradual_type(&target_type) {
+                    // Gradual/unknown target: both readings are viable and the
+                    // runtime decides by the target's runtime type. Accept if EITHER
+                    // reading is well-typed; only report an error when the statement
+                    // is wrong under every interpretation (so a valid file write and
+                    // a valid stream write both pass). Speculative inference rolls
+                    // its emitted errors back.
+                    let stream_ok = {
+                        let checkpoint = self.errors.len();
+                        let value_type = self.infer_expression_type(value);
+                        let ok = self.errors.len() == checkpoint
+                            && self.is_streamable_payload(&value_type);
+                        self.errors.truncate(checkpoint);
+                        ok
+                    };
+                    let file_ok = if let Some(fallback) = fallback_content {
+                        let checkpoint = self.errors.len();
+                        let _ = self.infer_expression_type(fallback);
+                        let ok = self.errors.len() == checkpoint;
+                        self.errors.truncate(checkpoint);
+                        ok
+                    } else {
+                        false
+                    };
+                    if !stream_ok && !file_ok {
+                        // Broken under both readings: surface the stream reading's
+                        // errors (sub-expression + payload) as the diagnostic.
+                        let value_type = self.infer_expression_type(value);
+                        self.check_streamable_payload(&value_type, *line, *column);
+                    }
+                } else {
+                    // Concrete non-stream, non-text target (or a text target with no
+                    // fallback): an unambiguous stream write to the wrong type.
                     self.type_error(
                         "`write line|chunk` requires a response-stream handle \
                          (from `start streaming response ... as ...`)"
@@ -1081,20 +1126,32 @@ impl TypeChecker {
             }
             Statement::FlushStreamStatement {
                 target,
+                action_fallback,
                 line,
                 column,
             } => {
-                let target_type = self.infer_expression_type(target);
-                if !self.is_response_stream_target_type(&target_type) {
-                    self.type_error(
-                        "`flush` requires a response-stream handle \
-                         (from `start streaming response ... as ...`)"
-                            .to_string(),
-                        Some(Type::Custom("ResponseStream".to_string())),
-                        Some(target_type),
-                        *line,
-                        *column,
-                    );
+                // A merged `flush <ident>` may resolve at runtime to a
+                // zero-argument action named `flush <ident>` (backward
+                // compatibility — see `parse_flush_stream`). Stay lenient ONLY when
+                // such an action is actually defined; otherwise this is a stream
+                // flush and a concrete non-stream target is still a static error
+                // (`flush n` where `n` is a number).
+                let is_action_call = action_fallback
+                    .as_ref()
+                    .is_some_and(|name| self.action_signatures(name).is_some());
+                if !is_action_call {
+                    let target_type = self.infer_expression_type(target);
+                    if !self.is_response_stream_target_type(&target_type) {
+                        self.type_error(
+                            "`flush` requires a response-stream handle \
+                             (from `start streaming response ... as ...`)"
+                                .to_string(),
+                            Some(Type::Custom("ResponseStream".to_string())),
+                            Some(target_type),
+                            *line,
+                            *column,
+                        );
+                    }
                 }
             }
             Statement::VariableDeclaration {
@@ -4810,6 +4867,38 @@ impl TypeChecker {
             Type::Custom(name) => name == "ResponseStream",
             Type::Unknown | Type::Any | Type::Error => true,
             _ => false,
+        }
+    }
+
+    /// A type that inference has not pinned down (gradual typing): it may turn out
+    /// to be anything at runtime, so a static check must stay lenient rather than
+    /// reject it.
+    fn is_gradual_type(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Unknown | Type::Any | Type::Error)
+    }
+
+    /// The value types `write line|chunk` can send to a response stream — the
+    /// runtime stringifies numbers/booleans and sends text/binary as-is, and
+    /// rejects everything else (Map/List/Nothing/...). Gradual types pass.
+    fn is_streamable_payload(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Text | Type::Number | Type::Boolean | Type::Binary)
+            || self.is_gradual_type(ty)
+    }
+
+    /// Emit a type error if `ty` is a concrete value the runtime would reject as a
+    /// response-stream payload (a Map/List/Nothing/... reaches `write` only to fail
+    /// at runtime otherwise).
+    fn check_streamable_payload(&mut self, ty: &Type, line: usize, column: usize) {
+        if !self.is_streamable_payload(ty) {
+            self.type_error(
+                "`write line|chunk` can only send text, binary, a number, or a boolean \
+                 to a response stream"
+                    .to_string(),
+                Some(Type::Text),
+                Some(ty.clone()),
+                line,
+                column,
+            );
         }
     }
 

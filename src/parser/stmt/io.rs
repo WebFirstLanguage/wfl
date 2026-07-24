@@ -24,6 +24,12 @@ impl<'a> Parser<'a> {
             Expression::Variable(_, l, c) => (*l, *c),
             _ => (0, 0),
         };
+        // The lexer merges `write` with the operand identifier and leaves any
+        // bracket-index / dotted-property accessors as following tokens, so compose
+        // them onto the lead (`write line chunks[0] to out`,
+        // `write line upstream.status to out`, classic `write line values[0] to
+        // "/tmp/out"`) instead of leaving them to dangle after the statement.
+        let lead = self.parse_trailing_postfix(lead)?;
         let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
             self.bump_sync(); // Consume "of"
             let object = self.parse_primary_expression()?;
