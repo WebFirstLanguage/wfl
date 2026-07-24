@@ -190,4 +190,3 @@ async fn test_rapid_open_close_does_not_leak_reaper_tasks() {
         "rapid open/close should finish promptly with reapers aborted; took {elapsed:?}"
     );
 }
-

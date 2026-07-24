@@ -3790,14 +3790,8 @@ impl Analyzer {
             // PropertyAccess leaf whose object is a Variable: treat the object
             // name as the lead (e.g. `missing.field` vs `line missing.field`).
             (
-                Expression::PropertyAccess {
-                    object: vo,
-                    ..
-                },
-                Expression::PropertyAccess {
-                    object: fo,
-                    ..
-                },
+                Expression::PropertyAccess { object: vo, .. },
+                Expression::PropertyAccess { object: fo, .. },
             ) => {
                 self.analyze_ambiguous_write(vo, fo, line, column);
             }
