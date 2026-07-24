@@ -139,3 +139,102 @@ operator-continuation no-false-positive), all prior back-compat cases intact.
   reads it is still reclaimed at handler exit rather than by a mid-idle timer — the
   single-threaded, `!Send`-stream model has no wake point to close it earlier;
   this is noted rather than claimed as instantaneous.
+
+
+---
+
+# Second re-review round — deeper P1 blockers (head `e8c9712`)
+
+Round of fixes for the maintainer's re-review at `e8c9712`. Risk class **R3**
+(concurrency, cancellation, lifecycle, streaming, backward compatibility). Each
+behavioral change has a Red→Green real-boundary test; the Red evidence is a
+test-only commit that is an ancestor of the source commit (verified by running
+each new test with the source fixes stashed).
+
+## Cancellation / disconnect
+
+- **`wait for next line` pre-response disconnect (P1-1).** The line read watched
+  only the downstream response stream, which does not exist before `start
+  streaming response`; it now races the same combined pending-request/downstream
+  signal as `wait for next chunk`, so a blocked pre-response line read is
+  cancelled the moment the client goes away. *Test:*
+  `wait_line_pre_response_disconnect_test`.
+- **Sibling-prune cancellation race (P1-2).** `any_pending_request_disconnected`
+  treated an owned request id missing from `pending_responses` as "still
+  connected". But the only removal that leaves an id in `open_pending_requests`
+  is a sibling `wait for request`'s global prune, which deletes ONLY closed
+  (disconnected) senders — so a missing owned id is now treated as a terminal
+  disconnect, and a parked pre-head handler is no longer stranded until its idle
+  timeout. *Test:* `concurrent_prehead_prune_race_test`.
+- **Classify every client disconnect as cancellation (P1-3).** The buffered
+  `respond`, streaming-head, and response-stream `write` send failures returned a
+  General runtime error, which fed the concurrent loop's structural-failure
+  breaker — so a burst of >256 disconnects at those paths tore the loop down.
+  They are now `ErrorKind::Cancelled`. *Test:*
+  `concurrent_disconnect_paths_burst_test` (buffered-respond and stream-write
+  bursts; `/ping` survives).
+
+## Lifecycle (P1-4)
+
+- **Absolute outbound lifetime is real-time (a).** `outbound_stream_max_seconds`
+  was only re-checked on the next read, so an opened-but-unread upstream outlived
+  the cap. `stream_handles` is now shared via `Arc` and each open spawns a reaper
+  that drops the handle (cancelling the upstream) when the deadline elapses.
+  *Test:* `outbound_stream_open_expiry_test`. *Docs:* configuration-reference
+  updated to state the cap is enforced in real time.
+- **Dropped-run cleanup covers server streams + pending (b).** The
+  interpret-scoped guard covered only outbound streams; the server response
+  streams and pending requests (`Rc`-shared now) are also finalized on a dropped
+  `interpret()`, so a cancelled run does not leave a client body hanging on a
+  reused interpreter. *Test:* `dropped_interpret_server_cleanup_test` (holds the
+  interpreter alive after the drop to prove it is the guard, not interpreter
+  teardown, that closes the body).
+- **Backpressured write is bounded (c).** `tx.send(bytes).await` past the 64-slot
+  channel could park forever against a connected-but-non-reading client (a `main
+  loop` is deadline-exempt). It is now capped by
+  `web_server_response_timeout_seconds`. *Test:*
+  `response_stream_backpressure_test` (a >send-buffer payload genuinely blocks;
+  the write fails at the cap instead of pinning). *Docs:* config reference notes
+  this timeout bounds streaming writes.
+
+## Backward compatibility / correctness
+
+- **Branch-aware ambiguous-write type check (P1-5).** `write line|chunk <v> to
+  <target>` has a stream reading and a classic file-write reading; the checker
+  now validates the reading the runtime actually takes (by the target type),
+  instead of always checking the stream `value` — so a valid file write is no
+  longer rejected on the never-run stream branch, a broken file write is caught,
+  and a concrete non-streamable payload (Map/List/Nothing) to a real stream is a
+  static error. *Test:* `ambiguous_write_branch_typecheck_test`.
+- **`flush` no longer steals a zero-arg action (P1-6).** `flush cache` used to
+  auto-invoke an action named `flush cache`; the streaming `flush` dispatch now
+  carries the full merged phrase and the interpreter/typechecker/analyzer prefer
+  a defined action of that name before treating the operand as a stream. *Test:*
+  `flush_action_backcompat_test`.
+- **Postfix composition on write / web-clause operands (P1-9).** `write line
+  chunks[0] to out`, `write line upstream.status to out`, `headers
+  upstream.headers`, and `content type upstream.headers["content-type"]` compose
+  their trailing `[...]`/`.field` accessors instead of leaving them to dangle.
+  *Test:* `write_web_postfix_test`.
+- **Analyzer walks call/pattern continuations (P1-10).** `analyze_ambiguous_write`
+  now recurses in parallel through `starts/ends with`, pattern, index, and
+  function/action/method-call shapes, so an undefined name in a shared
+  continuation is reported instead of reaching runtime. *Test:*
+  `ambiguous_write_analyzer_test`.
+
+## Test infrastructure / CI
+
+- Clippy runs `--all-features` (matching the binding gate in `testing.md`).
+- The Integration Tests job runs the documented
+  `scripts/run_integration_tests.{sh,ps1}` on both OSes, so the intentional-error
+  TestPrograms are actually asserted (their assertions lived only in that script,
+  which CI never invoked).
+- `run_integration_tests.ps1` redirects stdout/stderr to two distinct temp files
+  (PowerShell 7 rejects reusing a single `NUL` target, which left the Windows
+  integration command unrunnable).
+- `run_web_tests.ps1` fails the run — not merely warns — when a server cannot be
+  killed/waited or a TLS temp dir leaks, since the pass is counted before the
+  `finally` cleanup.
+- Streaming visibility coverage: `response_stream_backpressure_test` also proves
+  an early chunk is delivered on the wire ~2s before the late one (head/first
+  chunk visible before body completion, not buffered to close).
