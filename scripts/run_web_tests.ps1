@@ -47,8 +47,16 @@ Write-Host "[SUCCESS] Binary found: $BinaryPath" -ForegroundColor Green
 function Show-ServerLogs {
     param(
         [string]$OutLog,
-        [string]$ErrLog
+        [string]$ErrLog,
+        $Process
     )
+    if ($Process) {
+        if ($Process.HasExited) {
+            Write-Host "[LOG] server process exited with code $($Process.ExitCode)" -ForegroundColor Gray
+        } else {
+            Write-Host "[LOG] server process was still running at failure time" -ForegroundColor Gray
+        }
+    }
     foreach ($pair in @(@("stdout", $OutLog), @("stderr", $ErrLog))) {
         $label = $pair[0]
         $path = $pair[1]
@@ -97,27 +105,25 @@ function Test-WflWebServer {
     $serverProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $TestFile -NoNewWindow -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
     try {
-        # Wait for server to start (with retries)
+        # Wait for the server to start, bounded by a real wall-clock deadline.
+        # A fixed retry count misleads: each failed 2s request stacks on top of
+        # the 500ms sleep, so "20 tries" of a 10s wait could actually run ~50s.
+        # A Stopwatch caps total wait at TimeoutSeconds (plus one in-flight probe).
         $serverReady = $false
-        $retries = 0
-        $maxRetries = $TimeoutSeconds * 2  # Check every 500ms
-
-        while (-not $serverReady -and $retries -lt $maxRetries) {
-            Start-Sleep -Milliseconds 500
-            $retries++
-
-            # Try to connect
+        $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $serverReady -and $deadline.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
             try {
                 $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
                 $serverReady = $true
             } catch {
-                # Server not ready yet, continue waiting
+                # Server not ready yet, wait briefly and retry until the deadline.
+                Start-Sleep -Milliseconds 500
             }
         }
 
         if (-not $serverReady) {
             Write-Host "[ERROR] TIMEOUT: Server did not start within ${TimeoutSeconds}s" -ForegroundColor Red
-            Show-ServerLogs -OutLog $outLog -ErrLog $errLog
+            Show-ServerLogs -OutLog $outLog -ErrLog $errLog -Process $serverProcess
             return $false
         }
 
@@ -129,7 +135,7 @@ function Test-WflWebServer {
             Write-Host "[ERROR] FAIL: Unexpected response" -ForegroundColor Red
             Write-Host "  Expected: $ExpectedResponse" -ForegroundColor Gray
             Write-Host "  Got: $($response.Content)" -ForegroundColor Gray
-            Show-ServerLogs -OutLog $outLog -ErrLog $errLog
+            Show-ServerLogs -OutLog $outLog -ErrLog $errLog -Process $serverProcess
             return $false
         }
     } finally {
@@ -179,13 +185,10 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
     $routeProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList "TestPrograms\web_route_params_test.wfl" -NoNewWindow -PassThru -RedirectStandardOutput $routeOutLog -RedirectStandardError $routeErrLog
 
     try {
+        # Wall-clock deadline (see Test-WflWebServer) instead of a retry count.
         $serverReady = $false
-        $retries = 0
-        $maxRetries = $Timeout * 2
-
-        while (-not $serverReady -and $retries -lt $maxRetries) {
-            Start-Sleep -Milliseconds 500
-            $retries++
+        $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $serverReady -and $deadline.Elapsed.TotalSeconds -lt $Timeout) {
             try {
                 $rootResponse = Invoke-WebRequest -Uri "http://127.0.0.1:8096/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
                 if ($rootResponse.Content -like "*Route server ready*") {
@@ -194,6 +197,7 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
             } catch {
                 # Intentionally empty - server not ready yet, continue polling
             }
+            if (-not $serverReady) { Start-Sleep -Milliseconds 500 }
         }
 
         $routeOk = $true
@@ -249,7 +253,7 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
         if ($routeOk) {
             $passedTests++
         } else {
-            Show-ServerLogs -OutLog $routeOutLog -ErrLog $routeErrLog
+            Show-ServerLogs -OutLog $routeOutLog -ErrLog $routeErrLog -Process $routeProcess
         }
     } finally {
         Stop-ServerProcess -Process $routeProcess
@@ -280,12 +284,10 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
         try {
             # Probe readiness via the redirect port: it answers natively and does
             # not consume the program's single `wait for request`
+            # Wall-clock deadline (see Test-WflWebServer) instead of a retry count.
             $serverReady = $false
-            $retries = 0
-            $maxRetries = $Timeout * 2
-            while (-not $serverReady -and $retries -lt $maxRetries) {
-                Start-Sleep -Milliseconds 500
-                $retries++
+            $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $serverReady -and $deadline.Elapsed.TotalSeconds -lt $Timeout) {
                 try {
                     Invoke-WebRequest -Uri "http://127.0.0.1:8090/" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop | Out-Null
                     $serverReady = $true
@@ -294,6 +296,7 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                         $serverReady = $true
                     }
                 }
+                if (-not $serverReady) { Start-Sleep -Milliseconds 500 }
             }
 
             $tlsOk = $true
@@ -342,7 +345,7 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
             if ($tlsOk) {
                 $passedTests++
             } else {
-                Show-ServerLogs -OutLog (Join-Path $tlsDir "server.out.log") -ErrLog (Join-Path $tlsDir "server.err.log")
+                Show-ServerLogs -OutLog (Join-Path $tlsDir "server.out.log") -ErrLog (Join-Path $tlsDir "server.err.log") -Process $tlsProcess
             }
         } finally {
             # Kill AND wait for exit before removing the temp dir, so the server
