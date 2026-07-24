@@ -127,6 +127,86 @@ fn test_stream_handle_numeric_index_is_rejected() {
 }
 
 #[test]
+fn test_wait_for_next_from_non_stream_is_rejected() {
+    // `wait for next chunk|line from <source>` requires an outbound stream handle;
+    // reading one from a concrete number is a static type error, not deferred.
+    for verb in ["chunk", "line"] {
+        let code = format!("store n as 5\nwait for next {verb} from n as c");
+        let errors =
+            typecheck(&code).expect_err("reading a stream from a number must be a type error");
+        assert!(
+            errors.contains("stream"),
+            "expected a stream-source type error for `wait for next {verb}`, got: {errors}"
+        );
+    }
+}
+
+#[test]
+fn test_wait_for_next_from_http_stream_is_ok() {
+    // The valid form (reading from an outbound stream handle) must type-check.
+    let code = "open url at \"http://example.com\" and stream response as up\n\
+                wait for next chunk from up as c\n\
+                close up";
+    assert!(
+        typecheck(code).is_ok(),
+        "reading from an outbound stream handle must type-check: {:?}",
+        typecheck(code).err()
+    );
+}
+
+#[test]
+fn test_flush_non_stream_is_rejected() {
+    // `flush <target>` requires a server response-stream handle.
+    let code = "store n as 5\nflush n";
+    let errors = typecheck(code).expect_err("flushing a number must be a type error");
+    assert!(
+        errors.contains("stream"),
+        "expected a stream-target type error for `flush`, got: {errors}"
+    );
+}
+
+#[test]
+fn test_write_line_to_non_stream_is_rejected() {
+    // An UNAMBIGUOUS stream write (literal value => no classic file-write fallback)
+    // to a concrete number cannot be a file write either, so it is a type error.
+    let code = "store n as 5\nwrite line \"x\" to n";
+    let errors = typecheck(code).expect_err("writing to a number must be a type error");
+    assert!(
+        errors.contains("stream"),
+        "expected a stream-target type error for `write line`, got: {errors}"
+    );
+}
+
+#[test]
+fn test_write_and_flush_response_stream_is_ok() {
+    // The valid server-streaming path must type-check cleanly.
+    let code = "listen on port 8080 as s\n\
+                wait for request comes in on s as req\n\
+                start streaming response to req with status 200 and content type \"text/plain\" as out\n\
+                write line \"hi\" to out\n\
+                flush out\n\
+                close out";
+    assert!(
+        typecheck(code).is_ok(),
+        "writing/flushing a response-stream handle must type-check: {:?}",
+        typecheck(code).err()
+    );
+}
+
+#[test]
+fn test_write_line_variable_to_file_path_is_ok() {
+    // The AMBIGUOUS merged form (`write line <ident> ... to <target>`) carries a
+    // classic file-write fallback, so a text file-path target must NOT be rejected.
+    let code = "store payload as \"data\"\n\
+                write line payload to \"/tmp/out.txt\"";
+    assert!(
+        typecheck(code).is_ok(),
+        "an ambiguous `write line <var> to <file>` must accept a text file target: {:?}",
+        typecheck(code).err()
+    );
+}
+
+#[test]
 fn test_close_ordinary_map_is_rejected() {
     // A plain user map is NOT closeable — only file/stream handles are. This is
     // the tightening that a distinct handle type buys over accepting any `Map`.
