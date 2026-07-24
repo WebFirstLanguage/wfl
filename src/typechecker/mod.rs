@@ -3537,9 +3537,25 @@ impl TypeChecker {
                     // at runtime (issue #553).
                     Type::Any => Type::Any,
                     // Stream handles expose fields (`status`/`ok`/`headers`) by
-                    // index; the field type is only known at runtime.
+                    // index; the key must be text (runtime object indexing rejects
+                    // a numeric key), and the field type is only known at runtime.
                     Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => {
-                        Type::Any
+                        if index_type != Type::Text
+                            && index_type != Type::Unknown
+                            && index_type != Type::Any
+                            && index_type != Type::Error
+                        {
+                            self.type_error(
+                                format!("Stream handle field name must be text, got {index_type}"),
+                                Some(Type::Text),
+                                Some(index_type),
+                                *line,
+                                *column,
+                            );
+                            Type::Error
+                        } else {
+                            Type::Any
+                        }
                     }
                     _ => {
                         self.type_error(
@@ -4216,6 +4232,12 @@ impl TypeChecker {
                     // the value type is whatever the map stores.
                     Type::Map(_, value_type) => *value_type,
                     Type::Unknown | Type::Any | Type::Error => Type::Unknown,
+                    // Stream handles expose fields (`status`/`ok`/`headers`) via
+                    // the documented dot form too; the field type is only known at
+                    // runtime.
+                    Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => {
+                        Type::Unknown
+                    }
                     _ => {
                         self.type_error(
                             format!(

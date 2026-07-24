@@ -75,6 +75,36 @@ fn test_outbound_stream_handle_fields_are_indexable() {
 }
 
 #[test]
+fn test_outbound_stream_handle_dot_access_typechecks() {
+    // The canonical docs use dot access (`upstream.status`,
+    // `upstream.headers["content-type"]`); the distinct handle type must support
+    // it, not just bracket notation.
+    let code = "open url at \"http://example.com\" and stream response as upstream\n\
+                display upstream.status\n\
+                store ct as upstream.headers[\"content-type\"]\n\
+                close upstream";
+    assert!(
+        typecheck(code).is_ok(),
+        "dot access on a stream handle must type-check: {:?}",
+        typecheck(code).err()
+    );
+}
+
+#[test]
+fn test_stream_handle_numeric_index_is_rejected() {
+    // Runtime object indexing requires a text field name; a numeric key must be a
+    // static type error (it was, back when the handle was Map<Text, _>).
+    let code = "open url at \"http://example.com\" and stream response as resp\n\
+                store x as resp[5]\n\
+                close resp";
+    let errors = typecheck(code).expect_err("a numeric stream-handle key must be a type error");
+    assert!(
+        errors.contains("field name must be text") || errors.contains("must be text"),
+        "expected a text-key type error, got: {errors}"
+    );
+}
+
+#[test]
 fn test_close_ordinary_map_is_rejected() {
     // A plain user map is NOT closeable — only file/stream handles are. This is
     // the tightening that a distinct handle type buys over accepting any `Map`.
