@@ -110,8 +110,14 @@ bound work (the common web case), not CPU-bound loops.
 
 - A slow handler does not block its siblings.
 - Each request handler is isolated (its own scope).
-- A handler that errors or panics is contained: that request fails on its own
-  (its client gets a 500/timeout) and the server keeps serving everyone else.
+- A handler that errors or panics is contained: that request fails on its own and
+  the server keeps serving everyone else. How the client sees the failure depends
+  on how far the handler got: if it had **not** sent a response yet, the client
+  gets a `500` (or a `504` if the handler never answers in time); if it had already
+  called `start streaming response`, the status and headers are on the wire
+  (typically `200`), so the error cannot change them — the response body is just
+  ended early (the stream is closed), leaving the client a truncated body under the
+  already-sent status.
 - In-flight work is bounded; the transport still sheds excess load with 503 and
   times out a stalled handler with 504, exactly as for the serial loop.
 
