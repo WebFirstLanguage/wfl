@@ -4198,9 +4198,13 @@ impl Interpreter {
         *self.in_count_loop.borrow_mut() = false;
         *self.current_count.borrow_mut() = None;
         // A prior run that ended while a stream was open or a request was
-        // unanswered (REPL reuse) must not leave dangling ids tracked here.
-        self.open_response_streams.borrow_mut().clear();
-        self.open_pending_requests.borrow_mut().clear();
+        // unanswered (REPL reuse) must not leave dangling entries. Actually CLOSE
+        // those streams and 500 those requests (draining the tracking), rather
+        // than only clearing the id lists — clearing alone would strand the
+        // still-open sender/receiver in `server_response_streams` /
+        // `pending_responses`, hanging the client and leaking the entry.
+        self.close_open_response_streams();
+        self.fail_open_pending_requests();
         // Reset to the inherited base depth (0 for a top-level run/REPL; the
         // parent's live depth for an `execute file` child) so recursion
         // accounting spans the execute-file boundary instead of granting the
@@ -4379,6 +4383,10 @@ impl Interpreter {
                     );
                 }
                 errors.push(err);
+                // A mid-run timeout is still an exit path: finalize any open
+                // top-level streams and unanswered requests before returning.
+                self.close_open_response_streams();
+                self.fail_open_pending_requests();
                 return Err(errors);
             }
 
@@ -4423,14 +4431,9 @@ impl Interpreter {
             }
         }
 
-        // Close any server response streams opened directly at top level (outside
-        // a `main loop`, which already closes per-iteration/per-handler) so a
-        // script that starts a stream and exits without `close` still finalizes
-        // the client's body rather than leaving it hanging until process death.
-        // Likewise 500 any top-level request dequeued but never answered.
-        self.close_open_response_streams();
-        self.fail_open_pending_requests();
-
+        // Run the conventional `main` action (if any) before cleanup, so a
+        // stream/request opened by `main` is finalized by the drain below rather
+        // than leaking.
         if errors.is_empty() {
             let main_func_opt = {
                 match self.global_env.borrow().get("main") {
@@ -4458,11 +4461,21 @@ impl Interpreter {
                     }
                 }
             }
+        }
 
-            self.assert_invariants();
+        // Close any server response streams opened directly at top level or by
+        // `main` (outside a `main loop`, which already closes
+        // per-iteration/per-handler), and 500 any top-level request dequeued but
+        // never answered — on EVERY exit path (normal end, statement error, or a
+        // failing `main`), so a script that exits without `close` still finalizes
+        // the client's body rather than leaving it hanging until process death.
+        self.close_open_response_streams();
+        self.fail_open_pending_requests();
+
+        self.assert_invariants();
+        if errors.is_empty() {
             Ok(last_value)
         } else {
-            self.assert_invariants();
             Err(errors)
         }
     }
