@@ -152,17 +152,24 @@ in-flight upstream request; reading from a closed (or fully-drained) handle
 raises a catchable error.
 
 The same limits as buffered requests apply: the running total of body bytes is
-held under `web_server_max_response_size`, each read is bounded by the request's
-timeout, and cooperative cancellation interrupts a read waiting on the peer. A
-mid-stream network error surfaces as a catchable error from the `wait for next
-...` statement.
+held under `web_server_max_response_size`, and each read is bounded by the
+**smaller** of the request's idle timeout and the stream's remaining absolute
+lifetime (`outbound_stream_max_seconds`, measured from when the stream is opened,
+including connect/header time). So even a trickling or stalled upstream can never
+outlive the absolute cap. Cooperative cancellation interrupts a read waiting on
+the peer, and a mid-stream network error surfaces as a catchable error from the
+`wait for next ...` statement.
 
 A stream is released — cancelling the in-flight upstream request — when it
-reaches a clean end of stream, hits an error, or you `close` it explicitly, and
-in any case when the program exits. It is **not** released merely because the
-handle variable goes out of scope, so `close upstream` when you stop early (or
-break out of the read loop before EOF) to free the upstream connection promptly
-rather than holding it until the program ends.
+reaches a clean end of stream, hits an error, you `close` it explicitly, **or the
+handler/program that owns it ends on any path** (normal return, a caught error, a
+panic contained by `main loop concurrently:`, timeout, or cancellation). In a web
+server that proxies an upstream, a **downstream client disconnect** also cancels a
+read that is *currently blocked* on the upstream — the handler wakes with a
+catchable error instead of waiting out the absolute deadline — and its upstream is
+closed as the handler unwinds. Still prefer an explicit `close upstream` when you
+stop early or break out of the read loop before EOF, to free the connection the
+moment you are done rather than at handler exit.
 
 ### 4. **Web Standards**
 

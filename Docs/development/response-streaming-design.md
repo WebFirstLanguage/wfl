@@ -116,9 +116,14 @@ close out
 
 - **`write line|chunk`** resolves `_server_stream`, `tx.send(bytes).await`
   (bounded → backpressure). A closed receiver (browser disconnected / hyper
-  dropped the body) makes `send` fail → surfaced as a catchable error, letting
-  the handler `close upstream` and stop — this is how browser-disconnect
-  cancellation propagates to the upstream (item 5, cooperatively).
+  dropped the body) makes `send` fail → surfaced as a catchable error. In
+  addition, a handler blocked in an upstream `wait for next line|chunk` no longer
+  has to wait for its next `write` to notice the disconnect: the read is
+  `select!`ed against `Sender::closed()` for the handler's open response streams,
+  so a downstream disconnect cancels the blocked upstream read promptly (dropping
+  the upstream), and the handler's owned outbound handles are then closed as it
+  unwinds. This is how browser-disconnect cancellation propagates to the upstream
+  (item 5, cooperatively).
 
 - **`flush`** = advisory; `tokio::task::yield_now().await` so the transport task
   is scheduled. Documented as advisory (hyper already writes as it receives).
@@ -128,11 +133,20 @@ close out
 
 ### Lifecycle (item 5, server side)
 
-- Timeouts: the existing per-request `overall_deadline` bounds head delivery;
-  document that a stalled *body producer* is bounded by the handler timeout at
-  await points (the yield-cliff caveat from the concurrency plan).
+- Timeouts: the existing per-request `overall_deadline` bounds head delivery; a
+  stalled *body producer* is bounded by the handler timeout at await points (the
+  yield-cliff caveat from the concurrency plan). Outbound reads are additionally
+  bounded by `min(idle, remaining absolute stream deadline)`: `run_http_with_budget`
+  composes the operation deadline as the minimum of the run/budget remaining time
+  and the caller's configured timeout (which already carries the stream's idle +
+  absolute bound), and the absolute clock starts at request initiation.
 - Backpressure: bounded `mpsc` — a slow browser slows the handler's `write`.
-- Disconnect → upstream cancel: `write` error path (above).
+- Disconnect → upstream cancel: the `write` error path AND a proactive
+  `Sender::closed()` `select!` against a blocked upstream read (above).
+- Outbound close-on-exit (shipped): outbound `httpstream*` handles are also
+  handler-owned — tracked in `RunState.open_http_streams` (swapped per poll) and
+  dropped from `IoClient.stream_handles` when the handler ends on any path,
+  cancelling the in-flight upstream request so an abandoned proxy read never leaks.
 - Close-on-exit (shipped): each handler tracks the `respstream*` ids it opened in
   its per-handler run-state (`open_response_streams`, part of the `RunState`
   swapped in/out per poll under `main loop concurrently:`). When the handler ends
