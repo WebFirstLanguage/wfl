@@ -308,6 +308,75 @@ fn test_ambiguous_write_line_accepts_desugared_classic_writes() {
 }
 
 #[test]
+fn test_ambiguous_write_line_drops_span_mismatched_fallback() {
+    // Regression (maintainer review): the classic file-write fallback is only a
+    // valid alternate reading when it consumes the SAME continuation span as the
+    // stream reading. `write line min with a: 1 and b: 2 to <target>`: the stream
+    // reading is the builtin call `min` with named args `a`/`b` (consuming through
+    // `b: 2`), but the classic reading of the multiword variable `line min` can
+    // only parse `line min with a` before the `:` — a shorter, partial span.
+    // Keeping that partial parse as the fallback corrupts a file write, so it must
+    // be dropped (fallback = None) rather than retained just because it parsed.
+    let stmt = &parse("write line min with a: 1 and b: 2 to f")[0];
+    match stmt {
+        Statement::StreamWriteStatement {
+            value,
+            fallback_content,
+            ..
+        } => {
+            assert!(
+                matches!(value, Expression::ActionCall { .. }),
+                "the stream reading should consume the whole named-argument call, got {value:?}"
+            );
+            assert!(
+                fallback_content.is_none(),
+                "a partial (span-mismatched) classic fallback must be dropped, got {fallback_content:?}"
+            );
+        }
+        other => panic!("expected StreamWriteStatement, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_span_mismatched_write_line_to_file_does_not_corrupt() {
+    // The runtime counterpart: with a span-mismatched fallback dropped, writing
+    // the ambiguous `min(...)` form to a FILE target is a clean error instead of
+    // silently writing the corrupt partial concatenation. `line min` and `a` are
+    // defined so the OLD (buggy) fallback would have evaluated and written
+    // "CORRUPT..." to the file; the fix must prevent that.
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let path = dir.path().join("wfl_write_line_span_mismatch.txt");
+    let path_str = path.to_string_lossy().replace('\\', "/");
+
+    let code = format!(
+        "store line min as \"CORRUPT\"\n\
+         store a as \"SUFFIX\"\n\
+         write line min with a: 1 and b: 2 to \"{path_str}\""
+    );
+    let tokens = lex_wfl_with_positions(&code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = rt.block_on(async {
+        let mut interp = Interpreter::new();
+        interp.interpret(&program).await
+    });
+
+    let wrote_corrupt = std::fs::read_to_string(&path)
+        .map(|c| c.contains("CORRUPT"))
+        .unwrap_or(false);
+    assert!(
+        !wrote_corrupt,
+        "the span-mismatched fallback corrupted the file write: {:?}",
+        std::fs::read_to_string(&path)
+    );
+    assert!(
+        result.is_err(),
+        "writing the ambiguous `min(...)` form to a file must be a clean error, not a silent corrupt write"
+    );
+}
+
+#[test]
 fn test_ambiguous_write_line_still_flags_when_neither_candidate_defined() {
     // The ambiguous form defers definedness to runtime, but a genuine typo where
     // NEITHER reading resolves (`payload` as a stream value, nor `line payload`
