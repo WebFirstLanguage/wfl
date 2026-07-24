@@ -3602,14 +3602,14 @@ impl Analyzer {
             }
             // Reached a differing leaf — the lead. Report only when NEITHER
             // reading resolves, so neither valid interpretation is rejected.
-            (Expression::Variable(sn, ..), Expression::Variable(fal, ..)) => {
-                if !self.name_is_defined(sn) && !self.name_is_defined(fal) {
-                    self.report_undefined_name(
-                        format!("Variable '{fal}' is not defined"),
-                        line,
-                        column,
-                    );
-                }
+            (Expression::Variable(sn, ..), Expression::Variable(fal, ..))
+                if !self.name_is_defined(sn) && !self.name_is_defined(fal) =>
+            {
+                self.report_undefined_name(
+                    format!("Variable '{fal}' is not defined"),
+                    line,
+                    column,
+                );
             }
             // A diverging, non-decomposable shape (a call-based desugaring where the
             // lead is buried): defer to runtime rather than risk a false positive.
