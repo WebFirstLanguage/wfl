@@ -1671,41 +1671,20 @@ impl Analyzer {
                     // Unambiguous form: check the stream value normally.
                     None => self.analyze_expression(value),
                     // Ambiguous merged form (`write line <ident> ... to <target>`):
-                    // the live reading — stream write of `<ident>` vs classic
-                    // file write of the variable `line <ident>` — depends on the
-                    // runtime target type, and the two differ only in the leading
-                    // operand. Analyze ONLY the shapes where that lead is
-                    // unambiguously the single leftmost bare variable: a bare
-                    // `Variable`, or `<var> with <continuation>` (a `Concatenation`
-                    // whose left is that variable). Desugared forms place the lead
-                    // where a generic walk cannot separate it from the shared
-                    // continuation — `starts/ends with` makes the lead a call
-                    // argument, `is between` duplicates it, pattern/`of`/builtin-
-                    // `with` bury it in a call — so analyzing them would reject a
-                    // valid classic file write (a back-compat regression). Defer
-                    // those entirely to runtime.
+                    // the live reading — stream write of `<ident>` vs classic file
+                    // write of the variable `line <ident>` — depends on the runtime
+                    // target type, and the two readings differ ONLY at the leftmost
+                    // leaf (the merged lead). `analyze_ambiguous_write` walks both
+                    // readings in parallel: it analyzes every sub-expression they
+                    // share (operator right-hand sides, concatenation tails) so a
+                    // genuinely undefined variable in the continuation is still
+                    // caught, and at the lead reports undefined only when NEITHER
+                    // reading resolves. Call-based desugarings (`starts/ends with`,
+                    // `is between`, patterns) bury the lead inside a call where the
+                    // shapes diverge; those still defer to runtime rather than risk
+                    // rejecting a valid classic file write.
                     Some(fallback) => {
-                        let stream_name = Self::stream_write_simple_lead(value);
-                        let fallback_name = Self::stream_write_simple_lead(fallback);
-                        if let (Some(sn), Some(fal)) = (stream_name, fallback_name) {
-                            // Shared continuation (`with <rhs>`): the right side is
-                            // identical under both readings and unambiguous, so a
-                            // genuinely undefined variable there is still caught.
-                            if let Expression::Concatenation { right, .. } = value {
-                                self.analyze_expression(right);
-                            }
-                            // Report the lead undefined only when NEITHER reading's
-                            // name resolves — a real typo caught without rejecting
-                            // either valid reading.
-                            if !self.name_is_defined(sn) && !self.name_is_defined(fal) {
-                                self.report_undefined_name(
-                                    format!("Variable '{fal}' is not defined"),
-                                    *line,
-                                    *column,
-                                );
-                            }
-                        }
-                        // Any other (desugared) shape: no analysis — runtime decides.
+                        self.analyze_ambiguous_write(value, fallback, *line, *column);
                     }
                 }
             }
@@ -3558,22 +3537,83 @@ impl Analyzer {
         }
     }
 
-    /// The ambiguous leading operand name of a `write line|chunk` value, but ONLY
-    /// for the shapes where that lead is provably the single leftmost bare
-    /// variable and cleanly separable from the shared continuation: a bare
-    /// `Variable`, or `<var> with <continuation>` (a `Concatenation` whose left is
-    /// that variable). Returns `None` for every other shape — including the
-    /// desugared `starts/ends with` (call), `is between` (duplicated operand),
-    /// and pattern/`of`/builtin-`with` forms — so the caller skips analysis of
-    /// those rather than risk rejecting a valid classic file write.
-    fn stream_write_simple_lead(expr: &Expression) -> Option<&str> {
-        match expr {
-            Expression::Variable(name, ..) => Some(name),
-            Expression::Concatenation { left, .. } => match &**left {
-                Expression::Variable(name, ..) => Some(name),
-                _ => None,
-            },
-            _ => None,
+    /// Analyze an ambiguous `write line|chunk` value against its classic
+    /// file-write fallback. Both readings are parsed from the SAME tokens and
+    /// differ only at the leftmost leaf (the merged lead), so walk them in
+    /// parallel: analyze every shared sub-expression (an operator's right-hand
+    /// side, a concatenation's tail) so an undefined variable in the continuation
+    /// is caught, and at the lead report undefined only when NEITHER reading
+    /// resolves (so neither valid interpretation is rejected). Diverging,
+    /// call-based desugarings (`starts/ends with`, `is between`, patterns) bury the
+    /// lead where the shapes no longer line up; those hit the catch-all arm and are
+    /// left to runtime rather than risk rejecting a valid classic file write.
+    fn analyze_ambiguous_write(
+        &mut self,
+        value: &Expression,
+        fallback: &Expression,
+        line: usize,
+        column: usize,
+    ) {
+        // A subtree that is IDENTICAL under both readings carries no lead
+        // difference (the two readings are parsed from the same tokens, so a
+        // genuinely shared sub-expression has the same names AND positions) — it is
+        // pure continuation, so analyze it normally. This catches an undefined
+        // variable anywhere in the shared part, including inside a call or index.
+        if value == fallback {
+            self.analyze_expression(value);
+            return;
+        }
+        // Otherwise the lead lies somewhere below. Recurse in PARALLEL on both
+        // children so a lead that a desugaring DUPLICATED into the right operand
+        // (e.g. `is between`) is still matched against the fallback's copy — not
+        // mistaken for an undefined continuation variable.
+        match (value, fallback) {
+            (
+                Expression::BinaryOperation {
+                    left: vl,
+                    operator: vo,
+                    right: vr,
+                    ..
+                },
+                Expression::BinaryOperation {
+                    left: fl,
+                    operator: fo,
+                    right: fr,
+                    ..
+                },
+            ) if vo == fo => {
+                self.analyze_ambiguous_write(vl, fl, line, column);
+                self.analyze_ambiguous_write(vr, fr, line, column);
+            }
+            (
+                Expression::Concatenation {
+                    left: vl,
+                    right: vr,
+                    ..
+                },
+                Expression::Concatenation {
+                    left: fl,
+                    right: fr,
+                    ..
+                },
+            ) => {
+                self.analyze_ambiguous_write(vl, fl, line, column);
+                self.analyze_ambiguous_write(vr, fr, line, column);
+            }
+            // Reached a differing leaf — the lead. Report only when NEITHER
+            // reading resolves, so neither valid interpretation is rejected.
+            (Expression::Variable(sn, ..), Expression::Variable(fal, ..)) => {
+                if !self.name_is_defined(sn) && !self.name_is_defined(fal) {
+                    self.report_undefined_name(
+                        format!("Variable '{fal}' is not defined"),
+                        line,
+                        column,
+                    );
+                }
+            }
+            // A diverging, non-decomposable shape (a call-based desugaring where the
+            // lead is buried): defer to runtime rather than risk a false positive.
+            _ => {}
         }
     }
 
