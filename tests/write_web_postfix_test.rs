@@ -103,6 +103,60 @@ fn streaming_response_content_type_clause_composes_property_then_index() {
 }
 
 #[test]
+fn write_line_of_call_argument_absorbs_arithmetic() {
+    // `double of n minus 1` must parse as `double of (n minus 1)` — the same
+    // precedence as an ordinary expression — not `(double of n) minus 1`.
+    let program = parse("write line double of n minus 1 to out\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    match stream_write_value(&program.statements[0]) {
+        Expression::FunctionCall { arguments, .. } => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "the `of` call should take one argument, got {arguments:#?}"
+            );
+            assert!(
+                matches!(arguments[0].value, Expression::BinaryOperation { .. }),
+                "the `of` argument must absorb `minus 1` (double of (n minus 1)), got {:#?}",
+                arguments[0].value
+            );
+        }
+        other => panic!("expected the value to be an `of` FunctionCall, got {other:#?}"),
+    }
+}
+
+#[test]
+fn write_line_method_call_operand_composes() {
+    // `obj.method()` must compose into a MethodCall, not leave `()` dangling.
+    let program = parse("write line obj.method() to out\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    assert!(
+        matches!(
+            stream_write_value(&program.statements[0]),
+            Expression::MethodCall { .. }
+        ),
+        "the write value must be a MethodCall, got {:#?}",
+        stream_write_value(&program.statements[0])
+    );
+}
+
+#[test]
+fn flush_method_call_operand_composes() {
+    // `flush obj.method()` must compose the method call onto the operand.
+    let program = parse("flush obj.method()\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    match &program.statements[0] {
+        Statement::FlushStreamStatement { target, .. } => {
+            assert!(
+                matches!(target, Expression::MethodCall { .. }),
+                "the flush operand must be a MethodCall, got {target:#?}"
+            );
+        }
+        other => panic!("expected FlushStreamStatement, got {other:#?}"),
+    }
+}
+
+#[test]
 fn classic_indexed_file_write_still_works_at_runtime() {
     // The ambiguous merged form's classic file-write reading must keep working with
     // an indexed operand: `write line values[0] to <file>`. The target is a text
