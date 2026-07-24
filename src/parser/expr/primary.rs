@@ -89,6 +89,57 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// After an identifier `.property` or `.method(...)` access, consume any
+    /// chained bracket index accesses so the index binds to the property/method
+    /// value. Without this, `upstream.headers["content-type"]` parsed as
+    /// `upstream.headers` followed by a separate `["content-type"]` list-literal
+    /// statement — silently dropping the lookup. Handles chains
+    /// (`grid.rows[0][1]`); a trailing `.member` is left for the caller (matching
+    /// the pre-existing primary-expression behavior).
+    fn parse_trailing_bracket_index(
+        &mut self,
+        mut expr: Expression,
+    ) -> Result<Expression, ParseError> {
+        while let Some(bracket) = self.cursor.peek() {
+            if bracket.token != Token::LeftBracket {
+                break;
+            }
+            let line = bracket.line;
+            let column = bracket.column;
+            self.bump_sync(); // Consume '['
+
+            let index = self.parse_expression()?;
+
+            match self.cursor.peek() {
+                Some(closing) if closing.token == Token::RightBracket => {
+                    self.bump_sync(); // Consume ']'
+                }
+                Some(closing) => {
+                    return Err(ParseError::from_token(
+                        format!("Expected ']' after index, found {:?}", closing.token),
+                        closing,
+                    ));
+                }
+                None => {
+                    return Err(ParseError::from_span(
+                        "Expected ']' after index, found end of input".to_string(),
+                        crate::diagnostics::Span { start: 0, end: 0 },
+                        line,
+                        column,
+                    ));
+                }
+            }
+
+            expr = Expression::IndexAccess {
+                collection: Box::new(expr),
+                index: Box::new(index),
+                line,
+                column,
+            };
+        }
+        Ok(expr)
+    }
+
     /// The actual primary-expression dispatch. Call `parse_primary_expression`
     /// (the trait method above), not this directly — it wraps this function
     /// with a debug-only check that keeps `can_start_primary_expression` from
@@ -277,7 +328,7 @@ impl<'a> Parser<'a> {
                                             "Expected ')' after method arguments",
                                         )?;
 
-                                        return Ok(Expression::MethodCall {
+                                        let call = Expression::MethodCall {
                                             object: Box::new(Expression::Variable(
                                                 name.clone(),
                                                 token_line,
@@ -287,11 +338,18 @@ impl<'a> Parser<'a> {
                                             arguments,
                                             line: token_line,
                                             column: token_column,
-                                        });
+                                        };
+                                        return self.parse_trailing_bracket_index(call);
                                     }
 
-                                    // Property access without method call
-                                    return Ok(Expression::PropertyAccess {
+                                    // Property access without method call.
+                                    // Route through the trailing-index helper so a
+                                    // following `["key"]`/`[i]` binds to the
+                                    // property value (e.g.
+                                    // `upstream.headers["content-type"]`) instead
+                                    // of splitting off into a bogus list-literal
+                                    // statement.
+                                    let access = Expression::PropertyAccess {
                                         object: Box::new(Expression::Variable(
                                             name.clone(),
                                             token_line,
@@ -300,7 +358,8 @@ impl<'a> Parser<'a> {
                                         property: property_name.clone(),
                                         line: token_line,
                                         column: token_column,
-                                    });
+                                    };
+                                    return self.parse_trailing_bracket_index(access);
                                 } else {
                                     return Err(ParseError::from_token(
                                         "Expected property name after '.'".to_string(),
