@@ -55,9 +55,11 @@ wait for next chunk from s as c"#
     let program = Parser::new(&tokens).parse().expect("parse");
 
     // Run/idle timeout 10s, absolute stream lifetime 1s.
-    let mut config = WflConfig::default();
-    config.timeout_seconds = 10;
-    config.outbound_stream_max_seconds = 1;
+    let config = WflConfig {
+        timeout_seconds: 10,
+        outbound_stream_max_seconds: 1,
+        ..WflConfig::default()
+    };
     let mut interp = Interpreter::with_config(Arc::new(config));
 
     let start = Instant::now();
