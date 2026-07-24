@@ -393,12 +393,19 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
             # race that would leave the dir or fail the Remove-Item).
             Stop-ServerProcess -Process $tlsProcess
             if ($tlsProcess -and -not $tlsProcess.HasExited) {
-                # Still alive after Kill()+WaitForExit — deleting now can race the
-                # process's open cert/log handles. Surface it instead of hiding a
-                # failed cleanup behind SilentlyContinue.
-                Write-Host "[WARN] TLS server still running; temp dir cleanup may be incomplete" -ForegroundColor Yellow
+                # Still alive after Kill()+WaitForExit — deleting now races the
+                # process's open cert/log handles. Give a brief extra grace before
+                # attempting cleanup so we don't fight live handles.
+                Write-Host "[WARN] TLS server still running after Kill(); waiting briefly before temp cleanup" -ForegroundColor Yellow
+                try { $null = $tlsProcess.WaitForExit(2000) } catch { }
             }
-            Remove-Item -Recurse -Force $tlsDir -ErrorAction SilentlyContinue
+            # Attempt cleanup and SURFACE a failure (a leaked temp dir / still-open
+            # handle) instead of hiding it behind -ErrorAction SilentlyContinue.
+            try {
+                Remove-Item -Recurse -Force $tlsDir -ErrorAction Stop
+            } catch {
+                Write-Host "[WARN] Failed to remove TLS temp dir ${tlsDir}: $_" -ForegroundColor Yellow
+            }
         }
     }
 }
