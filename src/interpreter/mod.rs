@@ -1811,7 +1811,29 @@ impl IoClient {
         }
 
         let method_owned = method.to_string();
-        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        // Start the absolute total-lifetime clock at request initiation — BEFORE
+        // `send()` — so connect + header time counts toward
+        // `outbound_stream_max_seconds`, matching the documented "total lifetime
+        // measured from when the stream is opened". The head phase below is then
+        // bounded by the remaining time to that deadline as well as the idle
+        // timeout, so a stalled connect/header handshake cannot outlive the total.
+        let total_deadline = match self.config.outbound_stream_max_seconds {
+            0 => None, // sentinel: no absolute total cap
+            secs => Some(Instant::now() + Duration::from_secs(secs)),
+        };
+        let idle_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let configured_timeout = match total_deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(HttpClientError::Timeout {
+                        seconds: self.config.outbound_stream_max_seconds,
+                    });
+                }
+                idle_timeout.min(remaining)
+            }
+            None => idle_timeout,
+        };
         let op = async move {
             request.send().await.map_err(|e| {
                 HttpClientError::Request(format!("Failed to send HTTP {method_owned} request: {e}"))
@@ -1850,10 +1872,8 @@ impl IoClient {
         let stream = response
             .bytes_stream()
             .map(|chunk| chunk.map(|b| b.to_vec()));
-        let total_deadline = match self.config.outbound_stream_max_seconds {
-            0 => None, // sentinel: no absolute total cap
-            secs => Some(Instant::now() + Duration::from_secs(secs)),
-        };
+        // `total_deadline` was started at request initiation above (before the
+        // head was sent) so it covers connect/header time too.
         let handle = HttpStreamHandle {
             stream: Box::pin(stream),
             buffer: Vec::new(),
@@ -2231,10 +2251,24 @@ impl IoClient {
         F: std::future::Future<Output = Result<T, HttpClientError>>,
     {
         let deadline = Self::outbound_http_deadline(&budget, configured_timeout)?;
-        let timeout_duration = match deadline {
+        // The budget/run-derived finite duration, if any.
+        let budget_duration = match deadline {
             OutboundHttpDeadline::None => None,
             OutboundHttpDeadline::Execution { remaining, .. } => Some(remaining),
             OutboundHttpDeadline::MainLoop { duration } => Some(duration),
+        };
+        // The operation is bounded by the SHORTER of the caller's configured
+        // timeout — which already encodes the stream's idle timeout AND its
+        // remaining absolute-total deadline (see `stream_pull`/`open_http_stream`)
+        // — and the run/budget deadline. Whichever is smaller decides both how
+        // long we wait and which error we report. `configured_timeout` is always
+        // finite, so the operation is bounded even when the budget has no
+        // run-wide deadline (previously that path discarded the stream deadline
+        // entirely and could wait out the whole run).
+        let budget_is_binding = matches!(budget_duration, Some(bd) if bd <= configured_timeout);
+        let timeout_duration = match budget_duration {
+            Some(bd) if budget_is_binding => bd,
+            _ => configured_timeout,
         };
 
         let cancellation_budget = Arc::clone(&budget);
@@ -2246,12 +2280,7 @@ impl IoClient {
                 tokio::time::sleep(HTTP_CANCELLATION_POLL_INTERVAL).await;
             }
         };
-        let timeout = async move {
-            match timeout_duration {
-                Some(duration) => tokio::time::sleep(duration).await,
-                None => std::future::pending::<()>().await,
-            }
-        };
+        let timeout = async move { tokio::time::sleep(timeout_duration).await };
 
         tokio::pin!(operation);
         tokio::pin!(cancellation);
@@ -2259,15 +2288,28 @@ impl IoClient {
         tokio::select! {
             result = &mut operation => result,
             _ = &mut cancellation => Err(HttpClientError::Budget(BudgetExceeded::Cancelled)),
-            _ = &mut timeout => match deadline {
-                OutboundHttpDeadline::Execution { limit_secs, .. } => {
-                    Err(HttpClientError::Budget(BudgetExceeded::Deadline { limit_secs }))
+            _ = &mut timeout => {
+                if budget_is_binding {
+                    // The run/budget deadline was the shorter bound.
+                    match deadline {
+                        OutboundHttpDeadline::Execution { limit_secs, .. } => {
+                            Err(HttpClientError::Budget(BudgetExceeded::Deadline { limit_secs }))
+                        }
+                        OutboundHttpDeadline::MainLoop { duration } => {
+                            Err(HttpClientError::Timeout { seconds: duration.as_secs() })
+                        }
+                        OutboundHttpDeadline::None => {
+                            unreachable!("budget cannot be binding when there is no budget deadline")
+                        }
+                    }
+                } else {
+                    // The caller's configured timeout (stream idle / absolute
+                    // total) was the shorter bound.
+                    Err(HttpClientError::Timeout {
+                        seconds: configured_timeout.as_secs().max(1),
+                    })
                 }
-                OutboundHttpDeadline::MainLoop { duration } => {
-                    Err(HttpClientError::Timeout { seconds: duration.as_secs() })
-                }
-                OutboundHttpDeadline::None => unreachable!("disabled timeout cannot complete"),
-            },
+            }
         }
     }
 
