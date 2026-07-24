@@ -174,16 +174,28 @@ jobs:
 
       # Validate that documentation examples still parse/analyze/lint against the
       # current release binary (testing.md requires docs validation in CI).
-      - name: Validate Docs Examples
+      # `--force` ignores the committed cache so CI always re-validates rather
+      # than trusting a stale cached result.
+      - name: Validate Docs Examples (Unix)
         if: runner.os != 'Windows'
-        run: python3 scripts/validate_docs_examples.py --ci
+        run: python3 scripts/validate_docs_examples.py --ci --force
+
+      - name: Validate Docs Examples (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/validate_docs_examples.py --ci --force
 
       # Web-server integration tests: start real WFL servers and exercise them
       # over HTTP (testing.md requires web tests in CI for the R3 web/streaming
-      # surface). Uses the release binary built above.
-      - name: Run Web Server Tests
+      # surface). Uses the release binary built above. Both OSes are covered so
+      # Windows web-server behavior does not go unvalidated.
+      - name: Run Web Server Tests (Unix)
         if: runner.os != 'Windows'
         run: ./scripts/run_web_tests.sh
+
+      - name: Run Web Server Tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/run_web_tests.ps1
 
   # Database integration tests against live PostgreSQL and MariaDB servers.
   # SQLite database tests need no services and already run everywhere via

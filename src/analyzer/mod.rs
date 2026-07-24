@@ -716,6 +716,38 @@ impl Analyzer {
     /// Report an undefined-name reference. Inside a `try` body this is a
     /// warning rather than a fatal error: the reference raises a catchable
     /// runtime error, which is documented behavior that programs rely on.
+    /// Analyze the body of an unbounded loop (`forever` / `main loop`). Shared by
+    /// both so the scope handling, flow tracking, and the handler-body error
+    /// demotion stay identical. Web-server main-loop bodies reference
+    /// handler-provided names the analyzer cannot model, so errors raised *inside*
+    /// the body are demoted to warnings (a latched budget breach stays fatal);
+    /// errors the caller raises about the loop itself are pushed before this runs
+    /// and are not swept up.
+    fn analyze_loop_body(&mut self, body: &[Statement]) {
+        let outer_scope = std::mem::take(&mut self.current_scope);
+        self.current_scope = Scope::with_parent(outer_scope);
+
+        let flow_entry = self.flow_entry();
+        self.push_mutation_frame();
+        let errors_before = self.errors.len();
+        for stmt in body {
+            self.analyze_statement(stmt);
+        }
+        if self.budget_error.is_none() {
+            let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+            self.warnings.extend(demoted);
+        }
+        let flow_body = self.take_flow_branch(&flow_entry);
+        let mutated = self.pop_mutation_frame();
+        self.join_flow_branches(&[flow_body, flow_entry]);
+        self.degrade_mutated_aliases(&mutated);
+
+        let loop_scope = std::mem::take(&mut self.current_scope);
+        if let Some(parent) = loop_scope.parent {
+            self.current_scope = *parent;
+        }
+    }
+
     fn report_undefined_name(&mut self, message: String, line: usize, column: usize) {
         let error = SemanticError::new(message, line, column);
         if self.try_depth > 0 {
@@ -1197,33 +1229,41 @@ impl Analyzer {
                     self.current_scope = *parent;
                 }
             }
-            Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
-                let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
-
-                let flow_entry = self.flow_entry();
-                self.push_mutation_frame();
-                let errors_before = self.errors.len();
-                for stmt in body {
-                    self.analyze_statement(stmt);
+            Statement::ForeverLoop { body, .. } => {
+                self.analyze_loop_body(body);
+            }
+            Statement::MainLoop {
+                body,
+                concurrent,
+                line,
+                column,
+            } => {
+                // `main loop concurrently:` starts up to the concurrency cap of
+                // handler futures at once, each running the body from the top. Any
+                // statement before the first `wait for request` therefore runs
+                // once *per handler slot* before a single request is dequeued —
+                // speculative side effects the author almost never intends. Require
+                // the body to begin with `wait for request` so nothing runs before
+                // a request is in hand. (Serial `main loop` has no such hazard.)
+                // Emitted before the body is analyzed so it is NOT swept into the
+                // handler-body error demotion below.
+                if *concurrent
+                    && !matches!(
+                        body.first(),
+                        Some(Statement::WaitForRequestStatement { .. })
+                    )
+                {
+                    self.errors.push(SemanticError::new(
+                        "A `main loop concurrently:` body must begin with `wait for request ...`. \
+                         Concurrent handlers start before any request arrives, so statements before \
+                         the first `wait for request` run once per handler slot. Move that setup above \
+                         the loop, or make `wait for request` the first statement in the loop."
+                            .to_string(),
+                        *line,
+                        *column,
+                    ));
                 }
-                // Same demotion as the repeat forms: web-server main loops
-                // reference handler-provided names this analyzer cannot
-                // model, and these bodies were previously unanalyzed. A
-                // latched budget breach stays fatal (see the repeat forms).
-                if self.budget_error.is_none() {
-                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
-                    self.warnings.extend(demoted);
-                }
-                let flow_body = self.take_flow_branch(&flow_entry);
-                let mutated = self.pop_mutation_frame();
-                self.join_flow_branches(&[flow_body, flow_entry]);
-                self.degrade_mutated_aliases(&mutated);
-
-                let loop_scope = std::mem::take(&mut self.current_scope);
-                if let Some(parent) = loop_scope.parent {
-                    self.current_scope = *parent;
-                }
+                self.analyze_loop_body(body);
             }
             Statement::DisplayStatement { value, .. } => {
                 self.analyze_expression(value);
@@ -4101,6 +4141,58 @@ mod tests {
         let errors = analyzer.get_errors();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("not defined"));
+    }
+
+    #[test]
+    fn test_concurrent_main_loop_requires_wait_for_request_first() {
+        use crate::lexer::lex_wfl_with_positions;
+        use crate::parser::Parser;
+
+        fn analyze_src(src: &str) -> Result<(), Vec<SemanticError>> {
+            let program = Parser::new(&lex_wfl_with_positions(src))
+                .parse()
+                .expect("parse");
+            Analyzer::new().analyze(&program)
+        }
+
+        // A concurrent loop whose body does NOT begin with `wait for request`
+        // would run its opening statements once per handler slot before any
+        // request arrives. Static analysis must reject it with an actionable error
+        // (and that error must survive the handler-body error demotion).
+        let bad = "listen on port 8080 as srv\n\
+                   main loop concurrently:\n    \
+                   store tick as 1\n    \
+                   wait for request comes in on srv as req\n    \
+                   respond to req with \"ok\"\nend loop";
+        let errs =
+            analyze_src(bad).expect_err("setup-before-wait concurrent loop must be rejected");
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("must begin with `wait for request")),
+            "expected the concurrent-loop ordering error, got: {errs:?}"
+        );
+
+        // The identical body under a plain serial `main loop` is fine — a serial
+        // loop runs one iteration at a time, so there is no speculative fan-out.
+        let serial = "listen on port 8080 as srv\n\
+                      main loop:\n    \
+                      store tick as 1\n    \
+                      wait for request comes in on srv as req\n    \
+                      respond to req with \"ok\"\nend loop";
+        assert!(
+            analyze_src(serial).is_ok(),
+            "serial main loop must not require wait-for-request first"
+        );
+
+        // A concurrent loop that DOES begin with `wait for request` is accepted.
+        let good = "listen on port 8080 as srv\n\
+                    main loop concurrently:\n    \
+                    wait for request comes in on srv as req\n    \
+                    respond to req with \"ok\"\nend loop";
+        assert!(
+            analyze_src(good).is_ok(),
+            "concurrent loop starting with wait-for-request must analyze cleanly"
+        );
     }
 
     // Issue #592: a bare unresolved name in a program that uses `include from`

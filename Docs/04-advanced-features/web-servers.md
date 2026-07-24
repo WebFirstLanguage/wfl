@@ -118,6 +118,14 @@ bound work (the common web case), not CPU-bound loops.
 Plain `main loop` keeps its exact serial behavior — adding `concurrently` is the
 only way to opt in; nothing changes silently.
 
+> **A `main loop concurrently:` body must begin with `wait for request`.** A
+> concurrent loop starts its handler slots up front, each running the body from
+> the top, so any statement placed *before* the first `wait for request` would
+> run once per slot before a single request arrives. WFL rejects that at analysis
+> time with a clear error. Put per-server setup **above** the loop; the loop body
+> starts by waiting for the next request. (Serial `main loop` has no such
+> requirement — it runs one iteration at a time.)
+
 > `concurrently` is only special right after `main loop`; it is not a reserved
 > word, so existing programs that use `concurrently` as a name keep working.
 

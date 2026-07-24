@@ -824,10 +824,7 @@ impl TypeChecker {
                 }
                 if let Some(headers) = headers {
                     let headers_type = self.infer_expression_type(headers);
-                    if !matches!(
-                        headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
-                    ) {
+                    if !self.is_valid_header_map_type(&headers_type) {
                         self.type_error(
                             "HTTP headers must be a map of header names to values".to_string(),
                             Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
@@ -909,10 +906,7 @@ impl TypeChecker {
                 }
                 if let Some(headers) = headers {
                     let headers_type = self.infer_expression_type(headers);
-                    if !matches!(
-                        headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
-                    ) {
+                    if !self.is_valid_header_map_type(&headers_type) {
                         self.type_error(
                             "HTTP headers must be a map of header names to values".to_string(),
                             Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
@@ -1019,10 +1013,7 @@ impl TypeChecker {
                 }
                 if let Some(headers) = headers {
                     let headers_type = self.infer_expression_type(headers);
-                    if !matches!(
-                        headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
-                    ) {
+                    if !self.is_valid_header_map_type(&headers_type) {
                         self.type_error(
                             "Streaming response headers must be a map of header names to values"
                                 .to_string(),
@@ -2567,10 +2558,7 @@ impl TypeChecker {
                 // outbound HttpRequestStatement headers check.
                 if let Some(headers_expr) = headers {
                     let headers_type = self.infer_expression_type(headers_expr);
-                    if !matches!(
-                        headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
-                    ) {
+                    if !self.is_valid_header_map_type(&headers_type) {
                         self.type_error(
                             "Response headers must be a map of header names to values".to_string(),
                             Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
@@ -4672,6 +4660,22 @@ impl TypeChecker {
             .push(TypeError::new(message, expected, found, line, column));
     }
 
+    /// Whether an inferred type is acceptable as an HTTP header map. Header names
+    /// must be text, so a map with a concretely-typed non-text key (e.g.
+    /// `Map<Number, _>`) is rejected. `Unknown`/`Any`/`Error` — whether as the
+    /// whole type or as the key type of a map whose key the checker could not pin
+    /// down (map literals often infer an unknown key) — are accepted so a header
+    /// set the checker cannot fully resolve is not falsely flagged.
+    fn is_valid_header_map_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Unknown | Type::Any | Type::Error => true,
+            Type::Map(key, _) => {
+                matches!(**key, Type::Text | Type::Unknown | Type::Any | Type::Error)
+            }
+            _ => false,
+        }
+    }
+
     fn are_types_compatible(&self, target_type: &Type, source_type: &Type) -> bool {
         #[allow(clippy::only_used_in_recursion)]
         let _self = self; // Suppress the warning for self parameter
@@ -4738,6 +4742,43 @@ mod tests {
     use super::*;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
     use std::sync::Arc;
+
+    #[test]
+    fn test_header_map_type_requires_text_keys() {
+        // HTTP header names must be text. The header-map validity check (shared by
+        // outbound HTTP, streaming-response, and `respond` header clauses) must
+        // reject a map with a concretely-typed non-text key, while accepting
+        // text-keyed maps and any map whose key the checker could not pin down.
+        let tc = TypeChecker::new();
+
+        // Accepted: text keys, or an unresolved/loose key type.
+        for ok in [
+            Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            Type::Map(Box::new(Type::Unknown), Box::new(Type::Unknown)),
+            Type::Map(Box::new(Type::Any), Box::new(Type::Text)),
+            Type::Unknown,
+            Type::Any,
+        ] {
+            assert!(
+                tc.is_valid_header_map_type(&ok),
+                "expected {ok:?} to be a valid header map type"
+            );
+        }
+
+        // Rejected: a map with a concrete non-text key, or a non-map entirely.
+        for bad in [
+            Type::Map(Box::new(Type::Number), Box::new(Type::Text)),
+            Type::Map(Box::new(Type::Boolean), Box::new(Type::Any)),
+            Type::Number,
+            Type::Text,
+        ] {
+            assert!(
+                !tc.is_valid_header_map_type(&bad),
+                "expected {bad:?} to be rejected as a header map type"
+            );
+        }
+    }
 
     #[test]
     fn test_variable_declaration_type_inference() {
