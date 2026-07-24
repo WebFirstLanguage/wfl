@@ -953,18 +953,33 @@ impl TypeChecker {
             Statement::WaitForNextChunkStatement {
                 source,
                 variable_name,
-                ..
+                line,
+                column,
             }
             | Statement::WaitForNextLineStatement {
                 source,
                 variable_name,
-                ..
+                line,
+                column,
             } => {
-                // Just validate the operand is inferable; the binding may be a
-                // chunk/line value or `nothing` at end of stream, so leave the
-                // bound variable's type open (Any) to avoid false errors on the
-                // `check if <name> is nothing` loop-termination pattern.
-                let _ = self.infer_expression_type(source);
+                // The source must be an outbound stream handle. Gradual types
+                // (Unknown/Any/Error) pass; a concrete non-stream operand is a
+                // static error rather than a runtime "not a stream" surprise.
+                let source_type = self.infer_expression_type(source);
+                if !self.is_http_stream_source_type(&source_type) {
+                    self.type_error(
+                        "`wait for next chunk|line` requires an outbound stream handle \
+                         (from `open url ... and stream response as ...`)"
+                            .to_string(),
+                        Some(Type::Custom("HttpStream".to_string())),
+                        Some(source_type),
+                        *line,
+                        *column,
+                    );
+                }
+                // The binding may be a chunk/line value or `nothing` at end of
+                // stream, so leave the bound variable's type open (Any) to avoid
+                // false errors on the `check if <name> is nothing` termination.
                 if !variable_name.is_empty()
                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
                 {
@@ -1035,12 +1050,52 @@ impl TypeChecker {
                     symbol.symbol_type = Some(Type::Custom("ResponseStream".to_string()));
                 }
             }
-            Statement::StreamWriteStatement { value, target, .. } => {
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                line,
+                column,
+                ..
+            } => {
                 let _ = self.infer_expression_type(value);
-                let _ = self.infer_expression_type(target);
+                let target_type = self.infer_expression_type(target);
+                // The target is a server response-stream handle. The AMBIGUOUS
+                // merged form (`write line <ident> ... to <target>`) also has a
+                // classic file-write reading, so a text file-path target is valid
+                // there — but an unambiguous stream write (no fallback) to a
+                // concrete non-stream type is a static error.
+                let file_target_ok =
+                    fallback_content.is_some() && matches!(target_type, Type::Text);
+                if !self.is_response_stream_target_type(&target_type) && !file_target_ok {
+                    self.type_error(
+                        "`write line|chunk` requires a response-stream handle \
+                         (from `start streaming response ... as ...`)"
+                            .to_string(),
+                        Some(Type::Custom("ResponseStream".to_string())),
+                        Some(target_type),
+                        *line,
+                        *column,
+                    );
+                }
             }
-            Statement::FlushStreamStatement { target, .. } => {
-                let _ = self.infer_expression_type(target);
+            Statement::FlushStreamStatement {
+                target,
+                line,
+                column,
+            } => {
+                let target_type = self.infer_expression_type(target);
+                if !self.is_response_stream_target_type(&target_type) {
+                    self.type_error(
+                        "`flush` requires a response-stream handle \
+                         (from `start streaming response ... as ...`)"
+                            .to_string(),
+                        Some(Type::Custom("ResponseStream".to_string())),
+                        Some(target_type),
+                        *line,
+                        *column,
+                    );
+                }
             }
             Statement::VariableDeclaration {
                 name,
@@ -4731,6 +4786,28 @@ impl TypeChecker {
             Type::Custom(name) => {
                 name == "File" || name == "HttpStream" || name == "ResponseStream"
             }
+            Type::Unknown | Type::Any | Type::Error => true,
+            _ => false,
+        }
+    }
+
+    /// The operand of `wait for next chunk|line from <source>` must be an outbound
+    /// stream handle (`stream response as ...` binds `HttpStream`). Unknown/Any/
+    /// Error pass for gradual typing; a concrete non-stream type is rejected.
+    fn is_http_stream_source_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Custom(name) => name == "HttpStream",
+            Type::Unknown | Type::Any | Type::Error => true,
+            _ => false,
+        }
+    }
+
+    /// The `<target>` of `write line|chunk` / `flush` must be a server response
+    /// stream handle (`start streaming response as ...` binds `ResponseStream`).
+    /// Unknown/Any/Error pass for gradual typing.
+    fn is_response_stream_target_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Custom(name) => name == "ResponseStream",
             Type::Unknown | Type::Any | Type::Error => true,
             _ => false,
         }
