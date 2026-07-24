@@ -1358,6 +1358,34 @@ impl Analyzer {
             Statement::FlushStreamStatement { target, .. } => {
                 self.mark_used_in_expression(target, usages);
             }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                for expr in [method, headers, body].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
+            Statement::WaitForNextChunkStatement { source, .. }
+            | Statement::WaitForNextLineStatement { source, .. } => {
+                self.mark_used_in_expression(source, usages);
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                ..
+            } => {
+                self.mark_used_in_expression(request, usages);
+                for expr in [status, content_type, headers].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
             Statement::WriteContentStatement {
                 content, target, ..
             }
@@ -2173,6 +2201,28 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unused"));
         assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+    }
+
+    #[test]
+    fn test_streaming_statement_variables_are_not_reported_unused() {
+        // Variables referenced only inside the streaming/incremental-read
+        // statements must count as used — otherwise a program that opens a
+        // stream from a URL/body variable gets a false unused warning.
+        let input = "store my_url as \"http://example.com/s\"\n\
+store my_body as \"payload\"\n\
+open url at my_url with method \"POST\" and body my_body and stream response as upstream\n\
+wait for next line from upstream as ln\n\
+display ln";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        assert!(
+            diagnostics.is_empty(),
+            "streaming-statement variables must not be reported unused, got: {diagnostics:?}"
+        );
     }
 
     #[test]
