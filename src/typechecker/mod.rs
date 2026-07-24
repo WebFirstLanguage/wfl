@@ -1617,9 +1617,12 @@ impl TypeChecker {
             } => {
                 let file_type = self.infer_expression_type(file);
                 if !self.is_closeable_type(&file_type) {
+                    // No single `expected` type: `close` accepts a File *or* a
+                    // (map-shaped) stream handle, so pinning the hint to `File`
+                    // would mis-render the expected-vs-found diagnostic.
                     self.type_error(
                         "Expected a file or stream handle".to_string(),
-                        Some(Type::Custom("File".to_string())),
+                        None,
                         Some(file_type),
                         *_line,
                         *_column,
@@ -4691,17 +4694,18 @@ impl TypeChecker {
     /// streams from `start streaming response as ...` and outbound streams from
     /// `... stream response as ...`) bind as map-shaped objects, so a `close out`
     /// / `close upstream` must be accepted here rather than flagged as "not a
-    /// File". Concrete scalars (a number, boolean, list, …) are still rejected so
-    /// an obviously-wrong `close 5` errors.
+    /// File". Only the `File` custom type is closeable — other custom types
+    /// (`Database`, `Request`, …) are NOT, so `close db` / `close req` still
+    /// errors — and concrete scalars (`close 5`) are rejected too.
     fn is_closeable_type(&self, ty: &Type) -> bool {
-        matches!(
-            ty,
-            Type::Custom(_)        // File, or any handle object
-                | Type::Map(_, _)  // stream handles bind as Map<Text, _>
-                | Type::Unknown
-                | Type::Any
-                | Type::Error
-        )
+        match ty {
+            // The file handle from `open file ... as f`.
+            Type::Custom(name) => name == "File",
+            // Stream handles bind as Map<Text, _>; a statically-unresolved value
+            // is accepted to avoid false positives.
+            Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error => true,
+            _ => false,
+        }
     }
 
     fn are_types_compatible(&self, target_type: &Type, source_type: &Type) -> bool {

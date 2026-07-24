@@ -46,6 +46,19 @@ fn test_close_outbound_stream_handle_typechecks() {
 }
 
 #[test]
+fn test_close_non_file_custom_handle_is_rejected() {
+    // Only a File custom type is closeable via `close`. Other custom handles
+    // (a database connection here) are NOT — the interpreter cannot close them,
+    // so accepting `close db` would be a false negative.
+    let code = "open database at \"sqlite::memory:\" as db\nclose db";
+    let errors = typecheck(code).expect_err("closing a database handle must be a type error");
+    assert!(
+        errors.contains("file or stream handle") || errors.contains("File"),
+        "expected a close-operand type error for a database handle, got: {errors}"
+    );
+}
+
+#[test]
 fn test_close_scalar_is_still_rejected() {
     // A concrete non-handle value is still a type error — the fix widens `close`
     // to file/stream handles, it does not make `close` accept anything.
