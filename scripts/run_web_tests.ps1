@@ -40,6 +40,42 @@ if (-not (Test-Path $BinaryPath)) {
 }
 Write-Host "[SUCCESS] Binary found: $BinaryPath" -ForegroundColor Green
 
+# Dump a server's captured stdout/stderr on failure. Without this a genuine
+# server error (a panic, a bind failure, a bad response) is invisible behind the
+# runner's generic TIMEOUT/assertion message, since the process output is
+# redirected to files. Call on every failure path before returning.
+function Show-ServerLogs {
+    param(
+        [string]$OutLog,
+        [string]$ErrLog
+    )
+    foreach ($pair in @(@("stdout", $OutLog), @("stderr", $ErrLog))) {
+        $label = $pair[0]
+        $path = $pair[1]
+        if ($path -and (Test-Path $path)) {
+            $content = (Get-Content -Raw -ErrorAction SilentlyContinue $path)
+            if ([string]::IsNullOrWhiteSpace($content)) {
+                Write-Host "[LOG] server $label ($path): <empty>" -ForegroundColor Gray
+            } else {
+                Write-Host "[LOG] server $label ($path):" -ForegroundColor Gray
+                Write-Host $content -ForegroundColor Gray
+            }
+        }
+    }
+}
+
+# Kill a background server process and wait for it to actually exit, so any temp
+# files/handles it holds are released before the caller removes them (avoids
+# Windows cleanup races on the TLS temp dir).
+function Stop-ServerProcess {
+    param($Process)
+    if ($Process -and -not $Process.HasExited) {
+        $Process.Kill()
+        try { $Process.WaitForExit(5000) | Out-Null } catch { }
+        Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+    }
+}
+
 # Function to test a web server
 function Test-WflWebServer {
     param(
@@ -72,7 +108,7 @@ function Test-WflWebServer {
 
             # Try to connect
             try {
-                $response = Invoke-WebRequest -Uri "http://localhost:$Port/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
                 $serverReady = $true
             } catch {
                 # Server not ready yet, continue waiting
@@ -81,6 +117,7 @@ function Test-WflWebServer {
 
         if (-not $serverReady) {
             Write-Host "[ERROR] TIMEOUT: Server did not start within ${TimeoutSeconds}s" -ForegroundColor Red
+            Show-ServerLogs -OutLog $outLog -ErrLog $errLog
             return $false
         }
 
@@ -92,13 +129,13 @@ function Test-WflWebServer {
             Write-Host "[ERROR] FAIL: Unexpected response" -ForegroundColor Red
             Write-Host "  Expected: $ExpectedResponse" -ForegroundColor Gray
             Write-Host "  Got: $($response.Content)" -ForegroundColor Gray
+            Show-ServerLogs -OutLog $outLog -ErrLog $errLog
             return $false
         }
     } finally {
-        # Clean up - kill the server
+        # Clean up - kill the server and wait for exit
         if (-not $serverProcess.HasExited) {
-            $serverProcess.Kill()
-            Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+            Stop-ServerProcess -Process $serverProcess
         }
     }
 }
@@ -150,7 +187,7 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
             Start-Sleep -Milliseconds 500
             $retries++
             try {
-                $rootResponse = Invoke-WebRequest -Uri "http://localhost:8096/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+                $rootResponse = Invoke-WebRequest -Uri "http://127.0.0.1:8096/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
                 if ($rootResponse.Content -like "*Route server ready*") {
                     $serverReady = $true
                 }
@@ -164,18 +201,25 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
             Write-Host "[ERROR] TIMEOUT: Route params server did not start within ${Timeout}s" -ForegroundColor Red
             $routeOk = $false
         } else {
-            # Route parameter extraction: /users/:id
-            $userResponse = Invoke-WebRequest -Uri "http://localhost:8096/users/42" -TimeoutSec 2 -UseBasicParsing
-            if ($userResponse.Content -like "*User 42*") {
-                Write-Host "[SUCCESS] PASS: /users/42 -> '$($userResponse.Content)'" -ForegroundColor Green
-            } else {
-                Write-Host "[ERROR] FAIL: /users/42 returned '$($userResponse.Content)'" -ForegroundColor Red
+            # Route parameter extraction: /users/:id. Wrapped so a request
+            # failure marks the test failed (and dumps server logs below) instead
+            # of throwing out of the script and skipping the summary/other tests.
+            try {
+                $userResponse = Invoke-WebRequest -Uri "http://127.0.0.1:8096/users/42" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+                if ($userResponse.Content -like "*User 42*") {
+                    Write-Host "[SUCCESS] PASS: /users/42 -> '$($userResponse.Content)'" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /users/42 returned '$($userResponse.Content)'" -ForegroundColor Red
+                    $routeOk = $false
+                }
+            } catch {
+                Write-Host "[ERROR] FAIL: /users/42 request failed: $_" -ForegroundColor Red
                 $routeOk = $false
             }
 
             # Non-matching route returns 404
             try {
-                Invoke-WebRequest -Uri "http://localhost:8096/missing" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop | Out-Null
+                Invoke-WebRequest -Uri "http://127.0.0.1:8096/missing" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop | Out-Null
                 Write-Host "[ERROR] FAIL: unknown route did not return 404" -ForegroundColor Red
                 $routeOk = $false
             } catch {
@@ -188,21 +232,27 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
             }
 
             # Header access regression
-            $agentResponse = Invoke-WebRequest -Uri "http://localhost:8096/agent" -TimeoutSec 2 -UseBasicParsing -UserAgent "wfl-route-test"
-            if ($agentResponse.Content -like "*wfl-route-test*") {
-                Write-Host "[SUCCESS] PASS: header access echoes User-Agent" -ForegroundColor Green
-            } else {
-                Write-Host "[ERROR] FAIL: /agent returned '$($agentResponse.Content)'" -ForegroundColor Red
+            try {
+                $agentResponse = Invoke-WebRequest -Uri "http://127.0.0.1:8096/agent" -TimeoutSec 2 -UseBasicParsing -UserAgent "wfl-route-test" -ErrorAction Stop
+                if ($agentResponse.Content -like "*wfl-route-test*") {
+                    Write-Host "[SUCCESS] PASS: header access echoes User-Agent" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /agent returned '$($agentResponse.Content)'" -ForegroundColor Red
+                    $routeOk = $false
+                }
+            } catch {
+                Write-Host "[ERROR] FAIL: /agent request failed: $_" -ForegroundColor Red
                 $routeOk = $false
             }
         }
 
-        if ($routeOk) { $passedTests++ }
-    } finally {
-        if (-not $routeProcess.HasExited) {
-            $routeProcess.Kill()
-            Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+        if ($routeOk) {
+            $passedTests++
+        } else {
+            Show-ServerLogs -OutLog $routeOutLog -ErrLog $routeErrLog
         }
+    } finally {
+        Stop-ServerProcess -Process $routeProcess
     }
 }
 
@@ -237,7 +287,7 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                 Start-Sleep -Milliseconds 500
                 $retries++
                 try {
-                    Invoke-WebRequest -Uri "http://localhost:8090/" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop | Out-Null
+                    Invoke-WebRequest -Uri "http://127.0.0.1:8090/" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop | Out-Null
                     $serverReady = $true
                 } catch {
                     if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 301) {
@@ -254,14 +304,14 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                 # Redirect server: 301 with Location preserving path/query on the HTTPS port
                 $location = $null
                 try {
-                    $redirectResponse = Invoke-WebRequest -Uri "http://localhost:8090/some/path?x=1" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
+                    $redirectResponse = Invoke-WebRequest -Uri "http://127.0.0.1:8090/some/path?x=1" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
                     $location = $redirectResponse.Headers["Location"]
                 } catch {
                     if ($_.Exception.Response) {
                         $location = $_.Exception.Response.Headers["Location"]
                     }
                 }
-                if ($location -eq "https://localhost:8443/some/path?x=1") {
+                if ($location -eq "https://127.0.0.1:8443/some/path?x=1") {
                     Write-Host "[SUCCESS] PASS: redirect returns 301 to $location" -ForegroundColor Green
                 } else {
                     Write-Host "[ERROR] FAIL: redirect Location was '$location'" -ForegroundColor Red
@@ -273,7 +323,7 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                 # PowerShell 5.1 skip this check gracefully instead of failing.
                 if ($PSVersionTable.PSVersion.Major -ge 6) {
                     try {
-                        $httpsResponse = Invoke-WebRequest -Uri "https://localhost:8443/" -TimeoutSec 3 -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
+                        $httpsResponse = Invoke-WebRequest -Uri "https://127.0.0.1:8443/" -TimeoutSec 3 -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
                         if ($httpsResponse.Content -like "*Hello over HTTPS!*") {
                             Write-Host "[SUCCESS] PASS: HTTPS response '$($httpsResponse.Content)'" -ForegroundColor Green
                         } else {
@@ -289,12 +339,16 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                 }
             }
 
-            if ($tlsOk) { $passedTests++ }
-        } finally {
-            if (-not $tlsProcess.HasExited) {
-                $tlsProcess.Kill()
-                Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+            if ($tlsOk) {
+                $passedTests++
+            } else {
+                Show-ServerLogs -OutLog (Join-Path $tlsDir "server.out.log") -ErrLog (Join-Path $tlsDir "server.err.log")
             }
+        } finally {
+            # Kill AND wait for exit before removing the temp dir, so the server
+            # has released its cert/log file handles (avoids a Windows cleanup
+            # race that would leave the dir or fail the Remove-Item).
+            Stop-ServerProcess -Process $tlsProcess
             Remove-Item -Recurse -Force $tlsDir -ErrorAction SilentlyContinue
         }
     }
