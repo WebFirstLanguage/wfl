@@ -884,6 +884,35 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
     }
 }
 
+/// RAII guard that closes the interpreter's still-open outbound stream handles
+/// when the running `interpret()` future ends — crucially including when that
+/// future is *dropped* (an embedder cancels the run) before the normal
+/// handler-exit / program-cleanup sites execute. It shares the interpreter's
+/// `open_http_streams` list and its `IoClient` via `Rc`, so its `Drop` runs even
+/// as the interpreter itself stays alive (e.g. a reused REPL). On a normal run
+/// the cleanup sites have already drained the list, so this is a no-op.
+struct OutboundStreamCleanup {
+    io_client: Rc<IoClient>,
+    open_http_streams: Rc<RefCell<Vec<String>>>,
+}
+
+impl Drop for OutboundStreamCleanup {
+    fn drop(&mut self) {
+        let ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
+        if ids.is_empty() {
+            return;
+        }
+        // Best-effort like the other handler-exit cleanup: `try_lock` never
+        // blocks in a `Drop`. Removing a handle drops its reqwest stream, which
+        // cancels the in-flight upstream request.
+        if let Ok(mut map) = self.io_client.stream_handles.try_lock() {
+            for id in &ids {
+                map.remove(id);
+            }
+        }
+    }
+}
+
 /// RAII guard that ensures module loading context is restored on scope exit.
 /// Automatically pops loading_stack and restores current_source_file when dropped.
 struct ModuleLoadGuard<'a> {
@@ -1273,7 +1302,11 @@ pub struct Interpreter {
     /// per-handler `RunState` (swapped per poll); any still open when the handler
     /// ends are dropped, cancelling their upstream requests (see
     /// `close_http_streams`).
-    open_http_streams: RefCell<Vec<String>>,
+    /// `Rc<RefCell<..>>` (not a bare `RefCell`) so an RAII cleanup guard tied to
+    /// the `interpret()` future can share the list and close these handles if the
+    /// future is dropped/cancelled before its normal exit sites run (see
+    /// `OutboundStreamCleanup`).
+    open_http_streams: Rc<RefCell<Vec<String>>>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -3429,7 +3462,7 @@ impl Interpreter {
             server_response_streams: RefCell::new(HashMap::new()),
             open_response_streams: RefCell::new(Vec::new()),
             open_pending_requests: RefCell::new(Vec::new()),
-            open_http_streams: RefCell::new(Vec::new()),
+            open_http_streams: Rc::new(RefCell::new(Vec::new())),
             next_response_stream_id: std::cell::Cell::new(1),
             config,
             current_source_file: RefCell::new(None), // No source file initially
@@ -4013,6 +4046,19 @@ impl Interpreter {
         }
     }
 
+    /// Build an RAII guard that closes any outbound stream handles still tracked
+    /// as open when the guard drops — including when the `interpret()` future is
+    /// dropped/cancelled before reaching its normal handler-exit/program-cleanup
+    /// sites. On a normal run those sites have already drained the list, so the
+    /// guard is a no-op; on a dropped future it releases the leaked upstreams
+    /// (instead of leaking them until the interpreter itself is torn down).
+    fn outbound_stream_cleanup_guard(&self) -> OutboundStreamCleanup {
+        OutboundStreamCleanup {
+            io_client: Rc::clone(&self.io_client),
+            open_http_streams: Rc::clone(&self.open_http_streams),
+        }
+    }
+
     /// Drain and drop every outbound stream the current (serial) handler left
     /// open. Called at the end of each serial `main loop` iteration and at program
     /// exit, mirroring the concurrent path's per-handler `Drop`.
@@ -4463,6 +4509,11 @@ impl Interpreter {
         self.close_open_response_streams();
         self.fail_open_pending_requests();
         self.close_open_http_streams();
+        // RAII: if THIS run's future is dropped/cancelled before its normal exit
+        // sites run, still close any outbound handles it opened (they would
+        // otherwise leak the upstream until the interpreter itself is dropped).
+        // On a normal run the exit sites drain the list first, so this is a no-op.
+        let _outbound_cleanup = self.outbound_stream_cleanup_guard();
         // Reset to the inherited base depth (0 for a top-level run/REPL; the
         // parent's live depth for an `execute file` child) so recursion
         // accounting spans the execute-file boundary instead of granting the
