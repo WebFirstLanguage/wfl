@@ -815,6 +815,13 @@ struct RunState {
     /// is answered 500 immediately instead of leaving the client to wait out the
     /// request timeout (see `fail_unanswered_requests`).
     open_pending_requests: Vec<String>,
+    /// Outbound streaming-response handle ids (`... stream response as <name>`)
+    /// this handler opened and has not yet closed/exhausted. Handler-OWNED: when
+    /// the handler ends on any path (normal, error, panic, cancellation, loop
+    /// exit) these are dropped from `IoClient.stream_handles`, which cancels the
+    /// in-flight upstream request — so an abandoned proxy read never leaks an
+    /// upstream connection or handle past the handler's lifetime.
+    open_http_streams: Vec<String>,
 }
 
 impl RunState {
@@ -870,6 +877,10 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
             .close_response_streams(&self.state.open_response_streams);
         self.interp
             .fail_unanswered_requests(&self.state.open_pending_requests);
+        // Drop any outbound streams this handler still owns, cancelling their
+        // in-flight upstream requests so an abandoned proxy read never leaks.
+        self.interp
+            .close_http_streams(&self.state.open_http_streams);
     }
 }
 
@@ -1257,6 +1268,12 @@ pub struct Interpreter {
     /// handler tracks only its own requests; any still unanswered when the handler
     /// ends are answered 500 immediately (see `fail_unanswered_requests`).
     open_pending_requests: RefCell<Vec<String>>,
+    /// Outbound stream handle ids (`... stream response as <name>`) the currently
+    /// executing handler opened and has not yet closed/exhausted. Part of the
+    /// per-handler `RunState` (swapped per poll); any still open when the handler
+    /// ends are dropped, cancelling their upstream requests (see
+    /// `close_http_streams`).
+    open_http_streams: RefCell<Vec<String>>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -3377,6 +3394,7 @@ impl Interpreter {
             server_response_streams: RefCell::new(HashMap::new()),
             open_response_streams: RefCell::new(Vec::new()),
             open_pending_requests: RefCell::new(Vec::new()),
+            open_http_streams: RefCell::new(Vec::new()),
             next_response_stream_id: std::cell::Cell::new(1),
             config,
             current_source_file: RefCell::new(None), // No source file initially
@@ -3931,6 +3949,44 @@ impl Interpreter {
             &mut *self.open_pending_requests.borrow_mut(),
             &mut state.open_pending_requests,
         );
+        std::mem::swap(
+            &mut *self.open_http_streams.borrow_mut(),
+            &mut state.open_http_streams,
+        );
+    }
+
+    /// Drop each outbound streaming handle whose id is in `ids` from
+    /// `IoClient.stream_handles`, cancelling its in-flight upstream request
+    /// (dropping the reqwest body stream aborts the connection). Best-effort and
+    /// synchronous (usable from `Drop`): if the async lock is momentarily held,
+    /// the handles remain and are reclaimed at interpreter teardown. Idempotent —
+    /// an id already removed by EOF/error/explicit `close` is a no-op.
+    fn close_http_streams(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.io_client.stream_handles.try_lock() {
+            for id in ids {
+                map.remove(id);
+            }
+        }
+    }
+
+    /// Drain and drop every outbound stream the current (serial) handler left
+    /// open. Called at the end of each serial `main loop` iteration and at program
+    /// exit, mirroring the concurrent path's per-handler `Drop`.
+    fn close_open_http_streams(&self) {
+        let ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
+        self.close_http_streams(&ids);
+    }
+
+    /// Stop tracking an outbound stream id as handler-owned — it has already left
+    /// `IoClient.stream_handles` (EOF, error, or an explicit `close`), so the
+    /// handler-exit cleanup must not try to (re-)drop it.
+    fn untrack_http_stream(&self, handle_id: &str) {
+        self.open_http_streams
+            .borrow_mut()
+            .retain(|id| id != handle_id);
     }
 
     /// Close (drop the sender for) each server response stream whose handle id is
@@ -4324,6 +4380,7 @@ impl Interpreter {
         // `pending_responses`, hanging the client and leaking the entry.
         self.close_open_response_streams();
         self.fail_open_pending_requests();
+        self.close_open_http_streams();
         // Reset to the inherited base depth (0 for a top-level run/REPL; the
         // parent's live depth for an `execute file` child) so recursion
         // accounting spans the execute-file boundary instead of granting the
@@ -4506,6 +4563,7 @@ impl Interpreter {
                 // top-level streams and unanswered requests before returning.
                 self.close_open_response_streams();
                 self.fail_open_pending_requests();
+                self.close_open_http_streams();
                 return Err(errors);
             }
 
@@ -4590,6 +4648,7 @@ impl Interpreter {
         // the client's body rather than leaving it hanging until process death.
         self.close_open_response_streams();
         self.fail_open_pending_requests();
+        self.close_open_http_streams();
 
         self.assert_invariants();
         if errors.is_empty() {
@@ -5386,6 +5445,7 @@ impl Interpreter {
                     // hanging or waiting out the request timeout.
                     self.close_open_response_streams();
                     self.fail_open_pending_requests();
+                    self.close_open_http_streams();
                     let result = result?;
                     _last_value = result.0;
 
@@ -5697,6 +5757,9 @@ impl Interpreter {
                         };
                         if let Some(id) = client_id {
                             self.io_client.close_stream(&id).await;
+                            // Drop it from the handler's ownership tracking so the
+                            // exit cleanup does not try to re-close it.
+                            self.untrack_http_stream(&id);
                             Ok((Value::Null, ControlFlow::None))
                         } else if let Some(id) = server_id {
                             // Dropping the sender ends the response body stream.
@@ -7057,6 +7120,10 @@ impl Interpreter {
                     .await
                 {
                     Ok((status, response_headers, handle_id)) => {
+                        // Track the outbound handle as handler-owned so it is
+                        // dropped (cancelling the upstream) if the handler ends
+                        // without closing/exhausting it.
+                        self.open_http_streams.borrow_mut().push(handle_id.clone());
                         let mut headers_map = HashMap::new();
                         for (name, value) in response_headers {
                             headers_map.insert(name, Value::Text(value.into()));
@@ -7109,11 +7176,17 @@ impl Interpreter {
                     }
                     // Clean EOF binds `nothing` so `check if chunk is nothing` ends the loop.
                     Ok(None) => {
+                        // The handle left the map at EOF — stop owning it.
+                        self.untrack_http_stream(&handle_id);
                         env.borrow_mut()
                             .define_or_replace(variable_name, Value::Null);
                         Ok((Value::Null, ControlFlow::None))
                     }
-                    Err(error) => Err(self.http_client_error(error, *line, *column)),
+                    Err(error) => {
+                        // The read dropped the handle (timeout/cancel/error).
+                        self.untrack_http_stream(&handle_id);
+                        Err(self.http_client_error(error, *line, *column))
+                    }
                 }
             }
             Statement::WaitForNextLineStatement {
@@ -7136,11 +7209,15 @@ impl Interpreter {
                         Ok((Value::Null, ControlFlow::None))
                     }
                     Ok(None) => {
+                        self.untrack_http_stream(&handle_id);
                         env.borrow_mut()
                             .define_or_replace(variable_name, Value::Null);
                         Ok((Value::Null, ControlFlow::None))
                     }
-                    Err(error) => Err(self.http_client_error(error, *line, *column)),
+                    Err(error) => {
+                        self.untrack_http_stream(&handle_id);
+                        Err(self.http_client_error(error, *line, *column))
+                    }
                 }
             }
             Statement::RepeatWhileLoop {
