@@ -87,6 +87,37 @@ the non-stream target is a clean error.
 *Test:* `write_line_backcompat_test` (two new cases; the matching-span back-compat
 cases still pass).
 
+## #7 (P2) — analyze the shared continuation of a desugared ambiguous write
+
+The analyzer deferred ALL non-simple ambiguous `write line|chunk` values to
+runtime, so an undefined variable in an operator continuation
+(`write line value plus missing_suffix to ...`) went unflagged. Replaced the
+simple-lead check with `analyze_ambiguous_write`, a parallel walk of the stream
+and classic readings (parsed from the same tokens, differing only at the leftmost
+leaf): a subtree identical under both readings is pure continuation and analyzed
+normally; otherwise the walk recurses on BOTH children so a lead a desugaring
+duplicated into the right operand (`is between`) is matched against the fallback's
+copy instead of mis-flagged, and at a differing leaf reports undefined only when
+NEITHER reading resolves. Call-based desugarings still defer.
+*Tests:* `write_line_backcompat_test` (desugared-continuation flag +
+operator-continuation no-false-positive), all prior back-compat cases intact.
+
+## #8 (P2) — streaming-operand type enforcement + flush operand postfix
+
+- **Operand types.** `wait for next chunk|line` now requires an `HttpStream`
+  source, and `write line|chunk` / `flush` a `ResponseStream` target (the
+  ambiguous merged write also accepts a text file-path target for its classic
+  reading). Unknown/Any/Error still pass for gradual typing, so only a concrete
+  non-stream operand is rejected — at typecheck instead of as a runtime surprise.
+  *Tests:* `stream_handle_type_test`.
+- **`flush` operand postfix (review feedback).** The lexer merges `flush` with the
+  following identifier, so `flush streams["a"]` / `flush obj.out` left the accessor
+  tokens dangling. Generalized the property-then-index helper into
+  `parse_trailing_postfix` (folds both `[...]` index and `.field` property access
+  onto a lead) and route `flush`'s split-off lead through it. Also anchored that
+  helper's missing-`]` end-of-input diagnostic to the `[` token's byte span rather
+  than the file start (review feedback). *Tests:* `http_server_streaming_test`.
+
 ## Test infrastructure / CI
 
 - Server integration tests now bind an OS-assigned free port
