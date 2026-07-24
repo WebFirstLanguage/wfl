@@ -66,6 +66,20 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Reclaim runner disk before building. This job compiles the workspace
+      # several times (debug + two release builds) plus the whole test suite, and
+      # the release profile keeps full debuginfo (`debug = true`), so the target
+      # tree is large; a full GitHub-hosted runner can otherwise exhaust its disk
+      # mid-link (a linker `Bus error`/SIGBUS). Removing preinstalled SDKs we do
+      # not use frees ~20 GB with no third-party action.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
       # Cache Cargo registry and target directory for faster builds
       - name: Cache Cargo registry and target directory
         uses: Swatinem/rust-cache@v2
@@ -134,6 +148,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      # Reclaim runner disk before building: this job builds the (debuginfo-heavy)
+      # release tree AND every integration test binary (`cargo test --test '*'`),
+      # which together can exhaust a full runner's disk mid-link (linker
+      # `Bus error`/SIGBUS). Freeing unused preinstalled SDKs gives ~20 GB of
+      # headroom. Linux only — the Windows runner is not affected.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
 
       # Cache Cargo registry and target directory for faster builds
       - name: Cache Cargo registry and target directory
