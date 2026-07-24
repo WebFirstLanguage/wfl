@@ -35,6 +35,16 @@ pub(crate) trait BinaryExprParser<'a> {
         precedence: u8,
     ) -> Result<Expression, ParseError>;
 
+    /// Like [`parse_binary_continuation`], but stops before streaming-response
+    /// clause connectives (`and headers`, `and content type`, `as out`, …) so a
+    /// `content type` / `headers` operand does not swallow the next clause as a
+    /// Boolean-AND / `with` continuation.
+    fn parse_binary_continuation_stopping_at_clause(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError>;
+
     /// Parses a function/action call expression.
     ///
     /// # Parameters
@@ -65,16 +75,12 @@ pub(crate) trait BinaryExprParser<'a> {
     fn parse_of_call_arg_term(&mut self) -> Result<Expression, ParseError>;
 }
 
-impl<'a> BinaryExprParser<'a> for Parser<'a> {
-    fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
-        let left = self.parse_primary_expression()?;
-        self.parse_binary_continuation(left, precedence)
-    }
-
-    fn parse_binary_continuation(
+impl<'a> Parser<'a> {
+    pub(crate) fn parse_binary_continuation_inner(
         &mut self,
         mut left: Expression,
         precedence: u8,
+        stop_at_clause: bool,
     ) -> Result<Expression, ParseError> {
         while let Some(token_pos) = self.cursor.peek() {
             let token = &token_pos.token;
@@ -84,6 +90,34 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
             // Stop at Eol (statement boundary) or statement starter
             if matches!(token, Token::Eol) || Parser::is_statement_starter(token) {
                 break;
+            }
+            // Streaming-response clause connectives must not be absorbed as
+            // Boolean AND / `with` concatenation inside a clause operand.
+            if stop_at_clause {
+                if matches!(token, Token::KeywordAs) {
+                    break;
+                }
+                if matches!(token, Token::KeywordAnd | Token::KeywordWith) {
+                    let next = self.cursor.peek_n(1).map(|t| &t.token);
+                    let is_clause = match next {
+                        Some(Token::KeywordAs)
+                        | Some(Token::KeywordContent)
+                        | Some(Token::KeywordStatus) => true,
+                        Some(Token::Identifier(id)) => {
+                            id == "headers"
+                                || id.starts_with("headers ")
+                                || id == "content_type"
+                                || id.starts_with("content_type ")
+                                || id.starts_with("content type")
+                                || id == "type"
+                                || id.starts_with("type ")
+                        }
+                        _ => false,
+                    };
+                    if is_clause {
+                        break;
+                    }
+                }
             }
 
             // Precedence ladder (higher binds tighter):
@@ -753,6 +787,29 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         }
 
         Ok(left)
+    }
+}
+
+impl<'a> BinaryExprParser<'a> for Parser<'a> {
+    fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
+        let left = self.parse_primary_expression()?;
+        self.parse_binary_continuation(left, precedence)
+    }
+
+    fn parse_binary_continuation(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError> {
+        self.parse_binary_continuation_inner(left, precedence, false)
+    }
+
+    fn parse_binary_continuation_stopping_at_clause(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError> {
+        self.parse_binary_continuation_inner(left, precedence, true)
     }
 
     fn parse_call_expression(

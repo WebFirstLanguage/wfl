@@ -936,14 +936,19 @@ impl Drop for OutboundStreamCleanup {
         // Outbound upstream streams: removing a handle drops its reqwest stream,
         // cancelling the in-flight upstream request.
         let http_ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
-        if !http_ids.is_empty()
-            && let Ok(mut map) = self.io_client.stream_handles.try_lock()
-        {
+        if !http_ids.is_empty() {
+            let mut map = self
+                .io_client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             for id in &http_ids {
-                if let Some(mut slot) = map.remove(id)
-                    && let Some(abort) = slot.reaper_abort.take()
-                {
-                    abort.abort();
+                if let Some(mut slot) = map.remove(id) {
+                    slot.cancel.cancel();
+                    if let Some(abort) = slot.reaper_abort.take() {
+                        abort.abort();
+                    }
+                    drop(slot.handle.take());
                 }
             }
         }
@@ -1687,11 +1692,13 @@ pub struct IoClient {
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
     /// Live outbound streaming response bodies, keyed by handle id
-    /// ("httpstream1", ...). See [`StreamSlot`] / [`HttpStreamHandle`]. Behind
-    /// an `Arc` so the per-stream absolute-lifetime reaper (spawned in
-    /// `open_http_stream`) can share it and expire a handle in real time,
-    /// independent of reads — including while a body read owns the handle.
-    stream_handles: Arc<Mutex<HashMap<String, StreamSlot>>>,
+    /// ("httpstream1", ...). See [`StreamSlot`] / [`HttpStreamHandle`].
+    ///
+    /// Uses a **std** mutex so Drop/cleanup paths can lock reliably (tokio's
+    /// async mutex only offers `try_lock` from sync Drop, which previously
+    /// abandoned handles when the map was briefly held). Critical sections are
+    /// short (no `.await` while held).
+    stream_handles: Arc<std::sync::Mutex<HashMap<String, StreamSlot>>>,
     next_stream_id: Mutex<usize>,
     config: Arc<WflConfig>,
 }
@@ -1713,25 +1720,57 @@ fn outbound_stream_deadline(secs: u64) -> Option<Instant> {
     Instant::now().checked_add(Duration::from_secs(capped))
 }
 
+/// Shared per-stream cancellation: close, expire, and EOF all trip this so an
+/// active body read can select against it and drop the upstream promptly
+/// (rather than only noticing when `put_stream` finds a missing slot).
+struct StreamCancel {
+    cancelled: std::sync::atomic::AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+impl StreamCancel {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            cancelled: std::sync::atomic::AtomicBool::new(false),
+            notify: tokio::sync::Notify::new(),
+        })
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+}
+
+/// Why a stream slot was terminated. Never left as a long-lived tombstone in the
+/// map — the slot is removed when finished; readers that still hold a cancel
+/// watch observe the flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamTerminal {
+    Timeout,
+    Closed,
+}
+
 /// Per-handle shared lifecycle for an outbound stream.
 ///
 /// Reads take the inner [`HttpStreamHandle`] out for the duration of the await
-/// (so the global map lock is not held across the network). The slot stays in
-/// the map so the absolute-lifetime reaper can still mark expiry while the
-/// read owns the handle — and `put_stream` refuses reinsertion after expiry,
-/// preserving `Timeout` as the terminal reason instead of a silent revive.
+/// (so the global map lock is not held across the network). The slot stays only
+/// while the stream is live; finish/close/expire remove it entirely after
+/// signalling [`StreamCancel`] so mid-read work aborts.
 struct StreamSlot {
-    /// The live body handle. `None` while a body read owns it, or after
-    /// expiry/close has dropped it.
+    /// The live body handle. `None` while a body read owns it.
     handle: Option<HttpStreamHandle>,
     /// Absolute deadline for the whole stream (`None` = no absolute total cap).
     deadline: Option<Instant>,
-    /// Set by the reaper (or by take/put noticing the deadline) so the next
-    /// read surfaces a typed `Timeout` rather than "unknown/already closed".
-    expired: bool,
+    /// Shared cancel signal for active-read races.
+    cancel: Arc<StreamCancel>,
     /// Abort handle for the reaper timer. Cancelled on EOF, error, or explicit
-    /// close so rapid open/close cycles do not accumulate sleeping tasks for
-    /// the full configured cap.
+    /// close so rapid open/close cycles do not accumulate sleeping tasks.
     reaper_abort: Option<tokio::task::AbortHandle>,
 }
 
@@ -1764,6 +1803,12 @@ struct HttpStreamHandle {
     total_deadline: Option<Instant>,
 }
 
+/// A body read in progress: the handle plus a cancel watch shared with close/reaper.
+struct TakenStream {
+    handle: HttpStreamHandle,
+    cancel: Arc<StreamCancel>,
+}
+
 /// Errors raised while an outbound HTTP request is in flight.
 ///
 /// Budget failures stay structured until the interpreter can attach source
@@ -1777,6 +1822,9 @@ enum HttpClientError {
     Timeout {
         seconds: u64,
     },
+    /// The stream was explicitly closed (or finished) while a body read was in
+    /// flight. Distinct from absolute-lifetime [`Self::Timeout`].
+    Closed,
     /// The downstream (browser) client disconnected while a proxy handler was
     /// blocked on this upstream read, so the read was cancelled cooperatively.
     /// A normal, expected event — distinct from a fault — surfaced with
@@ -1873,7 +1921,7 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
-            stream_handles: Arc::new(Mutex::new(HashMap::new())),
+            stream_handles: Arc::new(std::sync::Mutex::new(HashMap::new())),
             next_stream_id: Mutex::new(1),
             config,
         }
@@ -2075,162 +2123,204 @@ impl IoClient {
             id
         };
 
-        // Enforce `outbound_stream_max_seconds` as a TRUE absolute lifetime, not a
-        // read-triggered one: a handler that opens a stream and then parks (or does
-        // other work) without reading would otherwise keep the upstream connection
-        // alive past the cap. Spawn a reaper that marks the shared slot expired
-        // (and drops any parked handle) when the absolute deadline elapses —
-        // including while a body read owns the handle. The AbortHandle is stored
-        // on the slot so EOF/error/close cancels the timer immediately.
-        let reaper_abort = if let Some(deadline) = total_deadline {
-            let handles = Arc::clone(&self.stream_handles);
-            let reap_id = handle_id.clone();
-            let join = tokio::spawn(async move {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                tokio::time::sleep(remaining).await;
-                let mut map = handles.lock().await;
-                if let Some(slot) = map.get_mut(&reap_id) {
-                    slot.expired = true;
-                    // Drop the live handle if it is parked (not currently mid-read);
-                    // if a read owns it, put_stream will refuse reinsertion.
-                    slot.handle = None;
-                    slot.reaper_abort = None;
+        // Insert the slot FIRST, then arm the reaper under the same lock so the
+        // reaper can never fire before the slot exists (and so close/finish that
+        // races with open still sees a consistent cancel handle).
+        let cancel = StreamCancel::new();
+        {
+            let mut map = self
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            map.insert(
+                handle_id.clone(),
+                StreamSlot {
+                    handle: Some(handle),
+                    deadline: total_deadline,
+                    cancel: Arc::clone(&cancel),
+                    reaper_abort: None,
+                },
+            );
+            if let Some(deadline) = total_deadline {
+                let handles = Arc::clone(&self.stream_handles);
+                let reap_id = handle_id.clone();
+                let cancel_reap = Arc::clone(&cancel);
+                let join = tokio::spawn(async move {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    tokio::time::sleep(remaining).await;
+                    // Absolute-lifetime reaper: signal cancel (wakes any active
+                    // read), abort is a no-op for ourselves, drop the handle, and
+                    // REMOVE the slot (no tombstone accumulation).
+                    cancel_reap.cancel();
+                    let mut map = handles.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(mut slot) = map.remove(&reap_id) {
+                        slot.reaper_abort = None; // we are the reaper
+                        drop(slot.handle.take());
+                    }
+                });
+                if let Some(slot) = map.get_mut(&handle_id) {
+                    slot.reaper_abort = Some(join.abort_handle());
+                } else {
+                    // Already finished before we armed — cancel the timer.
+                    join.abort();
                 }
-            });
-            Some(join.abort_handle())
-        } else {
-            None
-        };
-
-        self.stream_handles.lock().await.insert(
-            handle_id.clone(),
-            StreamSlot {
-                handle: Some(handle),
-                deadline: total_deadline,
-                expired: false,
-                reaper_abort,
-            },
-        );
+            }
+        }
 
         Ok((status, response_headers, handle_id))
     }
 
-    /// Abort the reaper (if any) and remove the slot, dropping any remaining
-    /// handle. Used on EOF, error, explicit close, and handler-exit cleanup.
-    async fn finish_stream_slot(&self, handle_id: &str) -> bool {
-        let mut map = self.stream_handles.lock().await;
+    /// Signal cancel, abort the reaper, drop any parked handle, and remove the
+    /// slot. Guaranteed (std mutex) — usable from Drop. Returns whether a slot
+    /// was present.
+    fn finish_stream_slot_sync(&self, handle_id: &str, _terminal: StreamTerminal) -> bool {
+        let mut map = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(mut slot) = map.remove(handle_id) {
+            slot.cancel.cancel();
             if let Some(abort) = slot.reaper_abort.take() {
                 abort.abort();
             }
-            // Dropping `slot.handle` cancels the upstream if still present.
+            drop(slot.handle.take());
             true
         } else {
             false
         }
     }
 
+    async fn finish_stream_slot(&self, handle_id: &str) -> bool {
+        self.finish_stream_slot_sync(handle_id, StreamTerminal::Closed)
+    }
+
     /// Remove a stream handle from its slot so a body read can await without
-    /// holding the global handle lock across the network. The slot remains so
-    /// the reaper can still mark expiry mid-read. Errors if the handle is
-    /// unknown, already closed, or already expired (`Timeout`).
-    async fn take_stream(&self, handle_id: &str) -> Result<HttpStreamHandle, HttpClientError> {
-        let mut map = self.stream_handles.lock().await;
-        // Peek expiry without holding a long-lived mut borrow that blocks remove.
-        let past_deadline = match map.get(handle_id) {
-            None => {
-                return Err(HttpClientError::Request(format!(
-                    "Unknown or already-closed stream handle '{handle_id}'"
-                )));
-            }
-            Some(slot) => {
-                slot.expired
-                    || slot
-                        .deadline
-                        .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
-            }
+    /// holding the global handle lock. The cancel watch stays alive so close/
+    /// expire aborts the read. Errors if unknown, closed, or past deadline.
+    fn take_stream(&self, handle_id: &str) -> Result<TakenStream, HttpClientError> {
+        let mut map = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = map.get_mut(handle_id) else {
+            return Err(HttpClientError::Request(format!(
+                "Unknown or already-closed stream handle '{handle_id}'"
+            )));
         };
+        if slot.cancel.is_cancelled() {
+            // Fully finish and remove.
+            if let Some(mut slot) = map.remove(handle_id) {
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+            }
+            return Err(HttpClientError::Closed);
+        }
+        let past_deadline = slot
+            .deadline
+            .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero());
         if past_deadline {
-            if let Some(mut slot) = map.remove(handle_id)
-                && let Some(abort) = slot.reaper_abort.take()
-            {
-                abort.abort();
+            if let Some(mut slot) = map.remove(handle_id) {
+                slot.cancel.cancel();
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
             }
             return Err(HttpClientError::Timeout {
                 seconds: self.config.outbound_stream_max_seconds,
             });
         }
-        match map.get_mut(handle_id).and_then(|s| s.handle.take()) {
-            Some(handle) => Ok(handle),
+        let cancel = Arc::clone(&slot.cancel);
+        match slot.handle.take() {
+            Some(handle) => Ok(TakenStream { handle, cancel }),
             None => Err(HttpClientError::Request(format!(
                 "Unknown or already-closed stream handle '{handle_id}'"
             ))),
         }
     }
 
-    /// Return a still-open stream handle to its slot after a body read.
-    /// Refuses reinsertion at/after the absolute deadline (or if the reaper
-    /// already marked the slot expired), dropping the handle and surfacing
-    /// `Timeout` so a ready chunk cannot revive an expired stream.
-    async fn put_stream(
+    /// Return a still-open stream handle after a body read. Refuses reinsertion
+    /// if the stream was closed/expired mid-read (cancel flag or missing slot).
+    fn put_stream(
         &self,
         handle_id: &str,
         handle: HttpStreamHandle,
+        cancel: &StreamCancel,
     ) -> Result<(), HttpClientError> {
-        let mut map = self.stream_handles.lock().await;
-        let past_deadline = match map.get(handle_id) {
-            None => {
-                // Slot was fully removed (close/finish raced) — drop the handle.
-                return Ok(());
-            }
-            Some(slot) => {
-                slot.expired
-                    || slot
-                        .deadline
-                        .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
-            }
-        };
-        if past_deadline {
-            if let Some(mut slot) = map.remove(handle_id)
-                && let Some(abort) = slot.reaper_abort.take()
-            {
-                abort.abort();
-            }
-            // Drop `handle` by not inserting it.
+        if cancel.is_cancelled() {
             drop(handle);
-            return Err(HttpClientError::Timeout {
-                seconds: self.config.outbound_stream_max_seconds,
+            // Ensure the slot is gone (reaper/close may already have removed it).
+            let _ = self.finish_stream_slot_sync(handle_id, StreamTerminal::Closed);
+            // Prefer Timeout if the absolute deadline has elapsed.
+            return Err(HttpClientError::Closed);
+        }
+        let mut map = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = map.get_mut(handle_id) else {
+            drop(handle);
+            return Err(HttpClientError::Closed);
+        };
+        if slot.cancel.is_cancelled()
+            || slot
+                .deadline
+                .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
+        {
+            let terminal = if slot
+                .deadline
+                .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
+            {
+                StreamTerminal::Timeout
+            } else {
+                StreamTerminal::Closed
+            };
+            drop(handle);
+            if let Some(mut slot) = map.remove(handle_id) {
+                slot.cancel.cancel();
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+            }
+            return Err(match terminal {
+                StreamTerminal::Timeout => HttpClientError::Timeout {
+                    seconds: self.config.outbound_stream_max_seconds,
+                },
+                StreamTerminal::Closed => HttpClientError::Closed,
             });
         }
-        if let Some(slot) = map.get_mut(handle_id) {
-            slot.handle = Some(handle);
-        }
+        // Done streams must not leave a parked reaper: finish fully on EOF
+        // after the final unterminated line is served (caller uses finish).
+        slot.handle = Some(handle);
         Ok(())
     }
 
     /// Pull one network chunk into `handle.buffer`, bounded by the per-chunk
-    /// read deadline and the run's response-byte ceiling. Returns `Ok(true)`
-    /// when bytes were added, `Ok(false)` at clean EOF (sets `handle.done`).
+    /// read deadline, the absolute total, and cooperative stream cancellation
+    /// (close/expire while reading). Returns `Ok(true)` when bytes were added,
+    /// `Ok(false)` at clean EOF (sets `handle.done`).
     async fn stream_pull(
         &self,
         handle: &mut HttpStreamHandle,
         budget: &Arc<ExecutionBudget>,
+        cancel: &StreamCancel,
     ) -> Result<bool, HttpClientError> {
         use futures_util::StreamExt;
 
         if handle.done {
             return Ok(false);
         }
+        if cancel.is_cancelled() {
+            return Err(HttpClientError::Closed);
+        }
         let max_response_bytes = budget.limits().max_response_bytes;
-        // Per-read idle timeout, bounded by the remaining time to the stream's
-        // absolute total deadline so a single read can never wait past the total
-        // (and a trickling upstream cannot outlive the total cap).
         let idle_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
         let configured_timeout = match handle.total_deadline {
             Some(deadline) => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    // Already past the absolute total lifetime.
                     return Err(HttpClientError::Timeout {
                         seconds: self.config.outbound_stream_max_seconds,
                     });
@@ -2239,10 +2329,23 @@ impl IoClient {
             }
             None => idle_timeout,
         };
-        let next = Self::run_http_with_budget(Arc::clone(budget), configured_timeout, async {
+
+        // Race the network read against stream cancellation so close-during-
+        // active-read aborts the upstream promptly.
+        let op = Self::run_http_with_budget(Arc::clone(budget), configured_timeout, async {
             Ok::<Option<reqwest::Result<Vec<u8>>>, HttpClientError>(handle.stream.next().await)
-        })
-        .await?;
+        });
+        tokio::pin!(op);
+        let next = tokio::select! {
+            result = &mut op => result?,
+            _ = cancel.notify.notified() => {
+                return Err(HttpClientError::Closed);
+            }
+        };
+        // Re-check after select (notify may have raced with a false wake).
+        if cancel.is_cancelled() {
+            return Err(HttpClientError::Closed);
+        }
 
         match next {
             Some(Ok(bytes)) => {
@@ -2292,37 +2395,30 @@ impl IoClient {
         handle_id: &str,
         budget: Arc<ExecutionBudget>,
     ) -> Result<Option<Vec<u8>>, HttpClientError> {
-        let mut handle = self.take_stream(handle_id).await?;
+        let TakenStream { mut handle, cancel } = self.take_stream(handle_id)?;
 
-        // Enforce the absolute stream lifetime before serving ANY bytes — even
-        // ones already buffered by a prior read — so `outbound_stream_max_seconds`
-        // is a true absolute lifetime, not merely a per-network-read bound. On
-        // expiry the slot is finished, so the upstream request is dropped.
         if let Err(e) = self.check_stream_deadline(&handle) {
             let _ = self.finish_stream_slot(handle_id).await;
             return Err(e);
         }
 
-        // Any bytes buffered by a prior `next line` are served first.
         if !handle.buffer.is_empty() {
             let chunk = std::mem::take(&mut handle.buffer);
-            self.put_stream(handle_id, handle).await?;
+            self.put_stream(handle_id, handle, &cancel)?;
             return Ok(Some(chunk));
         }
 
-        match self.stream_pull(&mut handle, &budget).await {
+        match self.stream_pull(&mut handle, &budget, &cancel).await {
             Ok(true) => {
                 let chunk = std::mem::take(&mut handle.buffer);
-                self.put_stream(handle_id, handle).await?;
+                self.put_stream(handle_id, handle, &cancel)?;
                 Ok(Some(chunk))
             }
             Ok(false) => {
-                // clean EOF: drop the slot + abort reaper
                 let _ = self.finish_stream_slot(handle_id).await;
                 Ok(None)
             }
             Err(e) => {
-                // error/timeout: drop the slot (cancels upstream + aborts reaper)
                 let _ = self.finish_stream_slot(handle_id).await;
                 Err(e)
             }
@@ -2337,12 +2433,9 @@ impl IoClient {
         handle_id: &str,
         budget: Arc<ExecutionBudget>,
     ) -> Result<Option<String>, HttpClientError> {
-        let mut handle = self.take_stream(handle_id).await?;
+        let TakenStream { mut handle, cancel } = self.take_stream(handle_id)?;
 
         loop {
-            // Enforce the absolute stream lifetime before serving a buffered line
-            // (a prior read may have buffered several lines); on expiry the handle
-            // is dropped, cancelling the upstream. See `next_chunk`.
             if let Err(e) = self.check_stream_deadline(&handle) {
                 let _ = self.finish_stream_slot(handle_id).await;
                 return Err(e);
@@ -2354,39 +2447,35 @@ impl IoClient {
                 if line.last() == Some(&b'\r') {
                     line.pop(); // drop paired '\r' (CRLF)
                 }
-                self.put_stream(handle_id, handle).await?;
+                self.put_stream(handle_id, handle, &cancel)?;
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
             }
 
             if handle.done {
-                // No newline left. Emit any final unterminated line, then EOF.
+                // Final unterminated line (if any), then fully finish — do NOT
+                // leave a done slot + reaper parked for a subsequent read.
                 if handle.buffer.is_empty() {
                     let _ = self.finish_stream_slot(handle_id).await;
-                    return Ok(None); // drop the exhausted handle
+                    return Ok(None);
                 }
                 let mut line = std::mem::take(&mut handle.buffer);
                 if line.last() == Some(&b'\r') {
                     line.pop();
                 }
-                // Re-insert the now-drained (done, empty) handle so the *next*
-                // read cleanly returns `nothing` instead of erroring on a
-                // missing handle.
-                self.put_stream(handle_id, handle).await?;
+                let _ = self.finish_stream_slot(handle_id).await;
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
             }
 
-            // Need more bytes to find a newline.
-            if let Err(e) = self.stream_pull(&mut handle, &budget).await {
+            if let Err(e) = self.stream_pull(&mut handle, &budget, &cancel).await {
                 let _ = self.finish_stream_slot(handle_id).await;
                 return Err(e);
             }
         }
     }
 
-    /// Close a streaming response handle if present. Dropping the handle
-    /// cancels the in-flight upstream request and aborts its reaper timer.
-    /// Returns whether a slot was found. Idempotent: closing an
-    /// unknown/already-closed handle is a no-op.
+    /// Close a streaming response handle if present. Signals cancel (aborting
+    /// any active read), drops the handle, and aborts the reaper timer.
+    /// Idempotent.
     async fn close_stream(&self, handle_id: &str) -> bool {
         self.finish_stream_slot(handle_id).await
     }
@@ -4170,6 +4259,9 @@ impl Interpreter {
                 column,
                 ErrorKind::Timeout,
             ),
+            HttpClientError::Closed => {
+                RuntimeError::new("Stream was closed while reading".to_string(), line, column)
+            }
             HttpClientError::Disconnected => RuntimeError::with_kind(
                 "Client disconnected; upstream read cancelled".to_string(),
                 line,
@@ -4295,13 +4387,19 @@ impl Interpreter {
         if ids.is_empty() {
             return;
         }
-        if let Ok(mut map) = self.io_client.stream_handles.try_lock() {
-            for id in ids {
-                if let Some(mut slot) = map.remove(id)
-                    && let Some(abort) = slot.reaper_abort.take()
-                {
+        // std mutex: guaranteed cleanup from Drop (no silent try_lock abandon).
+        let mut map = self
+            .io_client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        for id in ids {
+            if let Some(mut slot) = map.remove(id) {
+                slot.cancel.cancel();
+                if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
+                drop(slot.handle.take());
             }
         }
     }
@@ -4466,6 +4564,60 @@ impl Interpreter {
     /// owns the request. That path is `ErrorKind::Cancelled`. A missing entry when
     /// the handler no longer owns the id (duplicate respond after a successful
     /// one, or a forged request id) remains a general error.
+    /// Check that this handler still owns `request_id` and a pending entry is
+    /// present (or was pruned as disconnected → Cancelled), WITHOUT taking the
+    /// sender. Used before evaluating respond/stream-head expressions so the
+    /// parked sender remains a disconnect signal for upstream work.
+    async fn ensure_pending_response_owned(
+        &self,
+        request_id: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<(), RuntimeError> {
+        let was_owned = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .any(|id| id == request_id);
+        if !was_owned {
+            return Err(RuntimeError::new(
+                "Request ID not found - response may have already been sent".to_string(),
+                line,
+                column,
+            ));
+        }
+        let present = self.pending_responses.borrow().contains_key(request_id);
+        if !present {
+            // Sibling prune of a closed sender while we still own the request.
+            return Err(RuntimeError::with_kind(
+                "Client disconnected before the response was sent".to_string(),
+                line,
+                column,
+                ErrorKind::Cancelled,
+            ));
+        }
+        // Optionally check is_closed early for a clearer cancel before heavy eval.
+        let closed = {
+            let pending = self.pending_responses.borrow();
+            match pending.get(request_id) {
+                Some(p) => match p.sender.try_lock() {
+                    Ok(g) => g.as_ref().is_none_or(|s| s.is_closed()),
+                    Err(_) => false,
+                },
+                None => true,
+            }
+        };
+        if closed {
+            return Err(RuntimeError::with_kind(
+                "Client disconnected before the response was sent".to_string(),
+                line,
+                column,
+                ErrorKind::Cancelled,
+            ));
+        }
+        Ok(())
+    }
+
     async fn take_pending_response_completion(
         &self,
         request_id: &str,
@@ -4630,18 +4782,17 @@ impl Interpreter {
                 // Expected / request-local outcomes must NEVER feed the structural
                 // consecutive-failure breaker:
                 // - `Cancelled`: client disconnect (cooperative cancellation)
-                // - `Timeout`: finite `wait for request ... with timeout` expiry
-                //   (healthy idle server, not a hot-spin)
+                // - finite `wait for request ... with timeout` expiry ONLY
+                //   (not every ErrorKind::Timeout — e.g. pre-request structural
+                //   timeouts still feed the breaker)
                 // - any error from a handler that already accepted a request
-                //   (upstream/network/response failure is local to that request)
                 //
-                // Structural pre-request failures only (channel closed, missing
-                // server, deterministic bad expression before `wait`, …) can
-                // hot-spin the loop if not backstopped — those feed the breaker.
+                // Structural pre-request failures feed the breaker.
                 Some((Ok(Err(err)), accepted)) => {
-                    let non_structural = accepted
-                        || err.kind == ErrorKind::Cancelled
-                        || err.kind == ErrorKind::Timeout;
+                    let is_request_wait_timeout = err.kind == ErrorKind::Timeout
+                        && err.message.starts_with("Timeout waiting for request");
+                    let non_structural =
+                        accepted || err.kind == ErrorKind::Cancelled || is_request_wait_timeout;
                     if non_structural {
                         log::debug!(
                             "concurrent main loop: non-structural handler outcome \
@@ -9273,8 +9424,21 @@ impl Interpreter {
                             .evaluate_expression(timeout_expr, Rc::clone(&env))
                             .await?;
                         match timeout_val {
-                            Value::Number(ms) if ms > 0.0 => {
+                            // Reject fractional values that would truncate to 0 ms
+                            // (e.g. 0.5) and hot-spin forever with zero-duration
+                            // timeouts. Require at least 1 millisecond.
+                            Value::Number(ms) if ms >= 1.0 => {
                                 Some(std::time::Duration::from_millis(ms as u64))
+                            }
+                            Value::Number(ms) if ms > 0.0 => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Timeout must be at least 1 millisecond (got {ms} ms); \
+                                         fractional values below 1 would truncate to zero and spin"
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
                             }
                             _ => {
                                 return Err(RuntimeError::new(
@@ -9493,21 +9657,14 @@ impl Interpreter {
                     }
                 };
 
-                // Take the response sender out of the pending map (and out of its
-                // mutex) up front, into an RAII completion guard, *before* any
-                // fallible response construction below (content/status/type/header
-                // evaluation, byte-cap checks). On an early error the guard's Drop
-                // answers 500, so the request is always resolved instead of
-                // hanging until its timeout; a successful respond disarms it via
-                // `take_sender`.
-                //
-                // Ownership is checked BEFORE removing the id from
-                // `open_pending_requests`: a sibling `wait for request` may have
-                // globally pruned a closed (disconnected) sender, leaving the
-                // entry missing while this handler still owns the request. That
-                // is cooperative cancellation, not a duplicate-response fault.
-                let mut completion = self
-                    .take_pending_response_completion(&request_id, *line, *column)
+                // Keep the pending request parked until content/status/header
+                // expressions are evaluated so a browser disconnect still cancels
+                // any upstream open/read performed during that evaluation
+                // (`any_pending_request_disconnected` watches the parked sender).
+                // Only after evaluation do we take the sender into the completion
+                // guard. Early eval errors leave the id in open_pending so the
+                // handler-exit 500 path still resolves the client.
+                self.ensure_pending_response_owned(&request_id, *line, *column)
                     .await?;
 
                 // Evaluate response content. Binary values are carried through
@@ -9664,8 +9821,10 @@ impl Interpreter {
                     headers: custom_headers,
                 };
 
-                // Deliver the response and disarm the guard's 500 fallback. The
-                // sender was taken up front, so this is the sole delivery path.
+                // Now commit: take the sender (disconnect signal ends) and deliver.
+                let mut completion = self
+                    .take_pending_response_completion(&request_id, *line, *column)
+                    .await?;
                 match completion.take_sender() {
                     Some(sender) => {
                         if sender.send(HandlerReply::Buffered(response)).is_err() {
@@ -9725,13 +9884,10 @@ impl Interpreter {
                     }
                 };
 
-                // Take the oneshot into an RAII guard up front: an early error
-                // while evaluating status/content type/headers still resolves
-                // the client with 500 instead of hanging. Same ownership rule as
-                // `respond`: missing while still owned => Cancelled (sibling
-                // prune of a disconnected client), not a structural fault.
-                let mut completion = self
-                    .take_pending_response_completion(&request_id, *line, *column)
+                // Keep pending parked through status/content-type/header
+                // evaluation so disconnect still cancels any upstream work those
+                // expressions perform. Handler-exit 500 covers early eval errors.
+                self.ensure_pending_response_owned(&request_id, *line, *column)
                     .await?;
 
                 let status_code = match status {
@@ -9828,9 +9984,11 @@ impl Interpreter {
                     }
                 }
 
-                // Hand the streaming head (and body receiver) to the transport,
-                // disarming the guard's 500 fallback.
+                // Commit: take the sender and hand the streaming head to the transport.
                 let (tx, rx) = mpsc::channel::<Vec<u8>>(RESPONSE_STREAM_BUFFER);
+                let mut completion = self
+                    .take_pending_response_completion(&request_id, *line, *column)
+                    .await?;
                 match completion.take_sender() {
                     Some(sender) => {
                         if sender
@@ -10046,29 +10204,32 @@ impl Interpreter {
                         match outcome {
                             Ok(()) => Ok((Value::Null, ControlFlow::None)),
                             Err(stalled) => {
-                                // Disconnect or stall: drop the handle so the body
-                                // ends, untrack it so a handler that catches this
-                                // keeps no stale id, and surface a `Cancelled` error.
-                                // Both are client-caused cooperative cancellations,
-                                // not handler faults — `Cancelled` keeps the
-                                // concurrent breaker from counting them (256 stalled
-                                // or hung-up clients must not tear the server down).
+                                // Disconnect → Cancelled (cooperative). Stall
+                                // (client still connected, not reading) → Timeout
+                                // (not Cancelled). Post-accept either way so the
+                                // concurrent breaker does not tear the server down.
                                 self.server_response_streams.borrow_mut().remove(&handle_id);
                                 self.open_response_streams
                                     .borrow_mut()
                                     .retain(|s| s != &handle_id);
-                                let message = if stalled {
-                                    "Cannot write to response stream: the client stopped reading \
-                                     (write timed out)"
+                                if stalled {
+                                    Err(RuntimeError::with_kind(
+                                        "Cannot write to response stream: the client stopped reading \
+                                         (write timed out)"
+                                            .to_string(),
+                                        *line,
+                                        *column,
+                                        ErrorKind::Timeout,
+                                    ))
                                 } else {
-                                    "Cannot write to response stream: the client has disconnected"
-                                };
-                                Err(RuntimeError::with_kind(
-                                    message.to_string(),
-                                    *line,
-                                    *column,
-                                    ErrorKind::Cancelled,
-                                ))
+                                    Err(RuntimeError::with_kind(
+                                        "Cannot write to response stream: the client has disconnected"
+                                            .to_string(),
+                                        *line,
+                                        *column,
+                                        ErrorKind::Cancelled,
+                                    ))
+                                }
                             }
                         }
                     }
@@ -10086,57 +10247,39 @@ impl Interpreter {
                 column,
             } => {
                 // Backward compatibility: before `flush` was a streaming command,
-                // a bare `flush cache` was an ordinary expression statement that
-                // evaluated the full merged name. Preserve the COMPLETE old
-                // expression-statement fallback when the full name resolves
-                // (issue #642) — not only the zero-argument action happy path:
-                // - zero-arg Function / Overloaded → call it
-                // - any other bound value (number, text, non-zero-arg overload, …)
-                //   → evaluate-and-discard (old expression-statement no-op success)
-                // Only when the full name is unbound fall through to stream flush.
-                // Only the bare-identifier form carries a fallback (see
-                // `parse_flush_stream`).
-                if let Some(name) = action_fallback {
-                    let lookup = env.borrow().get(name);
-                    match lookup {
-                        Some(Value::Function(func)) => {
-                            if func.params.is_empty() {
-                                return self
-                                    .call_function(&func, vec![], *line, *column)
-                                    .await
-                                    .map(|value| (value, ControlFlow::None));
-                            }
-                            // Function exists but is not zero-argument: old
-                            // expression-statement evaluation of the function
-                            // value was a no-op success (did not auto-invoke with
-                            // missing args), not a stream error.
-                            return Ok((Value::Null, ControlFlow::None));
+                // the full merged form (including postfix) was an expression
+                // statement. When the root binding of the legacy AST exists,
+                // evaluate it with the same ExpressionStatement semantics
+                // (zero-arg auto-call; parameterized bare call → arity error).
+                if let Some(fallback_expr) = action_fallback {
+                    let root_name = match fallback_expr {
+                        Expression::Variable(n, ..) => Some(n.as_str()),
+                        Expression::IndexAccess { collection, .. }
+                        | Expression::PropertyAccess {
+                            object: collection, ..
                         }
-                        Some(Value::Overloaded(overloaded)) => {
-                            if let Some(func) = overloaded
-                                .overloads
-                                .iter()
-                                .find(|func| func.params.is_empty())
-                            {
-                                let func = Rc::clone(func);
-                                return self
-                                    .call_function(&func, vec![], *line, *column)
-                                    .await
-                                    .map(|value| (value, ControlFlow::None));
-                            }
-                            // Overloaded with no zero-argument overload: old
-                            // expression-statement evaluation of the overloaded
-                            // value was a no-op success, not a stream error.
-                            return Ok((Value::Null, ControlFlow::None));
-                        }
-                        Some(_other) => {
-                            // Non-callable full-name binding (e.g. `store flush
-                            // cache as 1` then `flush cache`): evaluate-and-
-                            // discard, matching the pre-streaming expression
-                            // statement.
-                            return Ok((Value::Null, ControlFlow::None));
-                        }
-                        None => {}
+                        | Expression::MethodCall {
+                            object: collection, ..
+                        } => match collection.as_ref() {
+                            Expression::Variable(n, ..) => Some(n.as_str()),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    let root_bound = root_name.is_some_and(|n| env.borrow().get(n).is_some());
+                    if root_bound {
+                        // Reuse ExpressionStatement semantics by dispatching a
+                        // synthetic statement.
+                        return self
+                            .execute_statement(
+                                &Statement::ExpressionStatement {
+                                    expression: fallback_expr.clone(),
+                                    line: *line,
+                                    column: *column,
+                                },
+                                Rc::clone(&env),
+                            )
+                            .await;
                     }
                 }
                 let handle_id = self

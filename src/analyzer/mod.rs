@@ -1694,15 +1694,17 @@ impl Analyzer {
                 action_fallback,
                 ..
             } => {
-                // A merged `flush <ident>` may resolve at runtime to a zero-argument
-                // action named `flush <ident>` (backward compatibility — see
-                // `parse_flush_stream`). When such an action is defined this is an
-                // action call, not a stream flush, so analyzing the operand as a
-                // stream variable would raise a spurious "undefined variable".
-                let is_action_call = action_fallback
-                    .as_ref()
-                    .is_some_and(|name| self.name_is_defined(name));
-                if !is_action_call {
+                // When the legacy full-name expression's root is defined, analyze
+                // that expression (expression-statement path). Otherwise analyze
+                // the stream target.
+                let legacy_root_defined = action_fallback.as_ref().is_some_and(|expr| {
+                    Self::expression_root_name(expr).is_some_and(|n| self.name_is_defined(n))
+                });
+                if legacy_root_defined {
+                    if let Some(fb) = action_fallback {
+                        self.analyze_expression(fb);
+                    }
+                } else {
                     self.analyze_expression(target);
                 }
             }
@@ -3806,8 +3808,15 @@ impl Analyzer {
     /// property) — i.e. it would NOT be reported as an undefined variable. Used
     /// to decide the ambiguous `write line|chunk` case without emitting.
     fn name_is_defined(&self, name: &str) -> bool {
+        self.name_is_defined_for_write(name)
+    }
+
+    /// Public for the typechecker so write-branch definedness matches analysis
+    /// (container properties, inherited bindings, etc.).
+    pub fn name_is_defined_for_write(&self, name: &str) -> bool {
         if self.action_parameters.contains(name)
             || name == "count"
+            || name == "loopcounter"
             || Self::is_builtin_function(name)
             || self.current_scope.resolve(name).is_some()
         {
@@ -3817,6 +3826,25 @@ impl Analyzer {
             return self.is_container_property(container_name, name);
         }
         false
+    }
+
+    /// Root variable name of an expression used as a flush legacy fallback
+    /// (`flush cache[0]` → `"flush cache"`).
+    fn expression_root_name(expr: &Expression) -> Option<&str> {
+        match expr {
+            Expression::Variable(name, ..) => Some(name.as_str()),
+            Expression::IndexAccess { collection, .. }
+            | Expression::PropertyAccess {
+                object: collection, ..
+            }
+            | Expression::MemberAccess {
+                object: collection, ..
+            }
+            | Expression::MethodCall {
+                object: collection, ..
+            } => Self::expression_root_name(collection),
+            _ => None,
+        }
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {

@@ -162,6 +162,45 @@ fn streaming_response_content_type_of_call_parses() {
 }
 
 #[test]
+fn streaming_response_content_type_then_headers_both_orders() {
+    // Clause connectives must not be swallowed as Boolean AND (both orders).
+    let a = parse(
+        "start streaming response to req with status 200 and content type ct and headers h as out\n",
+    );
+    match &a.statements[0] {
+        Statement::StartStreamingResponseStatement {
+            content_type,
+            headers,
+            ..
+        } => {
+            assert!(content_type.is_some(), "content type must bind");
+            assert!(
+                headers.is_some(),
+                "headers must bind (not swallowed by content type)"
+            );
+        }
+        other => panic!("expected StartStreamingResponseStatement, got {other:#?}"),
+    }
+    let b = parse(
+        "start streaming response to req with status 200 and headers h and content type ct as out\n",
+    );
+    match &b.statements[0] {
+        Statement::StartStreamingResponseStatement {
+            content_type,
+            headers,
+            ..
+        } => {
+            assert!(headers.is_some(), "headers must bind");
+            assert!(
+                content_type.is_some(),
+                "content type must bind (not swallowed by headers)"
+            );
+        }
+        other => panic!("expected StartStreamingResponseStatement, got {other:#?}"),
+    }
+}
+
+#[test]
 fn write_line_of_call_argument_absorbs_arithmetic() {
     // `double of n minus 1` must parse as `double of (n minus 1)` — the same
     // precedence as an ordinary expression — not `(double of n) minus 1`.

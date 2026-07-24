@@ -78,6 +78,81 @@ impl<'a> Parser<'a> {
         self.parse_binary_continuation(lead, 0)
     }
 
+    /// Like [`parse_merged_operand_from_lead`], but binary continuation stops
+    /// before clause connectives (`and`/`with`/`as`) so
+    /// `content type mime_type of path and headers h` does not swallow `headers`
+    /// as a Boolean-AND operand (issue #642 re-review).
+    pub(crate) fn parse_clause_operand_from_lead(
+        &mut self,
+        lead: Expression,
+    ) -> Result<Expression, ParseError> {
+        let lead = self.parse_trailing_postfix(lead)?;
+        let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
+            let (of_line, of_column) = self
+                .bump_sync()
+                .map(|t| (t.line, t.column))
+                .expect("peeked `of` immediately above");
+            let mut arguments = vec![crate::parser::ast::Argument {
+                name: None,
+                value: self.parse_of_call_argument()?,
+            }];
+            while let Some(sep) = self.cursor.peek() {
+                let is_separator = matches!(
+                    &sep.token,
+                    Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
+                ) || matches!(
+                    &sep.token,
+                    Token::Identifier(id) if id.eq_ignore_ascii_case("length")
+                );
+                // For multi-arg `of` calls, `and` between arguments is fine —
+                // only stop when we've finished the of-call and the next token
+                // would start a new clause (handled by binary continuation stop).
+                if !is_separator {
+                    break;
+                }
+                // If `and` is followed by a clause keyword (headers/content/as),
+                // it is a clause connective, not an of-arg separator.
+                if matches!(&sep.token, Token::KeywordAnd)
+                    && Self::is_streaming_clause_keyword(self.cursor.peek_n(1).map(|t| &t.token))
+                {
+                    break;
+                }
+                self.bump_sync();
+                arguments.push(crate::parser::ast::Argument {
+                    name: None,
+                    value: self.parse_of_call_argument()?,
+                });
+            }
+            Expression::FunctionCall {
+                function: Box::new(lead),
+                arguments,
+                line: of_line,
+                column: of_column,
+            }
+        } else {
+            lead
+        };
+        self.parse_binary_continuation_stopping_at_clause(lead, 0)
+    }
+
+    fn is_streaming_clause_keyword(tok: Option<&Token>) -> bool {
+        match tok {
+            Some(Token::KeywordAs) | Some(Token::KeywordContent) | Some(Token::KeywordStatus) => {
+                true
+            }
+            Some(Token::Identifier(id)) => {
+                id == "headers"
+                    || id.starts_with("headers ")
+                    || id == "content_type"
+                    || id.starts_with("content_type ")
+                    || id.starts_with("content type")
+                    || id == "type"
+                    || id.starts_with("type ")
+            }
+            _ => false,
+        }
+    }
+
     /// Alias used by the write-statement parsers.
     fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
         self.parse_merged_operand_from_lead(lead)

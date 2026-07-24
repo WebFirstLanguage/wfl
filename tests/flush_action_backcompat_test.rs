@@ -91,11 +91,37 @@ fn flush_non_callable_full_name_binding_is_expression_statement() {
 }
 
 #[test]
-fn flush_overloaded_action_without_zero_arg_is_expression_statement() {
-    // An overloaded `flush cache` with only a one-parameter overload used to be
-    // an ordinary bare-expression evaluation (no-op success). Must not become a
-    // stream error (issue #642).
+fn flush_parameterized_single_action_still_arity_errors() {
+    // A single parameterized `flush cache` action: old expression-statement
+    // auto-call with zero args produced an arity error — not a silent success
+    // and not a stream flush (issue #642 re-review).
     let src = "define action called flush cache with parameters x:\n\
+               \x20\x20\x20\x20display x\n\
+               end action\n\
+               \n\
+               flush cache\n";
+    let (out, code) = run_src(src);
+    assert_ne!(
+        code,
+        Some(0),
+        "parameterized flush cache with no args must arity-error; output:\n{out}"
+    );
+    assert!(
+        out.to_lowercase().contains("argument")
+            || out.to_lowercase().contains("expected")
+            || out.contains("1"),
+        "expected an arity error, got:\n{out}"
+    );
+}
+
+#[test]
+fn flush_overloaded_without_zero_arg_is_expression_not_stream() {
+    // True overload set with no zero-arg member: bare name evaluates as an
+    // overloaded value (expression statement), not a stream flush.
+    let src = "define action called flush cache with parameters x:\n\
+               \x20\x20\x20\x20display x\n\
+               end action\n\
+               define action called flush cache with parameters x and y:\n\
                \x20\x20\x20\x20display x\n\
                end action\n\
                \n\
@@ -111,4 +137,20 @@ fn flush_overloaded_action_without_zero_arg_is_expression_statement() {
         out.contains("OK"),
         "program should reach the trailing display; output:\n{out}"
     );
+}
+
+#[test]
+fn flush_with_postfix_uses_legacy_expression_when_bound() {
+    // `flush cache[0]` must evaluate IndexAccess on Variable("flush cache"), not
+    // try to flush stream `cache[0]`.
+    let src = "store flush cache as [\"a\" and \"b\"]\n\
+               flush cache[0]\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "flush cache[0] with a bound list must be an expression statement; output:\n{out}"
+    );
+    assert!(out.contains("OK"), "expected OK; output:\n{out}");
 }

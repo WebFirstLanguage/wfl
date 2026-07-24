@@ -1046,23 +1046,17 @@ impl TypeChecker {
                     // `Map`) so `close out` is accepted without `close` also
                     // type-checking an ordinary user map.
                     //
-                    // Always bind/refine in the *current* scope: analyzer loop
-                    // scopes are discarded after body analysis, so `out` from
-                    // `start streaming response ... as out` inside `main loop`
-                    // would otherwise be missing here and remain Unknown —
-                    // letting a gradual/file fallback mask an invalid stream
-                    // payload (issue #642).
-                    if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                        symbol.symbol_type = Some(Type::Custom("ResponseStream".to_string()));
-                    } else {
-                        self.analyzer.define_or_replace_symbol(Symbol {
-                            name: variable_name.clone(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: Some(Type::Custom("ResponseStream".to_string())),
-                            line: *_line,
-                            column: *_column,
-                        });
-                    }
+                    // Always bind in the *current* scope only (shadow, do not
+                    // mutate an outer symbol of the same name via get_symbol_mut
+                    // parent walk). Analyzer loop scopes are discarded after
+                    // body analysis, so we re-create the binding here.
+                    self.analyzer.define_or_replace_symbol(Symbol {
+                        name: variable_name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        symbol_type: Some(Type::Custom("ResponseStream".to_string())),
+                        line: *_line,
+                        column: *_column,
+                    });
                 }
             }
             Statement::StreamWriteStatement {
@@ -1091,10 +1085,13 @@ impl TypeChecker {
                     self.check_expression_names_defined(value, *line, *column);
                     let value_type = self.infer_expression_type(value);
                     self.check_streamable_payload(&value_type, *line, *column);
-                } else if matches!(target_type, Type::Text) && has_fallback {
-                    // Concrete text path: the classic file-write reading is taken.
-                    // Validate the fallback (including definedness), not the stream
-                    // `value` the runtime never evaluates here.
+                } else if has_fallback
+                    && (matches!(target_type, Type::Text)
+                        || matches!(&target_type, Type::Custom(n) if n == "File"))
+                {
+                    // Concrete text path OR open-file handle (`Custom("File")`):
+                    // the classic file-write reading is taken. Validate the
+                    // fallback (including definedness), not the stream `value`.
                     if let Some(fallback) = fallback_content {
                         self.check_expression_names_defined(fallback, *line, *column);
                         let _ = self.infer_expression_type(fallback);
@@ -1132,18 +1129,32 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                // A merged `flush <ident>` may resolve at runtime to the full
-                // merged name as an ordinary expression statement (backward
-                // compatibility — see `parse_flush_stream` / issue #642). Stay
-                // lenient when the full name is bound as an action OR any other
-                // value; otherwise this is a stream flush and a concrete
-                // non-stream target is still a static error (`flush n` where
-                // `n` is a number and there is no binding named `flush n`).
-                let is_expression_fallback = action_fallback.as_ref().is_some_and(|name| {
+                // Legacy full-name expression (e.g. Variable("flush cache") or
+                // IndexAccess over it): when its root is bound, typecheck that
+                // expression. Otherwise this is a stream flush.
+                let legacy_root = action_fallback.as_ref().and_then(|e| match e {
+                    Expression::Variable(n, ..) => Some(n.as_str()),
+                    Expression::IndexAccess { collection, .. }
+                    | Expression::PropertyAccess {
+                        object: collection, ..
+                    }
+                    | Expression::MethodCall {
+                        object: collection, ..
+                    } => match &**collection {
+                        Expression::Variable(n, ..) => Some(n.as_str()),
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                let is_expression_fallback = legacy_root.is_some_and(|name| {
                     self.action_signatures(name).is_some()
                         || self.analyzer.get_symbol(name).is_some()
                 });
-                if !is_expression_fallback {
+                if is_expression_fallback {
+                    if let Some(fb) = action_fallback {
+                        let _ = self.infer_expression_type(fb);
+                    }
+                } else {
                     let target_type = self.infer_expression_type(target);
                     if !self.is_response_stream_target_type(&target_type) {
                         self.type_error(
@@ -4920,15 +4931,9 @@ impl TypeChecker {
     /// may have stayed silent on a one-sided undefined lead because the other
     /// reading was defined (issue #642).
     fn name_is_defined_for_write(&self, name: &str) -> bool {
-        if self.analyzer.get_symbol(name).is_some()
-            || self.analyzer.get_action_parameters().contains(name)
-            || Analyzer::is_builtin_function(name)
-            || name == "count"
-            || name == "loopcounter"
-        {
-            return true;
-        }
-        false
+        // Match analyzer `name_is_defined` so container properties and inherited
+        // bindings are not false-rejected on the selected write branch.
+        self.analyzer.name_is_defined_for_write(name)
     }
 
     /// Walk an expression and report every undefined bare name. Used for the

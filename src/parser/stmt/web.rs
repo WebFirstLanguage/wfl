@@ -452,7 +452,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                             // operators), same as ordinary `<e>` — e.g.
                             // `content type mime_type of path` (issue #642).
                             let lead = Expression::Variable(rest, l, c);
-                            self.parse_merged_operand_from_lead(lead)?
+                            self.parse_clause_operand_from_lead(lead)?
                         }
                         None => self.parse_primary_expression()?,
                     });
@@ -479,7 +479,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                         content_type = Some(self.parse_primary_expression()?);
                     } else {
                         let lead = Expression::Variable(rest.to_string(), id_line, id_column);
-                        content_type = Some(self.parse_merged_operand_from_lead(lead)?);
+                        content_type = Some(self.parse_clause_operand_from_lead(lead)?);
                     }
                 }
                 // `headers <map>` (bare or merged `headers <var>`).
@@ -495,10 +495,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     if rest.is_empty() {
                         headers = Some(self.parse_primary_expression()?);
                     } else {
-                        // Full expression continuation so direct forwarding like
-                        // `headers upstream.headers` and operator/`of` forms bind.
+                        // Clause operand: postfix/`of`/operators but stop before
+                        // the next clause connective (`and content type`, `as`).
                         let lead = Expression::Variable(rest.to_string(), id_line, id_column);
-                        headers = Some(self.parse_merged_operand_from_lead(lead)?);
+                        headers = Some(self.parse_clause_operand_from_lead(lead)?);
                     }
                 }
                 // A connective directly before `as` just joins the clause list to
@@ -550,24 +550,17 @@ impl<'a> WebParser<'a> for Parser<'a> {
         let (target, action_fallback) = if rest.is_empty() {
             (self.parse_primary_expression()?, None)
         } else {
-            // The lexer merged `flush` with the operand identifier, so any postfix
-            // accessors (`flush streams["a"]`, `flush obj.out`) are left as separate
-            // tokens. Compose them onto the split-off lead so the operand parses
-            // consistently with a normal expression instead of dangling.
-            let lead = Expression::Variable(rest.to_string(), line, column);
-            let composed = self.parse_trailing_postfix(lead)?;
-            // Backward compatibility: `flush <ident>` used to auto-invoke a
-            // zero-argument action named "flush <ident>". Carry the full phrase so
-            // the interpreter can prefer that action when it exists. Only a
-            // bare-identifier operand can collide with such an action name; a
-            // postfix operand (`flush obj.out`) cannot, so it carries no fallback
-            // (else a defined `flush obj` action would wrongly swallow `.out`).
-            let fallback = if matches!(composed, Expression::Variable(..)) {
-                Some(phrase.clone())
-            } else {
-                None
-            };
-            (composed, fallback)
+            // Stream reading: postfix on the split-off rest (`cache` from
+            // `flush cache`). Legacy expression: same postfix on the FULL phrase
+            // (`flush cache`) so `flush cache[0]` / `.property` / `.method()` /
+            // `at` keep their old expression-statement AST (issue #642 re-review).
+            let cp = self.cursor.checkpoint();
+            let stream_lead = Expression::Variable(rest.to_string(), line, column);
+            let target = self.parse_trailing_postfix(stream_lead)?;
+            self.cursor.rewind(cp);
+            let legacy_lead = Expression::Variable(phrase.clone(), line, column);
+            let fallback = self.parse_trailing_postfix(legacy_lead)?;
+            (target, Some(fallback))
         };
 
         Ok(Statement::FlushStreamStatement {
