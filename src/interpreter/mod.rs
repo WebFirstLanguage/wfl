@@ -1,4 +1,4 @@
-#![allow(clippy::await_holding_refcell_ref)]
+#![deny(clippy::await_holding_refcell_ref)]
 mod assertion_helpers;
 pub mod bounded_buffer;
 pub mod command_sanitizer;
@@ -5451,10 +5451,12 @@ impl Interpreter {
                     match self.io_client.open_file(&path_str).await {
                         Ok(handle) => match self.io_client.read_file(&handle, &self.budget).await {
                             Ok(content) => {
-                                match env
+                                // Capture the define result and drop the env
+                                // borrow before the `close_file` await below.
+                                let define_result = env
                                     .borrow_mut()
-                                    .define(variable_name, Value::Text(content.into()))
-                                {
+                                    .define(variable_name, Value::Text(content.into()));
+                                match define_result {
                                     Ok(_) => {
                                         let _ = self.io_client.close_file(&handle).await;
                                         Ok((Value::Null, ControlFlow::None))
@@ -6412,10 +6414,12 @@ impl Interpreter {
                                 Ok(handle) => {
                                     match self.io_client.read_file(&handle, &self.budget).await {
                                         Ok(content) => {
-                                            match env
+                                            // Capture the define result and drop the
+                                            // env borrow before the `close_file` await.
+                                            let define_result = env
                                                 .borrow_mut()
-                                                .define(variable_name, Value::Text(content.into()))
-                                            {
+                                                .define(variable_name, Value::Text(content.into()));
+                                            match define_result {
                                                 Ok(_) => {
                                                     let _ =
                                                         self.io_client.close_file(&handle).await;
@@ -7678,12 +7682,16 @@ impl Interpreter {
 
                 // Check if this is a container instance
                 if let Value::ContainerInstance(instance_rc) = &this_val {
-                    let instance = instance_rc.borrow();
+                    // Clone the parent Rc out so the instance's RefCell borrow does
+                    // not span the awaited method call below (a sibling handler
+                    // could otherwise re-borrow the same instance across the yield).
+                    let parent_opt = instance_rc.borrow().parent.clone();
 
                     // Check if the instance has a parent
-                    if let Some(parent_rc) = &instance.parent {
-                        let parent = parent_rc.borrow();
-                        let parent_type = parent.container_type.clone();
+                    if let Some(parent_rc) = parent_opt {
+                        // Read the parent's type, then release its borrow too — no
+                        // container RefCell borrow is held across the `.await`s.
+                        let parent_type = parent_rc.borrow().container_type.clone();
 
                         // Look up the parent container definition
                         let parent_def = match env.borrow().get(&parent_type) {
@@ -9357,7 +9365,9 @@ impl Interpreter {
                     && name.starts_with("WebSocketServer::")
                 {
                     let key = name.to_string();
-                    if let Some(mut ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                    // Remove and drop the borrow before any `.await` below.
+                    let removed_ws = self.web_socket_servers.borrow_mut().remove(&key);
+                    if let Some(mut ws_server) = removed_ws {
                         // Wake every live connection's reader so it stops waiting
                         // on the peer and tears down (releasing its slot), even if
                         // the peer never answers the close handshake.
@@ -9434,24 +9444,33 @@ impl Interpreter {
                     }
                 };
 
-                // Close the server
-                let mut web_servers = self.web_servers.borrow_mut();
-                if let Some(mut wfl_server) = web_servers.remove(&server_name) {
-                    // Graceful shutdown: Give in-flight responses time to complete transmission
-                    // before forcefully aborting the server task
-                    if let Some(handle) = wfl_server.server_handle.take() {
-                        // Allow 50ms for pending HTTP responses to be transmitted
-                        // This prevents race condition where abort() closes the TCP connection
-                        // before response bytes reach the client, causing IncompleteMessage errors
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                        handle.abort();
+                // Close the server. Remove it from the map and DROP the borrow
+                // before the graceful-shutdown await — holding `web_servers`
+                // borrowed across `.await` would panic a concurrent sibling that
+                // touches the map during the yield (the reason this module can
+                // drop its `await_holding_refcell_ref` allow — see lib.rs).
+                let removed = self.web_servers.borrow_mut().remove(&server_name);
+                match removed {
+                    Some(mut wfl_server) => {
+                        // Graceful shutdown: give in-flight responses time to
+                        // complete transmission before forcefully aborting the
+                        // server task. The map borrow is already released, so
+                        // this await cannot conflict with a sibling handler.
+                        if let Some(handle) = wfl_server.server_handle.take() {
+                            // Allow 50ms for pending HTTP responses to reach the
+                            // client before abort() closes the TCP connection
+                            // (otherwise IncompleteMessage on the client).
+                            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                            handle.abort();
+                        }
                     }
-                } else {
-                    return Err(RuntimeError::new(
-                        format!("Server '{}' not found", server_name),
-                        *line,
-                        *column,
-                    ));
+                    None => {
+                        return Err(RuntimeError::new(
+                            format!("Server '{}' not found", server_name),
+                            *line,
+                            *column,
+                        ));
+                    }
                 }
 
                 Ok((Value::Null, ControlFlow::None))
