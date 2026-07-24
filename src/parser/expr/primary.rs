@@ -145,6 +145,9 @@ impl<'a> Parser<'a> {
                     };
                 }
                 Token::Dot => {
+                    // Anchor an end-of-input error to the `.` token, not the start
+                    // of the file.
+                    let (dot_start, dot_end) = (tok.byte_start, tok.byte_end);
                     self.bump_sync(); // Consume '.'
                     let property = match self.cursor.peek() {
                         // Keywords that double as common property names (e.g.
@@ -164,7 +167,10 @@ impl<'a> Parser<'a> {
                             return Err(ParseError::from_span(
                                 "Expected a property name after '.', found end of input"
                                     .to_string(),
-                                crate::diagnostics::Span { start: 0, end: 0 },
+                                crate::diagnostics::Span {
+                                    start: dot_start,
+                                    end: dot_end,
+                                },
                                 line,
                                 column,
                             ));
