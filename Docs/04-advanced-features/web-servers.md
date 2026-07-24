@@ -517,9 +517,10 @@ close out
   > **Value operators.** The value accepts `with`-concatenation and the usual
   > arithmetic/comparison operators directly in the statement — e.g.
   > `write line prefix with json to out`. (An identifier-led value is a variable
-  > or `field of object` followed by such operators; postfix forms like indexing
-  > `payload[1]` or `payload.field` on the leading identifier are not parsed here
-  > — build those into a variable first.) For the ambiguous bare-identifier form,
+  > or `field of object` followed by such operators; postfix accessors on the
+  > leading identifier — indexing `payload[1]` or property access `payload.field`
+  > — are composed onto it, so `write line chunks[0] to out` and `write line
+  > upstream.status to out` work.) For the ambiguous bare-identifier form,
   > the continuation applies to both readings: `write line note with "!" to out`
   > streams `note` + `"!"`, while the same statement targeting a file writes the
   > variable `line note` + `"!"` — so pre-existing classic file writes that
