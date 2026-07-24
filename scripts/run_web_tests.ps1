@@ -78,10 +78,17 @@ function Show-ServerLogs {
 function Stop-ServerProcess {
     param($Process)
     if ($Process -and -not $Process.HasExited) {
-        $Process.Kill()
+        # Kill() itself can throw (e.g. access denied, or the process exiting
+        # concurrently), so guard it too rather than leaving it outside the try.
+        try {
+            $Process.Kill()
+        } catch {
+            Write-Host "[WARN] Kill() on server process failed: $_" -ForegroundColor Yellow
+        }
         # WaitForExit(ms) returns $true only if the process actually exited in
         # time; report honestly rather than always claiming success (a process
-        # still alive can race temp-file/cert cleanup that follows).
+        # still alive can race temp-file/cert cleanup that follows). Callers that
+        # then delete temp files re-check HasExited before doing so.
         $exited = $false
         try { $exited = $Process.WaitForExit(5000) } catch { }
         if ($exited) {
@@ -385,6 +392,12 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
             # has released its cert/log file handles (avoids a Windows cleanup
             # race that would leave the dir or fail the Remove-Item).
             Stop-ServerProcess -Process $tlsProcess
+            if ($tlsProcess -and -not $tlsProcess.HasExited) {
+                # Still alive after Kill()+WaitForExit — deleting now can race the
+                # process's open cert/log handles. Surface it instead of hiding a
+                # failed cleanup behind SilentlyContinue.
+                Write-Host "[WARN] TLS server still running; temp dir cleanup may be incomplete" -ForegroundColor Yellow
+            }
             Remove-Item -Recurse -Force $tlsDir -ErrorAction SilentlyContinue
         }
     }
