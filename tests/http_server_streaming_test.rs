@@ -50,6 +50,26 @@ fn test_start_streaming_response_parses() {
 }
 
 #[test]
+fn test_start_streaming_response_connective_before_as_parses() {
+    // A connective (`and`/`with`) directly before `as` is consumed as the
+    // end-of-clauses join, so `... with status 200 and as out` parses rather than
+    // failing at the `as` binding with a confusing "expected as, found and".
+    let stmt =
+        parse_single_statement(r#"start streaming response to req with status 200 and as out"#);
+    match stmt {
+        Statement::StartStreamingResponseStatement {
+            status,
+            variable_name,
+            ..
+        } => {
+            assert!(status.is_some());
+            assert_eq!(variable_name, "out");
+        }
+        other => panic!("Expected StartStreamingResponseStatement, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_content_type_variable_binds_correct_name() {
     // `content type <var>` where <var> is a bare identifier: the lexer merges it
     // into `type <var>`, so the parser must split the marker off and bind the

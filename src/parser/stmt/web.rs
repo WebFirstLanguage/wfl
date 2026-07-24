@@ -404,9 +404,11 @@ impl<'a> WebParser<'a> for Parser<'a> {
         let mut headers = None;
 
         // Optional clauses joined by `with`/`and`, in any order: `status <e>`,
-        // `content type <e>`, `headers <e>`. Mirrors the `respond` clause loop;
-        // an `and`/`with` that does not introduce a known clause (e.g. before
-        // `as`) ends the loop.
+        // `content type <e>`, `headers <e>`. Mirrors the `respond` clause loop.
+        // A connective directly before `as` is the end-of-clauses join and is
+        // consumed so the `as <name>` binding parses; a connective before any
+        // other unrecognized token ends the loop WITHOUT being consumed, so the
+        // trailing `expect_token(as)` reports the malformed clause.
         loop {
             let connective = matches!(
                 self.cursor.peek(),
@@ -489,6 +491,13 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     } else {
                         headers = Some(Expression::Variable(rest.to_string(), id_line, id_column));
                     }
+                }
+                // A connective directly before `as` just joins the clause list to
+                // the binding; consume it so `as <name>` parses cleanly instead of
+                // `expect_token(as)` tripping over the leftover `and`/`with`.
+                Token::KeywordAs => {
+                    self.bump_sync(); // consume the connective; `as` stays next
+                    break;
                 }
                 _ => break,
             }
