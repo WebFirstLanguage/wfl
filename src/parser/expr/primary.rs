@@ -89,53 +89,97 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    /// After an identifier `.property` or `.method(...)` access, consume any
-    /// chained bracket index accesses so the index binds to the property/method
-    /// value. Without this, `upstream.headers["content-type"]` parsed as
-    /// `upstream.headers` followed by a separate `["content-type"]` list-literal
-    /// statement — silently dropping the lookup. Handles chains
-    /// (`grid.rows[0][1]`); a trailing `.member` is left for the caller (matching
-    /// the pre-existing primary-expression behavior).
-    fn parse_trailing_bracket_index(
+    /// Consume postfix accessors — bracket index (`["key"]`, `[0]`) and dotted
+    /// property access (`.field`) — that chain off a completed lead expression, so
+    /// they bind to the lead instead of splitting into bogus separate statements.
+    ///
+    /// This runs where the lexer has merged the lead into one identifier token and
+    /// left the accessors as following tokens: an identifier property access
+    /// (`upstream.headers["content-type"]`, which otherwise parsed as
+    /// `upstream.headers` + a stray `["content-type"]` list literal), and the
+    /// merged-command operands (`flush streams["a"]`, `flush obj.out`). Handles
+    /// arbitrary chains (`grid.rows[0][1]`, `obj.a.b["k"]`).
+    pub(crate) fn parse_trailing_postfix(
         &mut self,
         mut expr: Expression,
     ) -> Result<Expression, ParseError> {
-        while let Some(bracket) = self.cursor.peek() {
-            if bracket.token != Token::LeftBracket {
-                break;
-            }
-            let line = bracket.line;
-            let column = bracket.column;
-            self.bump_sync(); // Consume '['
+        while let Some(tok) = self.cursor.peek() {
+            let (line, column) = (tok.line, tok.column);
+            match &tok.token {
+                Token::LeftBracket => {
+                    // Anchor a "missing `]`" span to the `[` token itself, not the
+                    // start of the file.
+                    let (bracket_start, bracket_end) = (tok.byte_start, tok.byte_end);
+                    self.bump_sync(); // Consume '['
 
-            let index = self.parse_expression()?;
+                    let index = self.parse_expression()?;
 
-            match self.cursor.peek() {
-                Some(closing) if closing.token == Token::RightBracket => {
-                    self.bump_sync(); // Consume ']'
-                }
-                Some(closing) => {
-                    return Err(ParseError::from_token(
-                        format!("Expected ']' after index, found {:?}", closing.token),
-                        closing,
-                    ));
-                }
-                None => {
-                    return Err(ParseError::from_span(
-                        "Expected ']' after index, found end of input".to_string(),
-                        crate::diagnostics::Span { start: 0, end: 0 },
+                    match self.cursor.peek() {
+                        Some(closing) if closing.token == Token::RightBracket => {
+                            self.bump_sync(); // Consume ']'
+                        }
+                        Some(closing) => {
+                            return Err(ParseError::from_token(
+                                format!("Expected ']' after index, found {:?}", closing.token),
+                                closing,
+                            ));
+                        }
+                        None => {
+                            return Err(ParseError::from_span(
+                                "Expected ']' after index, found end of input".to_string(),
+                                crate::diagnostics::Span {
+                                    start: bracket_start,
+                                    end: bracket_end,
+                                },
+                                line,
+                                column,
+                            ));
+                        }
+                    }
+
+                    expr = Expression::IndexAccess {
+                        collection: Box::new(expr),
+                        index: Box::new(index),
                         line,
                         column,
-                    ));
+                    };
                 }
+                Token::Dot => {
+                    self.bump_sync(); // Consume '.'
+                    let property = match self.cursor.peek() {
+                        // Keywords that double as common property names (e.g.
+                        // `response.status`) are accepted, matching the primary
+                        // dispatch's property-access handling.
+                        Some(prop) => match &prop.token {
+                            Token::Identifier(name) => name.clone(),
+                            Token::KeywordStatus => "status".to_string(),
+                            _ => {
+                                return Err(ParseError::from_token(
+                                    "Expected a property name after '.'".to_string(),
+                                    prop,
+                                ));
+                            }
+                        },
+                        None => {
+                            return Err(ParseError::from_span(
+                                "Expected a property name after '.', found end of input"
+                                    .to_string(),
+                                crate::diagnostics::Span { start: 0, end: 0 },
+                                line,
+                                column,
+                            ));
+                        }
+                    };
+                    self.bump_sync(); // Consume the property name
+                    expr = Expression::PropertyAccess {
+                        object: Box::new(expr),
+                        property,
+                        line,
+                        column,
+                    };
+                }
+                _ => break,
             }
-
-            expr = Expression::IndexAccess {
-                collection: Box::new(expr),
-                index: Box::new(index),
-                line,
-                column,
-            };
         }
         Ok(expr)
     }
@@ -339,7 +383,7 @@ impl<'a> Parser<'a> {
                                             line: token_line,
                                             column: token_column,
                                         };
-                                        return self.parse_trailing_bracket_index(call);
+                                        return self.parse_trailing_postfix(call);
                                     }
 
                                     // Property access without method call.
@@ -359,7 +403,7 @@ impl<'a> Parser<'a> {
                                         line: token_line,
                                         column: token_column,
                                     };
-                                    return self.parse_trailing_bracket_index(access);
+                                    return self.parse_trailing_postfix(access);
                                 } else {
                                     return Err(ParseError::from_token(
                                         "Expected property name after '.'".to_string(),

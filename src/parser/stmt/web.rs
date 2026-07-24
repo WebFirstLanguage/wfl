@@ -541,7 +541,12 @@ impl<'a> WebParser<'a> for Parser<'a> {
         let target = if rest.is_empty() {
             self.parse_primary_expression()?
         } else {
-            Expression::Variable(rest.to_string(), line, column)
+            // The lexer merged `flush` with the operand identifier, so any postfix
+            // accessors (`flush streams["a"]`, `flush obj.out`) are left as separate
+            // tokens. Compose them onto the split-off lead so the operand parses
+            // consistently with a normal expression instead of dangling.
+            let lead = Expression::Variable(rest.to_string(), line, column);
+            self.parse_trailing_postfix(lead)?
         };
 
         Ok(Statement::FlushStreamStatement {
