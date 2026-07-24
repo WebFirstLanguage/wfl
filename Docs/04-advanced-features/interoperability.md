@@ -125,7 +125,6 @@ store content_type as upstream.headers["content-type"]
 
 // Pull the body one line at a time. Each read returns the next line, or
 // `nothing` once the stream ends cleanly.
-store done as no
 count from 1 to 1000000:
     wait for next line from upstream as line
     check if line is nothing:
