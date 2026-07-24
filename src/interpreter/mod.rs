@@ -2001,6 +2001,22 @@ impl IoClient {
         }
     }
 
+    /// Return a `Timeout` error if the handle's absolute stream lifetime
+    /// (`outbound_stream_max_seconds`, tracked as `total_deadline`) has elapsed.
+    /// Called before serving locally-buffered bytes so the absolute lifetime is
+    /// enforced even when no network read is performed; `stream_pull` performs the
+    /// same check before each network read.
+    fn check_stream_deadline(&self, handle: &HttpStreamHandle) -> Result<(), HttpClientError> {
+        if let Some(deadline) = handle.total_deadline
+            && deadline.saturating_duration_since(Instant::now()).is_zero()
+        {
+            return Err(HttpClientError::Timeout {
+                seconds: self.config.outbound_stream_max_seconds,
+            });
+        }
+        Ok(())
+    }
+
     /// Pull the next raw byte chunk from a streaming response. Returns
     /// `Ok(None)` at clean end of stream (handle is dropped). On error or EOF
     /// the handle is not re-inserted, so the upstream request is released.
@@ -2010,6 +2026,12 @@ impl IoClient {
         budget: Arc<ExecutionBudget>,
     ) -> Result<Option<Vec<u8>>, HttpClientError> {
         let mut handle = self.take_stream(handle_id).await?;
+
+        // Enforce the absolute stream lifetime before serving ANY bytes — even
+        // ones already buffered by a prior read — so `outbound_stream_max_seconds`
+        // is a true absolute lifetime, not merely a per-network-read bound. On
+        // expiry the handle is not re-inserted, so the upstream request is dropped.
+        self.check_stream_deadline(&handle)?;
 
         // Any bytes buffered by a prior `next line` are served first.
         if !handle.buffer.is_empty() {
@@ -2040,6 +2062,11 @@ impl IoClient {
         let mut handle = self.take_stream(handle_id).await?;
 
         loop {
+            // Enforce the absolute stream lifetime before serving a buffered line
+            // (a prior read may have buffered several lines); on expiry the handle
+            // is dropped, cancelling the upstream. See `next_chunk`.
+            self.check_stream_deadline(&handle)?;
+
             if let Some(pos) = handle.buffer.iter().position(|&b| b == b'\n') {
                 let mut line: Vec<u8> = handle.buffer.drain(..=pos).collect();
                 line.pop(); // drop '\n'
