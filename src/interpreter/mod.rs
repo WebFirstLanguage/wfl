@@ -4836,6 +4836,35 @@ impl Interpreter {
         }
     }
 
+    fn first_pending_response_disconnected_now(&self, request_ids: &[String]) -> Option<String> {
+        request_ids
+            .iter()
+            .find(|request_id| self.pending_response_disconnected_now(request_id))
+            .cloned()
+    }
+
+    /// A response request operand can itself be asynchronous, so its target id
+    /// is not available until evaluation finishes. Watch only the pending
+    /// requests owned when evaluation starts; requests accepted by nested work
+    /// are cleaned as newly-created resources if this evaluation is cancelled.
+    async fn first_pending_response_disconnected(&self, request_ids: &[String]) -> String {
+        loop {
+            if let Some(request_id) = self.first_pending_response_disconnected_now(request_ids) {
+                return request_id;
+            }
+            let any_still_owned = {
+                let owned = self.open_pending_requests.borrow();
+                request_ids
+                    .iter()
+                    .any(|request_id| owned.iter().any(|id| id == request_id))
+            };
+            if !any_still_owned {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(REQUEST_DISCONNECT_POLL_INTERVAL).await;
+        }
+    }
+
     fn response_precommit_snapshot(&self) -> ResponsePrecommitSnapshot {
         let http_owner = Arc::clone(&self.open_http_streams.borrow());
         let http_streams = http_owner
@@ -4908,6 +4937,57 @@ impl Interpreter {
         self.pending_responses.borrow_mut().remove(request_id);
     }
 
+    /// Evaluate the response request operand while racing every request this
+    /// handler already owns. The target request id is not known until the
+    /// operand resolves, so this establishes the response-attempt snapshot that
+    /// is carried through field evaluation and commit.
+    async fn evaluate_response_request<T, F>(
+        &self,
+        line: usize,
+        column: usize,
+        disconnect_message: &'static str,
+        evaluation: F,
+    ) -> Result<(T, ResponsePrecommitSnapshot), RuntimeError>
+    where
+        F: std::future::Future<Output = Result<T, RuntimeError>>,
+    {
+        let snapshot = self.response_precommit_snapshot();
+        let mut watched_requests: Vec<String> = snapshot.pending_requests.iter().cloned().collect();
+        watched_requests.sort();
+        let mut evaluation = Box::pin(evaluation);
+        let mut disconnected =
+            Box::pin(self.first_pending_response_disconnected(&watched_requests));
+        let outcome = tokio::select! {
+            biased;
+            request_id = disconnected.as_mut() => (None, Some(request_id)),
+            result = evaluation.as_mut() => (Some(result), None),
+        };
+        let disconnected_request = outcome
+            .1
+            .or_else(|| self.first_pending_response_disconnected_now(&watched_requests));
+
+        if let Some(result) = outcome.0
+            && disconnected_request.is_none()
+        {
+            drop(evaluation);
+            drop(disconnected);
+            return result.map(|value| (value, snapshot));
+        }
+
+        // Drop first so action/loop RAII runs before restoring the baseline.
+        drop(evaluation);
+        drop(disconnected);
+        let request_id =
+            disconnected_request.expect("disconnect watcher completed without a request id");
+        self.cancel_response_precommit(&request_id, snapshot);
+        Err(RuntimeError::with_kind(
+            disconnect_message.to_string(),
+            line,
+            column,
+            ErrorKind::Cancelled,
+        ))
+    }
+
     /// Evaluate every fallible response field while racing the target request's
     /// disconnect signal. Disconnect wins ties, and the evaluation future is
     /// dropped before partially-entered interpreter state is restored.
@@ -4917,14 +4997,21 @@ impl Interpreter {
         line: usize,
         column: usize,
         disconnect_message: &'static str,
+        snapshot: ResponsePrecommitSnapshot,
         evaluation: F,
-    ) -> Result<T, RuntimeError>
+    ) -> Result<(T, ResponsePrecommitSnapshot), RuntimeError>
     where
         F: std::future::Future<Output = Result<T, RuntimeError>>,
     {
-        self.ensure_pending_response_owned(request_id, line, column)
-            .await?;
-        let snapshot = self.response_precommit_snapshot();
+        if let Err(error) = self
+            .ensure_pending_response_owned(request_id, line, column)
+            .await
+        {
+            if error.kind == ErrorKind::Cancelled {
+                self.cancel_response_precommit(request_id, snapshot);
+            }
+            return Err(error);
+        }
         let mut evaluation = Box::pin(evaluation);
         let mut disconnected = Box::pin(self.pending_response_disconnected(request_id));
         let outcome = tokio::select! {
@@ -4939,7 +5026,7 @@ impl Interpreter {
         {
             drop(evaluation);
             drop(disconnected);
-            return result;
+            return result.map(|value| (value, snapshot));
         }
 
         // This ordering is intentional: dropping the future runs RAII guards
@@ -10033,8 +10120,17 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Get the request object
-                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                // The request operand can call actions or wait asynchronously.
+                // Establish the response-attempt baseline before evaluating it
+                // so a client disconnect cancels that work too.
+                let (request_val, response_snapshot) = self
+                    .evaluate_response_request(
+                        *line,
+                        *column,
+                        "Client disconnected before the response request was resolved",
+                        self.evaluate_expression(request, Rc::clone(&env)),
+                    )
+                    .await?;
                 let request_id = match &request_val {
                     Value::Object(obj) => {
                         let obj_ref = obj.borrow();
@@ -10065,12 +10161,13 @@ impl Interpreter {
                 // Only after evaluation do we take the sender into the completion
                 // guard. Early eval errors leave the id in open_pending so the
                 // handler-exit 500 path still resolves the client.
-                let response = self
+                let (response, response_snapshot) = self
                     .evaluate_response_precommit(
                         &request_id,
                         *line,
                         *column,
                         "Client disconnected before the response was sent",
+                        response_snapshot,
                         async {
                             // Evaluate response content. Binary values are carried through
                             // as raw bytes so fonts/images/etc. serve losslessly; text and
@@ -10230,9 +10327,18 @@ impl Interpreter {
                     .await?;
 
                 // Now commit: take the sender (disconnect signal ends) and deliver.
-                let mut completion = self
+                let mut completion = match self
                     .take_pending_response_completion(&request_id, *line, *column)
-                    .await?;
+                    .await
+                {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        if error.kind == ErrorKind::Cancelled {
+                            self.cancel_response_precommit(&request_id, response_snapshot);
+                        }
+                        return Err(error);
+                    }
+                };
                 match completion.take_sender() {
                     Some(sender) => {
                         if sender.send(HandlerReply::Buffered(response)).is_err() {
@@ -10242,6 +10348,7 @@ impl Interpreter {
                             // so the concurrent loop's structural-failure breaker
                             // skips it (a burst of post-dequeue disconnects must not
                             // tear the server down).
+                            self.cancel_response_precommit(&request_id, response_snapshot);
                             return Err(RuntimeError::with_kind(
                                 "Client disconnected before the response was sent".to_string(),
                                 *line,
@@ -10270,8 +10377,16 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Resolve the request id, mirroring `respond`.
-                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                // Resolve the request id under the same cancellation baseline as
+                // the streaming-head fields and final transport commit.
+                let (request_val, response_snapshot) = self
+                    .evaluate_response_request(
+                        *line,
+                        *column,
+                        "Client disconnected before the streaming response request was resolved",
+                        self.evaluate_expression(request, Rc::clone(&env)),
+                    )
+                    .await?;
                 let request_id = match &request_val {
                     Value::Object(obj) => match obj.borrow().get("_response_sender") {
                         Some(Value::Text(id)) => id.as_ref().to_string(),
@@ -10295,12 +10410,13 @@ impl Interpreter {
                 // Keep pending parked through status/content-type/header
                 // evaluation so disconnect still cancels any upstream work those
                 // expressions perform. Handler-exit 500 covers early eval errors.
-                let (status_code, content_type_str, custom_headers) = self
+                let ((status_code, content_type_str, custom_headers), response_snapshot) = self
                     .evaluate_response_precommit(
                         &request_id,
                         *line,
                         *column,
                         "Client disconnected before the streaming response started",
+                        response_snapshot,
                         async {
                             let status_code = match status {
                     Some(expr) => {
@@ -10403,9 +10519,18 @@ impl Interpreter {
 
                 // Commit: take the sender and hand the streaming head to the transport.
                 let (tx, rx) = mpsc::channel::<Vec<u8>>(RESPONSE_STREAM_BUFFER);
-                let mut completion = self
+                let mut completion = match self
                     .take_pending_response_completion(&request_id, *line, *column)
-                    .await?;
+                    .await
+                {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        if error.kind == ErrorKind::Cancelled {
+                            self.cancel_response_precommit(&request_id, response_snapshot);
+                        }
+                        return Err(error);
+                    }
+                };
                 match completion.take_sender() {
                     Some(sender) => {
                         if sender
@@ -10421,6 +10546,7 @@ impl Interpreter {
                             // cooperative cancellation, not a fault (see the buffered
                             // `respond` path). `Cancelled` keeps the concurrent
                             // breaker from counting a disconnect as a failure.
+                            self.cancel_response_precommit(&request_id, response_snapshot);
                             return Err(RuntimeError::with_kind(
                                 "Client disconnected before the streaming response started"
                                     .to_string(),
