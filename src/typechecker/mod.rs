@@ -1763,9 +1763,17 @@ impl TypeChecker {
                     );
                 }
 
-                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                    symbol.symbol_type = Some(Type::Custom("File".to_string()));
-                }
+                // Runtime binds the opened handle in the current environment.
+                // Analyzer body scopes are discarded before this pass, so
+                // recreate the local symbol here and shadow (rather than
+                // parent-walk/retype) any outer binding with the same name.
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Custom("File".to_string())),
+                    line: *_line,
+                    column: *_column,
+                });
             }
             Statement::ReadFileStatement {
                 path,
