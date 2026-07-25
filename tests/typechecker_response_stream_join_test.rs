@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::parser::ast::{Expression, FileOpenMode, Literal, Program, Statement};
+use wfl::parser::ast::{Expression, FileOpenMode, Literal, Operator, Program, Statement};
 use wfl::typechecker::TypeChecker;
 
 fn parse(source: &str) -> Program {
@@ -35,6 +35,33 @@ fn stream_binding() -> Statement {
         headers: None,
         variable_name: "out".to_string(),
         line: 2,
+        column: 1,
+    }
+}
+
+fn invalid_stream_lead_with_valid_file_fallback() -> Statement {
+    Statement::StreamWriteStatement {
+        value: Expression::BinaryOperation {
+            left: Box::new(Expression::Literal(Literal::Integer(10), 2, 1)),
+            operator: Operator::Minus,
+            right: Box::new(text_literal("not a number")),
+            line: 2,
+            column: 1,
+        },
+        target: Expression::Variable("out".to_string(), 2, 1),
+        is_line: true,
+        fallback_content: Some(Box::new(text_literal("valid file text"))),
+        line: 2,
+        column: 1,
+    }
+}
+
+fn open_out_file() -> Statement {
+    Statement::OpenFileStatement {
+        path: text_literal("unused.txt"),
+        variable_name: "out".to_string(),
+        mode: FileOpenMode::Write,
+        line: 1,
         column: 1,
     }
 }
@@ -94,6 +121,58 @@ fn maybe_skipped_stream_bindings_require_both_write_readings_to_be_valid() {
              Text/Number classic fallback; got: {errors}"
         );
     }
+}
+
+#[test]
+fn while_loop_rechecks_stream_lead_after_tail_response_stream_rebind() {
+    let program = Program {
+        statements: vec![
+            open_out_file(),
+            Statement::WhileLoop {
+                condition: bool_literal(true),
+                body: vec![
+                    invalid_stream_lead_with_valid_file_fallback(),
+                    stream_binding(),
+                ],
+                line: 2,
+                column: 1,
+            },
+        ],
+    };
+
+    let errors = typecheck(&program)
+        .expect_err("the loop backedge must recheck the body under ResponseStream or File");
+    assert!(
+        errors.contains("Cannot perform Minus operation"),
+        "the first iteration has a valid File fallback, but a later iteration must reject \
+         the Number/Text stream lead after the tail ResponseStream rebind; got: {errors}"
+    );
+}
+
+#[test]
+fn repeat_while_loop_rechecks_stream_lead_after_tail_response_stream_rebind() {
+    let program = Program {
+        statements: vec![
+            open_out_file(),
+            Statement::RepeatWhileLoop {
+                condition: bool_literal(true),
+                body: vec![
+                    invalid_stream_lead_with_valid_file_fallback(),
+                    stream_binding(),
+                ],
+                line: 2,
+                column: 1,
+            },
+        ],
+    };
+
+    let errors = typecheck(&program)
+        .expect_err("the repeat-loop backedge must recheck the body under ResponseStream or File");
+    assert!(
+        errors.contains("Cannot perform Minus operation"),
+        "the first iteration has a valid File fallback, but a later iteration must reject \
+         the Number/Text stream lead after the tail ResponseStream rebind; got: {errors}"
+    );
 }
 
 #[test]
