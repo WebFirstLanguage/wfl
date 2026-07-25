@@ -2753,6 +2753,21 @@ impl Analyzer {
         layers
     }
 
+    /// Snapshot the symbols owned by the current scope.
+    ///
+    /// Type-state joins normally only need [`snapshot_symbol_types`], but
+    /// independently checked control-flow branches can also introduce new
+    /// bindings. Restoring this map before each branch prevents a binding from
+    /// one branch shadowing names while another branch is checked.
+    pub fn snapshot_current_scope_symbols(&self) -> HashMap<String, Symbol> {
+        self.current_scope.symbols.clone()
+    }
+
+    /// Restore the exact set of symbols owned by the current scope.
+    pub fn restore_current_scope_symbols(&mut self, symbols: HashMap<String, Symbol>) {
+        self.current_scope.symbols = symbols;
+    }
+
     /// Restore `symbol_type` values previously captured by
     /// [`snapshot_symbol_types`]. Only updates symbols that still exist; does
     /// not remove symbols defined after the snapshot.
@@ -2871,6 +2886,19 @@ impl Analyzer {
 
     pub fn pop_scope(&mut self) {
         if let Some(parent) = self.current_scope.parent.take() {
+            self.current_scope = *parent;
+        }
+    }
+
+    /// Pop the current scope while promoting every binding except the listed
+    /// temporary aliases into its parent.
+    pub fn pop_scope_promoting_except(&mut self, excluded: &[String]) {
+        if let Some(mut parent) = self.current_scope.parent.take() {
+            for (name, symbol) in std::mem::take(&mut self.current_scope.symbols) {
+                if !excluded.iter().any(|excluded_name| excluded_name == &name) {
+                    parent.define_or_replace(symbol);
+                }
+            }
             self.current_scope = *parent;
         }
     }

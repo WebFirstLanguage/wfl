@@ -250,6 +250,39 @@ impl TypeChecker {
         joined
     }
 
+    /// Check a loop body under the conservative type state seen at the top of
+    /// every iteration. Exploratory passes contribute only their backedge
+    /// state; diagnostics are emitted once after the header stabilizes.
+    fn check_loop_body_fixed_point(&mut self, body: &[Statement]) {
+        let entry = self.analyzer.snapshot_symbol_types();
+        let mut header = entry.clone();
+
+        loop {
+            self.analyzer.restore_symbol_types(header.clone());
+            let error_count = self.errors.len();
+            for statement in body {
+                self.check_statement_types(statement);
+            }
+            if self.budget_error.is_some() {
+                return;
+            }
+            self.errors.truncate(error_count);
+
+            let backedge = self.analyzer.snapshot_symbol_types();
+            let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
+            if next == header {
+                break;
+            }
+            header = next;
+        }
+
+        self.analyzer.restore_symbol_types(header.clone());
+        for statement in body {
+            self.check_statement_types(statement);
+        }
+        self.analyzer.restore_symbol_types(header);
+    }
+
     /// Get the return type for builtin functions
     fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
         match name {
@@ -688,6 +721,16 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime keeps one child environment alive for every
+                // iteration, so bindings from a backedge are visible at the
+                // next header but remain local after the loop.
+                self.analyzer.push_scope();
+                self.check_loop_body_fixed_point(body);
+                if self.budget_error.is_some() {
+                    self.analyzer.pop_scope();
+                    return;
+                }
+
                 let condition_type = self.infer_expression_type(condition);
                 if condition_type != Type::Boolean && condition_type != Type::Unknown {
                     self.errors.push(TypeError::new(
@@ -699,11 +742,6 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     ));
-                }
-
-                self.analyzer.push_scope();
-                for stmt in body {
-                    self.check_statement_types(stmt);
                 }
                 self.analyzer.pop_scope();
             }
@@ -746,9 +784,27 @@ impl TypeChecker {
                 // Runtime evaluates the try body, handlers, otherwise, and
                 // finally block inside one shared child environment.
                 self.analyzer.push_scope();
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                if self.budget_error.is_some() {
+                    self.analyzer.pop_scope();
+                    return;
+                }
+                let success_endpoint = self.analyzer.snapshot_symbol_types();
+
+                // An error can leave the body from any statement, so handlers
+                // start from the conservative entry/success join. Keep the
+                // success scope's symbol set as the structural baseline:
+                // success-only bindings remain resolvable as gradual types,
+                // while exact restoration prevents one handler's new symbols
+                // from contaminating the next handler.
+                let handler_entry =
+                    Self::join_type_snapshots(&[entry_types, success_endpoint.clone()]);
+                let handler_scope_symbols = self.analyzer.snapshot_current_scope_symbols();
+                let mut joined_scope_symbols = handler_scope_symbols.clone();
+                let mut endpoints = vec![success_endpoint];
 
                 // Type check each when clause in its own scope so the bound
                 // error name cannot clobber an outer variable of the same
@@ -757,6 +813,9 @@ impl TypeChecker {
                 // the binding lives only in the child scope (runtime does the
                 // same via Environment::define_or_replace).
                 for when_clause in when_clauses {
+                    self.analyzer
+                        .restore_current_scope_symbols(handler_scope_symbols.clone());
+                    self.analyzer.restore_symbol_types(handler_entry.clone());
                     self.analyzer.push_scope();
                     self.analyzer.define_or_replace_symbol(Symbol {
                         name: when_clause.error_name.clone(),
@@ -780,14 +839,57 @@ impl TypeChecker {
                     for stmt in &when_clause.body {
                         self.check_statement_types(stmt);
                     }
-                    self.analyzer.pop_scope();
+                    let mut excluded_aliases = vec![when_clause.error_name.clone()];
+                    if when_clause.error_name != "error_message" {
+                        excluded_aliases.push("error_message".to_string());
+                    }
+                    self.analyzer.pop_scope_promoting_except(&excluded_aliases);
+
+                    if self.budget_error.is_some() {
+                        self.analyzer.pop_scope();
+                        return;
+                    }
+
+                    endpoints.push(self.analyzer.snapshot_symbol_types());
+                    for (name, symbol) in self.analyzer.snapshot_current_scope_symbols() {
+                        joined_scope_symbols.entry(name).or_insert(symbol);
+                    }
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
+                    self.analyzer
+                        .restore_current_scope_symbols(handler_scope_symbols.clone());
+                    self.analyzer.restore_symbol_types(handler_entry.clone());
                     for stmt in otherwise_stmts {
                         self.check_statement_types(stmt);
                     }
+                    if self.budget_error.is_some() {
+                        self.analyzer.pop_scope();
+                        return;
+                    }
+
+                    endpoints.push(self.analyzer.snapshot_symbol_types());
+                    for (name, symbol) in self.analyzer.snapshot_current_scope_symbols() {
+                        joined_scope_symbols.entry(name).or_insert(symbol);
+                    }
+                } else if !when_clauses.iter().any(|when_clause| {
+                    matches!(
+                        &when_clause.error_type,
+                        crate::parser::ast::ErrorType::General
+                    )
+                }) {
+                    // A non-matching error reaches finally without running a
+                    // handler when there is no catch-all or otherwise block.
+                    endpoints.push(handler_entry.clone());
                 }
+
+                self.analyzer
+                    .restore_current_scope_symbols(handler_scope_symbols);
+                for symbol in joined_scope_symbols.into_values() {
+                    self.analyzer.define_or_replace_symbol(symbol);
+                }
+                let joined_endpoint = Self::join_type_snapshots(&endpoints);
+                self.analyzer.restore_symbol_types(joined_endpoint);
 
                 if let Some(finally_stmts) = finally_block {
                     for stmt in finally_stmts {
@@ -1661,6 +1763,11 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.check_loop_body_fixed_point(body);
+                if self.budget_error.is_some() {
+                    return;
+                }
+
                 let condition_type = self.infer_expression_type(condition);
                 if condition_type != Type::Boolean
                     && condition_type != Type::Unknown
@@ -1674,14 +1781,6 @@ impl TypeChecker {
                         *_column,
                     );
                 }
-
-                let entry_types = self.analyzer.snapshot_symbol_types();
-                for stmt in body {
-                    self.check_statement_types(stmt);
-                }
-                let body_types = self.analyzer.snapshot_symbol_types();
-                let joined = Self::join_type_snapshots(&[body_types, entry_types]);
-                self.analyzer.restore_symbol_types(joined);
             }
             Statement::RepeatUntilLoop {
                 condition,
@@ -2576,9 +2675,13 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.analyzer.push_scope();
+                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
                 for stmt in handler_body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.analyzer.pop_scope();
             }
             Statement::ParentMethodCall {
                 method_name: _method_name,
@@ -2842,9 +2945,13 @@ impl TypeChecker {
                 // bound variable resolves as an object at runtime (gradual typing
                 // keeps member access like `body of msg` permissive).
                 self.check_server_expression_type(server, *line, *column);
+                self.analyzer.push_scope();
+                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.analyzer.pop_scope();
             }
             Statement::SendWebSocketMessageStatement {
                 message, target, ..
