@@ -289,7 +289,16 @@ impl TypeChecker {
     /// always runs the body at least once, so the condition — and everything
     /// after the loop — sees the body's final type state, not the header
     /// join (#642).
-    fn check_loop_body_fixed_point_post_body(&mut self, body: &[Statement]) {
+    ///
+    /// When the body can exit early (`break`/`exit`/`return` anywhere in its
+    /// subtree), the condition is NOT necessarily reached from the fall-through
+    /// state — runtime skips it entirely on a break path — so the caller must
+    /// soften the installed state with the returned header join (see
+    /// `RepeatUntilLoop`). Returns the stabilized header snapshot for that.
+    fn check_loop_body_fixed_point_post_body(
+        &mut self,
+        body: &[Statement],
+    ) -> Vec<HashMap<String, Option<Type>>> {
         let entry = self.analyzer.snapshot_symbol_types();
         let mut header = entry.clone();
 
@@ -300,7 +309,7 @@ impl TypeChecker {
                 self.check_statement_types(statement);
             }
             if self.budget_error.is_some() {
-                return;
+                return header;
             }
             self.errors.truncate(error_count);
 
@@ -312,9 +321,74 @@ impl TypeChecker {
             header = next;
         }
 
-        self.analyzer.restore_symbol_types(header);
+        self.analyzer.restore_symbol_types(header.clone());
         for statement in body {
             self.check_statement_types(statement);
+        }
+        header
+    }
+
+    /// Whether executing `body` can leave its enclosing loop without reaching
+    /// the loop's own condition: a `break`, `exit`, or `return` anywhere in
+    /// the statement subtree. Deliberately conservative — a `break` inside a
+    /// NESTED loop only exits that inner loop, but treating it as early exit
+    /// merely softens condition checking back to the joined state, it never
+    /// rejects a valid program.
+    fn body_may_exit_loop_early(body: &[Statement]) -> bool {
+        body.iter().any(Self::statement_may_exit_loop_early)
+    }
+
+    fn statement_may_exit_loop_early(stmt: &Statement) -> bool {
+        match stmt {
+            Statement::BreakStatement { .. }
+            | Statement::ExitStatement { .. }
+            | Statement::ReturnStatement { .. } => true,
+            Statement::IfStatement {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::body_may_exit_loop_early(then_block)
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_may_exit_loop_early(b))
+            }
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                Self::statement_may_exit_loop_early(then_stmt)
+                    || else_stmt
+                        .as_deref()
+                        .is_some_and(Self::statement_may_exit_loop_early)
+            }
+            Statement::ForEachLoop { body, .. }
+            | Statement::CountLoop { body, .. }
+            | Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. } => Self::body_may_exit_loop_early(body),
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                Self::body_may_exit_loop_early(body)
+                    || when_clauses
+                        .iter()
+                        .any(|c| Self::body_may_exit_loop_early(&c.body))
+                    || otherwise_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_may_exit_loop_early(b))
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_may_exit_loop_early(b))
+            }
+            _ => false,
         }
     }
 
@@ -1835,9 +1909,20 @@ impl TypeChecker {
                 // same backedge fixed point as `while`/`repeat while`, but
                 // keeping the post-body state) so body retypings are visible
                 // to the condition (#642).
-                self.check_loop_body_fixed_point_post_body(body);
+                let header = self.check_loop_body_fixed_point_post_body(body);
                 if self.budget_error.is_some() {
                     return;
+                }
+                // A body that can `break`/`exit`/`return` skips the condition
+                // on that path at runtime, so the strict post-body state would
+                // falsely reject retype-then-break bodies (fatal inside
+                // `load module`). Soften to the join of header and post-body
+                // for the condition — and for code after the loop, which such
+                // a path also reaches with pre-break state.
+                if Self::body_may_exit_loop_early(body) {
+                    let post_body = self.analyzer.snapshot_symbol_types();
+                    self.analyzer
+                        .restore_symbol_types(Self::join_type_snapshots(&[header, post_body]));
                 }
 
                 let condition_type = self.infer_expression_type(condition);

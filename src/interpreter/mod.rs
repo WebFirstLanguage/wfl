@@ -4681,10 +4681,14 @@ impl Interpreter {
 
     /// Whether the current execution context owns response stream `handle_id`:
     /// it appears in the currently-installed per-handler open list (the
-    /// interpreter's own list under serial execution). Stream verbs
-    /// (`write`/`flush`/`close`) require ownership, so a handler holding a
-    /// sibling's stream handle (e.g. through a shared global) cannot inject
-    /// into, flush, or truncate the sibling's response (#642).
+    /// interpreter's own list under serial execution). Stream verbs require
+    /// ownership while the stream is LIVE, so a handler holding a sibling's
+    /// stream handle (e.g. through a shared global) cannot inject into, flush,
+    /// or truncate the sibling's response (#642). Once a stream is closed
+    /// (removed from the map and every open list) ownership is no longer
+    /// determinable — write/flush then fail with the closed-stream error,
+    /// while `close` is an idempotent no-op for any holder of the stale
+    /// handle (there is no live response left to protect).
     fn owns_response_stream(&self, handle_id: &str) -> bool {
         self.open_response_streams
             .borrow()
@@ -7097,11 +7101,13 @@ impl Interpreter {
                             self.untrack_http_stream(&id);
                             Ok((Value::Null, ControlFlow::None))
                         } else if let Some(id) = server_id {
-                            // Only the owning handler may end the response body.
-                            // A sibling holding this handle must not be able to
-                            // truncate the owner's in-flight response (#642).
-                            // Re-closing an already-closed own stream stays a
-                            // silent no-op (the live-elsewhere case errors).
+                            // Only the owning handler may end a LIVE response
+                            // body: a sibling holding this handle must not be
+                            // able to truncate the owner's in-flight response
+                            // (#642). An already-closed stream has no owner
+                            // (and nothing left to protect), so `close` on a
+                            // stale handle is an idempotent no-op for any
+                            // handler.
                             if !self.owns_response_stream(&id)
                                 && self.server_response_streams.borrow().contains_key(&id)
                             {

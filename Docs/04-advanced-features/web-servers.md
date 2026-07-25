@@ -111,7 +111,10 @@ bound work (the common web case), not CPU-bound loops.
 - A slow handler does not block its siblings. This includes the `wait for
   request ... with timeout <expr>` timeout expression itself: it is evaluated
   before the handler contends for the next request, so a slow expression in one
-  handler never stalls the others.
+  handler never stalls the others. Note that under `concurrently` each handler
+  slot evaluates its own timeout expression when its iteration starts (up to
+  the handler limit at once on an idle server), so keep timeout expressions
+  side-effect free — a literal or a cheap pure action.
 - Each request handler is isolated: its own scope, plus handler-local run
   state — count-loop counters, recursion-depth accounting (which continues from
   the depth at loop entry, so enclosing action frames stay counted),
