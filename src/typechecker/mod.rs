@@ -329,11 +329,12 @@ impl TypeChecker {
     }
 
     /// Whether executing `body` can leave its enclosing loop without reaching
-    /// the loop's own condition: a `break`, `exit`, or `return` anywhere in
-    /// the statement subtree. Deliberately conservative — a `break` inside a
-    /// NESTED loop only exits that inner loop, but treating it as early exit
-    /// merely softens condition checking back to the joined state, it never
-    /// rejects a valid program.
+    /// the loop's own condition. A `break` counts only at this loop's own
+    /// level — a `break` inside a NESTED loop exits that inner loop and the
+    /// outer body still falls through to its condition. `exit loop` and
+    /// `return` propagate out of every enclosing loop (`ControlFlow::Exit` /
+    /// `Return` are re-raised by each loop's dispatch), so they count from
+    /// any nesting depth.
     fn body_may_exit_loop_early(body: &[Statement]) -> bool {
         body.iter().any(Self::statement_may_exit_loop_early)
     }
@@ -363,13 +364,14 @@ impl TypeChecker {
                         .as_deref()
                         .is_some_and(Self::statement_may_exit_loop_early)
             }
+            // A nested loop consumes `break`; only `exit`/`return` escape it.
             Statement::ForEachLoop { body, .. }
             | Statement::CountLoop { body, .. }
             | Statement::WhileLoop { body, .. }
             | Statement::RepeatWhileLoop { body, .. }
             | Statement::RepeatUntilLoop { body, .. }
             | Statement::ForeverLoop { body, .. }
-            | Statement::MainLoop { body, .. } => Self::body_may_exit_loop_early(body),
+            | Statement::MainLoop { body, .. } => Self::body_escapes_enclosing_loop(body),
             Statement::TryStatement {
                 body,
                 when_clauses,
@@ -387,6 +389,66 @@ impl TypeChecker {
                     || finally_block
                         .as_ref()
                         .is_some_and(|b| Self::body_may_exit_loop_early(b))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `body` contains a control transfer that escapes EVERY enclosing
+    /// loop: `exit loop` or `return`. `break` never qualifies (the nearest
+    /// loop absorbs it), so nested loops are descended into freely.
+    fn body_escapes_enclosing_loop(body: &[Statement]) -> bool {
+        body.iter().any(Self::statement_escapes_enclosing_loop)
+    }
+
+    fn statement_escapes_enclosing_loop(stmt: &Statement) -> bool {
+        match stmt {
+            Statement::ExitStatement { .. } | Statement::ReturnStatement { .. } => true,
+            Statement::BreakStatement { .. } => false,
+            Statement::IfStatement {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::body_escapes_enclosing_loop(then_block)
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_escapes_enclosing_loop(b))
+            }
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                Self::statement_escapes_enclosing_loop(then_stmt)
+                    || else_stmt
+                        .as_deref()
+                        .is_some_and(Self::statement_escapes_enclosing_loop)
+            }
+            Statement::ForEachLoop { body, .. }
+            | Statement::CountLoop { body, .. }
+            | Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. } => Self::body_escapes_enclosing_loop(body),
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                Self::body_escapes_enclosing_loop(body)
+                    || when_clauses
+                        .iter()
+                        .any(|c| Self::body_escapes_enclosing_loop(&c.body))
+                    || otherwise_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_escapes_enclosing_loop(b))
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_escapes_enclosing_loop(b))
             }
             _ => false,
         }
