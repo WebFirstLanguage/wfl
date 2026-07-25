@@ -9942,43 +9942,48 @@ impl Interpreter {
                     }
                 };
 
+                // Evaluate the timeout expression BEFORE locking the shared
+                // receiver. The timeout clause is an arbitrary WFL expression
+                // and evaluating it can await (a user action that sleeps, does
+                // I/O, ...). The receiver mutex is shared by every concurrent
+                // handler, so evaluating under it would let one handler's slow
+                // timeout expression stall the whole server (#642).
+                let timeout_duration = if let Some(timeout_expr) = timeout {
+                    let timeout_val = self
+                        .evaluate_expression(timeout_expr, Rc::clone(&env))
+                        .await?;
+                    match timeout_val {
+                        // Reject fractional values that would truncate to 0 ms
+                        // (e.g. 0.5) and hot-spin forever with zero-duration
+                        // timeouts. Require at least 1 millisecond.
+                        Value::Number(ms) if ms >= 1.0 => {
+                            Some(std::time::Duration::from_millis(ms as u64))
+                        }
+                        Value::Number(ms) if ms > 0.0 => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Timeout must be at least 1 millisecond (got {ms} ms); \
+                                     fractional values below 1 would truncate to zero and spin"
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Timeout must be a positive number (milliseconds)".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 // Wait for a request to come in (with optional timeout)
                 let request = {
                     let mut receiver = request_receiver.lock().await;
-
-                    // Evaluate timeout if provided
-                    let timeout_duration = if let Some(timeout_expr) = timeout {
-                        let timeout_val = self
-                            .evaluate_expression(timeout_expr, Rc::clone(&env))
-                            .await?;
-                        match timeout_val {
-                            // Reject fractional values that would truncate to 0 ms
-                            // (e.g. 0.5) and hot-spin forever with zero-duration
-                            // timeouts. Require at least 1 millisecond.
-                            Value::Number(ms) if ms >= 1.0 => {
-                                Some(std::time::Duration::from_millis(ms as u64))
-                            }
-                            Value::Number(ms) if ms > 0.0 => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Timeout must be at least 1 millisecond (got {ms} ms); \
-                                         fractional values below 1 would truncate to zero and spin"
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    "Timeout must be a positive number (milliseconds)".to_string(),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        }
-                    } else {
-                        None
-                    };
 
                     // Wait for request with or without timeout. Loop so a request
                     // whose client already gave up (its oneshot receiver dropped
