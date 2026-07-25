@@ -863,14 +863,25 @@ struct RunState {
     /// from request-local outcomes (must never tear the server down because one
     /// accepted request failed). Survives respond clearing `open_pending_requests`.
     accepted_request: bool,
+    /// This handler's `execute file ... and read output` capture stack. The
+    /// capture routing itself is a thread-local (see `io_capture`), so it is
+    /// swapped — not just saved — per poll: while this handler runs, the
+    /// thread-local holds this stack; while it is suspended, the ambient stack
+    /// is restored so a sibling's output cannot land in this handler's capture
+    /// buffer (#642). Starts as a clone of the ambient stack so handler output
+    /// still reaches an enclosing capture.
+    capture_stack: Vec<Rc<RefCell<String>>>,
 }
 
 impl RunState {
     /// A fresh run state for a handler starting from `base_call_depth` (0 for a
     /// top-level run; the parent's live depth for an `execute file` child).
+    /// Inherits the calling context's capture stack (cloned) so the handler's
+    /// uncaptured output keeps flowing to any enclosing `execute file` capture.
     fn fresh(base_call_depth: usize) -> Self {
         RunState {
             call_depth: base_call_depth,
+            capture_stack: io_capture::snapshot_stack(),
             ..RunState::default()
         }
     }
@@ -4670,6 +4681,7 @@ impl Interpreter {
         );
         let accepted = self.accepted_request.replace(state.accepted_request);
         state.accepted_request = accepted;
+        io_capture::swap_stack(&mut state.capture_stack);
     }
 
     /// Drop each outbound streaming handle whose id is in `ids` from
