@@ -11,7 +11,7 @@ use std::time::Duration;
 use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::parser::ast::Statement;
+use wfl::parser::ast::{Expression, Statement};
 
 mod common;
 
@@ -155,6 +155,37 @@ fn test_flush_with_property_operand_parses() {
             "flush operand must be a PropertyAccess, got {target:#?}"
         ),
         other => panic!("expected FlushStreamStatement, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unmerged_flush_targets_parse_as_single_flush_statements() {
+    let cases = [
+        ("flush (out)", "variable"),
+        ("flush call acquire stream", "call"),
+        ("flush (streams)[0]", "index"),
+        ("flush (holder).stream", "property"),
+        ("flush (holder).method()", "method"),
+    ];
+
+    for (source, expected_shape) in cases {
+        let statement = parse_single_statement(source);
+        let target = match &statement {
+            Statement::FlushStreamStatement { target, .. } => target,
+            other => panic!("expected FlushStreamStatement for `{source}`, got {other:#?}"),
+        };
+        let actual_shape = match target {
+            Expression::Variable(..) => "variable",
+            Expression::ActionCall { .. } => "call",
+            Expression::IndexAccess { .. } => "index",
+            Expression::PropertyAccess { .. } => "property",
+            Expression::MethodCall { .. } => "method",
+            other => panic!("unexpected flush target for `{source}`: {other:#?}"),
+        };
+        assert_eq!(
+            actual_shape, expected_shape,
+            "wrong target shape for `{source}`: {target:#?}"
+        );
     }
 }
 

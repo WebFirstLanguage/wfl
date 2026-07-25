@@ -56,6 +56,29 @@ fn flush_calls_a_matching_zero_arg_action_instead_of_flushing_a_stream() {
 }
 
 #[test]
+fn truly_bare_flush_still_calls_the_legacy_zero_argument_action() {
+    let src = "define action called flush:\n\
+               \x20\x20\x20\x20display \"CALLED\"\n\
+               end action\n\
+               \n\
+               flush\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "the exact bare `flush` action must remain callable; output was:\n{out}"
+    );
+    assert!(
+        out.contains("CALLED"),
+        "the exact bare `flush` statement must auto-call its legacy action; output was:\n{out}"
+    );
+    assert!(
+        !out.to_lowercase().contains("stream"),
+        "the exact bare `flush` statement must not become a stream operation; output was:\n{out}"
+    );
+}
+
+#[test]
 fn flush_without_a_matching_action_still_errors_as_a_stream_flush() {
     // With no action `flush cache` and no stream `cache`, `flush cache` falls
     // through to the stream interpretation and errors (rather than silently
