@@ -871,20 +871,18 @@ struct RunState {
     /// buffer (#642). Starts as a clone of the ambient stack so handler output
     /// still reaches an enclosing capture.
     capture_stack: Vec<Rc<RefCell<String>>>,
-}
-
-impl RunState {
-    /// A fresh run state for a handler starting from `base_call_depth` (0 for a
-    /// top-level run; the parent's live depth for an `execute file` child).
-    /// Inherits the calling context's capture stack (cloned) so the handler's
-    /// uncaptured output keeps flowing to any enclosing `execute file` capture.
-    fn fresh(base_call_depth: usize) -> Self {
-        RunState {
-            call_depth: base_call_depth,
-            capture_stack: io_capture::snapshot_stack(),
-            ..RunState::default()
-        }
-    }
+    /// This handler's module-resolution base (`current_source_file`). Swapped
+    /// per poll so a sibling parked mid-`include` cannot make this handler
+    /// resolve relative module paths against the sibling's module directory
+    /// (#642). Starts as the calling context's source file.
+    current_source_file: Option<PathBuf>,
+    /// This handler's in-flight module-load stack (circular-dependency
+    /// detection and import-depth accounting). Swapped per poll so a sibling's
+    /// in-flight load of the same module is not misreported as a cycle (#642).
+    /// Starts as a clone of the calling context's stack, so a handler
+    /// re-including a module the enclosing context is still loading is still
+    /// (correctly) a cycle.
+    loading_stack: Vec<PathBuf>,
 }
 
 /// Wraps a handler future so its [`RunState`] is swapped into the interpreter
@@ -1019,9 +1017,17 @@ impl Drop for OutboundStreamCleanup {
 }
 
 /// RAII guard that ensures module loading context is restored on scope exit.
-/// Automatically pops loading_stack and restores current_source_file when dropped.
+/// Automatically removes its loading_stack entry and restores
+/// current_source_file when dropped.
+///
+/// Restoration is identity-checked rather than a blind pop/overwrite: under
+/// `main loop concurrently:` the loading context is handler-local (swapped per
+/// poll), so a guard that drops while its handler's context is parked (the
+/// handler future was dropped mid-suspend) sees the *ambient* context and must
+/// not clobber it (#642).
 struct ModuleLoadGuard<'a> {
     interpreter: &'a Interpreter,
+    module_path: PathBuf,
     previous_source: Option<PathBuf>,
     should_restore: bool,
 }
@@ -1036,10 +1042,11 @@ impl<'a> ModuleLoadGuard<'a> {
             .loading_stack
             .borrow_mut()
             .push(module_path.clone());
-        *interpreter.current_source_file.borrow_mut() = Some(module_path);
+        *interpreter.current_source_file.borrow_mut() = Some(module_path.clone());
 
         Self {
             interpreter,
+            module_path,
             previous_source,
             should_restore: true,
         }
@@ -1059,8 +1066,16 @@ impl<'a> ModuleLoadGuard<'a> {
 impl<'a> Drop for ModuleLoadGuard<'a> {
     fn drop(&mut self) {
         if self.should_restore {
-            *self.interpreter.current_source_file.borrow_mut() = self.previous_source.clone();
-            self.interpreter.loading_stack.borrow_mut().pop();
+            {
+                let mut current = self.interpreter.current_source_file.borrow_mut();
+                if current.as_ref() == Some(&self.module_path) {
+                    *current = self.previous_source.clone();
+                }
+            }
+            let mut stack = self.interpreter.loading_stack.borrow_mut();
+            if let Some(pos) = stack.iter().rposition(|p| p == &self.module_path) {
+                stack.remove(pos);
+            }
         }
     }
 }
@@ -4682,6 +4697,29 @@ impl Interpreter {
         let accepted = self.accepted_request.replace(state.accepted_request);
         state.accepted_request = accepted;
         io_capture::swap_stack(&mut state.capture_stack);
+        std::mem::swap(
+            &mut *self.current_source_file.borrow_mut(),
+            &mut state.current_source_file,
+        );
+        std::mem::swap(
+            &mut *self.loading_stack.borrow_mut(),
+            &mut state.loading_stack,
+        );
+    }
+
+    /// Build the initial [`RunState`] for a new concurrent handler: recursion
+    /// accounting starts at this run's base depth, and the handler inherits
+    /// (clones of) the calling context's capture stack and module-loading
+    /// context so captures, relative module paths, and cycle/import-depth
+    /// checks behave as they would in the enclosing context.
+    fn fresh_handler_run_state(&self) -> RunState {
+        RunState {
+            call_depth: self.base_call_depth,
+            capture_stack: io_capture::snapshot_stack(),
+            current_source_file: self.current_source_file.borrow().clone(),
+            loading_stack: self.loading_stack.borrow().clone(),
+            ..RunState::default()
+        }
     }
 
     /// Drop each outbound streaming handle whose id is in `ids` from
@@ -5293,7 +5331,7 @@ impl Interpreter {
                     std::panic::AssertUnwindSafe(self.execute_block(body, scope)).catch_unwind();
                 futs.push(IsolatedHandler {
                     interp: self,
-                    state: RunState::fresh(self.base_call_depth),
+                    state: self.fresh_handler_run_state(),
                     inner: Box::pin(handler),
                 });
             }
