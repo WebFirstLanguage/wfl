@@ -574,6 +574,103 @@ fn streaming_clause_boundary_propagates_through_at_index_under_file_exists() {
     );
 }
 
+fn assert_post_of_index(expr: &Expression, expected_function: &str, expected_argument: &str) {
+    match expr {
+        Expression::IndexAccess {
+            collection, index, ..
+        } => {
+            assert!(
+                matches!(
+                    index.as_ref(),
+                    Expression::Literal(wfl::parser::ast::Literal::Integer(0), ..)
+                ),
+                "post-call index must be integer zero, got {index:#?}"
+            );
+            match collection.as_ref() {
+                Expression::FunctionCall {
+                    function,
+                    arguments,
+                    ..
+                } => {
+                    assert_eq!(
+                        leftmost_variable(function),
+                        Some(expected_function),
+                        "unexpected function root in {expr:#?}"
+                    );
+                    assert!(
+                        matches!(
+                            arguments.as_slice(),
+                            [wfl::parser::ast::Argument {
+                                value: Expression::Variable(name, ..),
+                                ..
+                            }] if name == expected_argument
+                        ),
+                        "the parenthesized argument must stay inside the call, got {arguments:#?}"
+                    );
+                }
+                other => panic!("index must wrap an `of` FunctionCall, got {other:#?}"),
+            }
+        }
+        other => panic!("expected postfix index after an `of` call, got {other:#?}"),
+    }
+}
+
+#[test]
+fn seeded_operands_resume_postfix_parsing_after_of_calls() {
+    let write = parse("write line choose of (chunks)[0] to out\n");
+    assert_eq!(write.statements.len(), 1, "got {:#?}", write.statements);
+    assert_post_of_index(
+        stream_write_value(&write.statements[0]),
+        "choose",
+        "chunks",
+    );
+    assert_post_of_index(
+        stream_write_fallback(&write.statements[0]),
+        "line choose",
+        "chunks",
+    );
+
+    let streaming = parse(
+        "start streaming response to req with content type choose of (types)[0] and headers h as out\n",
+    );
+    assert_eq!(
+        streaming.statements.len(),
+        1,
+        "got {:#?}",
+        streaming.statements
+    );
+    assert_post_of_index(
+        streaming_clause_operand(&streaming.statements[0], "content type"),
+        "choose",
+        "types",
+    );
+    assert!(
+        matches!(
+            &streaming.statements[0],
+            Statement::StartStreamingResponseStatement {
+                headers: Some(Expression::Variable(name, ..)),
+                ..
+            } if name == "h"
+        ),
+        "headers must remain outside the indexed call; got {:#?}",
+        streaming.statements[0]
+    );
+
+    let flush = parse("flush cache of (items)[0]\n");
+    assert_eq!(flush.statements.len(), 1, "got {:#?}", flush.statements);
+    match &flush.statements[0] {
+        Statement::FlushStreamStatement {
+            target,
+            action_fallback: Some(fallback),
+            ..
+        } => {
+            assert_post_of_index(target, "cache", "items");
+            assert_post_of_index(fallback, "flush cache", "items");
+        }
+        other => panic!("expected ambiguous FlushStreamStatement, got {other:#?}"),
+    }
+}
+
 #[test]
 fn write_line_of_call_argument_absorbs_arithmetic() {
     // `double of n minus 1` must parse as `double of (n minus 1)` — the same
