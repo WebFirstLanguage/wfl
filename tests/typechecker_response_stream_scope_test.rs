@@ -1,8 +1,8 @@
 //! Regression coverage for response-stream symbols reconstructed in type-checker
 //! child scopes after analyzer body scopes have been discarded.
 //!
-//! These tests cover type visibility during checking, not runtime shadowing:
-//! `Environment::define` rejects parent-scope name collisions.
+//! These tests cover type visibility and restoration during checking. Runtime
+//! shadows response-stream names inside the corresponding child environments.
 
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
