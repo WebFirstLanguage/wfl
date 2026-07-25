@@ -14968,6 +14968,21 @@ mod response_expression_disconnect_tests {
         )
         .await;
     }
+
+    #[tokio::test]
+    async fn buffered_request_operand_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels("respond to (call stalled_value) with \"ok\"", "req")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn streaming_request_operand_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels(
+            "start streaming response to (call stalled_value) with status 200 as out",
+            "req",
+        )
+        .await;
+    }
 }
 
 #[cfg(test)]
@@ -14977,6 +14992,7 @@ mod response_disconnect_result_tests {
     use crate::parser::Parser;
     use std::future::Future;
     use std::task::Poll;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn parse_statement(source: &str) -> Statement {
         let tokens = lex_wfl_with_positions(source);
@@ -14986,6 +15002,15 @@ mod response_disconnect_result_tests {
             .unwrap_or_else(|errors| panic!("disconnect fixture did not parse: {errors:?}"));
         assert_eq!(program.statements.len(), 1);
         program.statements.into_iter().next().expect("statement")
+    }
+
+    fn parse_statements(source: &str) -> Vec<Statement> {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        parser
+            .parse()
+            .unwrap_or_else(|errors| panic!("disconnect fixture did not parse: {errors:?}"))
+            .statements
     }
 
     fn request_value(request_id: &str) -> Value {
@@ -15049,6 +15074,141 @@ mod response_disconnect_result_tests {
         assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
     }
 
+    async fn spawn_commit_upstream() -> (u16, oneshot::Receiver<()>, oneshot::Receiver<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind commit upstream");
+        let port = listener
+            .local_addr()
+            .expect("commit upstream address")
+            .port();
+        let (head_tx, head_sent) = oneshot::channel();
+        let (closed_tx, peer_closed) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept commit upstream");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 512];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read request head");
+                assert!(read > 0, "client closed before commit request");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .expect("write commit response head");
+            socket.flush().await.expect("flush commit response head");
+            let _ = head_tx.send(());
+            loop {
+                match socket.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            let _ = closed_tx.send(());
+        });
+        (port, head_sent, peer_closed)
+    }
+
+    async fn assert_commit_disconnect_closes_evaluation_stream(response_statement: &str) {
+        let (port, head_sent, mut peer_closed) = spawn_commit_upstream().await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 120,
+            timeout_seconds: 120,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(config);
+        let source = format!(
+            "define action called open_then_return:\n\
+             \x20\x20\x20\x20open url at \"http://127.0.0.1:{port}/commit\" and stream response as upstream\n\
+             \x20\x20\x20\x20return 201\n\
+             end action\n\
+             {response_statement}\n"
+        );
+        let statements = parse_statements(&source);
+        assert_eq!(statements.len(), 2);
+        let env = Rc::clone(interpreter.global_env());
+        interpreter
+            .execute_statement(&statements[0], Rc::clone(&env))
+            .await
+            .expect("define commit action");
+
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-resource"));
+        let (sender, receiver) = oneshot::channel();
+        let shared_sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-resource".to_string(),
+            PendingResponse {
+                sender: Arc::clone(&shared_sender),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-resource".to_string());
+        let guard = shared_sender.lock().await;
+
+        let mut execution =
+            Box::pin(interpreter.execute_statement(&statements[1], Rc::clone(&env)));
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let at_commit = !interpreter
+                    .pending_responses
+                    .borrow()
+                    .contains_key("request-resource");
+                let owns_stream = interpreter
+                    .open_http_streams
+                    .borrow()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .len()
+                    == 1;
+                if at_commit && owns_stream {
+                    break;
+                }
+                tokio::select! {
+                    result = execution.as_mut() => {
+                        panic!("response finished before resource commit latch: {result:?}")
+                    }
+                    _ = tokio::task::yield_now() => {}
+                }
+            }
+        })
+        .await
+        .expect("response did not reach resource commit latch");
+        head_sent.await.expect("commit upstream did not send head");
+
+        drop(receiver);
+        drop(guard);
+        let error = tokio::time::timeout(Duration::from_secs(2), execution.as_mut())
+            .await
+            .expect("commit did not observe receiver disconnect")
+            .expect_err("commit disconnect must cancel");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+
+        if tokio::time::timeout(Duration::from_secs(1), &mut peer_closed)
+            .await
+            .is_err()
+        {
+            interpreter.close_open_http_streams();
+            let _ = tokio::time::timeout(Duration::from_secs(2), &mut peer_closed).await;
+            panic!("commit-time cancellation retained a stream opened during evaluation");
+        }
+        assert!(
+            interpreter
+                .open_http_streams
+                .borrow()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "commit cancellation retained stream ownership"
+        );
+    }
+
     #[tokio::test]
     async fn buffered_commit_disconnect_is_exactly_cancelled() {
         assert_response_commit_disconnect_is_cancelled("respond to req with \"ok\"").await;
@@ -15058,6 +15218,64 @@ mod response_disconnect_result_tests {
     async fn streaming_head_commit_disconnect_is_exactly_cancelled() {
         assert_response_commit_disconnect_is_cancelled(
             "start streaming response to req with status 200 as out",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn already_disconnected_precheck_removes_stale_pending_state() {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-closed"));
+        let (sender, receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-closed".to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-closed".to_string());
+        drop(receiver);
+
+        let statement = parse_statement("respond to req with \"late\"");
+        let error = interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect_err("closed request must cancel before evaluation");
+        assert_eq!(error.kind, ErrorKind::Cancelled);
+        assert!(
+            !interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-closed"),
+            "early cancellation retained the pending sender"
+        );
+        assert!(
+            !interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-closed"),
+            "early cancellation retained handler ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn buffered_commit_disconnect_closes_evaluation_streams() {
+        assert_commit_disconnect_closes_evaluation_stream(
+            "respond to req with call open_then_return",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn streaming_commit_disconnect_closes_evaluation_streams() {
+        assert_commit_disconnect_closes_evaluation_stream(
+            "start streaming response to req with status call open_then_return as out",
         )
         .await;
     }
@@ -15474,13 +15692,8 @@ mod outbound_stream_deadline_tests {
         let budget = Arc::new(ExecutionBudget::from_config(&config));
         let started = Instant::now();
         let url = format!("http://127.0.0.1:{}/delayed-head", upstream.port);
-        let mut opening = Box::pin(client.open_http_stream(
-            "GET",
-            &url,
-            &[],
-            None,
-            Arc::clone(&budget),
-        ));
+        let mut opening =
+            Box::pin(client.open_http_stream("GET", &url, &[], None, Arc::clone(&budget)));
         tokio::select! {
             result = opening.as_mut() => {
                 panic!("stream opened before the response-head latch: {result:?}")
