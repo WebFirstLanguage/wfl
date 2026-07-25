@@ -545,11 +545,13 @@ close out
 - `close <out>` — end the response body. Writing after `close` is an error.
 
 **Ownership:** a response stream belongs to the handler that started it. Under
-`main loop concurrently:`, `write`, `flush`, and `close` on a stream handle that
-another handler owns (for example one shared through a global variable) fail
-with a catchable error instead of injecting into — or truncating — the owner's
-response. Re-`close`-ing a stream you own that is already closed stays a silent
-no-op.
+`main loop concurrently:`, `write`, `flush`, and `close` on a **live** stream
+handle that another handler owns (for example one shared through a global
+variable) fail with a catchable error instead of injecting into — or
+truncating — the owner's response. Once a stream is closed there is no live
+response left to protect: `write` and `flush` still fail with the
+closed-stream error, while `close` is an idempotent no-op for any handler
+holding the stale handle.
 
 **Lifecycle & backpressure:** the body channel is bounded, so a slow client
 slows your `write` calls (backpressure) instead of buffering without bound. If
