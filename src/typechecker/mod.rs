@@ -197,6 +197,59 @@ impl TypeChecker {
         self.analyzer.get_action_parameters()
     }
 
+    fn join_type_snapshots(
+        states: &[Vec<HashMap<String, Option<Type>>>],
+    ) -> Vec<HashMap<String, Option<Type>>> {
+        let Some(first) = states.first() else {
+            return Vec::new();
+        };
+        let mut joined = first.clone();
+
+        // Analyzer pass 1 normally pre-registers branch-visible symbols, but
+        // include names from every state so direct AST users receive the same
+        // conservative result.
+        for state in states.iter().skip(1) {
+            if joined.len() < state.len() {
+                joined.resize_with(state.len(), HashMap::new);
+            }
+            for (layer_index, layer) in state.iter().enumerate() {
+                for name in layer.keys() {
+                    joined[layer_index].entry(name.clone()).or_insert(None);
+                }
+            }
+        }
+
+        for layer_index in 0..joined.len() {
+            let names: Vec<String> = joined[layer_index].keys().cloned().collect();
+            for name in names {
+                let values: Vec<Option<Type>> = states
+                    .iter()
+                    .map(|state| {
+                        state
+                            .get(layer_index)
+                            .and_then(|layer| layer.get(&name))
+                            .cloned()
+                            .unwrap_or(None)
+                    })
+                    .collect();
+                let first_value = values.first().cloned().unwrap_or(None);
+                let merged = if values.iter().all(|value| value == &first_value) {
+                    first_value
+                } else if values.iter().any(|value| {
+                    value.is_none() || matches!(value.as_ref(), Some(Type::Unknown))
+                })
+                {
+                    Some(Type::Unknown)
+                } else {
+                    Some(Type::Any)
+                };
+                joined[layer_index].insert(name, merged);
+            }
+        }
+
+        joined
+    }
+
     /// Get the return type for builtin functions
     fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
         match name {
@@ -1428,15 +1481,23 @@ impl TypeChecker {
                     );
                 }
 
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 for stmt in then_block {
                     self.check_statement_types(stmt);
                 }
+                let then_types = self.analyzer.snapshot_symbol_types();
+                self.analyzer.restore_symbol_types(entry_types.clone());
 
-                if let Some(else_stmts) = else_block {
+                let else_types = if let Some(else_stmts) = else_block {
                     for stmt in else_stmts {
                         self.check_statement_types(stmt);
                     }
-                }
+                    self.analyzer.snapshot_symbol_types()
+                } else {
+                    entry_types
+                };
+                let joined = Self::join_type_snapshots(&[then_types, else_types]);
+                self.analyzer.restore_symbol_types(joined);
             }
             Statement::SingleLineIf {
                 condition,
@@ -1459,11 +1520,19 @@ impl TypeChecker {
                     );
                 }
 
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 self.check_statement_types(then_stmt);
+                let then_types = self.analyzer.snapshot_symbol_types();
+                self.analyzer.restore_symbol_types(entry_types.clone());
 
-                if let Some(else_stmt) = else_stmt {
+                let else_types = if let Some(else_stmt) = else_stmt {
                     self.check_statement_types(else_stmt);
-                }
+                    self.analyzer.snapshot_symbol_types()
+                } else {
+                    entry_types
+                };
+                let joined = Self::join_type_snapshots(&[then_types, else_types]);
+                self.analyzer.restore_symbol_types(joined);
             }
             Statement::ForEachLoop {
                 item_name,
@@ -1609,9 +1678,13 @@ impl TypeChecker {
                     );
                 }
 
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                let body_types = self.analyzer.snapshot_symbol_types();
+                let joined = Self::join_type_snapshots(&[body_types, entry_types]);
+                self.analyzer.restore_symbol_types(joined);
             }
             Statement::RepeatUntilLoop {
                 condition,
