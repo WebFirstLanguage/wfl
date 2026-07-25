@@ -63,6 +63,61 @@ fn streaming_clause_operand<'a>(stmt: &'a Statement, clause: &str) -> &'a Expres
     }
 }
 
+fn streaming_status_and_headers(stmt: &Statement) -> (&Expression, &Expression) {
+    match stmt {
+        Statement::StartStreamingResponseStatement {
+            status: Some(status),
+            headers: Some(headers),
+            ..
+        } => (status, headers),
+        other => panic!(
+            "expected a streaming response with status and headers operands, got {other:#?}"
+        ),
+    }
+}
+
+#[test]
+fn streaming_status_clause_accepts_full_expressions_without_swallowing_headers() {
+    let cases = [
+        (
+            "start streaming response to req with status base plus 1 and headers h as out\n",
+            "operator",
+        ),
+        (
+            "start streaming response to req with headers h and status codes at i as out\n",
+            "index",
+        ),
+        (
+            "start streaming response to req with status response.code and headers h as out\n",
+            "property",
+        ),
+        (
+            "start streaming response to req with status choose of req and headers h as out\n",
+            "of-call",
+        ),
+    ];
+
+    for (source, expected_shape) in cases {
+        let program = parse(source);
+        assert_eq!(
+            program.statements.len(),
+            1,
+            "`{source}` must remain one statement; got {:#?}",
+            program.statements
+        );
+        let (status, headers) = streaming_status_and_headers(&program.statements[0]);
+        assert_eq!(
+            expression_shape(status),
+            expected_shape,
+            "status operand in `{source}`"
+        );
+        assert!(
+            matches!(headers, Expression::Variable(name, ..) if name == "h"),
+            "headers must remain a separate clause in `{source}`; got {headers:#?}"
+        );
+    }
+}
+
 #[test]
 fn write_and_streaming_clauses_share_the_full_expression_suffix_grammar() {
     let cases = [
