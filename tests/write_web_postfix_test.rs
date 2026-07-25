@@ -88,7 +88,7 @@ fn streaming_status_clause_accepts_full_expressions_without_swallowing_headers()
             "index",
         ),
         (
-            "start streaming response to req with status response.code and headers h as out\n",
+            "start streaming response to req with status reply.code and headers h as out\n",
             "property",
         ),
         (
