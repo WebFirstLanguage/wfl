@@ -425,7 +425,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                 Token::KeywordStatus => {
                     self.bump_sync(); // with/and
                     self.bump_sync(); // status
-                    status = Some(self.parse_primary_expression()?);
+                    status = Some(self.parse_unmerged_operand(true)?);
                 }
                 // `content type <e>` — `content` keyword then optional `type`.
                 // When `<e>` is a bare identifier the lexer merges it into the
