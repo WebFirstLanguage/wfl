@@ -80,7 +80,10 @@ pub(crate) trait PatternParser<'a>: ExprParser<'a> {
         i: &mut usize,
         base_pattern: PatternExpression,
     ) -> Result<PatternExpression, ParseError>;
-    fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError>;
+    fn parse_extension_filter(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Vec<Expression>, ParseError>;
 }
 
 impl<'a> PatternParser<'a> for Parser<'a> {
@@ -189,14 +192,17 @@ impl<'a> PatternParser<'a> for Parser<'a> {
         })
     }
 
-    fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
+    fn parse_extension_filter(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Vec<Expression>, ParseError> {
         // Expect "extension", "extensions", or "pattern"
         if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordExtension => {
                     self.bump_sync(); // Consume "extension"
                     // Parse single extension
-                    let ext = self.parse_primary_expression()?;
+                    let ext = self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                     Ok(vec![ext])
                 }
                 Token::KeywordExtensions => {
@@ -210,7 +216,8 @@ impl<'a> PatternParser<'a> for Parser<'a> {
 
                     if has_bracket {
                         // Parse list literal
-                        let list_expr = self.parse_primary_expression()?;
+                        let list_expr =
+                            self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                         if let Expression::Literal(Literal::List(items), _, _) = list_expr {
                             Ok(items)
                         } else {
@@ -223,14 +230,16 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         }
                     } else {
                         // Allow a variable containing the extensions list
-                        let expr = self.parse_primary_expression()?;
+                        let expr =
+                            self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                         Ok(vec![expr])
                     }
                 }
                 Token::KeywordPattern => {
                     self.bump_sync(); // Consume "pattern"
                     // Parse pattern expression (e.g., "*.wfl")
-                    let expr = self.parse_primary_expression()?;
+                    let expr =
+                        self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                     Ok(vec![expr])
                 }
                 _ => {

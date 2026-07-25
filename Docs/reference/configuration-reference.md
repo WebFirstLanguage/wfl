@@ -214,7 +214,7 @@ All keys currently loaded from config files, with defaults.
 | `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max handler or outbound HTTP response body size (bytes) |
 | `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
 | `web_server_response_timeout_seconds` | integer ≥ 0 | `300` | Seconds to await a handler before shedding with 504; `0` disables |
-| `outbound_stream_max_seconds` | integer ≥ 0 | `300` | Absolute total lifetime (seconds) of one outbound streaming response, distinct from the per-read idle timeout; `0` disables |
+| `outbound_stream_max_seconds` | integer ≥ 0 | `300` | Absolute total lifetime (seconds) of one outbound streaming response, distinct from the per-read idle timeout; `0` disables; values above one year use the one-year safety cap |
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
 | `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
 | `web_socket_max_message_size` | integer ≥ 1 | `1048576` (1 MiB) | Max size of a single WebSocket text message (bytes); larger frames are dropped |
@@ -575,7 +575,11 @@ Absolute total lifetime, in seconds, of a single **outbound** streaming response
 - **Default:** `300`
 - **Example:** `outbound_stream_max_seconds = 60`
 
-A value of `0` disables the absolute cap (the idle timeout still applies per read).
+A value of `0` disables the absolute cap (the idle timeout still applies per
+read). Positive values above 31,536,000 seconds (one year) are safely clamped to
+one year when the runtime creates the deadline. This keeps extreme configuration
+values finite and prevents platform `Instant` overflow; timeout diagnostics
+report the effective clamped duration.
 
 #### `web_socket_queue_bound`
 

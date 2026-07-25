@@ -7,14 +7,14 @@ use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 use std::sync::Arc;
 
 impl<'a> Parser<'a> {
-    /// Parse a merged-command operand from an already-chosen leading identifier:
+    /// Continue an operand from an already-parsed leading expression:
     /// trailing postfix (`[]`, `.field`, `.method()`, `at`, direct-integer index),
     /// an optional `<field> of <object>` call, then any `with`/operator
     /// continuation — exactly as a normal expression value would parse.
     ///
-    /// Shared by `write line|chunk` values and by merged `content type` / `headers`
-    /// clause operands so they all support the same postfix/call/operator grammar
-    /// (issue #642).
+    /// Shared by ordinary, merged, and unmerged `write line|chunk`, `content
+    /// type`, `headers`, and `flush` operands so they all support the same
+    /// postfix/call/operator grammar (issue #642).
     ///
     /// The ambiguous merged `write line|chunk <ident> ...` form has two readings
     /// (stream: split-off `<ident>`; classic file write: whole `line <ident>`)
@@ -24,15 +24,20 @@ impl<'a> Parser<'a> {
     /// an `ActionCall`, `is between` duplicates the left, `starts/ends with` and
     /// the pattern operators build calls), so deriving one AST from the other by
     /// leaf-swapping silently corrupted the classic reading.
-    pub(crate) fn parse_merged_operand_from_lead(
+    pub(crate) fn parse_seeded_expression_continuation(
         &mut self,
         lead: Expression,
+        stop_at_clause: bool,
     ) -> Result<Expression, ParseError> {
         // The lexer merges the command word with the operand identifier and leaves
         // any bracket-index / dotted-property / `at` / integer-index accessors as
         // following tokens, so compose them onto the lead instead of leaving them
         // to dangle after the statement.
-        let lead = self.parse_trailing_postfix(lead)?;
+        let lead = if stop_at_clause {
+            self.parse_trailing_postfix_stopping_at_clause(lead)?
+        } else {
+            self.parse_trailing_postfix(lead)?
+        };
         let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
             // Anchor the `<field> of <object>` call to the `of` keyword itself,
             // matching how the rest of the parser positions FunctionCall nodes so
@@ -47,7 +52,11 @@ impl<'a> Parser<'a> {
             // `and`/`from`/`by`/`length` join multiple arguments.
             let mut arguments = vec![crate::parser::ast::Argument {
                 name: None,
-                value: self.parse_of_call_argument()?,
+                value: if stop_at_clause {
+                    self.parse_of_call_argument_stopping_at_clause()?
+                } else {
+                    self.parse_of_call_argument()?
+                },
             }];
             while let Some(sep) = self.cursor.peek() {
                 let is_separator = matches!(
@@ -58,12 +67,22 @@ impl<'a> Parser<'a> {
                     Token::Identifier(id) if id.eq_ignore_ascii_case("length")
                 );
                 if !is_separator {
+                    break;
+                }
+                if stop_at_clause
+                    && matches!(&sep.token, Token::KeywordAnd)
+                    && Self::is_streaming_clause_keyword(self.cursor.peek_n(1).map(|t| &t.token))
+                {
                     break;
                 }
                 self.bump_sync(); // Consume the separator
                 arguments.push(crate::parser::ast::Argument {
                     name: None,
-                    value: self.parse_of_call_argument()?,
+                    value: if stop_at_clause {
+                        self.parse_of_call_argument_stopping_at_clause()?
+                    } else {
+                        self.parse_of_call_argument()?
+                    },
                 });
             }
             Expression::FunctionCall {
@@ -75,67 +94,37 @@ impl<'a> Parser<'a> {
         } else {
             lead
         };
-        self.parse_binary_continuation(lead, 0)
+        if stop_at_clause {
+            self.parse_binary_continuation_stopping_at_clause(lead, 0)
+        } else {
+            self.parse_binary_continuation(lead, 0)
+        }
     }
 
-    /// Like [`parse_merged_operand_from_lead`], but binary continuation stops
-    /// before clause connectives (`and`/`with`/`as`) so
-    /// `content type mime_type of path and headers h` does not swallow `headers`
-    /// as a Boolean-AND operand (issue #642 re-review).
+    /// Parse a lexer-merged response-clause operand, stopping before the next
+    /// response clause connective.
     pub(crate) fn parse_clause_operand_from_lead(
         &mut self,
         lead: Expression,
     ) -> Result<Expression, ParseError> {
-        let lead = self.parse_trailing_postfix(lead)?;
-        let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
-            let (of_line, of_column) = self
-                .bump_sync()
-                .map(|t| (t.line, t.column))
-                .expect("peeked `of` immediately above");
-            let mut arguments = vec![crate::parser::ast::Argument {
-                name: None,
-                value: self.parse_of_call_argument()?,
-            }];
-            while let Some(sep) = self.cursor.peek() {
-                let is_separator = matches!(
-                    &sep.token,
-                    Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
-                ) || matches!(
-                    &sep.token,
-                    Token::Identifier(id) if id.eq_ignore_ascii_case("length")
-                );
-                // For multi-arg `of` calls, `and` between arguments is fine —
-                // only stop when we've finished the of-call and the next token
-                // would start a new clause (handled by binary continuation stop).
-                if !is_separator {
-                    break;
-                }
-                // If `and` is followed by a clause keyword (headers/content/as),
-                // it is a clause connective, not an of-arg separator.
-                if matches!(&sep.token, Token::KeywordAnd)
-                    && Self::is_streaming_clause_keyword(self.cursor.peek_n(1).map(|t| &t.token))
-                {
-                    break;
-                }
-                self.bump_sync();
-                arguments.push(crate::parser::ast::Argument {
-                    name: None,
-                    value: self.parse_of_call_argument()?,
-                });
-            }
-            Expression::FunctionCall {
-                function: Box::new(lead),
-                arguments,
-                line: of_line,
-                column: of_column,
-            }
-        } else {
-            lead
-        };
-        self.parse_binary_continuation_stopping_at_clause(lead, 0)
+        self.parse_seeded_expression_continuation(lead, true)
     }
 
-    fn is_streaming_clause_keyword(tok: Option<&Token>) -> bool {
+    /// Parse a complete ordinary/unmerged operand through the same seeded
+    /// continuation used for lexer-merged operands.
+    pub(crate) fn parse_unmerged_operand(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
+        let lead = if stop_at_clause {
+            self.parse_primary_expression_stopping_at_clause()?
+        } else {
+            self.parse_primary_expression()?
+        };
+        self.parse_seeded_expression_continuation(lead, stop_at_clause)
+    }
+
+    pub(crate) fn is_streaming_clause_keyword(tok: Option<&Token>) -> bool {
         match tok {
             Some(Token::KeywordAs) | Some(Token::KeywordContent) | Some(Token::KeywordStatus) => {
                 true
@@ -155,7 +144,7 @@ impl<'a> Parser<'a> {
 
     /// Alias used by the write-statement parsers.
     fn parse_write_value_from_lead(&mut self, lead: Expression) -> Result<Expression, ParseError> {
-        self.parse_merged_operand_from_lead(lead)
+        self.parse_seeded_expression_continuation(lead, false)
     }
 }
 
@@ -995,7 +984,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 // whole expression — including `with` concatenation — parses
                 // cleanly from here. This form was never a valid classic file
                 // write (`write line "x" to f` did not parse), so no fallback.
-                (self.parse_expression()?, None)
+                (self.parse_unmerged_operand(false)?, None)
             } else {
                 // Ambiguous merged form: `<ident>` alone (stream) vs the full
                 // merged `line <ident>` (classic file write of that variable).

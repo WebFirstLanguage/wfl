@@ -624,6 +624,12 @@ pub enum Statement {
     /// queued bytes to the transport.
     FlushStreamStatement {
         target: Expression,
+        /// Original lexer-merged binding (`flush cache`) used to choose the
+        /// pre-streaming expression-statement interpretation. This metadata is
+        /// retained separately because ordinary expression rewrites such as
+        /// explicit `find ... in`, `replace ... in`, and `split ... by` can
+        /// legitimately discard the seeded left operand from `action_fallback`.
+        legacy_binding: Option<String>,
         /// Complete old expression-statement AST for the merged `flush …` form
         /// (e.g. `Variable("flush cache")`, or `IndexAccess`/`PropertyAccess` over
         /// that full name). Before streaming, `flush cache[0]` was an ordinary

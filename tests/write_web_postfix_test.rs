@@ -27,6 +27,100 @@ fn stream_write_value(stmt: &Statement) -> &Expression {
     }
 }
 
+fn stream_write_fallback(stmt: &Statement) -> &Expression {
+    match stmt {
+        Statement::StreamWriteStatement {
+            fallback_content: Some(fallback),
+            ..
+        } => fallback,
+        other => panic!("expected an ambiguous StreamWriteStatement fallback, got {other:#?}"),
+    }
+}
+
+fn expression_shape(expr: &Expression) -> &'static str {
+    match expr {
+        Expression::IndexAccess { .. } => "index",
+        Expression::PropertyAccess { .. } => "property",
+        Expression::MethodCall { .. } => "method",
+        Expression::FunctionCall { .. } => "of-call",
+        Expression::BinaryOperation { .. } => "operator",
+        other => panic!("unexpected operand shape in parity matrix: {other:#?}"),
+    }
+}
+
+fn streaming_clause_operand<'a>(stmt: &'a Statement, clause: &str) -> &'a Expression {
+    match stmt {
+        Statement::StartStreamingResponseStatement {
+            content_type,
+            headers,
+            ..
+        } => match clause {
+            "content type" => content_type.as_ref().expect("content type operand"),
+            "headers" => headers.as_ref().expect("headers operand"),
+            other => panic!("unknown test clause {other}"),
+        },
+        other => panic!("expected StartStreamingResponseStatement, got {other:#?}"),
+    }
+}
+
+#[test]
+fn write_and_streaming_clauses_share_the_full_expression_suffix_grammar() {
+    let cases = [
+        ("values[0]", "index"),
+        ("object.field", "property"),
+        ("object.method()", "method"),
+        ("values at 0", "index"),
+        ("values 0", "index"),
+        ("convert of values", "of-call"),
+        ("values plus 1", "operator"),
+    ];
+
+    for (operand, expected) in cases {
+        let write = parse(&format!("write line {operand} to out\n"));
+        assert_eq!(
+            write.statements.len(),
+            1,
+            "write operand `{operand}` split into extra statements: {:#?}",
+            write.statements
+        );
+        assert_eq!(
+            expression_shape(stream_write_value(&write.statements[0])),
+            expected,
+            "write operand `{operand}`"
+        );
+
+        for clause in ["content type", "headers"] {
+            let program = parse(&format!(
+                "start streaming response to req with status 200 and {clause} {operand} as out\n"
+            ));
+            assert_eq!(
+                program.statements.len(),
+                1,
+                "{clause} operand `{operand}` split into extra statements: {:#?}",
+                program.statements
+            );
+            assert_eq!(
+                expression_shape(streaming_clause_operand(&program.statements[0], clause)),
+                expected,
+                "{clause} operand `{operand}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn unmerged_content_type_literal_keeps_operator_continuation() {
+    let program = parse(
+        "start streaming response to req with status 200 and content type \"text/\" with subtype as out\n",
+    );
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    let content_type = streaming_clause_operand(&program.statements[0], "content type");
+    assert!(
+        matches!(content_type, Expression::Concatenation { .. }),
+        "unmerged literal operand must retain `with subtype`, got {content_type:#?}"
+    );
+}
+
 #[test]
 fn write_line_indexed_operand_composes_into_one_index_access() {
     let program = parse("write line chunks[0] to out\n");
@@ -125,6 +219,16 @@ fn write_line_at_indexing_parses() {
         "write value must be IndexAccess for `at` indexing, got {:#?}",
         stream_write_value(write)
     );
+    assert!(
+        matches!(
+            stream_write_fallback(write),
+            Expression::IndexAccess { collection, index, .. }
+                if matches!(collection.as_ref(), Expression::Variable(name, ..) if name == "line values")
+                    && matches!(index.as_ref(), Expression::Literal(wfl::parser::ast::Literal::Integer(0), ..))
+        ),
+        "classic fallback must index the full `line values` binding, got {:#?}",
+        stream_write_fallback(write)
+    );
 }
 
 #[test]
@@ -139,6 +243,16 @@ fn write_line_direct_integer_indexing_parses() {
         ),
         "write value must be IndexAccess for direct integer indexing, got {:#?}",
         stream_write_value(&program.statements[0])
+    );
+    assert!(
+        matches!(
+            stream_write_fallback(&program.statements[0]),
+            Expression::IndexAccess { collection, index, .. }
+                if matches!(collection.as_ref(), Expression::Variable(name, ..) if name == "line values")
+                    && matches!(index.as_ref(), Expression::Literal(wfl::parser::ast::Literal::Integer(0), ..))
+        ),
+        "classic fallback must retain the full merged binding for direct indexing, got {:#?}",
+        stream_write_fallback(&program.statements[0])
     );
 }
 
@@ -201,6 +315,211 @@ fn streaming_response_content_type_then_headers_both_orders() {
 }
 
 #[test]
+fn streaming_clause_boundary_survives_nested_concatenation_rhs_in_both_orders() {
+    let cases = [
+        (
+            "start streaming response to req with content type \"text/\" with subtype and headers h as out\n",
+            "content type",
+        ),
+        (
+            "start streaming response to req with headers base_headers with extra and content type ct as out\n",
+            "headers",
+        ),
+    ];
+
+    for (source, nested_clause) in cases {
+        let program = parse(source);
+        assert_eq!(
+            program.statements.len(),
+            1,
+            "`{source}` must remain one statement; got {:#?}",
+            program.statements
+        );
+        let statement = &program.statements[0];
+        assert!(
+            matches!(
+                streaming_clause_operand(statement, nested_clause),
+                Expression::Concatenation { .. }
+            ),
+            "{nested_clause} must retain its complete concatenation operand; got {statement:#?}"
+        );
+        assert!(
+            matches!(
+                statement,
+                Statement::StartStreamingResponseStatement {
+                    content_type: Some(_),
+                    headers: Some(_),
+                    ..
+                }
+            ),
+            "the following response clause must not be swallowed into the concatenation RHS; \
+             got {statement:#?}"
+        );
+    }
+}
+
+#[test]
+fn streaming_clause_boundary_survives_at_index_expression_in_both_orders() {
+    let cases = [
+        (
+            "start streaming response to req with content type media_types at kind and headers h as out\n",
+            "content type",
+        ),
+        (
+            "start streaming response to req with headers header_sets at kind and content type ct as out\n",
+            "headers",
+        ),
+    ];
+
+    for (source, indexed_clause) in cases {
+        let program = parse(source);
+        assert_eq!(
+            program.statements.len(),
+            1,
+            "`{source}` must remain one statement; got {:#?}",
+            program.statements
+        );
+        let statement = &program.statements[0];
+        assert!(
+            matches!(
+                streaming_clause_operand(statement, indexed_clause),
+                Expression::IndexAccess { .. }
+            ),
+            "{indexed_clause} must retain its complete `at` index operand; got {statement:#?}"
+        );
+        assert!(
+            matches!(
+                statement,
+                Statement::StartStreamingResponseStatement {
+                    content_type: Some(_),
+                    headers: Some(_),
+                    ..
+                }
+            ),
+            "the following response clause must not be swallowed into the `at` index; \
+             got {statement:#?}"
+        );
+    }
+}
+
+#[test]
+fn streaming_clause_boundary_propagates_through_recursive_operand_forms() {
+    let cases = [
+        (
+            "start streaming response to req with content type lookup of media_types at kind and headers h as out\n",
+            "of-call",
+        ),
+        (
+            "start streaming response to req with content type touppercase with media_types at kind and headers h as out\n",
+            "builtin-call",
+        ),
+        (
+            "start streaming response to req with content type not media_types at kind and headers h as out\n",
+            "unary",
+        ),
+    ];
+
+    for (source, operand_kind) in cases {
+        let program = parse(source);
+        assert_eq!(
+            program.statements.len(),
+            1,
+            "`{source}` must remain one statement; got {:#?}",
+            program.statements
+        );
+        let statement = &program.statements[0];
+        let content_type = streaming_clause_operand(statement, "content type");
+        let has_expected_shape = match operand_kind {
+            "of-call" => matches!(content_type, Expression::FunctionCall { .. }),
+            "builtin-call" => matches!(content_type, Expression::ActionCall { .. }),
+            "unary" => matches!(content_type, Expression::UnaryOperation { .. }),
+            _ => unreachable!("unknown recursive operand kind"),
+        };
+        assert!(
+            has_expected_shape,
+            "{operand_kind} operand must retain its complete AST; got {content_type:#?}"
+        );
+        assert!(
+            matches!(
+                statement,
+                Statement::StartStreamingResponseStatement {
+                    content_type: Some(_),
+                    headers: Some(_),
+                    ..
+                }
+            ),
+            "the following headers clause must survive {operand_kind} recursion; got {statement:#?}"
+        );
+    }
+}
+
+#[test]
+fn streaming_clause_boundary_propagates_through_explicit_call_arguments() {
+    let program = parse(
+        "start streaming response to req with content type call render with value and headers h as out\n",
+    );
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+
+    let statement = &program.statements[0];
+    let content_type = streaming_clause_operand(statement, "content type");
+    assert!(
+        matches!(
+            content_type,
+            Expression::ActionCall { arguments, .. }
+                if arguments.len() == 1
+                    && matches!(&arguments[0].value, Expression::Variable(name, ..) if name == "value")
+        ),
+        "the following headers clause must not become another explicit-call argument; \
+         got {content_type:#?}"
+    );
+    assert!(
+        matches!(
+            statement,
+            Statement::StartStreamingResponseStatement {
+                headers: Some(Expression::Variable(name, ..)),
+                ..
+            } if name == "h"
+        ),
+        "the headers clause must remain outside the explicit call; got {statement:#?}"
+    );
+}
+
+#[test]
+fn streaming_clause_boundary_propagates_through_at_index_under_file_exists() {
+    let program = parse(
+        "start streaming response to req with content type file exists at paths at kind and headers h as out\n",
+    );
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+
+    let statement = &program.statements[0];
+    let content_type = streaming_clause_operand(statement, "content type");
+    assert!(
+        matches!(
+            content_type,
+            Expression::FileExists { path, .. }
+                if matches!(
+                    path.as_ref(),
+                    Expression::IndexAccess { collection, index, .. }
+                        if matches!(collection.as_ref(), Expression::Variable(name, ..) if name == "paths")
+                            && matches!(index.as_ref(), Expression::Variable(name, ..) if name == "kind")
+                )
+        ),
+        "the wrapper's nested `at` index must stop before the next response clause; \
+         got {content_type:#?}"
+    );
+    assert!(
+        matches!(
+            statement,
+            Statement::StartStreamingResponseStatement {
+                headers: Some(Expression::Variable(name, ..)),
+                ..
+            } if name == "h"
+        ),
+        "the headers clause must survive recursion through `file exists at`; got {statement:#?}"
+    );
+}
+
+#[test]
 fn write_line_of_call_argument_absorbs_arithmetic() {
     // `double of n minus 1` must parse as `double of (n minus 1)` — the same
     // precedence as an ordinary expression — not `(double of n) minus 1`.
@@ -249,6 +568,79 @@ fn flush_method_call_operand_composes() {
                 matches!(target, Expression::MethodCall { .. }),
                 "the flush operand must be a MethodCall, got {target:#?}"
             );
+        }
+        other => panic!("expected FlushStreamStatement, got {other:#?}"),
+    }
+}
+
+fn leftmost_variable(expr: &Expression) -> Option<&str> {
+    match expr {
+        Expression::Variable(name, ..) => Some(name),
+        Expression::IndexAccess { collection, .. } => leftmost_variable(collection),
+        Expression::PropertyAccess { object, .. } | Expression::MethodCall { object, .. } => {
+            leftmost_variable(object)
+        }
+        Expression::BinaryOperation { left, .. } => leftmost_variable(left),
+        Expression::FunctionCall { function, .. } => leftmost_variable(function),
+        _ => None,
+    }
+}
+
+#[test]
+fn flush_preserves_binary_continuation_for_both_interpretations() {
+    let program = parse("flush cache plus 1\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    match &program.statements[0] {
+        Statement::FlushStreamStatement {
+            target,
+            action_fallback,
+            ..
+        } => {
+            assert!(
+                matches!(target, Expression::BinaryOperation { .. }),
+                "stream target must keep `plus 1`, got {target:#?}"
+            );
+            assert_eq!(leftmost_variable(target), Some("cache"));
+            let fallback = action_fallback.as_ref().expect("legacy fallback");
+            assert!(
+                matches!(fallback, Expression::BinaryOperation { .. }),
+                "legacy expression must keep `plus 1`, got {fallback:#?}"
+            );
+            assert_eq!(leftmost_variable(fallback), Some("flush cache"));
+        }
+        other => panic!("expected FlushStreamStatement, got {other:#?}"),
+    }
+}
+
+#[test]
+fn flush_preserves_arbitrarily_nested_postfix_for_both_interpretations() {
+    let program = parse("flush cache[0][0]\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    match &program.statements[0] {
+        Statement::FlushStreamStatement {
+            target,
+            action_fallback,
+            ..
+        } => {
+            assert!(
+                matches!(
+                    target,
+                    Expression::IndexAccess { collection, .. }
+                        if matches!(collection.as_ref(), Expression::IndexAccess { .. })
+                ),
+                "stream target must retain both indexes, got {target:#?}"
+            );
+            assert_eq!(leftmost_variable(target), Some("cache"));
+            let fallback = action_fallback.as_ref().expect("legacy fallback");
+            assert!(
+                matches!(
+                    fallback,
+                    Expression::IndexAccess { collection, .. }
+                        if matches!(collection.as_ref(), Expression::IndexAccess { .. })
+                ),
+                "legacy expression must retain both indexes, got {fallback:#?}"
+            );
+            assert_eq!(leftmost_variable(fallback), Some("flush cache"));
         }
         other => panic!("expected FlushStreamStatement, got {other:#?}"),
     }

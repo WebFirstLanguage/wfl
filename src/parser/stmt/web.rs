@@ -454,7 +454,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                             let lead = Expression::Variable(rest, l, c);
                             self.parse_clause_operand_from_lead(lead)?
                         }
-                        None => self.parse_primary_expression()?,
+                        None => self.parse_unmerged_operand(true)?,
                     });
                 }
                 // Merged `content_type <var>` / `content type <var>` form.
@@ -476,7 +476,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                                 .unwrap_or("")
                         });
                     if rest.is_empty() {
-                        content_type = Some(self.parse_primary_expression()?);
+                        content_type = Some(self.parse_unmerged_operand(true)?);
                     } else {
                         let lead = Expression::Variable(rest.to_string(), id_line, id_column);
                         content_type = Some(self.parse_clause_operand_from_lead(lead)?);
@@ -493,7 +493,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                         .map(str::trim_start)
                         .unwrap_or("");
                     if rest.is_empty() {
-                        headers = Some(self.parse_primary_expression()?);
+                        headers = Some(self.parse_unmerged_operand(true)?);
                     } else {
                         // Clause operand: postfix/`of`/operators but stop before
                         // the next clause connective (`and content type`, `as`).
@@ -547,8 +547,8 @@ impl<'a> WebParser<'a> for Parser<'a> {
             .strip_prefix("flush")
             .map(str::trim_start)
             .unwrap_or("");
-        let (target, action_fallback) = if rest.is_empty() {
-            (self.parse_primary_expression()?, None)
+        let (target, legacy_binding, action_fallback) = if rest.is_empty() {
+            (self.parse_primary_expression()?, None, None)
         } else {
             // Stream reading: postfix on the split-off rest (`cache` from
             // `flush cache`). Legacy expression: same postfix on the FULL phrase
@@ -556,15 +556,17 @@ impl<'a> WebParser<'a> for Parser<'a> {
             // `at` keep their old expression-statement AST (issue #642 re-review).
             let cp = self.cursor.checkpoint();
             let stream_lead = Expression::Variable(rest.to_string(), line, column);
-            let target = self.parse_trailing_postfix(stream_lead)?;
+            let target = self.parse_seeded_expression_continuation(stream_lead, false)?;
             self.cursor.rewind(cp);
-            let legacy_lead = Expression::Variable(phrase.clone(), line, column);
-            let fallback = self.parse_trailing_postfix(legacy_lead)?;
-            (target, Some(fallback))
+            let legacy_binding = phrase.clone();
+            let legacy_lead = Expression::Variable(legacy_binding.clone(), line, column);
+            let fallback = self.parse_seeded_expression_continuation(legacy_lead, false)?;
+            (target, Some(legacy_binding), Some(fallback))
         };
 
         Ok(Statement::FlushStreamStatement {
             target,
+            legacy_binding,
             action_fallback,
             line,
             column,

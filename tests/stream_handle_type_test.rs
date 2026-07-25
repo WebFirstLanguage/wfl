@@ -194,14 +194,16 @@ fn test_write_and_flush_response_stream_is_ok() {
 }
 
 #[test]
-fn test_write_line_variable_to_file_path_is_ok() {
+fn test_write_line_variable_to_file_path_is_ok_when_classic_lead_is_defined() {
     // The AMBIGUOUS merged form (`write line <ident> ... to <target>`) carries a
-    // classic file-write fallback, so a text file-path target must NOT be rejected.
-    let code = "store payload as \"data\"\n\
+    // classic file-write fallback whose legacy variable is the full merged name
+    // (`line payload`). A concrete text path selects that branch, so its actual
+    // lead must be defined; the speculative stream lead (`payload`) need not be.
+    let code = "store line payload as \"data\"\n\
                 write line payload to \"/tmp/out.txt\"";
     assert!(
         typecheck(code).is_ok(),
-        "an ambiguous `write line <var> to <file>` must accept a text file target: {:?}",
+        "an ambiguous file write must accept its defined classic lead: {:?}",
         typecheck(code).err()
     );
 }

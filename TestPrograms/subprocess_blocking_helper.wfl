@@ -1,0 +1,4 @@
+// CI-SKIP: helper process for subprocess_comprehensive.wfl
+// Helper for subprocess_comprehensive.wfl. The integration runner skips this
+// standalone file; its parent starts it and proves live-process termination.
+wait for 10 seconds

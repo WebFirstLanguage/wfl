@@ -10,6 +10,9 @@
 use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
+use wfl::lexer::lex_wfl_with_positions;
+use wfl::parser::Parser;
+use wfl::typechecker::TypeChecker;
 
 fn run_src(src: &str) -> (String, Option<i32>) {
     let dir = TempDir::new().expect("tempdir");
@@ -153,4 +156,153 @@ fn flush_with_postfix_uses_legacy_expression_when_bound() {
         "flush cache[0] with a bound list must be an expression statement; output:\n{out}"
     );
     assert!(out.contains("OK"), "expected OK; output:\n{out}");
+}
+
+fn typecheck_src(src: &str) -> Result<(), String> {
+    let tokens = lex_wfl_with_positions(src);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    TypeChecker::new()
+        .check_types(&program)
+        .map_err(|errors| format!("{errors:?}"))
+}
+
+#[test]
+fn flush_with_nested_postfix_uses_the_recursive_legacy_root() {
+    let src = "store flush cache as [[\"a\"]]\n\
+               flush cache[0][0]\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "nested legacy postfix must resolve the full-name root; output:\n{out}"
+    );
+    assert!(out.contains("OK"), "expected OK; output:\n{out}");
+}
+
+#[test]
+fn flush_with_binary_expression_uses_the_legacy_binding() {
+    let src = "store flush cache as 1\n\
+               flush cache plus 1\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "binary legacy expression must resolve the full-name root; output:\n{out}"
+    );
+    assert!(out.contains("OK"), "expected OK; output:\n{out}");
+}
+
+#[test]
+fn flush_with_of_call_uses_the_full_legacy_action_name() {
+    let src = "define action called flush cache with parameters value:\n\
+               \x20\x20\x20\x20display value\n\
+               end action\n\
+               flush cache of 7\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "an `of` continuation must call the full legacy action name; output:\n{out}"
+    );
+    assert!(
+        out.contains('7'),
+        "the full-name action should receive its argument; output:\n{out}"
+    );
+}
+
+#[test]
+fn flush_split_rewrite_keeps_the_original_legacy_binding() {
+    let src = "store flush cache as 1\n\
+               flush cache split \"a,b\" by \",\"\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "split rewrite must still select the bound legacy expression; output:\n{out}"
+    );
+    assert!(out.contains("OK"), "expected OK; output:\n{out}");
+}
+
+#[test]
+fn flush_explicit_find_in_rewrite_keeps_the_original_legacy_binding() {
+    let src = "create pattern letter_a:\n\
+               \x20\x20\x20\x20\"a\"\n\
+               end pattern\n\
+               store flush cache as 1\n\
+               flush cache find letter_a in \"abc\"\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "explicit find-in rewrite must select the bound legacy expression; output:\n{out}"
+    );
+    assert!(out.contains("OK"), "expected OK; output:\n{out}");
+}
+
+#[test]
+fn flush_explicit_replace_in_rewrite_keeps_the_original_legacy_binding() {
+    let src = "create pattern letter_a:\n\
+               \x20\x20\x20\x20\"a\"\n\
+               end pattern\n\
+               store flush cache as 1\n\
+               flush cache replace letter_a with \"z\" in \"abc\"\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "explicit replace-in rewrite must select the bound legacy expression; output:\n{out}"
+    );
+    assert!(out.contains("OK"), "expected OK; output:\n{out}");
+}
+
+#[test]
+fn flush_direct_container_property_uses_the_legacy_expression_branch() {
+    let src = "create container Cache:\n\
+               \x20\x20\x20\x20property flush cache: Number\n\
+               \x20\x20\x20\x20action inspect:\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20flush cache plus 1\n\
+               \x20\x20\x20\x20end\n\
+               end";
+    assert!(
+        typecheck_src(src).is_ok(),
+        "a direct container property must select the legacy branch: {:?}",
+        typecheck_src(src).err()
+    );
+}
+
+#[test]
+fn flush_inherited_container_property_uses_the_legacy_expression_branch() {
+    let src = "create container Base:\n\
+               \x20\x20\x20\x20property flush cache: Number\n\
+               end\n\
+               create container Child extends Base:\n\
+               \x20\x20\x20\x20action inspect:\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20flush cache plus 1\n\
+               \x20\x20\x20\x20end\n\
+               end";
+    assert!(
+        typecheck_src(src).is_ok(),
+        "an inherited container property must select the legacy branch: {:?}",
+        typecheck_src(src).err()
+    );
+}
+
+#[test]
+fn flush_invalid_container_property_expression_is_statically_rejected() {
+    let src = "create container Cache:\n\
+               \x20\x20\x20\x20property flush cache: Text\n\
+               \x20\x20\x20\x20action inspect:\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20flush cache minus 1\n\
+               \x20\x20\x20\x20end\n\
+               end";
+    let errors = typecheck_src(src).expect_err("Text minus Number must be rejected");
+    assert!(
+        !errors.contains("`flush` requires a response-stream handle"),
+        "the bound property must be checked as the legacy expression, got: {errors}"
+    );
 }

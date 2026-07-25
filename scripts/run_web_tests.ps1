@@ -22,6 +22,52 @@ if ($Help) {
     exit 0
 }
 
+# Windows treats environment variable names case-insensitively, but a process
+# launched from a cross-platform host can still inherit both Path and PATH.
+# Windows PowerShell 5.1's Start-Process rejects that environment block. Keep a
+# single canonical key only when the duplicate values are identical; never
+# merge conflicting executable search paths.
+if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $processEnvironment = [System.Environment]::GetEnvironmentVariables(
+        [System.EnvironmentVariableTarget]::Process
+    )
+    $pathKeys = @(
+        $processEnvironment.Keys | Where-Object {
+            [string]::Equals(
+                [string]$_,
+                "Path",
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        }
+    )
+
+    if ($pathKeys.Count -gt 1) {
+        $pathValue = [string]$processEnvironment[$pathKeys[0]]
+        foreach ($pathKey in $pathKeys) {
+            if (-not [string]::Equals(
+                $pathValue,
+                [string]$processEnvironment[$pathKey],
+                [System.StringComparison]::Ordinal
+            )) {
+                throw "Conflicting case-variant PATH values in the process environment."
+            }
+        }
+
+        foreach ($pathKey in $pathKeys) {
+            [System.Environment]::SetEnvironmentVariable(
+                [string]$pathKey,
+                $null,
+                [System.EnvironmentVariableTarget]::Process
+            )
+        }
+        [System.Environment]::SetEnvironmentVariable(
+            "Path",
+            $pathValue,
+            [System.EnvironmentVariableTarget]::Process
+        )
+    }
+}
+
 Write-Host "[INFO] WFL Web Server Test Runner" -ForegroundColor Blue
 Write-Host "[INFO] ============================" -ForegroundColor Blue
 
@@ -150,6 +196,7 @@ function Test-WflWebServer {
     $outLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_$Port.out.log"
     $errLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_$Port.err.log"
     $serverProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $TestFile -NoNewWindow -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    $null = $serverProcess.Handle
 
     try {
         # Wait for the server to start, bounded by a real wall-clock deadline.
@@ -234,6 +281,7 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
     $routeOutLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_route.out.log"
     $routeErrLog = Join-Path ([System.IO.Path]::GetTempPath()) "wfl_web_route.err.log"
     $routeProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList "TestPrograms\web_route_params_test.wfl" -NoNewWindow -PassThru -RedirectStandardOutput $routeOutLog -RedirectStandardError $routeErrLog
+    $null = $routeProcess.Handle
 
     try {
         # Wall-clock deadline (see Test-WflWebServer) instead of a retry count.
@@ -331,6 +379,7 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
         # Distinct redirect targets under the (auto-cleaned) temp dir; the same
         # path for both streams errors on PowerShell 7.
         $tlsProcess = Start-Process -FilePath $absBinary -ArgumentList $absTest -WorkingDirectory $tlsDir -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $tlsDir "server.out.log") -RedirectStandardError (Join-Path $tlsDir "server.err.log")
+        $null = $tlsProcess.Handle
 
         try {
             # Probe readiness via the redirect port: it answers natively and does

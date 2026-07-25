@@ -104,6 +104,27 @@ const RESPONSE_STREAM_BUFFER: usize = 64;
 /// beyond this run as handlers free up (and the transport sheds 503 if its queue
 /// also fills).
 const CONCURRENT_HANDLER_LIMIT: usize = 256;
+const MAX_CONSECUTIVE_HANDLER_FAILURES: u32 = 256;
+const REQUEST_WAIT_TIMEOUT_PREFIX: &str = "Timeout waiting for request";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConcurrentHandlerDisposition {
+    RequestLocal,
+    Structural,
+}
+
+fn classify_concurrent_handler_error(
+    error: &RuntimeError,
+    accepted_request: bool,
+) -> ConcurrentHandlerDisposition {
+    let request_wait_timeout =
+        error.kind == ErrorKind::Timeout && error.message.starts_with(REQUEST_WAIT_TIMEOUT_PREFIX);
+    if accepted_request || error.kind == ErrorKind::Cancelled || request_wait_timeout {
+        ConcurrentHandlerDisposition::RequestLocal
+    } else {
+        ConcurrentHandlerDisposition::Structural
+    }
+}
 
 // Web server data structures
 #[derive(Debug)]
@@ -155,13 +176,12 @@ pub enum HandlerReply {
     },
 }
 
-/// Ensures an HTTP `respond` always resolves its request. The response sender is
-/// taken out of `pending_responses` (and out of its mutex) up front and held
-/// here; if a fallible step in `respond` returns early before a response is
-/// built, `Drop` answers 500 so the client is resolved deterministically instead
-/// of hanging until the request timeout. A successful `respond` calls
-/// [`ResponseCompletion::take_sender`] to disarm the fallback and deliver the
-/// real response.
+/// Ensures an HTTP `respond` always resolves its request after the commit point.
+/// Fallible response expressions are evaluated while the pending sender remains
+/// available as a disconnect signal. At commit, the sender is atomically removed
+/// and held here; if delivery then exits early, `Drop` answers 500 rather than
+/// leaving the client hanging. Successful delivery calls
+/// [`ResponseCompletion::take_sender`] to disarm that fallback.
 struct ResponseCompletion {
     sender: Option<oneshot::Sender<HandlerReply>>,
 }
@@ -944,7 +964,7 @@ impl Drop for OutboundStreamCleanup {
                 .unwrap_or_else(|e| e.into_inner());
             for id in &http_ids {
                 if let Some(mut slot) = map.remove(id) {
-                    slot.cancel.cancel();
+                    slot.cancel.terminate(StreamTerminal::Closed);
                     if let Some(abort) = slot.reaper_abort.take() {
                         abort.abort();
                     }
@@ -1700,7 +1720,34 @@ pub struct IoClient {
     /// short (no `.await` while held).
     stream_handles: Arc<std::sync::Mutex<HashMap<String, StreamSlot>>>,
     next_stream_id: Mutex<usize>,
+    /// Test-only live-task accounting. The production build carries no
+    /// instrumentation; unit tests retain a runtime and assert that closing a
+    /// stream actually drops its sleeping reaper instead of relying on runtime
+    /// shutdown to hide leaked timers.
+    #[cfg(test)]
+    active_stream_reapers: Arc<std::sync::atomic::AtomicUsize>,
     config: Arc<WflConfig>,
+}
+
+#[cfg(test)]
+struct ActiveStreamReaperGuard {
+    active: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl ActiveStreamReaperGuard {
+    fn new(active: Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self { active }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ActiveStreamReaperGuard {
+    fn drop(&mut self) {
+        self.active
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// Hard ceiling on `outbound_stream_max_seconds` when converting to an
@@ -1710,46 +1757,56 @@ const MAX_OUTBOUND_STREAM_DEADLINE_SECS: u64 = 365 * 24 * 60 * 60; // 1 year
 
 /// Compute the absolute stream deadline from a configured second cap.
 /// `0` is the documented sentinel for "no absolute total cap". Values above
-/// [`MAX_OUTBOUND_STREAM_DEADLINE_SECS`] are clamped; overflow uses
-/// `checked_add` and falls back to "no cap" rather than panicking.
+/// [`MAX_OUTBOUND_STREAM_DEADLINE_SECS`] are clamped before `Instant`
+/// arithmetic so even an extreme configuration remains finite and cannot
+/// panic.
 fn outbound_stream_deadline(secs: u64) -> Option<Instant> {
-    if secs == 0 {
-        return None;
-    }
-    let capped = secs.min(MAX_OUTBOUND_STREAM_DEADLINE_SECS);
-    Instant::now().checked_add(Duration::from_secs(capped))
+    let effective = outbound_stream_effective_seconds(secs)?;
+    Instant::now().checked_add(Duration::from_secs(effective))
+}
+
+fn outbound_stream_effective_seconds(secs: u64) -> Option<u64> {
+    (secs != 0).then(|| secs.min(MAX_OUTBOUND_STREAM_DEADLINE_SECS))
 }
 
 /// Shared per-stream cancellation: close, expire, and EOF all trip this so an
 /// active body read can select against it and drop the upstream promptly
 /// (rather than only noticing when `put_stream` finds a missing slot).
 struct StreamCancel {
-    cancelled: std::sync::atomic::AtomicBool,
-    notify: tokio::sync::Notify,
+    terminal: tokio::sync::watch::Sender<Option<StreamTerminal>>,
 }
 
 impl StreamCancel {
     fn new() -> Arc<Self> {
-        Arc::new(Self {
-            cancelled: std::sync::atomic::AtomicBool::new(false),
-            notify: tokio::sync::Notify::new(),
-        })
+        let (terminal, _receiver) = tokio::sync::watch::channel(None);
+        Arc::new(Self { terminal })
     }
 
-    fn is_cancelled(&self) -> bool {
-        self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+    fn terminal(&self) -> Option<StreamTerminal> {
+        *self.terminal.borrow()
     }
 
-    fn cancel(&self) {
-        self.cancelled
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        self.notify.notify_waiters();
+    fn terminate(&self, reason: StreamTerminal) -> StreamTerminal {
+        self.terminal.send_if_modified(|terminal| {
+            if terminal.is_none() {
+                *terminal = Some(reason);
+                true
+            } else {
+                false
+            }
+        });
+        self.terminal()
+            .expect("stream terminal reason must be set after terminate")
+    }
+
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<Option<StreamTerminal>> {
+        self.terminal.subscribe()
     }
 }
 
-/// Why a stream slot was terminated. Never left as a long-lived tombstone in the
-/// map — the slot is removed when finished; readers that still hold a cancel
-/// watch observe the flag.
+/// Why a stream slot was terminated. Timeout remains in the stable slot until
+/// the next read consumes it, so an unread expired handle keeps its typed
+/// terminal reason instead of degrading to an unknown-handle error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamTerminal {
     Timeout,
@@ -1759,9 +1816,10 @@ enum StreamTerminal {
 /// Per-handle shared lifecycle for an outbound stream.
 ///
 /// Reads take the inner [`HttpStreamHandle`] out for the duration of the await
-/// (so the global map lock is not held across the network). The slot stays only
-/// while the stream is live; finish/close/expire remove it entirely after
-/// signalling [`StreamCancel`] so mid-read work aborts.
+/// (so the global map lock is not held across the network). Explicit
+/// finish/close removes the slot after signalling [`StreamCancel`]; expiry
+/// records a timeout tombstone and drops the parked body so mid-read work aborts
+/// without losing the terminal reason.
 struct StreamSlot {
     /// The live body handle. `None` while a body read owns it.
     handle: Option<HttpStreamHandle>,
@@ -1923,6 +1981,8 @@ impl IoClient {
             next_db_id: Mutex::new(1),
             stream_handles: Arc::new(std::sync::Mutex::new(HashMap::new())),
             next_stream_id: Mutex::new(1),
+            #[cfg(test)]
+            active_stream_reapers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             config,
         }
     }
@@ -2061,9 +2121,7 @@ impl IoClient {
             Some(deadline) => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    return Err(HttpClientError::Timeout {
-                        seconds: self.config.outbound_stream_max_seconds,
-                    });
+                    return Err(self.outbound_stream_timeout_error());
                 }
                 idle_timeout.min(remaining)
             }
@@ -2145,15 +2203,21 @@ impl IoClient {
                 let handles = Arc::clone(&self.stream_handles);
                 let reap_id = handle_id.clone();
                 let cancel_reap = Arc::clone(&cancel);
+                #[cfg(test)]
+                let reaper_guard =
+                    ActiveStreamReaperGuard::new(Arc::clone(&self.active_stream_reapers));
                 let join = tokio::spawn(async move {
+                    #[cfg(test)]
+                    let _reaper_guard = reaper_guard;
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     tokio::time::sleep(remaining).await;
-                    // Absolute-lifetime reaper: signal cancel (wakes any active
-                    // read), abort is a no-op for ourselves, drop the handle, and
-                    // REMOVE the slot (no tombstone accumulation).
-                    cancel_reap.cancel();
+                    // Preserve a Timeout tombstone in the stable slot. This
+                    // wakes an active read with the typed reason and lets a
+                    // later read of an unread expired handle report Timeout
+                    // instead of "unknown handle".
                     let mut map = handles.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(mut slot) = map.remove(&reap_id) {
+                    if let Some(slot) = map.get_mut(&reap_id) {
+                        cancel_reap.terminate(StreamTerminal::Timeout);
                         slot.reaper_abort = None; // we are the reaper
                         drop(slot.handle.take());
                     }
@@ -2173,13 +2237,13 @@ impl IoClient {
     /// Signal cancel, abort the reaper, drop any parked handle, and remove the
     /// slot. Guaranteed (std mutex) — usable from Drop. Returns whether a slot
     /// was present.
-    fn finish_stream_slot_sync(&self, handle_id: &str, _terminal: StreamTerminal) -> bool {
+    fn finish_stream_slot_sync(&self, handle_id: &str, terminal: StreamTerminal) -> bool {
         let mut map = self
             .stream_handles
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         if let Some(mut slot) = map.remove(handle_id) {
-            slot.cancel.cancel();
+            slot.cancel.terminate(terminal);
             if let Some(abort) = slot.reaper_abort.take() {
                 abort.abort();
             }
@@ -2207,30 +2271,29 @@ impl IoClient {
                 "Unknown or already-closed stream handle '{handle_id}'"
             )));
         };
-        if slot.cancel.is_cancelled() {
-            // Fully finish and remove.
+        if let Some(terminal) = slot.cancel.terminal() {
+            // Consume the stable terminal tombstone.
             if let Some(mut slot) = map.remove(handle_id) {
                 if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
                 drop(slot.handle.take());
             }
-            return Err(HttpClientError::Closed);
+            return Err(self.stream_terminal_error(terminal));
         }
         let past_deadline = slot
             .deadline
             .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero());
         if past_deadline {
             if let Some(mut slot) = map.remove(handle_id) {
-                slot.cancel.cancel();
+                let terminal = slot.cancel.terminate(StreamTerminal::Timeout);
                 if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
                 drop(slot.handle.take());
+                return Err(self.stream_terminal_error(terminal));
             }
-            return Err(HttpClientError::Timeout {
-                seconds: self.config.outbound_stream_max_seconds,
-            });
+            return Err(self.outbound_stream_timeout_error());
         }
         let cancel = Arc::clone(&slot.cancel);
         match slot.handle.take() {
@@ -2249,12 +2312,11 @@ impl IoClient {
         handle: HttpStreamHandle,
         cancel: &StreamCancel,
     ) -> Result<(), HttpClientError> {
-        if cancel.is_cancelled() {
+        if let Some(terminal) = cancel.terminal() {
             drop(handle);
             // Ensure the slot is gone (reaper/close may already have removed it).
-            let _ = self.finish_stream_slot_sync(handle_id, StreamTerminal::Closed);
-            // Prefer Timeout if the absolute deadline has elapsed.
-            return Err(HttpClientError::Closed);
+            let _ = self.finish_stream_slot_sync(handle_id, terminal);
+            return Err(self.stream_terminal_error(terminal));
         }
         let mut map = self
             .stream_handles
@@ -2262,39 +2324,55 @@ impl IoClient {
             .unwrap_or_else(|e| e.into_inner());
         let Some(slot) = map.get_mut(handle_id) else {
             drop(handle);
-            return Err(HttpClientError::Closed);
+            return Err(cancel
+                .terminal()
+                .map(|terminal| self.stream_terminal_error(terminal))
+                .unwrap_or(HttpClientError::Closed));
         };
-        if slot.cancel.is_cancelled()
-            || slot
-                .deadline
-                .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
-        {
-            let terminal = if slot
+        let terminal = slot.cancel.terminal().or_else(|| {
+            if slot
                 .deadline
                 .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
             {
-                StreamTerminal::Timeout
+                Some(slot.cancel.terminate(StreamTerminal::Timeout))
             } else {
-                StreamTerminal::Closed
-            };
-            drop(handle);
-            if let Some(mut slot) = map.remove(handle_id) {
-                slot.cancel.cancel();
-                if let Some(abort) = slot.reaper_abort.take() {
-                    abort.abort();
-                }
+                None
             }
-            return Err(match terminal {
-                StreamTerminal::Timeout => HttpClientError::Timeout {
-                    seconds: self.config.outbound_stream_max_seconds,
-                },
-                StreamTerminal::Closed => HttpClientError::Closed,
-            });
+        });
+        if let Some(terminal) = terminal {
+            drop(handle);
+            if let Some(mut slot) = map.remove(handle_id)
+                && let Some(abort) = slot.reaper_abort.take()
+            {
+                abort.abort();
+            }
+            return Err(self.stream_terminal_error(terminal));
         }
-        // Done streams must not leave a parked reaper: finish fully on EOF
-        // after the final unterminated line is served (caller uses finish).
+        // A final unterminated line needs one subsequent read to produce
+        // `nothing`, matching the established WFL stream contract. Retain the
+        // exhausted handle for that one read, but abort its timer immediately
+        // so EOF never leaves a sleeping reaper task.
+        if handle.done
+            && let Some(abort) = slot.reaper_abort.take()
+        {
+            abort.abort();
+        }
         slot.handle = Some(handle);
         Ok(())
+    }
+
+    fn stream_terminal_error(&self, terminal: StreamTerminal) -> HttpClientError {
+        match terminal {
+            StreamTerminal::Timeout => self.outbound_stream_timeout_error(),
+            StreamTerminal::Closed => HttpClientError::Closed,
+        }
+    }
+
+    fn outbound_stream_timeout_error(&self) -> HttpClientError {
+        HttpClientError::Timeout {
+            seconds: outbound_stream_effective_seconds(self.config.outbound_stream_max_seconds)
+                .unwrap_or(self.config.timeout_seconds.max(1)),
+        }
     }
 
     /// Pull one network chunk into `handle.buffer`, bounded by the per-chunk
@@ -2312,8 +2390,9 @@ impl IoClient {
         if handle.done {
             return Ok(false);
         }
-        if cancel.is_cancelled() {
-            return Err(HttpClientError::Closed);
+        let mut terminal_rx = cancel.subscribe();
+        if let Some(terminal) = *terminal_rx.borrow() {
+            return Err(self.stream_terminal_error(terminal));
         }
         let max_response_bytes = budget.limits().max_response_bytes;
         let idle_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
@@ -2321,9 +2400,7 @@ impl IoClient {
             Some(deadline) => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    return Err(HttpClientError::Timeout {
-                        seconds: self.config.outbound_stream_max_seconds,
-                    });
+                    return Err(self.outbound_stream_timeout_error());
                 }
                 idle_timeout.min(remaining)
             }
@@ -2338,13 +2415,16 @@ impl IoClient {
         tokio::pin!(op);
         let next = tokio::select! {
             result = &mut op => result?,
-            _ = cancel.notify.notified() => {
-                return Err(HttpClientError::Closed);
+            changed = terminal_rx.changed() => {
+                let _ = changed;
+                let terminal = (*terminal_rx.borrow()).unwrap_or(StreamTerminal::Closed);
+                return Err(self.stream_terminal_error(terminal));
             }
         };
-        // Re-check after select (notify may have raced with a false wake).
-        if cancel.is_cancelled() {
-            return Err(HttpClientError::Closed);
+        // Re-check after select so a simultaneously-ready body chunk cannot win
+        // over an already-recorded hard deadline and be reinserted.
+        if let Some(terminal) = cancel.terminal() {
+            return Err(self.stream_terminal_error(terminal));
         }
 
         match next {
@@ -2379,9 +2459,7 @@ impl IoClient {
         if let Some(deadline) = handle.total_deadline
             && deadline.saturating_duration_since(Instant::now()).is_zero()
         {
-            return Err(HttpClientError::Timeout {
-                seconds: self.config.outbound_stream_max_seconds,
-            });
+            return Err(self.outbound_stream_timeout_error());
         }
         Ok(())
     }
@@ -2462,7 +2540,9 @@ impl IoClient {
                 if line.last() == Some(&b'\r') {
                     line.pop();
                 }
-                let _ = self.finish_stream_slot(handle_id).await;
+                // Preserve one exhausted read so the next wait binds `nothing`.
+                // `put_stream` aborts the reaper before parking a done handle.
+                self.put_stream(handle_id, handle, &cancel)?;
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
             }
 
@@ -4395,7 +4475,7 @@ impl Interpreter {
             .unwrap_or_else(|e| e.into_inner());
         for id in ids {
             if let Some(mut slot) = map.remove(id) {
-                slot.cancel.cancel();
+                slot.cancel.terminate(StreamTerminal::Closed);
                 if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
@@ -4740,7 +4820,6 @@ impl Interpreter {
         // iteration in between: back off between them, and terminate the loop once
         // it's clearly a structural failure rather than incidental handler errors.
         let mut consecutive_failures: u32 = 0;
-        const MAX_CONSECUTIVE_FAILURES: u32 = 256;
 
         loop {
             self.check_time()?;
@@ -4789,26 +4868,25 @@ impl Interpreter {
                 //
                 // Structural pre-request failures feed the breaker.
                 Some((Ok(Err(err)), accepted)) => {
-                    let is_request_wait_timeout = err.kind == ErrorKind::Timeout
-                        && err.message.starts_with("Timeout waiting for request");
-                    let non_structural =
-                        accepted || err.kind == ErrorKind::Cancelled || is_request_wait_timeout;
-                    if non_structural {
-                        log::debug!(
-                            "concurrent main loop: non-structural handler outcome \
-                             (kind={:?}, accepted_request={accepted}): {err}",
-                            err.kind
-                        );
-                    } else {
-                        log::warn!("concurrent main loop: structural handler error: {err}");
-                        if self
-                            .backoff_or_break_concurrent(
-                                &mut consecutive_failures,
-                                MAX_CONSECUTIVE_FAILURES,
-                            )
-                            .await
-                        {
-                            break;
+                    match classify_concurrent_handler_error(&err, accepted) {
+                        ConcurrentHandlerDisposition::RequestLocal => {
+                            log::debug!(
+                                "concurrent main loop: non-structural handler outcome \
+                                 (kind={:?}, accepted_request={accepted}): {err}",
+                                err.kind
+                            );
+                        }
+                        ConcurrentHandlerDisposition::Structural => {
+                            log::warn!("concurrent main loop: structural handler error: {err}");
+                            if self
+                                .backoff_or_break_concurrent(
+                                    &mut consecutive_failures,
+                                    MAX_CONSECUTIVE_HANDLER_FAILURES,
+                                )
+                                .await
+                            {
+                                break;
+                            }
                         }
                     }
                 }
@@ -4829,7 +4907,7 @@ impl Interpreter {
                         if self
                             .backoff_or_break_concurrent(
                                 &mut consecutive_failures,
-                                MAX_CONSECUTIVE_FAILURES,
+                                MAX_CONSECUTIVE_HANDLER_FAILURES,
                             )
                             .await
                         {
@@ -9477,7 +9555,7 @@ impl Interpreter {
                                     // down after enough empty poll intervals.
                                     return Err(RuntimeError::with_kind(
                                         format!(
-                                            "Timeout waiting for request ({} ms)",
+                                            "{REQUEST_WAIT_TIMEOUT_PREFIX} ({} ms)",
                                             duration.as_millis()
                                         ),
                                         *line,
@@ -10242,6 +10320,7 @@ impl Interpreter {
             }
             Statement::FlushStreamStatement {
                 target,
+                legacy_binding,
                 action_fallback,
                 line,
                 column,
@@ -10252,21 +10331,9 @@ impl Interpreter {
                 // evaluate it with the same ExpressionStatement semantics
                 // (zero-arg auto-call; parameterized bare call → arity error).
                 if let Some(fallback_expr) = action_fallback {
-                    let root_name = match fallback_expr {
-                        Expression::Variable(n, ..) => Some(n.as_str()),
-                        Expression::IndexAccess { collection, .. }
-                        | Expression::PropertyAccess {
-                            object: collection, ..
-                        }
-                        | Expression::MethodCall {
-                            object: collection, ..
-                        } => match collection.as_ref() {
-                            Expression::Variable(n, ..) => Some(n.as_str()),
-                            _ => None,
-                        },
-                        _ => None,
-                    };
-                    let root_bound = root_name.is_some_and(|n| env.borrow().get(n).is_some());
+                    let root_bound = legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| env.borrow().get(name).is_some());
                     if root_bound {
                         // Reuse ExpressionStatement semantics by dispatching a
                         // synthetic statement.
@@ -14229,13 +14296,155 @@ impl Interpreter {
 }
 
 #[cfg(test)]
+mod concurrent_handler_classification_tests {
+    use super::*;
+
+    fn error(kind: ErrorKind, message: &str) -> RuntimeError {
+        RuntimeError::with_kind(message.to_string(), 1, 1, kind)
+    }
+
+    #[test]
+    fn more_than_the_breaker_threshold_of_request_wait_timeouts_stays_request_local() {
+        let timeout = error(
+            ErrorKind::Timeout,
+            &format!("{REQUEST_WAIT_TIMEOUT_PREFIX} (1 ms)"),
+        );
+        for observed in 0..=MAX_CONSECUTIVE_HANDLER_FAILURES {
+            assert_eq!(
+                classify_concurrent_handler_error(&timeout, false),
+                ConcurrentHandlerDisposition::RequestLocal,
+                "finite request-wait timeout #{observed} must not feed the structural breaker"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_expected_timeout_origin_is_exempt_before_request_acceptance() {
+        let structural_timeout = error(
+            ErrorKind::Timeout,
+            "unrelated pre-request operation timed out",
+        );
+        assert_eq!(
+            classify_concurrent_handler_error(&structural_timeout, false),
+            ConcurrentHandlerDisposition::Structural
+        );
+        assert_eq!(
+            classify_concurrent_handler_error(&error(ErrorKind::General, "request failed"), true),
+            ConcurrentHandlerDisposition::RequestLocal,
+            "any failure after request acceptance is isolated to that request"
+        );
+        assert_eq!(
+            classify_concurrent_handler_error(
+                &error(ErrorKind::Cancelled, "client disconnected"),
+                false,
+            ),
+            ConcurrentHandlerDisposition::RequestLocal
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_pending_entry_is_cancelled_only_while_the_handler_owns_it() {
+        let interpreter = Interpreter::new();
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-1".to_string());
+
+        let disconnected = interpreter
+            .ensure_pending_response_owned("request-1", 1, 1)
+            .await
+            .expect_err("owned-but-pruned pending entry must be cancellation");
+        assert_eq!(disconnected.kind, ErrorKind::Cancelled);
+
+        interpreter.open_pending_requests.borrow_mut().clear();
+        let duplicate = interpreter
+            .ensure_pending_response_owned("request-1", 1, 1)
+            .await
+            .expect_err("non-owned missing entry must remain a duplicate-response error");
+        assert_eq!(duplicate.kind, ErrorKind::General);
+        assert!(
+            duplicate.message.contains("already been sent"),
+            "duplicate response diagnostic changed unexpectedly: {duplicate}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod outbound_stream_deadline_tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn spawn_stream_cleanup_upstream(expected_requests: usize) -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stream cleanup upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        tokio::spawn(async move {
+            for _ in 0..expected_requests {
+                let (mut socket, _) = listener.accept().await.expect("accept cleanup request");
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buf = [0u8; 512];
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        let read = socket.read(&mut buf).await.expect("read request head");
+                        if read == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buf[..read]);
+                    }
+                    let request = String::from_utf8_lossy(&request);
+                    let truncated = request.starts_with("GET /truncated ");
+                    let response = if truncated {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nx"
+                    } else {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    };
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write response");
+                    socket.flush().await.expect("flush response");
+                });
+            }
+        });
+        port
+    }
+
+    async fn assert_reapers_drained(client: &IoClient) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if client
+                    .active_stream_reapers
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    == 0
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("finished streams left hard-lifetime reaper tasks sleeping");
+    }
 
     #[test]
     fn extreme_outbound_stream_max_seconds_does_not_panic() {
-        // u64::MAX must not panic Instant arithmetic (clamped / checked_add).
-        let _ = outbound_stream_deadline(u64::MAX);
+        // u64::MAX must remain a finite cap rather than panicking or silently
+        // disabling the hard lifetime.
+        let before = Instant::now();
+        let extreme = outbound_stream_deadline(u64::MAX)
+            .expect("an extreme positive cap must still produce a finite deadline");
+        let effective = extreme.saturating_duration_since(before);
+        assert!(
+            effective <= Duration::from_secs(MAX_OUTBOUND_STREAM_DEADLINE_SECS + 1),
+            "extreme values must be clamped to the documented implementation ceiling; \
+             got {effective:?}"
+        );
+        assert_eq!(
+            outbound_stream_effective_seconds(u64::MAX),
+            Some(MAX_OUTBOUND_STREAM_DEADLINE_SECS),
+            "timeout diagnostics must report the effective clamp, not u64::MAX"
+        );
         assert!(
             outbound_stream_deadline(0).is_none(),
             "0 is the documented sentinel for no absolute total cap"
@@ -14247,6 +14456,136 @@ mod outbound_stream_deadline_tests {
         assert!(
             outbound_stream_deadline(MAX_OUTBOUND_STREAM_DEADLINE_SECS).is_some(),
             "the clamp ceiling itself must still produce a deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn eof_error_and_rapid_close_cancel_reaper_tasks_on_a_retained_runtime() {
+        const RAPID_CLOSES: usize = 40;
+        let port = spawn_stream_cleanup_upstream(RAPID_CLOSES + 2).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 60 * 60,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+
+        for sequence in 0..RAPID_CLOSES {
+            let (_, _, handle) = client
+                .open_http_stream(
+                    "GET",
+                    &format!("http://127.0.0.1:{port}/close/{sequence}"),
+                    &[],
+                    None,
+                    Arc::clone(&budget),
+                )
+                .await
+                .expect("open stream for explicit close");
+            assert!(
+                client.finish_stream_slot(&handle).await,
+                "explicit close should remove its live stream"
+            );
+        }
+
+        let (_, _, eof_handle) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/empty"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open empty stream");
+        assert_eq!(
+            client
+                .next_chunk(&eof_handle, Arc::clone(&budget))
+                .await
+                .expect("clean EOF"),
+            None
+        );
+
+        let (_, _, error_handle) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/truncated"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open truncated stream");
+        let first = client.next_chunk(&error_handle, Arc::clone(&budget)).await;
+        let terminal = match first {
+            Ok(Some(_)) => client.next_chunk(&error_handle, budget).await,
+            other => other,
+        };
+        assert!(
+            matches!(terminal, Err(HttpClientError::Request(_))),
+            "a truncated body should end as a network read error, got {terminal:?}"
+        );
+
+        // Keep this Tokio runtime alive while observing the task count. Runtime
+        // shutdown would cancel leaked timers and make this regression false-green.
+        assert_reapers_drained(&client).await;
+        assert!(
+            client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "EOF, error, and explicit close must remove every stream slot"
+        );
+    }
+
+    #[test]
+    fn a_ready_read_result_cannot_reinsert_after_expiry_claims_the_slot() {
+        let client = IoClient::new(Arc::new(WflConfig {
+            outbound_stream_max_seconds: 1,
+            ..WflConfig::default()
+        }));
+        let handle_id = "httpstream-race";
+        let cancel = StreamCancel::new();
+        client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                handle_id.to_string(),
+                StreamSlot {
+                    handle: Some(HttpStreamHandle {
+                        // Model a network chunk that became ready while the read
+                        // owned the handle.
+                        stream: Box::pin(futures_util::stream::iter([Ok(vec![1u8])])),
+                        buffer: vec![1],
+                        done: false,
+                        bytes_read: 1,
+                        total_deadline: outbound_stream_deadline(1),
+                    }),
+                    deadline: outbound_stream_deadline(1),
+                    cancel: Arc::clone(&cancel),
+                    reaper_abort: None,
+                },
+            );
+
+        let TakenStream { handle, cancel } = client
+            .take_stream(handle_id)
+            .expect("active read takes body");
+        cancel.terminate(StreamTerminal::Timeout);
+        let result = client.put_stream(handle_id, handle, &cancel);
+
+        assert!(
+            matches!(result, Err(HttpClientError::Timeout { .. })),
+            "expiry must win over a ready body result, got {result:?}"
+        );
+        assert!(
+            !client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains_key(handle_id),
+            "an expired handle must never be reinserted after its active read"
         );
     }
 }

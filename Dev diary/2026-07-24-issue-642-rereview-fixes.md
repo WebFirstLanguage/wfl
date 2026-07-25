@@ -1,5 +1,10 @@
 # Dev Diary — 2026-07-24: issue #642 re-review fixes
 
+> **Superseded:** this records an intermediate branch state. The completion
+> audit found remaining typed-timeout, EOF, parser, container-property, and test
+> evidence gaps. See `2026-07-24-issue-642-completion.md` for the corrected
+> design and final evidence.
+
 Follow-up to the maintainer checklist on the #642 round.
 
 ## CI

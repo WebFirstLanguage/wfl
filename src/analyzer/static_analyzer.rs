@@ -1355,8 +1355,26 @@ impl Analyzer {
                     self.mark_used_in_expression(fallback, usages);
                 }
             }
-            Statement::FlushStreamStatement { target, .. } => {
+            Statement::FlushStreamStatement {
+                target,
+                legacy_binding,
+                action_fallback,
+                ..
+            } => {
+                // The runtime chooses between the stream target and the legacy
+                // expression interpretation. Mark both conservatively, matching
+                // ambiguous stream writes, and mark the preserved merged binding
+                // separately because split/find/replace rewrites may legitimately
+                // discard that seed from the fallback AST.
                 self.mark_used_in_expression(target, usages);
+                if let Some(name) = legacy_binding
+                    && let Some(usage) = usages.get_mut(name)
+                {
+                    usage.used = true;
+                }
+                if let Some(fallback) = action_fallback {
+                    self.mark_used_in_expression(fallback, usages);
+                }
             }
             Statement::HttpStreamStatement {
                 url,
@@ -2245,6 +2263,37 @@ display ln";
             diagnostics[0].message.contains("dead"),
             "expected the unused diagnostic to name `dead`, got: {:?}",
             diagnostics[0].message
+        );
+    }
+
+    #[test]
+    fn test_legacy_flush_binding_and_fallback_operands_are_not_reported_unused() {
+        // `replace ... in ...` rewrites the expression AST and discards its
+        // seeded `flush cache` leaf. The explicit legacy-binding metadata must
+        // therefore count that declaration as used independently of the
+        // rewritten target/fallback expression.
+        let input = "create pattern letter_a:\n\
+                     \x20\x20\x20\x20\"a\"\n\
+                     end pattern\n\
+                     store flush cache as 1\n\
+                     store replacement_value as \"z\"\n\
+                     store text_value as \"abc\"\n\
+                     flush cache replace letter_a with replacement_value in text_value\n\
+                     store dead as \"never read\"";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected only `dead` unused, got: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics[0].message.contains("dead"),
+            "the legacy binding and fallback operands must count as used; got: {diagnostics:?}"
         );
     }
 

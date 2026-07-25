@@ -1,5 +1,9 @@
 # Dev Diary — 2026-07-24: issue #642 PR #641 follow-up P1s
 
+> **Superseded:** this records the first implementation pass, not the final
+> verified state. See `2026-07-24-issue-642-completion.md` for the subsequent
+> correctness fixes and strengthened R3 evidence.
+
 Follow-up to the exact-head re-review of #641 (`b25aed57`). CI was green but five
 P1 lifecycle/compatibility blockers remained. Risk class **R3** (concurrency,
 cancellation, lifecycle, streaming, compatibility).

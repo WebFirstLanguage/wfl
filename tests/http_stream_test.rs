@@ -219,6 +219,12 @@ async fn test_next_line_returns_final_unterminated_line() {
         wait for next line from up as a
         wait for next line from up as b
         wait for next line from up as c
+        store closed_after_eof as no
+        try:
+            wait for next line from up as d
+        catch:
+            store closed_after_eof as yes
+        end try
         "#
     );
     let interpreter = run_wfl(&code).await;
@@ -228,6 +234,10 @@ async fn test_next_line_returns_final_unterminated_line() {
         Value::Null => {}
         other => panic!("Expected nothing at EOF, got {other:?}"),
     }
+    assert!(
+        matches!(get_var(&interpreter, "closed_after_eof"), Value::Bool(true)),
+        "the one EOF result must consume the exhausted handle; a later read is catchably closed"
+    );
 }
 
 #[tokio::test]

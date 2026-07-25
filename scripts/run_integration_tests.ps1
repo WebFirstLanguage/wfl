@@ -22,6 +22,52 @@ if ($Help) {
     exit 0
 }
 
+# Windows treats environment variable names case-insensitively, but a process
+# launched from a cross-platform host can still inherit both Path and PATH.
+# Windows PowerShell 5.1's Start-Process rejects that environment block. Keep a
+# single canonical key only when the duplicate values are identical; never
+# merge conflicting executable search paths.
+if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $processEnvironment = [System.Environment]::GetEnvironmentVariables(
+        [System.EnvironmentVariableTarget]::Process
+    )
+    $pathKeys = @(
+        $processEnvironment.Keys | Where-Object {
+            [string]::Equals(
+                [string]$_,
+                "Path",
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        }
+    )
+
+    if ($pathKeys.Count -gt 1) {
+        $pathValue = [string]$processEnvironment[$pathKeys[0]]
+        foreach ($pathKey in $pathKeys) {
+            if (-not [string]::Equals(
+                $pathValue,
+                [string]$processEnvironment[$pathKey],
+                [System.StringComparison]::Ordinal
+            )) {
+                throw "Conflicting case-variant PATH values in the process environment."
+            }
+        }
+
+        foreach ($pathKey in $pathKeys) {
+            [System.Environment]::SetEnvironmentVariable(
+                [string]$pathKey,
+                $null,
+                [System.EnvironmentVariableTarget]::Process
+            )
+        }
+        [System.Environment]::SetEnvironmentVariable(
+            "Path",
+            $pathValue,
+            [System.EnvironmentVariableTarget]::Process
+        )
+    }
+}
+
 Write-Host "[INFO] WFL Integration Test Runner" -ForegroundColor Blue
 Write-Host "[INFO] ==========================" -ForegroundColor Blue
 
@@ -112,7 +158,8 @@ $SkipTests = @(
     "websocket_test.wfl",         # WebSocket - needs WS client
     "web_route_params_test.wfl",  # Web server - tested via run_web_tests.ps1
     "module_helper.wfl",          # Helper module, not a standalone program
-    "module_bare_zero_arg_helper.wfl" # Helper module for #592 fixture, not standalone
+    "module_bare_zero_arg_helper.wfl", # Helper module for #592 fixture, not standalone
+    "subprocess_blocking_helper.wfl" # Helper process for subprocess_comprehensive.wfl
 )
 
 # Tests that intentionally end with an error; they pass when wfl exits nonzero
@@ -172,6 +219,10 @@ if (-not (Test-Path "TestPrograms")) {
             $outFile = New-TemporaryFile
             $errFile = New-TemporaryFile
             $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflArgs -NoNewWindow -PassThru -RedirectStandardOutput $outFile.FullName -RedirectStandardError $errFile.FullName
+            # Windows PowerShell 5.1 can discard the process handle before a
+            # timed WaitForExit, leaving ExitCode null. Materialize it while the
+            # child is live so timeout and exit-code assertions remain valid.
+            $null = $process.Handle
             $completed = $process.WaitForExit($TestTimeout * 1000)
 
             $isExpectedFail = $ExpectedFailTests -contains $wflFile.Name

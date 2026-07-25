@@ -90,6 +90,10 @@ async fn test_active_read_near_deadline_surfaces_timeout_and_drops_upstream() {
         .expect("upstream close sender dropped");
     let elapsed = start.elapsed();
     assert!(
+        elapsed >= Duration::from_millis(700),
+        "the 1s hard lifetime must not fire as an unrelated immediate error; took {elapsed:?}"
+    );
+    assert!(
         elapsed < Duration::from_secs(3),
         "upstream should drop near the 1s absolute cap, not the 30s idle timeout; took {elapsed:?}"
     );
@@ -105,22 +109,21 @@ async fn test_active_read_near_deadline_surfaces_timeout_and_drops_upstream() {
 
     let msg = result.expect_err("active read past absolute cap must fail (Timeout), not succeed");
     assert!(
-        msg.to_lowercase().contains("timeout")
-            || msg.contains("Timeout")
-            || msg.contains("outbound"),
-        "expected a typed Timeout-class error, got: {msg}"
+        msg.contains("kind: Timeout"),
+        "absolute-cap cancellation must preserve ErrorKind::Timeout, got: {msg}"
     );
     assert!(
-        !msg.to_lowercase().contains("unknown or already-closed"),
-        "expired slot must surface Timeout, not 'unknown/already-closed'; got: {msg}"
+        !msg.to_lowercase().contains("closed"),
+        "expired slot must surface Timeout, not a closed-stream error; got: {msg}"
     );
 }
 
 #[tokio::test]
-async fn test_rapid_open_close_does_not_leak_reaper_tasks() {
+async fn test_rapid_open_close_completes_against_stalled_upstreams() {
     // Open and immediately close many outbound streams against a real (stalling)
-    // upstream. Each close must abort its reaper timer so resource usage stays
-    // bounded (not request-rate × cap sleeping tasks).
+    // upstream. This real-socket smoke test proves close does not wait for the hard
+    // lifetime. Sleeping-task accounting itself is asserted by the retained-runtime
+    // unit test in `interpreter::tests`, where runtime shutdown cannot hide a leak.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -149,8 +152,8 @@ async fn test_rapid_open_close_does_not_leak_reaper_tasks() {
         }
     });
 
-    // Cap is large (60s) so a leaked reaper would still be parked after the program
-    // ends if timers were not aborted on close. We open/close 40 streams quickly.
+    // Cap is large (60s); explicit close must still complete promptly for all 40
+    // sequential real upstreams.
     let mut lines = String::new();
     for i in 0..40 {
         lines.push_str(&format!(
@@ -178,15 +181,20 @@ async fn test_rapid_open_close_does_not_leak_reaper_tasks() {
                 .expect("rapid open/close must succeed");
         });
     });
-    match tokio::task::spawn_blocking(move || client.join()).await {
-        Ok(Ok(())) => {}
-        Ok(Err(panic)) => std::panic::resume_unwind(panic),
-        Err(e) => panic!("client join failed: {e}"),
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !client.is_finished() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("rapid open/close client did not finish within 20 seconds");
+    if let Err(panic) = client.join() {
+        std::panic::resume_unwind(panic);
     }
     let elapsed = start.elapsed();
     // Should finish in well under the 60s cap (and under a few seconds of network).
     assert!(
         elapsed < Duration::from_secs(20),
-        "rapid open/close should finish promptly with reapers aborted; took {elapsed:?}"
+        "rapid open/close should finish without waiting for the 60s hard cap; took {elapsed:?}"
     );
 }

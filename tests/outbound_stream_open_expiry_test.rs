@@ -120,3 +120,40 @@ wait for 6000 milliseconds"#
         Err(e) => panic!("client join task failed: {e}"),
     }
 }
+
+#[tokio::test]
+async fn test_read_after_unread_stream_expiry_reports_typed_timeout() {
+    let (port, upstream_closed) = spawn_head_then_stall_upstream().await;
+    let code = format!(
+        r#"open url at "http://127.0.0.1:{port}/" and stream response as s
+wait for 1200 milliseconds
+wait for next chunk from s as chunk"#
+    );
+
+    let tokens = lex_wfl_with_positions(&code);
+    let program = Parser::new(&tokens).parse().expect("parse");
+    let config = WflConfig {
+        timeout_seconds: 30,
+        outbound_stream_max_seconds: 1,
+        ..WflConfig::default()
+    };
+    let mut interp = Interpreter::with_config(Arc::new(config));
+    let errors = interp
+        .interpret(&program)
+        .await
+        .expect_err("reading a stream after its hard deadline must fail");
+    let message = format!("{errors:?}");
+
+    assert!(
+        message.contains("kind: Timeout"),
+        "expired stream must preserve ErrorKind::Timeout, got: {message}"
+    );
+    assert!(
+        !message.to_lowercase().contains("unknown or already-closed"),
+        "expired stream must not degrade to an unknown-handle error: {message}"
+    );
+    tokio::time::timeout(Duration::from_secs(2), upstream_closed)
+        .await
+        .expect("expired unread stream should drop its upstream")
+        .expect("upstream close sender dropped");
+}

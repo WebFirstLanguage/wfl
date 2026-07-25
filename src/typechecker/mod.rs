@@ -1082,7 +1082,7 @@ impl TypeChecker {
                     // Concrete response stream: the stream reading is taken.
                     // Report undefined names on this branch (analyzer may have
                     // stayed silent because the classic lead alone was defined).
-                    self.check_expression_names_defined(value, *line, *column);
+                    self.check_expression_names_defined(value);
                     let value_type = self.infer_expression_type(value);
                     self.check_streamable_payload(&value_type, *line, *column);
                 } else if has_fallback
@@ -1093,7 +1093,7 @@ impl TypeChecker {
                     // the classic file-write reading is taken. Validate the
                     // fallback (including definedness), not the stream `value`.
                     if let Some(fallback) = fallback_content {
-                        self.check_expression_names_defined(fallback, *line, *column);
+                        self.check_expression_names_defined(fallback);
                         let _ = self.infer_expression_type(fallback);
                     }
                 } else if self.is_gradual_type(&target_type) {
@@ -1102,11 +1102,11 @@ impl TypeChecker {
                     // validate EVERY viable branch (not "accept if either is ok"),
                     // so a valid file fallback cannot mask an invalid stream
                     // payload or an undefined stream lead (issue #642).
-                    self.check_expression_names_defined(value, *line, *column);
+                    self.check_expression_names_defined(value);
                     let value_type = self.infer_expression_type(value);
                     self.check_streamable_payload(&value_type, *line, *column);
                     if let Some(fallback) = fallback_content {
-                        self.check_expression_names_defined(fallback, *line, *column);
+                        self.check_expression_names_defined(fallback);
                         let _ = self.infer_expression_type(fallback);
                     }
                 } else {
@@ -1125,6 +1125,7 @@ impl TypeChecker {
             }
             Statement::FlushStreamStatement {
                 target,
+                legacy_binding,
                 action_fallback,
                 line,
                 column,
@@ -1132,24 +1133,9 @@ impl TypeChecker {
                 // Legacy full-name expression (e.g. Variable("flush cache") or
                 // IndexAccess over it): when its root is bound, typecheck that
                 // expression. Otherwise this is a stream flush.
-                let legacy_root = action_fallback.as_ref().and_then(|e| match e {
-                    Expression::Variable(n, ..) => Some(n.as_str()),
-                    Expression::IndexAccess { collection, .. }
-                    | Expression::PropertyAccess {
-                        object: collection, ..
-                    }
-                    | Expression::MethodCall {
-                        object: collection, ..
-                    } => match &**collection {
-                        Expression::Variable(n, ..) => Some(n.as_str()),
-                        _ => None,
-                    },
-                    _ => None,
-                });
-                let is_expression_fallback = legacy_root.is_some_and(|name| {
-                    self.action_signatures(name).is_some()
-                        || self.analyzer.get_symbol(name).is_some()
-                });
+                let is_expression_fallback = legacy_binding
+                    .as_deref()
+                    .is_some_and(|name| self.name_is_defined_for_write(name));
                 if is_expression_fallback {
                     if let Some(fb) = action_fallback {
                         let _ = self.infer_expression_type(fb);
@@ -3131,6 +3117,8 @@ impl TypeChecker {
                         // where a concrete type is required at runtime.
                         Type::Unknown
                     }
+                } else if let Some(property_type) = self.current_container_property_type(name) {
+                    property_type
                 } else {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
@@ -4931,22 +4919,55 @@ impl TypeChecker {
     /// may have stayed silent on a one-sided undefined lead because the other
     /// reading was defined (issue #642).
     fn name_is_defined_for_write(&self, name: &str) -> bool {
-        // Match analyzer `name_is_defined` so container properties and inherited
-        // bindings are not false-rejected on the selected write branch.
-        self.analyzer.name_is_defined_for_write(name)
+        if self.analyzer.name_is_defined_for_write(name) {
+            return true;
+        }
+
+        self.current_container_property_type(name).is_some()
+    }
+
+    /// Resolve a direct or inherited property against the typechecker's live
+    /// container context. The analyzer has restored its own container context
+    /// by the time method bodies are typechecked, so both definedness and type
+    /// inference must use this view.
+    fn current_container_property_type(&self, name: &str) -> Option<Type> {
+        // Analyzer has already completed its container walk and restored its
+        // own `current_container` by the time TypeChecker revisits method
+        // bodies. Use TypeChecker's live container context here so direct and
+        // inherited properties remain defined on the selected write branch.
+        let mut container_name = self.current_container.as_deref();
+        while let Some(container_key) = container_name {
+            let Some(container) = self.analyzer.get_container(container_key) else {
+                break;
+            };
+            if let Some(property) = container
+                .properties
+                .get(name)
+                .or_else(|| container.static_properties.get(name))
+            {
+                return Some(property.property_type.clone());
+            }
+            container_name = container.extends.as_deref();
+        }
+
+        None
     }
 
     /// Walk an expression and report every undefined bare name. Used for the
     /// selected (or every viable gradual) `write line|chunk` branch so a missing
     /// classic `line <ident>` lead is not accepted just because the stream lead
     /// alone exists (and vice versa).
-    fn check_expression_names_defined(
-        &mut self,
-        expression: &Expression,
-        line: usize,
-        column: usize,
-    ) {
+    fn check_expression_names_defined(&mut self, expression: &Expression) {
         match expression {
+            Expression::Literal(Literal::List(items), ..) => {
+                for item in items {
+                    self.check_expression_names_defined(item);
+                }
+            }
+            Expression::Literal(_, _, _)
+            | Expression::StaticMemberAccess { .. }
+            | Expression::CurrentTimeMilliseconds { .. }
+            | Expression::CurrentTimeFormatted { .. } => {}
             Expression::Variable(name, l, c) => {
                 if !self.name_is_defined_for_write(name) {
                     self.type_error(
@@ -4980,32 +5001,47 @@ impl TypeChecker {
                 delimiter: right,
                 ..
             } => {
-                self.check_expression_names_defined(left, line, column);
-                self.check_expression_names_defined(right, line, column);
+                self.check_expression_names_defined(left);
+                self.check_expression_names_defined(right);
             }
             Expression::UnaryOperation {
                 expression: inner, ..
             }
             | Expression::AwaitExpression {
                 expression: inner, ..
+            }
+            | Expression::FileExists { path: inner, .. }
+            | Expression::DirectoryExists { path: inner, .. }
+            | Expression::ListFiles { path: inner, .. }
+            | Expression::ReadContent {
+                file_handle: inner, ..
+            }
+            | Expression::ReadBinaryContent {
+                file_handle: inner, ..
+            }
+            | Expression::FileSizeOf {
+                file_handle: inner, ..
+            }
+            | Expression::ProcessRunning {
+                process_id: inner, ..
             } => {
-                self.check_expression_names_defined(inner, line, column);
+                self.check_expression_names_defined(inner);
             }
             Expression::IndexAccess {
                 collection, index, ..
             } => {
-                self.check_expression_names_defined(collection, line, column);
-                self.check_expression_names_defined(index, line, column);
+                self.check_expression_names_defined(collection);
+                self.check_expression_names_defined(index);
             }
             Expression::PropertyAccess { object, .. } | Expression::MemberAccess { object, .. } => {
-                self.check_expression_names_defined(object, line, column);
+                self.check_expression_names_defined(object);
             }
             Expression::MethodCall {
                 object, arguments, ..
             } => {
-                self.check_expression_names_defined(object, line, column);
+                self.check_expression_names_defined(object);
                 for arg in arguments {
-                    self.check_expression_names_defined(&arg.value, line, column);
+                    self.check_expression_names_defined(&arg.value);
                 }
             }
             Expression::FunctionCall {
@@ -5013,14 +5049,14 @@ impl TypeChecker {
                 arguments,
                 ..
             } => {
-                self.check_expression_names_defined(function, line, column);
+                self.check_expression_names_defined(function);
                 for arg in arguments {
-                    self.check_expression_names_defined(&arg.value, line, column);
+                    self.check_expression_names_defined(&arg.value);
                 }
             }
             Expression::ActionCall { arguments, .. } => {
                 for arg in arguments {
-                    self.check_expression_names_defined(&arg.value, line, column);
+                    self.check_expression_names_defined(&arg.value);
                 }
             }
             Expression::PatternReplace {
@@ -5029,16 +5065,48 @@ impl TypeChecker {
                 replacement,
                 ..
             } => {
-                self.check_expression_names_defined(text, line, column);
-                self.check_expression_names_defined(pattern, line, column);
-                self.check_expression_names_defined(replacement, line, column);
+                self.check_expression_names_defined(text);
+                self.check_expression_names_defined(pattern);
+                self.check_expression_names_defined(replacement);
             }
             Expression::HeaderAccess { request, .. } => {
-                self.check_expression_names_defined(request, line, column);
+                self.check_expression_names_defined(request);
             }
-            // Literals and other leaves need no definedness walk.
-            _ => {
-                let _ = (line, column);
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                self.check_expression_names_defined(file_handle);
+                self.check_expression_names_defined(count);
+            }
+            Expression::ListFilesRecursive {
+                path, extensions, ..
+            } => {
+                self.check_expression_names_defined(path);
+                if let Some(extensions) = extensions {
+                    for extension in extensions {
+                        self.check_expression_names_defined(extension);
+                    }
+                }
+            }
+            Expression::ListFilesFiltered {
+                path, extensions, ..
+            } => {
+                self.check_expression_names_defined(path);
+                for extension in extensions {
+                    self.check_expression_names_defined(extension);
+                }
+            }
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.check_expression_names_defined(db);
+                self.check_expression_names_defined(sql);
+                if let Some(parameters) = parameters {
+                    self.check_expression_names_defined(parameters);
+                }
             }
         }
     }
