@@ -902,7 +902,10 @@ struct RunState {
 struct IsolatedHandler<'a, T> {
     interp: &'a Interpreter,
     state: RunState,
-    inner: std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>,
+    /// `Some` until `Drop` takes it: the handler future must be dropped with
+    /// this handler's run state installed (see `Drop`), which plain field
+    /// drop order cannot provide.
+    inner: Option<std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>>,
 }
 
 impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
@@ -916,7 +919,12 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
         // wrapper itself is `Unpin` and `get_mut` is sound.
         let this = self.get_mut();
         this.interp.swap_run_state(&mut this.state);
-        let result = this.inner.as_mut().poll(cx);
+        let result = this
+            .inner
+            .as_mut()
+            .expect("IsolatedHandler polled after drop")
+            .as_mut()
+            .poll(cx);
         this.interp.swap_run_state(&mut this.state);
         match result {
             std::task::Poll::Ready(value) => {
@@ -929,9 +937,20 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
 
 impl<'a, T> Drop for IsolatedHandler<'a, T> {
     fn drop(&mut self) {
+        // Drop the handler future FIRST, with this handler's run state
+        // installed: a future dropped while suspended still runs the `Drop`
+        // of every live RAII guard inside it (call-depth, capture,
+        // module-load), and those guards must unwind against the handler's
+        // own state — not the ambient context that happens to be installed
+        // at teardown (#642).
+        if let Some(inner) = self.inner.take() {
+            self.interp.swap_run_state(&mut self.state);
+            drop(inner);
+            self.interp.swap_run_state(&mut self.state);
+        }
         // The handler is finished (normal return, error, panic contained by
         // `catch_unwind`, or cancellation as the loop tears down). After the
-        // final poll's swap-out, `state` holds any streams it opened but never
+        // final swap-out, `state` holds any streams it opened but never
         // closed and any requests it dequeued but never answered. Close the
         // streams (finalizing the client's body) and 500 the unanswered requests,
         // so every exit path resolves the client instead of leaving it hanging.
@@ -4750,13 +4769,15 @@ impl Interpreter {
     }
 
     /// Build the initial [`RunState`] for a new concurrent handler: recursion
-    /// accounting starts at this run's base depth, and the handler inherits
+    /// accounting starts at the LIVE depth at loop entry — the enclosing
+    /// action frames beneath a nested `main loop concurrently:` stay counted,
+    /// mirroring `execute file`'s child seeding — and the handler inherits
     /// (clones of) the calling context's capture stack and module-loading
     /// context so captures, relative module paths, and cycle/import-depth
-    /// checks behave as they would in the enclosing context.
+    /// checks behave as they would in the enclosing context (#642).
     fn fresh_handler_run_state(&self) -> RunState {
         RunState {
-            call_depth: self.base_call_depth,
+            call_depth: self.call_depth.get(),
             capture_stack: io_capture::snapshot_stack(),
             current_source_file: self.current_source_file.borrow().clone(),
             loading_stack: self.loading_stack.borrow().clone(),
@@ -5374,7 +5395,7 @@ impl Interpreter {
                 futs.push(IsolatedHandler {
                     interp: self,
                     state: self.fresh_handler_run_state(),
-                    inner: Box::pin(handler),
+                    inner: Some(Box::pin(handler)),
                 });
             }
 
