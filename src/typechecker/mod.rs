@@ -648,9 +648,11 @@ impl TypeChecker {
                     ));
                 }
 
+                self.analyzer.push_scope();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::ExitStatement { line: _, column: _ } => {}
             Statement::WaitForStatement {
@@ -688,6 +690,9 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime evaluates the try body, handlers, otherwise, and
+                // finally block inside one shared child environment.
+                self.analyzer.push_scope();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
@@ -736,6 +741,7 @@ impl TypeChecker {
                         self.check_statement_types(stmt);
                     }
                 }
+                self.analyzer.pop_scope();
             }
             Statement::HttpGetStatement {
                 url,
@@ -1518,6 +1524,7 @@ impl TypeChecker {
                 body,
                 line: _line,
                 column: _column,
+                variable_name,
                 ..
             } => {
                 let start_type = self.infer_expression_type(start);
@@ -1562,14 +1569,25 @@ impl TypeChecker {
                     }
                 }
 
-                // Register the "count" variable with type Number
-                if let Some(symbol) = self.analyzer.get_symbol_mut("count") {
-                    symbol.symbol_type = Some(Type::Number);
-                }
+                // Runtime creates the loop variable in a child environment,
+                // shadowing rather than retyping an outer `count` or custom
+                // loop-variable binding.
+                self.analyzer.push_scope();
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: variable_name
+                        .as_deref()
+                        .unwrap_or("count")
+                        .to_string(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Number),
+                    line: *_line,
+                    column: *_column,
+                });
 
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::WhileLoop {
                 condition,
