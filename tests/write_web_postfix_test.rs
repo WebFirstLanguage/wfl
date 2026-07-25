@@ -1038,6 +1038,42 @@ fn bare_line_binding_keeps_direct_integer_index_as_classic_fallback() {
     assert_eq!(written, "first");
 }
 
+// Issue #642: the bare-marker guard must recognize every classic expression
+// continuation the ordinary binary parser accepts — `starts with`/`ends with`
+// (comparison operators since #566) and a silently absorbed `:` were missing,
+// so these pre-streaming programs mis-parsed into the streaming branch
+// (`starts`/`ends`) or parse-failed outright (`:`).
+
+#[test]
+fn bare_line_binding_keeps_starts_with_continuation_in_classic_file_write() {
+    let written =
+        run_file_write_with_line_binding("write line starts with \"/\"", "store line as \"/api\"");
+    assert_eq!(written, "yes");
+}
+
+#[test]
+fn bare_line_binding_keeps_ends_with_continuation_in_classic_file_write() {
+    let written =
+        run_file_write_with_line_binding("write line ends with \"!\"", "store line as \"wow!\"");
+    assert_eq!(written, "yes");
+}
+
+#[test]
+fn bare_chunk_binding_keeps_starts_with_continuation_in_classic_file_write() {
+    let written =
+        run_file_write_with_line_binding("write chunk starts with \"w\"", "store chunk as \"wow\"");
+    assert_eq!(written, "yes");
+}
+
+#[test]
+fn bare_line_binding_keeps_absorbed_colon_in_classic_file_write() {
+    // The binary continuation loop silently absorbs a `:` (see
+    // `parse_binary_continuation_inner`), so `write v : to "out"` writes `v`.
+    // The same program with the variable named `line` must not change meaning.
+    let written = run_file_write_with_line_binding("write line :", "store line as \"hello\"");
+    assert_eq!(written, "hello");
+}
+
 #[test]
 fn display_property_followed_by_spaced_list_keeps_legacy_statement_split() {
     let program = parse("display alice.name [1, 2]\n");
