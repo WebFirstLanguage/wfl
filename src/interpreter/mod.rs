@@ -2583,6 +2583,10 @@ impl IoClient {
         });
         tokio::pin!(op);
         let next = tokio::select! {
+            // Prefer a simultaneously-ready body result so the terminal
+            // re-check below is the single deterministic arbiter: expiry still
+            // wins, and a ready chunk can never be reinserted after the reaper.
+            biased;
             result = &mut op => result?,
             changed = terminal_rx.changed() => {
                 let _ = changed;
