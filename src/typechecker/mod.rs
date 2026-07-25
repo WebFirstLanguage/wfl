@@ -219,8 +219,8 @@ impl TypeChecker {
             }
         }
 
-        for layer_index in 0..joined.len() {
-            let names: Vec<String> = joined[layer_index].keys().cloned().collect();
+        for (layer_index, joined_layer) in joined.iter_mut().enumerate() {
+            let names: Vec<String> = joined_layer.keys().cloned().collect();
             for name in names {
                 let values: Vec<Option<Type>> = states
                     .iter()
@@ -235,15 +235,15 @@ impl TypeChecker {
                 let first_value = values.first().cloned().unwrap_or(None);
                 let merged = if values.iter().all(|value| value == &first_value) {
                     first_value
-                } else if values.iter().any(|value| {
-                    value.is_none() || matches!(value.as_ref(), Some(Type::Unknown))
-                })
+                } else if values
+                    .iter()
+                    .any(|value| value.is_none() || matches!(value.as_ref(), Some(Type::Unknown)))
                 {
                     Some(Type::Unknown)
                 } else {
                     Some(Type::Any)
                 };
-                joined[layer_index].insert(name, merged);
+                joined_layer.insert(name, merged);
             }
         }
 
@@ -1643,10 +1643,7 @@ impl TypeChecker {
                 // loop-variable binding.
                 self.analyzer.push_scope();
                 self.analyzer.define_or_replace_symbol(Symbol {
-                    name: variable_name
-                        .as_deref()
-                        .unwrap_or("count")
-                        .to_string(),
+                    name: variable_name.as_deref().unwrap_or("count").to_string(),
                     kind: SymbolKind::Variable { mutable: true },
                     symbol_type: Some(Type::Number),
                     line: *_line,

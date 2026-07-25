@@ -70,9 +70,9 @@ fn streaming_status_and_headers(stmt: &Statement) -> (&Expression, &Expression) 
             headers: Some(headers),
             ..
         } => (status, headers),
-        other => panic!(
-            "expected a streaming response with status and headers operands, got {other:#?}"
-        ),
+        other => {
+            panic!("expected a streaming response with status and headers operands, got {other:#?}")
+        }
     }
 }
 
@@ -433,7 +433,10 @@ fn type_prefixed_identifier_is_content_not_a_response_clause() {
                 matches!(right.as_ref(), Expression::Variable(name, ..) if name == "type suffix"),
                 "`type suffix` must remain the concatenation RHS, got {right:#?}"
             );
-            assert_eq!(headers, "h", "the following headers clause must remain separate");
+            assert_eq!(
+                headers, "h",
+                "the following headers clause must remain separate"
+            );
         }
         other => panic!(
             "expected concatenated content type plus a separate headers clause, got {other:#?}"
@@ -647,11 +650,7 @@ fn assert_post_of_index(expr: &Expression, expected_function: &str, expected_arg
 fn seeded_operands_resume_postfix_parsing_after_of_calls() {
     let write = parse("write line choose of (chunks)[0] to out\n");
     assert_eq!(write.statements.len(), 1, "got {:#?}", write.statements);
-    assert_post_of_index(
-        stream_write_value(&write.statements[0]),
-        "choose",
-        "chunks",
-    );
+    assert_post_of_index(stream_write_value(&write.statements[0]), "choose", "chunks");
     assert_post_of_index(
         stream_write_fallback(&write.statements[0]),
         "line choose",

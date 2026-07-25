@@ -41,10 +41,7 @@ impl<'a> Parser<'a> {
             } else {
                 self.parse_trailing_postfix(lead)?
             };
-            if !matches!(
-                self.cursor.peek().map(|t| &t.token),
-                Some(Token::KeywordOf)
-            ) {
+            if !matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
                 break;
             }
 
