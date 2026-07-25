@@ -55,6 +55,48 @@ fn repeat_until_with_consistent_types_still_checks_cleanly() {
 }
 
 #[test]
+fn nested_loop_break_does_not_soften_repeat_until_condition() {
+    // A `break` inside a NESTED loop only exits that inner loop — the outer
+    // repeat-until body still falls through to its condition, so the
+    // condition must keep the precise post-body check and flag the retyped
+    // binding (PR #643 review: over-broad softening would hide this real
+    // runtime type error).
+    let code = "store out as 5\n\
+                repeat until out is greater than 3:\n\
+                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20count from 1 to 3:\n\
+                \x20\x20\x20\x20\x20\x20\x20\x20break\n\
+                \x20\x20\x20\x20end count\n\
+                end repeat\n";
+    let result = typecheck(code);
+    assert!(
+        result.is_err(),
+        "a nested loop's break does not skip the outer condition at runtime, \
+         so the retyped binding must still be reported: {result:?}"
+    );
+}
+
+#[test]
+fn nested_exit_loop_still_softens_repeat_until_condition() {
+    // `exit loop` propagates out of every enclosing loop (unlike `break`),
+    // so even from a nested loop it skips the outer condition — the softened
+    // joined state applies and the retype-then-exit body stays legal.
+    let code = "store out as 5\n\
+                repeat until out is greater than 3:\n\
+                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20count from 1 to 3:\n\
+                \x20\x20\x20\x20\x20\x20\x20\x20exit loop\n\
+                \x20\x20\x20\x20end count\n\
+                end repeat\n";
+    let result = typecheck(code);
+    assert!(
+        result.is_ok(),
+        "exit loop escapes the outer loop too, so the condition must be \
+         checked against the softened joined state: {result:?}"
+    );
+}
+
+#[test]
 fn repeat_until_break_path_does_not_force_post_body_condition_types() {
     // Runtime exits at `break` WITHOUT evaluating the condition, so a body
     // that retypes a binding and then always breaks is runtime-valid even if
