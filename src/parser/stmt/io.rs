@@ -142,8 +142,6 @@ impl<'a> Parser<'a> {
                     || id == "content_type"
                     || id.starts_with("content_type ")
                     || id.starts_with("content type")
-                    || id == "type"
-                    || id.starts_with("type ")
             }
             _ => false,
         }

@@ -173,22 +173,7 @@ impl<'a> Parser<'a> {
                 }
                 if matches!(token, Token::KeywordAnd | Token::KeywordWith) {
                     let next = self.cursor.peek_n(1).map(|t| &t.token);
-                    let is_clause = match next {
-                        Some(Token::KeywordAs)
-                        | Some(Token::KeywordContent)
-                        | Some(Token::KeywordStatus) => true,
-                        Some(Token::Identifier(id)) => {
-                            id == "headers"
-                                || id.starts_with("headers ")
-                                || id == "content_type"
-                                || id.starts_with("content_type ")
-                                || id.starts_with("content type")
-                                || id == "type"
-                                || id.starts_with("type ")
-                        }
-                        _ => false,
-                    };
-                    if is_clause {
+                    if Self::is_streaming_clause_keyword(next) {
                         break;
                     }
                 }
