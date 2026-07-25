@@ -218,15 +218,28 @@ fn full_pipeline_error_alias_is_clause_local() {
                 line: 1,
                 column: 1,
             },
+            Statement::VariableDeclaration {
+                name: "error_message".to_string(),
+                value: Expression::Literal(Literal::Integer(20), 1, 1),
+                is_constant: false,
+                line: 1,
+                column: 1,
+            },
             Statement::TryStatement {
                 body: vec![display_text("success", 2)],
                 when_clauses: vec![WhenClause {
                     error_type: ErrorType::General,
                     error_name: "caught".to_string(),
-                    body: vec![display_variable("caught", 3)],
+                    body: vec![
+                        display_variable("caught", 3),
+                        display_variable("error_message", 3),
+                    ],
                 }],
                 otherwise_block: None,
-                finally_block: Some(vec![subtract_one("caught", 5)]),
+                finally_block: Some(vec![
+                    subtract_one("caught", 5),
+                    subtract_one("error_message", 6),
+                ]),
                 line: 2,
                 column: 1,
             },
@@ -235,8 +248,8 @@ fn full_pipeline_error_alias_is_clause_local() {
 
     assert!(
         TypeChecker::new().check_types(&program).is_ok(),
-        "the implicit Text error alias must shadow only inside its clause, and finally must \
-         resolve the outer Number; errors: {:?}",
+        "the implicit Text error aliases must shadow only inside their clause, and finally \
+         must resolve the outer Numbers; errors: {:?}",
         TypeChecker::new().check_types(&program).err()
     );
 }

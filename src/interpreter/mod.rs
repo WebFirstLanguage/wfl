@@ -2473,6 +2473,37 @@ impl IoClient {
         handle: HttpStreamHandle,
         cancel: &StreamCancel,
     ) -> Result<(), HttpClientError> {
+        // Observing upstream EOF is the linearization point for clean
+        // completion. Finalize that already-latched result before consulting
+        // the wall clock or generic terminal rejection below: a reaper/close
+        // may have removed the slot after EOF won, but it must not erase the
+        // one follow-up `nothing` read.
+        if handle.done {
+            let terminal = cancel.terminate(StreamTerminal::CleanEof);
+            if terminal == StreamTerminal::CleanEof {
+                drop(handle);
+                let now = Instant::now();
+                let mut registry = self
+                    .stream_handles
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                registry.prune_recent(now);
+                if let Some(mut slot) = registry.live.remove(handle_id) {
+                    slot.cancel.terminate(StreamTerminal::CleanEof);
+                    if let Some(abort) = slot.reaper_abort.take() {
+                        abort.abort();
+                    }
+                    drop(slot.handle.take());
+                    remove_stream_owner(&mut slot, handle_id);
+                }
+                // `remember_recent` replaces an existing record for this ID,
+                // so terminalization leaves exactly one bounded one-shot
+                // result even when the racing reaper already recorded EOF.
+                registry.remember_recent(handle_id.to_string(), StreamTerminal::CleanEof, now);
+                return Ok(());
+            }
+        }
+
         if let Some(terminal) = cancel.terminal() {
             drop(handle);
             // Ensure the slot is gone (reaper/close may already have removed it).
@@ -2514,20 +2545,6 @@ impl IoClient {
             }
             return Err(self.stream_terminal_error(terminal));
         }
-        if handle.done {
-            drop(handle);
-            if let Some(mut slot) = registry.live.remove(handle_id) {
-                let terminal = slot.cancel.terminate(StreamTerminal::CleanEof);
-                if let Some(abort) = slot.reaper_abort.take() {
-                    abort.abort();
-                }
-                drop(slot.handle.take());
-                remove_stream_owner(&mut slot, handle_id);
-                registry.remember_recent(handle_id.to_string(), terminal, now);
-            }
-            return Ok(());
-        }
-
         let slot = registry
             .live
             .get_mut(handle_id)
@@ -2564,7 +2581,12 @@ impl IoClient {
         use futures_util::StreamExt;
 
         if handle.done {
-            return Ok(false);
+            let terminal = cancel.terminate(StreamTerminal::CleanEof);
+            return if terminal == StreamTerminal::CleanEof {
+                Ok(false)
+            } else {
+                Err(self.stream_terminal_error(terminal))
+            };
         }
         let mut terminal_rx = cancel.subscribe();
         if let Some(terminal) = *terminal_rx.borrow() {
@@ -2624,8 +2646,13 @@ impl IoClient {
                 "Failed to read response chunk: {e}"
             ))),
             None => {
-                handle.done = true;
-                Ok(false)
+                let terminal = cancel.terminate(StreamTerminal::CleanEof);
+                if terminal == StreamTerminal::CleanEof {
+                    handle.done = true;
+                    Ok(false)
+                } else {
+                    Err(self.stream_terminal_error(terminal))
+                }
             }
         }
     }
@@ -2698,7 +2725,9 @@ impl IoClient {
         };
 
         loop {
-            if let Err(e) = self.check_stream_deadline(&handle) {
+            let clean_eof_latched =
+                handle.done && cancel.terminal() == Some(StreamTerminal::CleanEof);
+            if !clean_eof_latched && let Err(e) = self.check_stream_deadline(&handle) {
                 let _ = self.finish_stream_slot(handle_id).await;
                 return Err(e);
             }
@@ -16155,26 +16184,27 @@ mod outbound_stream_deadline_tests {
             "terminalization must remove the stream owner"
         );
 
-        let registry = client
-            .stream_handles
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        assert!(
-            !registry.live.contains_key(&handle_id),
-            "terminalization must remove the live stream slot"
-        );
-        assert_eq!(
-            registry
-                .recent
-                .iter()
-                .filter(|entry| {
-                    entry.id == handle_id && entry.reason == StreamTerminal::CleanEof
-                })
-                .count(),
-            1,
-            "terminalization must retain exactly one one-shot clean-EOF record"
-        );
-        drop(registry);
+        {
+            let registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            assert!(
+                !registry.live.contains_key(&handle_id),
+                "terminalization must remove the live stream slot"
+            );
+            assert_eq!(
+                registry
+                    .recent
+                    .iter()
+                    .filter(|entry| {
+                        entry.id == handle_id && entry.reason == StreamTerminal::CleanEof
+                    })
+                    .count(),
+                1,
+                "terminalization must retain exactly one one-shot clean-EOF record"
+            );
+        }
 
         assert_eq!(
             client

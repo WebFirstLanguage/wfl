@@ -1361,15 +1361,19 @@ impl Analyzer {
                 let flow_handler_entry = self.flow_entry();
                 let mut flow_paths: Vec<FlowState> = vec![flow_try];
 
-                let try_scope = std::mem::take(&mut self.current_scope);
-                if let Some(parent) = try_scope.parent {
-                    self.current_scope = *parent;
-                }
+                // Runtime keeps this try child environment alive through the
+                // selected handler/otherwise clause and finally. Snapshot the
+                // post-body structure so every statically possible clause is
+                // analyzed independently, then union its ordinary bindings
+                // back into the shared try scope for finally.
+                let clause_entry_scope = self.current_scope.clone();
+                let mut joined_scope_symbols = clause_entry_scope.symbols.clone();
 
                 // Analyze each when clause
                 for when_clause in when_clauses {
-                    let outer_scope = std::mem::take(&mut self.current_scope);
-                    self.current_scope = Scope::with_parent(outer_scope);
+                    self.current_scope = clause_entry_scope.clone();
+                    self.restore_flow(&flow_handler_entry);
+                    self.push_scope();
 
                     let error_symbol = Symbol {
                         name: when_clause.error_name.clone(),
@@ -1379,9 +1383,7 @@ impl Analyzer {
                         column: 0,
                     };
 
-                    if let Err(error) = self.current_scope.define(error_symbol) {
-                        self.errors.push(error);
-                    }
+                    self.define_or_replace_symbol(error_symbol);
 
                     // `error_message` is always available in error-handling
                     // clauses as an alias for the caught error's message.
@@ -1393,53 +1395,66 @@ impl Analyzer {
                             line: 0,
                             column: 0,
                         };
-                        let _ = self.current_scope.define(error_message_symbol);
+                        self.define_or_replace_symbol(error_message_symbol);
                     }
 
-                    self.restore_flow(&flow_handler_entry);
                     for stmt in &when_clause.body {
                         self.analyze_statement(stmt);
                     }
-                    flow_paths.push(self.take_flow_branch(&flow_handler_entry));
+                    let mut excluded_aliases = vec![when_clause.error_name.clone()];
+                    if when_clause.error_name != "error_message" {
+                        excluded_aliases.push("error_message".to_string());
+                    }
+                    self.pop_scope_promoting_except(&excluded_aliases);
 
-                    let when_scope = std::mem::take(&mut self.current_scope);
-                    if let Some(parent) = when_scope.parent {
-                        self.current_scope = *parent;
+                    flow_paths.push(self.take_flow_branch(&flow_handler_entry));
+                    for (name, symbol) in &self.current_scope.symbols {
+                        joined_scope_symbols
+                            .entry(name.clone())
+                            .or_insert_with(|| symbol.clone());
                     }
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
-                    let outer_scope = std::mem::take(&mut self.current_scope);
-                    self.current_scope = Scope::with_parent(outer_scope);
-
+                    self.current_scope = clause_entry_scope.clone();
                     self.restore_flow(&flow_handler_entry);
                     for stmt in otherwise_stmts {
                         self.analyze_statement(stmt);
                     }
                     flow_paths.push(self.take_flow_branch(&flow_handler_entry));
-
-                    let otherwise_scope = std::mem::take(&mut self.current_scope);
-                    if let Some(parent) = otherwise_scope.parent {
-                        self.current_scope = *parent;
+                    for (name, symbol) in &self.current_scope.symbols {
+                        joined_scope_symbols
+                            .entry(name.clone())
+                            .or_insert_with(|| symbol.clone());
                     }
+                } else if !when_clauses.iter().any(|when_clause| {
+                    matches!(
+                        &when_clause.error_type,
+                        crate::parser::ast::ErrorType::General
+                    )
+                }) {
+                    // Without a catch-all or otherwise block, a non-matching
+                    // error reaches finally directly from the handler entry.
+                    flow_paths.push(flow_handler_entry.clone());
                 }
 
-                // After the construct, any of the recorded paths may have run.
+                self.current_scope = clause_entry_scope;
+                for symbol in joined_scope_symbols.into_values() {
+                    self.define_or_replace_symbol(symbol);
+                }
+
+                // Finally can be reached from success, any selected error
+                // clause, or an unmatched error. Join those flow endpoints
+                // before checking it in the shared runtime try scope.
                 self.join_flow_branches(&flow_paths);
 
                 if let Some(finally_stmts) = finally_block {
-                    let outer_scope = std::mem::take(&mut self.current_scope);
-                    self.current_scope = Scope::with_parent(outer_scope);
-
                     for stmt in finally_stmts {
                         self.analyze_statement(stmt);
                     }
-
-                    let finally_scope = std::mem::take(&mut self.current_scope);
-                    if let Some(parent) = finally_scope.parent {
-                        self.current_scope = *parent;
-                    }
                 }
+
+                self.pop_scope();
             }
             Statement::ReadFileStatement { variable_name, .. } => {
                 let symbol = Symbol {
