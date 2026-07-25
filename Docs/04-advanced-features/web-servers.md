@@ -108,8 +108,20 @@ bound work (the common web case), not CPU-bound loops.
 
 **What you get with `concurrently`:**
 
-- A slow handler does not block its siblings.
-- Each request handler is isolated (its own scope).
+- A slow handler does not block its siblings. This includes the `wait for
+  request ... with timeout <expr>` timeout expression itself: it is evaluated
+  before the handler contends for the next request, so a slow expression in one
+  handler never stalls the others. Note that under `concurrently` each handler
+  slot evaluates its own timeout expression when its iteration starts (up to
+  the handler limit at once on an idle server), so keep timeout expressions
+  side-effect free — a literal or a cheap pure action.
+- Each request handler is isolated: its own scope, plus handler-local run
+  state — count-loop counters, recursion-depth accounting (which continues from
+  the depth at loop entry, so enclosing action frames stay counted),
+  `execute file ... and read output` capture, and module loading (`include` /
+  `load module` relative paths resolve against the handler's own context, and
+  one handler's in-flight load is never misreported as another's circular
+  dependency).
 - A handler that errors or panics is contained: that request fails on its own and
   the server keeps serving everyone else. How the client sees the failure depends
   on how far the handler got: if it had **not** sent a response yet, the client
@@ -534,6 +546,15 @@ close out
 - `flush <out>` — advisory: yield so queued bytes are handed to the socket.
   (Chunks are already forwarded as you write them; hyper writes as it receives.)
 - `close <out>` — end the response body. Writing after `close` is an error.
+
+**Ownership:** a response stream belongs to the handler that started it. Under
+`main loop concurrently:`, `write`, `flush`, and `close` on a **live** stream
+handle that another handler owns (for example one shared through a global
+variable) fail with a catchable error instead of injecting into — or
+truncating — the owner's response. Once a stream is closed there is no live
+response left to protect: `write` and `flush` still fail with the
+closed-stream error, while `close` is an idempotent no-op for any handler
+holding the stale handle.
 
 **Lifecycle & backpressure:** the body channel is bounded, so a slow client
 slows your `write` calls (backpressure) instead of buffering without bound. If

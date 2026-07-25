@@ -1720,6 +1720,14 @@ impl Analyzer {
                     if let Some(fb) = action_fallback {
                         self.analyze_expression(fb);
                     }
+                    // Exact `flush (…)` / `flush call …`: pre-streaming the
+                    // operand was its own expression statement, and the runtime
+                    // still evaluates it after the `flush` fallback — analyze it
+                    // so its names are validated like any statement (#642).
+                    // (Merged forms' fallback already spans the operand tokens.)
+                    if legacy_binding.as_deref() == Some("flush") {
+                        self.analyze_expression(target);
+                    }
                 } else {
                     self.analyze_expression(target);
                 }

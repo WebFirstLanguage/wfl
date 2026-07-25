@@ -283,6 +283,177 @@ impl TypeChecker {
         self.analyzer.restore_symbol_types(header);
     }
 
+    /// Like [`check_loop_body_fixed_point`], but leaves the POST-BODY type
+    /// state installed instead of restoring the loop-header state.
+    /// `repeat until` evaluates its condition after each body execution and
+    /// always runs the body at least once, so the condition — and everything
+    /// after the loop — sees the body's final type state, not the header
+    /// join (#642).
+    ///
+    /// When the body can exit early (`break`/`exit`/`return` anywhere in its
+    /// subtree), the condition is NOT necessarily reached from the fall-through
+    /// state — runtime skips it entirely on a break path — so the caller must
+    /// soften the installed state with the returned header join (see
+    /// `RepeatUntilLoop`). Returns the stabilized header snapshot for that.
+    fn check_loop_body_fixed_point_post_body(
+        &mut self,
+        body: &[Statement],
+    ) -> Vec<HashMap<String, Option<Type>>> {
+        let entry = self.analyzer.snapshot_symbol_types();
+        let mut header = entry.clone();
+
+        loop {
+            self.analyzer.restore_symbol_types(header.clone());
+            let error_count = self.errors.len();
+            for statement in body {
+                self.check_statement_types(statement);
+            }
+            if self.budget_error.is_some() {
+                return header;
+            }
+            self.errors.truncate(error_count);
+
+            let backedge = self.analyzer.snapshot_symbol_types();
+            let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
+            if next == header {
+                break;
+            }
+            header = next;
+        }
+
+        self.analyzer.restore_symbol_types(header.clone());
+        for statement in body {
+            self.check_statement_types(statement);
+        }
+        header
+    }
+
+    /// Whether executing `body` can leave its enclosing loop without reaching
+    /// the loop's own condition. A `break` counts only at this loop's own
+    /// level — a `break` inside a NESTED loop exits that inner loop and the
+    /// outer body still falls through to its condition. `exit loop` and
+    /// `return` propagate out of every enclosing loop (`ControlFlow::Exit` /
+    /// `Return` are re-raised by each loop's dispatch), so they count from
+    /// any nesting depth.
+    fn body_may_exit_loop_early(body: &[Statement]) -> bool {
+        body.iter().any(Self::statement_may_exit_loop_early)
+    }
+
+    fn statement_may_exit_loop_early(stmt: &Statement) -> bool {
+        match stmt {
+            Statement::BreakStatement { .. }
+            | Statement::ExitStatement { .. }
+            | Statement::ReturnStatement { .. } => true,
+            Statement::IfStatement {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::body_may_exit_loop_early(then_block)
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_may_exit_loop_early(b))
+            }
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                Self::statement_may_exit_loop_early(then_stmt)
+                    || else_stmt
+                        .as_deref()
+                        .is_some_and(Self::statement_may_exit_loop_early)
+            }
+            // A nested loop consumes `break`; only `exit`/`return` escape it.
+            Statement::ForEachLoop { body, .. }
+            | Statement::CountLoop { body, .. }
+            | Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. } => Self::body_escapes_enclosing_loop(body),
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                Self::body_may_exit_loop_early(body)
+                    || when_clauses
+                        .iter()
+                        .any(|c| Self::body_may_exit_loop_early(&c.body))
+                    || otherwise_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_may_exit_loop_early(b))
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_may_exit_loop_early(b))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `body` contains a control transfer that escapes EVERY enclosing
+    /// loop: `exit loop` or `return`. `break` never qualifies (the nearest
+    /// loop absorbs it), so nested loops are descended into freely.
+    fn body_escapes_enclosing_loop(body: &[Statement]) -> bool {
+        body.iter().any(Self::statement_escapes_enclosing_loop)
+    }
+
+    fn statement_escapes_enclosing_loop(stmt: &Statement) -> bool {
+        match stmt {
+            Statement::ExitStatement { .. } | Statement::ReturnStatement { .. } => true,
+            Statement::BreakStatement { .. } => false,
+            Statement::IfStatement {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::body_escapes_enclosing_loop(then_block)
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_escapes_enclosing_loop(b))
+            }
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                Self::statement_escapes_enclosing_loop(then_stmt)
+                    || else_stmt
+                        .as_deref()
+                        .is_some_and(Self::statement_escapes_enclosing_loop)
+            }
+            Statement::ForEachLoop { body, .. }
+            | Statement::CountLoop { body, .. }
+            | Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. } => Self::body_escapes_enclosing_loop(body),
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                Self::body_escapes_enclosing_loop(body)
+                    || when_clauses
+                        .iter()
+                        .any(|c| Self::body_escapes_enclosing_loop(&c.body))
+                    || otherwise_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_escapes_enclosing_loop(b))
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|b| Self::body_escapes_enclosing_loop(b))
+            }
+            _ => false,
+        }
+    }
+
     /// Get the return type for builtin functions
     fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
         match name {
@@ -1301,6 +1472,13 @@ impl TypeChecker {
                     if let Some(fb) = action_fallback {
                         let _ = self.infer_expression_type(fb);
                     }
+                    // Exact `flush (…)` / `flush call …`: the runtime also
+                    // evaluates the operand as its own legacy expression
+                    // statement, so typecheck it as an ordinary expression —
+                    // no response-stream requirement (#642).
+                    if legacy_binding.as_deref() == Some("flush") {
+                        let _ = self.infer_expression_type(target);
+                    }
                 } else {
                     let target_type = self.infer_expression_type(target);
                     if !self.is_response_stream_target_type(&target_type) {
@@ -1788,6 +1966,27 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime order: the body ALWAYS runs before the condition is
+                // evaluated, in the same scope. Check in that order (with the
+                // same backedge fixed point as `while`/`repeat while`, but
+                // keeping the post-body state) so body retypings are visible
+                // to the condition (#642).
+                let header = self.check_loop_body_fixed_point_post_body(body);
+                if self.budget_error.is_some() {
+                    return;
+                }
+                // A body that can `break`/`exit`/`return` skips the condition
+                // on that path at runtime, so the strict post-body state would
+                // falsely reject retype-then-break bodies (fatal inside
+                // `load module`). Soften to the join of header and post-body
+                // for the condition — and for code after the loop, which such
+                // a path also reaches with pre-break state.
+                if Self::body_may_exit_loop_early(body) {
+                    let post_body = self.analyzer.snapshot_symbol_types();
+                    self.analyzer
+                        .restore_symbol_types(Self::join_type_snapshots(&[header, post_body]));
+                }
+
                 let condition_type = self.infer_expression_type(condition);
                 if condition_type != Type::Boolean
                     && condition_type != Type::Unknown
@@ -1800,10 +1999,6 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
-                }
-
-                for stmt in body {
-                    self.check_statement_types(stmt);
                 }
             }
             Statement::ForeverLoop { body, .. } => {
@@ -2936,6 +3131,7 @@ impl TypeChecker {
             }
             Statement::WebSocketHandlerStatement {
                 server,
+                binding,
                 body,
                 line,
                 column,
@@ -2947,6 +3143,19 @@ impl TypeChecker {
                 self.check_server_expression_type(server, *line, *column);
                 self.analyzer.push_scope();
                 let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+                // Runtime binds the event object with `define_direct`,
+                // deliberately shadowing an outer same-named variable. Analyzer
+                // body scopes are discarded before this pass, so recreate the
+                // binding here — typed Unknown, keeping event-object access
+                // permissive instead of checking the body against the outer
+                // symbol's concrete type (#642).
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: binding.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Unknown),
+                    line: *line,
+                    column: *column,
+                });
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }

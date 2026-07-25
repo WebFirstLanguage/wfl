@@ -863,17 +863,26 @@ struct RunState {
     /// from request-local outcomes (must never tear the server down because one
     /// accepted request failed). Survives respond clearing `open_pending_requests`.
     accepted_request: bool,
-}
-
-impl RunState {
-    /// A fresh run state for a handler starting from `base_call_depth` (0 for a
-    /// top-level run; the parent's live depth for an `execute file` child).
-    fn fresh(base_call_depth: usize) -> Self {
-        RunState {
-            call_depth: base_call_depth,
-            ..RunState::default()
-        }
-    }
+    /// This handler's `execute file ... and read output` capture stack. The
+    /// capture routing itself is a thread-local (see `io_capture`), so it is
+    /// swapped — not just saved — per poll: while this handler runs, the
+    /// thread-local holds this stack; while it is suspended, the ambient stack
+    /// is restored so a sibling's output cannot land in this handler's capture
+    /// buffer (#642). Starts as a clone of the ambient stack so handler output
+    /// still reaches an enclosing capture.
+    capture_stack: Vec<Rc<RefCell<String>>>,
+    /// This handler's module-resolution base (`current_source_file`). Swapped
+    /// per poll so a sibling parked mid-`include` cannot make this handler
+    /// resolve relative module paths against the sibling's module directory
+    /// (#642). Starts as the calling context's source file.
+    current_source_file: Option<PathBuf>,
+    /// This handler's in-flight module-load stack (circular-dependency
+    /// detection and import-depth accounting). Swapped per poll so a sibling's
+    /// in-flight load of the same module is not misreported as a cycle (#642).
+    /// Starts as a clone of the calling context's stack, so a handler
+    /// re-including a module the enclosing context is still loading is still
+    /// (correctly) a cycle.
+    loading_stack: Vec<PathBuf>,
 }
 
 /// Wraps a handler future so its [`RunState`] is swapped into the interpreter
@@ -893,7 +902,10 @@ impl RunState {
 struct IsolatedHandler<'a, T> {
     interp: &'a Interpreter,
     state: RunState,
-    inner: std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>,
+    /// `Some` until `Drop` takes it: the handler future must be dropped with
+    /// this handler's run state installed (see `Drop`), which plain field
+    /// drop order cannot provide.
+    inner: Option<std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>>,
 }
 
 impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
@@ -907,7 +919,12 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
         // wrapper itself is `Unpin` and `get_mut` is sound.
         let this = self.get_mut();
         this.interp.swap_run_state(&mut this.state);
-        let result = this.inner.as_mut().poll(cx);
+        let result = this
+            .inner
+            .as_mut()
+            .expect("IsolatedHandler polled after drop")
+            .as_mut()
+            .poll(cx);
         this.interp.swap_run_state(&mut this.state);
         match result {
             std::task::Poll::Ready(value) => {
@@ -920,9 +937,20 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
 
 impl<'a, T> Drop for IsolatedHandler<'a, T> {
     fn drop(&mut self) {
+        // Drop the handler future FIRST, with this handler's run state
+        // installed: a future dropped while suspended still runs the `Drop`
+        // of every live RAII guard inside it (call-depth, capture,
+        // module-load), and those guards must unwind against the handler's
+        // own state — not the ambient context that happens to be installed
+        // at teardown (#642).
+        if let Some(inner) = self.inner.take() {
+            self.interp.swap_run_state(&mut self.state);
+            drop(inner);
+            self.interp.swap_run_state(&mut self.state);
+        }
         // The handler is finished (normal return, error, panic contained by
         // `catch_unwind`, or cancellation as the loop tears down). After the
-        // final poll's swap-out, `state` holds any streams it opened but never
+        // final swap-out, `state` holds any streams it opened but never
         // closed and any requests it dequeued but never answered. Close the
         // streams (finalizing the client's body) and 500 the unanswered requests,
         // so every exit path resolves the client instead of leaving it hanging.
@@ -1008,9 +1036,17 @@ impl Drop for OutboundStreamCleanup {
 }
 
 /// RAII guard that ensures module loading context is restored on scope exit.
-/// Automatically pops loading_stack and restores current_source_file when dropped.
+/// Automatically removes its loading_stack entry and restores
+/// current_source_file when dropped.
+///
+/// Restoration is identity-checked rather than a blind pop/overwrite: under
+/// `main loop concurrently:` the loading context is handler-local (swapped per
+/// poll), so a guard that drops while its handler's context is parked (the
+/// handler future was dropped mid-suspend) sees the *ambient* context and must
+/// not clobber it (#642).
 struct ModuleLoadGuard<'a> {
     interpreter: &'a Interpreter,
+    module_path: PathBuf,
     previous_source: Option<PathBuf>,
     should_restore: bool,
 }
@@ -1025,10 +1061,11 @@ impl<'a> ModuleLoadGuard<'a> {
             .loading_stack
             .borrow_mut()
             .push(module_path.clone());
-        *interpreter.current_source_file.borrow_mut() = Some(module_path);
+        *interpreter.current_source_file.borrow_mut() = Some(module_path.clone());
 
         Self {
             interpreter,
+            module_path,
             previous_source,
             should_restore: true,
         }
@@ -1048,8 +1085,16 @@ impl<'a> ModuleLoadGuard<'a> {
 impl<'a> Drop for ModuleLoadGuard<'a> {
     fn drop(&mut self) {
         if self.should_restore {
-            *self.interpreter.current_source_file.borrow_mut() = self.previous_source.clone();
-            self.interpreter.loading_stack.borrow_mut().pop();
+            {
+                let mut current = self.interpreter.current_source_file.borrow_mut();
+                if current.as_ref() == Some(&self.module_path) {
+                    *current = self.previous_source.clone();
+                }
+            }
+            let mut stack = self.interpreter.loading_stack.borrow_mut();
+            if let Some(pos) = stack.iter().rposition(|p| p == &self.module_path) {
+                stack.remove(pos);
+            }
         }
     }
 }
@@ -4634,6 +4679,52 @@ impl Interpreter {
         }
     }
 
+    /// Whether the current execution context owns response stream `handle_id`:
+    /// it appears in the currently-installed per-handler open list (the
+    /// interpreter's own list under serial execution). Stream verbs require
+    /// ownership while the stream is LIVE, so a handler holding a sibling's
+    /// stream handle (e.g. through a shared global) cannot inject into, flush,
+    /// or truncate the sibling's response (#642). Once a stream is closed
+    /// (removed from the map and every open list) ownership is no longer
+    /// determinable — write/flush then fail with the closed-stream error,
+    /// while `close` is an idempotent no-op for any holder of the stale
+    /// handle (there is no live response left to protect).
+    fn owns_response_stream(&self, handle_id: &str) -> bool {
+        self.open_response_streams
+            .borrow()
+            .iter()
+            .any(|s| s == handle_id)
+    }
+
+    /// The ownership-failure error for a stream verb: distinguishes a stream
+    /// that is live but owned by another handler from one that is simply no
+    /// longer open (closed earlier, or its owner exited).
+    fn response_stream_ownership_error(
+        &self,
+        verb: &str,
+        handle_id: &str,
+        line: usize,
+        column: usize,
+    ) -> RuntimeError {
+        if self
+            .server_response_streams
+            .borrow()
+            .contains_key(handle_id)
+        {
+            RuntimeError::new(
+                format!("Cannot {verb} a response stream owned by another handler"),
+                line,
+                column,
+            )
+        } else {
+            RuntimeError::new(
+                format!("Cannot {verb} a closed response stream"),
+                line,
+                column,
+            )
+        }
+    }
+
     /// Swap the interpreter's per-execution run-state fields with `state`.
     ///
     /// Used by [`IsolatedHandler`] to make the run state poll-local under
@@ -4670,6 +4761,32 @@ impl Interpreter {
         );
         let accepted = self.accepted_request.replace(state.accepted_request);
         state.accepted_request = accepted;
+        io_capture::swap_stack(&mut state.capture_stack);
+        std::mem::swap(
+            &mut *self.current_source_file.borrow_mut(),
+            &mut state.current_source_file,
+        );
+        std::mem::swap(
+            &mut *self.loading_stack.borrow_mut(),
+            &mut state.loading_stack,
+        );
+    }
+
+    /// Build the initial [`RunState`] for a new concurrent handler: recursion
+    /// accounting starts at the LIVE depth at loop entry — the enclosing
+    /// action frames beneath a nested `main loop concurrently:` stay counted,
+    /// mirroring `execute file`'s child seeding — and the handler inherits
+    /// (clones of) the calling context's capture stack and module-loading
+    /// context so captures, relative module paths, and cycle/import-depth
+    /// checks behave as they would in the enclosing context (#642).
+    fn fresh_handler_run_state(&self) -> RunState {
+        RunState {
+            call_depth: self.call_depth.get(),
+            capture_stack: io_capture::snapshot_stack(),
+            current_source_file: self.current_source_file.borrow().clone(),
+            loading_stack: self.loading_stack.borrow().clone(),
+            ..RunState::default()
+        }
     }
 
     /// Drop each outbound streaming handle whose id is in `ids` from
@@ -5281,8 +5398,8 @@ impl Interpreter {
                     std::panic::AssertUnwindSafe(self.execute_block(body, scope)).catch_unwind();
                 futs.push(IsolatedHandler {
                     interp: self,
-                    state: RunState::fresh(self.base_call_depth),
-                    inner: Box::pin(handler),
+                    state: self.fresh_handler_run_state(),
+                    inner: Some(Box::pin(handler)),
                 });
             }
 
@@ -6984,6 +7101,20 @@ impl Interpreter {
                             self.untrack_http_stream(&id);
                             Ok((Value::Null, ControlFlow::None))
                         } else if let Some(id) = server_id {
+                            // Only the owning handler may end a LIVE response
+                            // body: a sibling holding this handle must not be
+                            // able to truncate the owner's in-flight response
+                            // (#642). An already-closed stream has no owner
+                            // (and nothing left to protect), so `close` on a
+                            // stale handle is an idempotent no-op for any
+                            // handler.
+                            if !self.owns_response_stream(&id)
+                                && self.server_response_streams.borrow().contains_key(&id)
+                            {
+                                return Err(self.response_stream_ownership_error(
+                                    "close", &id, *line, *column,
+                                ));
+                            }
                             // Dropping the sender ends the response body stream.
                             self.server_response_streams.borrow_mut().remove(&id);
                             // Drop it from the handler's auto-close tracking so
@@ -9942,43 +10073,48 @@ impl Interpreter {
                     }
                 };
 
+                // Evaluate the timeout expression BEFORE locking the shared
+                // receiver. The timeout clause is an arbitrary WFL expression
+                // and evaluating it can await (a user action that sleeps, does
+                // I/O, ...). The receiver mutex is shared by every concurrent
+                // handler, so evaluating under it would let one handler's slow
+                // timeout expression stall the whole server (#642).
+                let timeout_duration = if let Some(timeout_expr) = timeout {
+                    let timeout_val = self
+                        .evaluate_expression(timeout_expr, Rc::clone(&env))
+                        .await?;
+                    match timeout_val {
+                        // Reject fractional values that would truncate to 0 ms
+                        // (e.g. 0.5) and hot-spin forever with zero-duration
+                        // timeouts. Require at least 1 millisecond.
+                        Value::Number(ms) if ms >= 1.0 => {
+                            Some(std::time::Duration::from_millis(ms as u64))
+                        }
+                        Value::Number(ms) if ms > 0.0 => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Timeout must be at least 1 millisecond (got {ms} ms); \
+                                     fractional values below 1 would truncate to zero and spin"
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Timeout must be a positive number (milliseconds)".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 // Wait for a request to come in (with optional timeout)
                 let request = {
                     let mut receiver = request_receiver.lock().await;
-
-                    // Evaluate timeout if provided
-                    let timeout_duration = if let Some(timeout_expr) = timeout {
-                        let timeout_val = self
-                            .evaluate_expression(timeout_expr, Rc::clone(&env))
-                            .await?;
-                        match timeout_val {
-                            // Reject fractional values that would truncate to 0 ms
-                            // (e.g. 0.5) and hot-spin forever with zero-duration
-                            // timeouts. Require at least 1 millisecond.
-                            Value::Number(ms) if ms >= 1.0 => {
-                                Some(std::time::Duration::from_millis(ms as u64))
-                            }
-                            Value::Number(ms) if ms > 0.0 => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Timeout must be at least 1 millisecond (got {ms} ms); \
-                                         fractional values below 1 would truncate to zero and spin"
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    "Timeout must be a positive number (milliseconds)".to_string(),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        }
-                    } else {
-                        None
-                    };
 
                     // Wait for request with or without timeout. Loop so a request
                     // whose client already gave up (its oneshot receiver dropped
@@ -10688,6 +10824,10 @@ impl Interpreter {
                         ));
                     }
                 };
+                if !self.owns_response_stream(&handle_id) {
+                    return Err(self
+                        .response_stream_ownership_error("write to", &handle_id, *line, *column));
+                }
                 let val = self.evaluate_expression(value, Rc::clone(&env)).await?;
                 let newline = usize::from(*is_line);
                 // Compute the outgoing byte length WITHOUT cloning a large
@@ -10842,7 +10982,7 @@ impl Interpreter {
                     if root_bound {
                         // Reuse ExpressionStatement semantics by dispatching a
                         // synthetic statement.
-                        return self
+                        let flush_result = self
                             .execute_statement(
                                 &Statement::ExpressionStatement {
                                     expression: fallback_expr.clone(),
@@ -10851,12 +10991,36 @@ impl Interpreter {
                                 },
                                 Rc::clone(&env),
                             )
-                            .await;
+                            .await?;
+                        // Exact `flush (…)` / `flush call …` (legacy binding is
+                        // the bare word `flush`; merged forms always carry the
+                        // operand in the phrase): pre-streaming these were TWO
+                        // statements — bare `flush`, then the operand as its own
+                        // expression statement. Keep the operand's side effects
+                        // by evaluating it too, in the original order (#642).
+                        if legacy_binding.as_deref() == Some("flush") {
+                            return self
+                                .execute_statement(
+                                    &Statement::ExpressionStatement {
+                                        expression: target.clone(),
+                                        line: *line,
+                                        column: *column,
+                                    },
+                                    Rc::clone(&env),
+                                )
+                                .await;
+                        }
+                        return Ok(flush_result);
                     }
                 }
                 let handle_id = self
                     .resolve_server_stream_handle(target, &env, *line, *column)
                     .await?;
+                if !self.owns_response_stream(&handle_id) {
+                    return Err(
+                        self.response_stream_ownership_error("flush", &handle_id, *line, *column)
+                    );
+                }
                 let exists = self
                     .server_response_streams
                     .borrow()
