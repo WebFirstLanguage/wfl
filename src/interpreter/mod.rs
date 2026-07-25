@@ -16083,6 +16083,108 @@ mod outbound_stream_deadline_tests {
         );
     }
 
+    #[tokio::test]
+    async fn observed_clean_eof_wins_over_a_later_deadline_claim() {
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 0,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let handle_id = "observed-clean-eof".to_string();
+        let cancel = StreamCancel::new();
+        let owner: StreamOwner =
+            Arc::new(std::sync::Mutex::new(HashSet::from([handle_id.clone()])));
+
+        client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .insert(
+                handle_id.clone(),
+                StreamSlot {
+                    handle: Some(HttpStreamHandle {
+                        stream: Box::pin(futures_util::stream::empty::<reqwest::Result<Vec<u8>>>()),
+                        buffer: b"abc".to_vec(),
+                        done: false,
+                        bytes_read: 3,
+                        total_deadline: None,
+                    }),
+                    deadline: None,
+                    cancel,
+                    reaper_abort: None,
+                    owner: Some(Arc::clone(&owner)),
+                },
+            );
+
+        let Some(TakenStream { mut handle, cancel }) = client
+            .take_stream(&handle_id)
+            .expect("take synthetic stream")
+        else {
+            panic!("synthetic stream unexpectedly resolved as clean EOF");
+        };
+
+        assert!(
+            !client
+                .stream_pull(&mut handle, &budget, &cancel)
+                .await
+                .expect("observe clean EOF"),
+            "the empty body must report clean EOF"
+        );
+        assert!(handle.done, "observing EOF must mark the body complete");
+
+        let winner = cancel.terminate(StreamTerminal::Timeout);
+        assert_eq!(
+            winner,
+            StreamTerminal::CleanEof,
+            "a deadline claim after the upstream yielded EOF must not overwrite clean EOF"
+        );
+
+        let final_line = std::mem::take(&mut handle.buffer);
+        client
+            .put_stream(&handle_id, handle, &cancel)
+            .expect("terminalize the EOF-latched body");
+        assert_eq!(final_line, b"abc");
+        assert!(
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "terminalization must remove the stream owner"
+        );
+
+        let registry = client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert!(
+            !registry.live.contains_key(&handle_id),
+            "terminalization must remove the live stream slot"
+        );
+        assert_eq!(
+            registry
+                .recent
+                .iter()
+                .filter(|entry| {
+                    entry.id == handle_id && entry.reason == StreamTerminal::CleanEof
+                })
+                .count(),
+            1,
+            "terminalization must retain exactly one one-shot clean-EOF record"
+        );
+        drop(registry);
+
+        assert_eq!(
+            client
+                .next_line(&handle_id, budget)
+                .await
+                .expect("consume one-shot clean EOF"),
+            None
+        );
+    }
+
     #[test]
     fn extreme_outbound_stream_max_seconds_does_not_panic() {
         // u64::MAX must remain a finite cap rather than panicking or silently
