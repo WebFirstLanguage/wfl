@@ -14508,6 +14508,268 @@ mod concurrent_handler_classification_tests {
 }
 
 #[cfg(test)]
+mod response_expression_disconnect_tests {
+    use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct StalledUpstream {
+        port: u16,
+        head_sent: oneshot::Receiver<()>,
+        peer_closed: oneshot::Receiver<()>,
+        release: Option<oneshot::Sender<()>>,
+    }
+
+    async fn spawn_stalled_upstream() -> StalledUpstream {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stalled upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        let (head_sent_tx, head_sent) = oneshot::channel();
+        let (peer_closed_tx, peer_closed) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept upstream request");
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket
+                    .read(&mut chunk)
+                    .await
+                    .expect("read upstream request");
+                assert!(read > 0, "client closed before sending request head");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\n\
+                      Transfer-Encoding: chunked\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .expect("send stalled response head");
+            let _ = head_sent_tx.send(());
+
+            let mut probe = [0u8; 1];
+            tokio::select! {
+                result = socket.read(&mut probe) => {
+                    assert!(
+                        matches!(result, Ok(0) | Err(_)),
+                        "client unexpectedly sent bytes while response body was stalled: {result:?}"
+                    );
+                    let _ = peer_closed_tx.send(());
+                }
+                _ = release_rx => {
+                    let _ = socket.shutdown().await;
+                }
+            }
+        });
+
+        StalledUpstream {
+            port,
+            head_sent,
+            peer_closed,
+            release: Some(release_tx),
+        }
+    }
+
+    fn parse_statements(source: &str) -> Vec<Statement> {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        parser
+            .parse()
+            .unwrap_or_else(|errors| {
+                panic!("response disconnect fixture did not parse: {errors:?}")
+            })
+            .statements
+    }
+
+    fn install_pending_request(
+        interpreter: &Interpreter,
+        env: &Rc<RefCell<Environment>>,
+        request_id: &str,
+    ) -> oneshot::Receiver<HandlerReply> {
+        let (sender, receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            request_id.to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push(request_id.to_string());
+
+        let mut request = HashMap::new();
+        request.insert(
+            "_response_sender".to_string(),
+            Value::Text(Arc::from(request_id)),
+        );
+        env.borrow_mut()
+            .define_or_replace("req", Value::Object(Rc::new(RefCell::new(request))));
+        receiver
+    }
+
+    fn response_eval_is_stalled(interpreter: &Interpreter) -> bool {
+        let owned_streams = {
+            let owner = Arc::clone(&interpreter.open_http_streams.borrow());
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len()
+        };
+        owned_streams == 1
+            && interpreter.get_call_stack().len() == 1
+            && *interpreter.current_count.borrow() == Some(1.0)
+            && *interpreter.in_count_loop.borrow()
+    }
+
+    async fn assert_precommit_disconnect_cancels(response_statement: &str, action_return: &str) {
+        let mut upstream = spawn_stalled_upstream().await;
+        let config = Arc::new(WflConfig {
+            timeout_seconds: 120,
+            outbound_stream_max_seconds: 120,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(config);
+        let source = format!(
+            "define action called stalled_value:\n\
+             \x20\x20\x20\x20count from 1 to 1:\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20open url at \"http://127.0.0.1:{}/stall\" and stream response as upstream\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20wait for 60000 milliseconds\n\
+             \x20\x20\x20\x20end count\n\
+             \x20\x20\x20\x20return {action_return}\n\
+             end action\n\
+             {response_statement}\n",
+            upstream.port
+        );
+        let statements = parse_statements(&source);
+        assert_eq!(
+            statements.len(),
+            2,
+            "unexpected fixture AST: {statements:#?}"
+        );
+        let env = Rc::clone(interpreter.global_env());
+        interpreter
+            .execute_statement(&statements[0], Rc::clone(&env))
+            .await
+            .expect("define stalled action");
+
+        // Simulate an already-active outer count loop. Dropping the response
+        // evaluation must restore this exact run-state snapshot.
+        *interpreter.current_count.borrow_mut() = Some(41.0);
+        *interpreter.in_count_loop.borrow_mut() = true;
+        let receiver = install_pending_request(&interpreter, &env, "request-1");
+
+        let mut response = Box::pin(interpreter.execute_statement(&statements[1], env));
+        let mut stalled = Box::pin(async {
+            loop {
+                if response_eval_is_stalled(&interpreter) {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::select! {
+                result = response.as_mut() => {
+                    panic!("response evaluation finished before the disconnect latch: {result:?}")
+                }
+                _ = stalled.as_mut() => {}
+            }
+        })
+        .await
+        .expect("response expression never reached its stalled action");
+        upstream
+            .head_sent
+            .await
+            .expect("stalled upstream did not send its response head");
+
+        // Causal trigger: only after the action owns a live upstream stream and
+        // is sleeping inside a count loop do we drop the client receiver.
+        drop(receiver);
+        let result = match tokio::time::timeout(Duration::from_secs(2), response.as_mut()).await {
+            Ok(result) => result,
+            Err(_) => {
+                drop(response);
+                interpreter.close_open_http_streams();
+                if let Some(release) = upstream.release.take() {
+                    let _ = release.send(());
+                }
+                panic!(
+                    "response expression evaluation did not cancel after its request disconnected"
+                );
+            }
+        };
+        drop(response);
+
+        let error = result.expect_err("disconnect must cancel response precommit evaluation");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+        assert!(
+            interpreter.get_call_stack().is_empty(),
+            "dropped response evaluation leaked call frames"
+        );
+        assert_eq!(interpreter.call_depth.get(), 0, "call depth leaked");
+        assert_eq!(
+            *interpreter.current_count.borrow(),
+            Some(41.0),
+            "outer count binding was not restored"
+        );
+        assert!(
+            *interpreter.in_count_loop.borrow(),
+            "outer count-loop state was not restored"
+        );
+        assert!(
+            !interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-1"),
+            "cancelled request remained pending"
+        );
+        assert!(
+            !interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-1"),
+            "cancelled request remained handler-owned"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), &mut upstream.peer_closed)
+            .await
+            .expect("cancelled response evaluation did not drop its upstream socket")
+            .expect("upstream close observation task ended early");
+        assert!(
+            interpreter
+                .open_http_streams
+                .borrow()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "cancelled response evaluation retained upstream ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn buffered_content_evaluation_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels("respond to req with call stalled_value", "\"late\"")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn streaming_head_evaluation_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels(
+            "start streaming response to req with status call stalled_value and content type \"text/plain\" as out",
+            "201",
+        )
+        .await;
+    }
+}
+
+#[cfg(test)]
 mod outbound_stream_deadline_tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
