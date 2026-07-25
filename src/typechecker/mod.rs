@@ -283,6 +283,41 @@ impl TypeChecker {
         self.analyzer.restore_symbol_types(header);
     }
 
+    /// Like [`check_loop_body_fixed_point`], but leaves the POST-BODY type
+    /// state installed instead of restoring the loop-header state.
+    /// `repeat until` evaluates its condition after each body execution and
+    /// always runs the body at least once, so the condition — and everything
+    /// after the loop — sees the body's final type state, not the header
+    /// join (#642).
+    fn check_loop_body_fixed_point_post_body(&mut self, body: &[Statement]) {
+        let entry = self.analyzer.snapshot_symbol_types();
+        let mut header = entry.clone();
+
+        loop {
+            self.analyzer.restore_symbol_types(header.clone());
+            let error_count = self.errors.len();
+            for statement in body {
+                self.check_statement_types(statement);
+            }
+            if self.budget_error.is_some() {
+                return;
+            }
+            self.errors.truncate(error_count);
+
+            let backedge = self.analyzer.snapshot_symbol_types();
+            let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
+            if next == header {
+                break;
+            }
+            header = next;
+        }
+
+        self.analyzer.restore_symbol_types(header);
+        for statement in body {
+            self.check_statement_types(statement);
+        }
+    }
+
     /// Get the return type for builtin functions
     fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
         match name {
@@ -1795,6 +1830,16 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime order: the body ALWAYS runs before the condition is
+                // evaluated, in the same scope. Check in that order (with the
+                // same backedge fixed point as `while`/`repeat while`, but
+                // keeping the post-body state) so body retypings are visible
+                // to the condition (#642).
+                self.check_loop_body_fixed_point_post_body(body);
+                if self.budget_error.is_some() {
+                    return;
+                }
+
                 let condition_type = self.infer_expression_type(condition);
                 if condition_type != Type::Boolean
                     && condition_type != Type::Unknown
@@ -1807,10 +1852,6 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
-                }
-
-                for stmt in body {
-                    self.check_statement_types(stmt);
                 }
             }
             Statement::ForeverLoop { body, .. } => {
@@ -2943,6 +2984,7 @@ impl TypeChecker {
             }
             Statement::WebSocketHandlerStatement {
                 server,
+                binding,
                 body,
                 line,
                 column,
@@ -2954,6 +2996,19 @@ impl TypeChecker {
                 self.check_server_expression_type(server, *line, *column);
                 self.analyzer.push_scope();
                 let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+                // Runtime binds the event object with `define_direct`,
+                // deliberately shadowing an outer same-named variable. Analyzer
+                // body scopes are discarded before this pass, so recreate the
+                // binding here — typed Unknown, keeping event-object access
+                // permissive instead of checking the body against the outer
+                // symbol's concrete type (#642).
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: binding.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Unknown),
+                    line: *line,
+                    column: *column,
+                });
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
