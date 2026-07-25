@@ -14418,6 +14418,53 @@ mod outbound_stream_deadline_tests {
         port
     }
 
+    async fn spawn_stalled_streams(
+        expected_requests: usize,
+    ) -> (u16, tokio::sync::mpsc::UnboundedReceiver<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind terminal-retention upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        let (peer_closed_tx, peer_closed_rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            for _ in 0..expected_requests {
+                let (mut socket, _) = listener
+                    .accept()
+                    .await
+                    .expect("accept terminal-retention request");
+                let peer_closed_tx = peer_closed_tx.clone();
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buffer = [0u8; 512];
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        let read = socket.read(&mut buffer).await.expect("read request head");
+                        if read == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buffer[..read]);
+                    }
+                    socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\
+                              Connection: close\r\n\r\n",
+                        )
+                        .await
+                        .expect("write stalled response head");
+                    socket.flush().await.expect("flush stalled response head");
+
+                    loop {
+                        match socket.read(&mut buffer).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {}
+                        }
+                    }
+                    let _ = peer_closed_tx.send(());
+                });
+            }
+        });
+        (port, peer_closed_rx)
+    }
+
     async fn assert_reapers_drained(client: &IoClient) {
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
@@ -14521,6 +14568,81 @@ mod outbound_stream_deadline_tests {
         assert!(
             matches!(&later, HttpClientError::Request(message) if message.contains("already-closed")),
             "a later read must retain the established closed-handle error, got {later:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unread_expired_stream_metadata_and_ownership_are_bounded() {
+        const EXPECTED_RECENT_TIMEOUT_CAPACITY: usize = 64;
+        const STREAM_COUNT: usize = EXPECTED_RECENT_TIMEOUT_CAPACITY + 8;
+
+        let (port, mut peer_closed) = spawn_stalled_streams(STREAM_COUNT).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 2,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let mut handles = Vec::with_capacity(STREAM_COUNT);
+
+        for sequence in 0..STREAM_COUNT {
+            let (_, _, handle) = interpreter
+                .io_client
+                .open_http_stream(
+                    "GET",
+                    &format!("http://127.0.0.1:{port}/stall/{sequence}"),
+                    &[],
+                    None,
+                    Arc::clone(&budget),
+                )
+                .await
+                .expect("open stalled stream");
+            interpreter
+                .open_http_streams
+                .borrow_mut()
+                .push(handle.clone());
+            handles.push(handle);
+        }
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            for _ in 0..STREAM_COUNT {
+                peer_closed
+                    .recv()
+                    .await
+                    .expect("upstream close notification");
+            }
+        })
+        .await
+        .expect("expired stream bodies were not dropped promptly");
+        assert_reapers_drained(&interpreter.io_client).await;
+
+        let retained_slots = interpreter
+            .io_client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len();
+        let retained_ownership = interpreter.open_http_streams.borrow().len();
+        assert!(
+            retained_slots <= EXPECTED_RECENT_TIMEOUT_CAPACITY,
+            "expired terminal slots must have a hard ceiling of \
+             {EXPECTED_RECENT_TIMEOUT_CAPACITY}, got {retained_slots}"
+        );
+        assert_eq!(
+            retained_ownership, 0,
+            "the reaper must remove expired ids from handler ownership immediately"
+        );
+
+        let newest = handles.last().expect("newest stream");
+        let recent = interpreter
+            .io_client
+            .next_chunk(newest, budget)
+            .await
+            .expect_err("a recent expired stream must retain its typed terminal");
+        assert!(
+            matches!(recent, HttpClientError::Timeout { seconds: 2 }),
+            "a recent read-after-expiry must report Timeout, got {recent:?}"
         );
     }
 
