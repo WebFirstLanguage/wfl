@@ -53,7 +53,7 @@ use crate::parser::ast::{
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -841,7 +841,7 @@ struct RunState {
     /// exit) these are dropped from `IoClient.stream_handles`, which cancels the
     /// in-flight upstream request — so an abandoned proxy read never leaks an
     /// upstream connection or handle past the handler's lifetime.
-    open_http_streams: Vec<String>,
+    open_http_streams: StreamOwner,
     /// Sticky: this handler successfully dequeued at least one request via
     /// `wait for request`. Used by the concurrent main loop to distinguish
     /// structural pre-request failures (feed the consecutive-failure breaker)
@@ -944,7 +944,7 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
 /// `Drop`).
 struct OutboundStreamCleanup {
     io_client: Rc<IoClient>,
-    open_http_streams: Rc<RefCell<Vec<String>>>,
+    open_http_streams: StreamOwner,
     open_response_streams: Rc<RefCell<Vec<String>>>,
     server_response_streams: Rc<RefCell<HashMap<String, ServerResponseStream>>>,
     open_pending_requests: Rc<RefCell<Vec<String>>>,
@@ -955,23 +955,7 @@ impl Drop for OutboundStreamCleanup {
     fn drop(&mut self) {
         // Outbound upstream streams: removing a handle drops its reqwest stream,
         // cancelling the in-flight upstream request.
-        let http_ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
-        if !http_ids.is_empty() {
-            let mut map = self
-                .io_client
-                .stream_handles
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            for id in &http_ids {
-                if let Some(mut slot) = map.remove(id) {
-                    slot.cancel.terminate(StreamTerminal::Closed);
-                    if let Some(abort) = slot.reaper_abort.take() {
-                        abort.abort();
-                    }
-                    drop(slot.handle.take());
-                }
-            }
-        }
+        self.io_client.close_stream_owner(&self.open_http_streams);
 
         // Server response streams: dropping the sender ends the client's body.
         let stream_ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
@@ -1409,7 +1393,7 @@ pub struct Interpreter {
     /// the `interpret()` future can share the list and close these handles if the
     /// future is dropped/cancelled before its normal exit sites run (see
     /// `OutboundStreamCleanup`).
-    open_http_streams: Rc<RefCell<Vec<String>>>,
+    open_http_streams: Rc<RefCell<StreamOwner>>,
     /// Sticky per-handler flag: at least one request was dequeued and parked.
     /// Part of `RunState` (swapped per poll); see `RunState::accepted_request`.
     accepted_request: Cell<bool>,
@@ -1718,7 +1702,7 @@ pub struct IoClient {
     /// async mutex only offers `try_lock` from sync Drop, which previously
     /// abandoned handles when the map was briefly held). Critical sections are
     /// short (no `.await` while held).
-    stream_handles: Arc<std::sync::Mutex<HashMap<String, StreamSlot>>>,
+    stream_handles: Arc<std::sync::Mutex<StreamRegistry>>,
     next_stream_id: Mutex<usize>,
     /// Test-only live-task accounting. The production build carries no
     /// instrumentation; unit tests retain a runtime and assert that closing a
@@ -1813,6 +1797,63 @@ enum StreamTerminal {
     Closed,
 }
 
+type StreamOwner = Arc<std::sync::Mutex<HashSet<String>>>;
+
+/// Keep a short, bounded window of typed terminal outcomes after a reaper has
+/// removed the live body. This lets the next read report `Timeout` without
+/// retaining the request body, cancel channel, owner, or sleeping task.
+const MAX_RECENT_STREAM_TERMINALS: usize = 64;
+const RECENT_STREAM_TERMINAL_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct StreamRegistry {
+    live: HashMap<String, StreamSlot>,
+    recent: VecDeque<RecentStreamTerminal>,
+}
+
+struct RecentStreamTerminal {
+    id: String,
+    reason: StreamTerminal,
+    expires_at: Instant,
+}
+
+impl StreamRegistry {
+    fn prune_recent(&mut self, now: Instant) {
+        while self
+            .recent
+            .front()
+            .is_some_and(|entry| entry.expires_at <= now)
+        {
+            self.recent.pop_front();
+        }
+    }
+
+    fn remember_recent(&mut self, id: String, reason: StreamTerminal, now: Instant) {
+        self.prune_recent(now);
+        self.recent.retain(|entry| entry.id != id);
+        while self.recent.len() >= MAX_RECENT_STREAM_TERMINALS {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(RecentStreamTerminal {
+            id,
+            reason,
+            expires_at: now + RECENT_STREAM_TERMINAL_TTL,
+        });
+    }
+
+    fn take_recent(&mut self, id: &str, now: Instant) -> Option<StreamTerminal> {
+        self.prune_recent(now);
+        let index = self.recent.iter().position(|entry| entry.id == id)?;
+        self.recent.remove(index).map(|entry| entry.reason)
+    }
+
+    fn forget_recent(&mut self, id: &str) -> bool {
+        let before = self.recent.len();
+        self.recent.retain(|entry| entry.id != id);
+        self.recent.len() != before
+    }
+}
+
 /// Per-handle shared lifecycle for an outbound stream.
 ///
 /// Reads take the inner [`HttpStreamHandle`] out for the duration of the await
@@ -1830,6 +1871,18 @@ struct StreamSlot {
     /// Abort handle for the reaper timer. Cancelled on EOF, error, or explicit
     /// close so rapid open/close cycles do not accumulate sleeping tasks.
     reaper_abort: Option<tokio::task::AbortHandle>,
+    /// Handler ownership is stored with the live slot so the reaper can remove
+    /// the id immediately. Recent terminal records never retain an owner.
+    owner: Option<StreamOwner>,
+}
+
+fn remove_stream_owner(slot: &mut StreamSlot, handle_id: &str) {
+    if let Some(owner) = slot.owner.take() {
+        owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(handle_id);
+    }
 }
 
 /// A live, parked outbound streaming response body.
@@ -1979,7 +2032,7 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
-            stream_handles: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            stream_handles: Arc::new(std::sync::Mutex::new(StreamRegistry::default())),
             next_stream_id: Mutex::new(1),
             #[cfg(test)]
             active_stream_reapers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -2186,17 +2239,19 @@ impl IoClient {
         // races with open still sees a consistent cancel handle).
         let cancel = StreamCancel::new();
         {
-            let mut map = self
+            let mut registry = self
                 .stream_handles
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            map.insert(
+            registry.prune_recent(Instant::now());
+            registry.live.insert(
                 handle_id.clone(),
                 StreamSlot {
                     handle: Some(handle),
                     deadline: total_deadline,
                     cancel: Arc::clone(&cancel),
                     reaper_abort: None,
+                    owner: None,
                 },
             );
             if let Some(deadline) = total_deadline {
@@ -2211,18 +2266,20 @@ impl IoClient {
                     let _reaper_guard = reaper_guard;
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     tokio::time::sleep(remaining).await;
-                    // Preserve a Timeout tombstone in the stable slot. This
-                    // wakes an active read with the typed reason and lets a
-                    // later read of an unread expired handle report Timeout
-                    // instead of "unknown handle".
-                    let mut map = handles.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(slot) = map.get_mut(&reap_id) {
-                        cancel_reap.terminate(StreamTerminal::Timeout);
+                    // Remove the heavy live slot and preserve only a bounded,
+                    // lightweight typed terminal record for one later read.
+                    let now = Instant::now();
+                    let mut registry = handles.lock().unwrap_or_else(|e| e.into_inner());
+                    registry.prune_recent(now);
+                    if let Some(mut slot) = registry.live.remove(&reap_id) {
+                        let terminal = cancel_reap.terminate(StreamTerminal::Timeout);
                         slot.reaper_abort = None; // we are the reaper
                         drop(slot.handle.take());
+                        remove_stream_owner(&mut slot, &reap_id);
+                        registry.remember_recent(reap_id, terminal, now);
                     }
                 });
-                if let Some(slot) = map.get_mut(&handle_id) {
+                if let Some(slot) = registry.live.get_mut(&handle_id) {
                     slot.reaper_abort = Some(join.abort_handle());
                 } else {
                     // Already finished before we armed — cancel the timer.
@@ -2234,23 +2291,83 @@ impl IoClient {
         Ok((status, response_headers, handle_id))
     }
 
+    /// Atomically attach a handler owner to a freshly opened stream. If expiry
+    /// won the race, return its typed outcome without creating stale ownership.
+    fn claim_stream_owner(
+        &self,
+        handle_id: &str,
+        owner: &StreamOwner,
+    ) -> Result<(), HttpClientError> {
+        let now = Instant::now();
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        registry.prune_recent(now);
+        if let Some(slot) = registry.live.get_mut(handle_id) {
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(handle_id.to_string());
+            slot.owner = Some(Arc::clone(owner));
+            return Ok(());
+        }
+        if let Some(terminal) = registry.take_recent(handle_id, now) {
+            return Err(self.stream_terminal_error(terminal));
+        }
+        Err(HttpClientError::Closed)
+    }
+
+    /// Close every live stream owned by one handler. The owner lock is released
+    /// before the registry lock is acquired, preserving the registry->owner
+    /// nesting order used by the reaper.
+    fn close_stream_owner(&self, owner: &StreamOwner) {
+        let ids: Vec<String> = {
+            let mut owned = owner.lock().unwrap_or_else(|error| error.into_inner());
+            owned.drain().collect()
+        };
+        if ids.is_empty() {
+            return;
+        }
+
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        registry.prune_recent(Instant::now());
+        for id in ids {
+            if let Some(mut slot) = registry.live.remove(&id) {
+                slot.cancel.terminate(StreamTerminal::Closed);
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, &id);
+            }
+            registry.forget_recent(&id);
+        }
+    }
+
     /// Signal cancel, abort the reaper, drop any parked handle, and remove the
     /// slot. Guaranteed (std mutex) — usable from Drop. Returns whether a slot
     /// was present.
     fn finish_stream_slot_sync(&self, handle_id: &str, terminal: StreamTerminal) -> bool {
-        let mut map = self
+        let mut registry = self
             .stream_handles
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if let Some(mut slot) = map.remove(handle_id) {
+        registry.prune_recent(Instant::now());
+        let had_recent = registry.forget_recent(handle_id);
+        if let Some(mut slot) = registry.live.remove(handle_id) {
             slot.cancel.terminate(terminal);
             if let Some(abort) = slot.reaper_abort.take() {
                 abort.abort();
             }
             drop(slot.handle.take());
+            remove_stream_owner(&mut slot, handle_id);
             true
         } else {
-            false
+            had_recent
         }
     }
 
@@ -2262,39 +2379,56 @@ impl IoClient {
     /// holding the global handle lock. The cancel watch stays alive so close/
     /// expire aborts the read. Errors if unknown, closed, or past deadline.
     fn take_stream(&self, handle_id: &str) -> Result<TakenStream, HttpClientError> {
-        let mut map = self
+        let now = Instant::now();
+        let mut registry = self
             .stream_handles
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let Some(slot) = map.get_mut(handle_id) else {
+        registry.prune_recent(now);
+        if !registry.live.contains_key(handle_id) {
+            if let Some(terminal) = registry.take_recent(handle_id, now) {
+                return Err(self.stream_terminal_error(terminal));
+            }
             return Err(HttpClientError::Request(format!(
                 "Unknown or already-closed stream handle '{handle_id}'"
             )));
-        };
-        if let Some(terminal) = slot.cancel.terminal() {
-            // Consume the stable terminal tombstone.
-            if let Some(mut slot) = map.remove(handle_id) {
+        }
+        if let Some(terminal) = registry
+            .live
+            .get(handle_id)
+            .and_then(|slot| slot.cancel.terminal())
+        {
+            if let Some(mut slot) = registry.live.remove(handle_id) {
                 if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
                 drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
             }
             return Err(self.stream_terminal_error(terminal));
         }
-        let past_deadline = slot
+        let past_deadline = registry
+            .live
+            .get(handle_id)
+            .expect("live stream checked above")
             .deadline
-            .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero());
+            .is_some_and(|deadline| deadline <= now);
         if past_deadline {
-            if let Some(mut slot) = map.remove(handle_id) {
+            if let Some(mut slot) = registry.live.remove(handle_id) {
                 let terminal = slot.cancel.terminate(StreamTerminal::Timeout);
                 if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
                 drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
                 return Err(self.stream_terminal_error(terminal));
             }
             return Err(self.outbound_stream_timeout_error());
         }
+        let slot = registry
+            .live
+            .get_mut(handle_id)
+            .expect("live stream checked above");
         let cancel = Arc::clone(&slot.cancel);
         match slot.handle.take() {
             Some(handle) => Ok(TakenStream { handle, cancel }),
@@ -2318,36 +2452,45 @@ impl IoClient {
             let _ = self.finish_stream_slot_sync(handle_id, terminal);
             return Err(self.stream_terminal_error(terminal));
         }
-        let mut map = self
+        let now = Instant::now();
+        let mut registry = self
             .stream_handles
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let Some(slot) = map.get_mut(handle_id) else {
+        registry.prune_recent(now);
+        if !registry.live.contains_key(handle_id) {
             drop(handle);
-            return Err(cancel
+            let terminal = cancel
                 .terminal()
-                .map(|terminal| self.stream_terminal_error(terminal))
+                .or_else(|| registry.take_recent(handle_id, now));
+            return Err(terminal
+                .map(|reason| self.stream_terminal_error(reason))
                 .unwrap_or(HttpClientError::Closed));
-        };
-        let terminal = slot.cancel.terminal().or_else(|| {
-            if slot
-                .deadline
-                .is_some_and(|d| d.saturating_duration_since(Instant::now()).is_zero())
-            {
-                Some(slot.cancel.terminate(StreamTerminal::Timeout))
-            } else {
-                None
-            }
+        }
+        let terminal = registry.live.get(handle_id).and_then(|slot| {
+            slot.cancel.terminal().or_else(|| {
+                if slot.deadline.is_some_and(|deadline| deadline <= now) {
+                    Some(slot.cancel.terminate(StreamTerminal::Timeout))
+                } else {
+                    None
+                }
+            })
         });
         if let Some(terminal) = terminal {
             drop(handle);
-            if let Some(mut slot) = map.remove(handle_id)
-                && let Some(abort) = slot.reaper_abort.take()
-            {
-                abort.abort();
+            if let Some(mut slot) = registry.live.remove(handle_id) {
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
             }
             return Err(self.stream_terminal_error(terminal));
         }
+        let slot = registry
+            .live
+            .get_mut(handle_id)
+            .expect("live stream checked above");
         // A final unterminated line needs one subsequent read to produce
         // `nothing`, matching the established WFL stream contract. Retain the
         // exhausted handle for that one read, but abort its timer immediately
@@ -3889,7 +4032,9 @@ impl Interpreter {
             server_response_streams: Rc::new(RefCell::new(HashMap::new())),
             open_response_streams: Rc::new(RefCell::new(Vec::new())),
             open_pending_requests: Rc::new(RefCell::new(Vec::new())),
-            open_http_streams: Rc::new(RefCell::new(Vec::new())),
+            open_http_streams: Rc::new(RefCell::new(Arc::new(std::sync::Mutex::new(
+                HashSet::new(),
+            )))),
             accepted_request: Cell::new(false),
             next_response_stream_id: std::cell::Cell::new(1),
             config,
@@ -4468,25 +4613,8 @@ impl Interpreter {
     /// synchronous (usable from `Drop`): if the async lock is momentarily held,
     /// the handles remain and are reclaimed at interpreter teardown. Idempotent —
     /// an id already removed by EOF/error/explicit `close` is a no-op.
-    fn close_http_streams(&self, ids: &[String]) {
-        if ids.is_empty() {
-            return;
-        }
-        // std mutex: guaranteed cleanup from Drop (no silent try_lock abandon).
-        let mut map = self
-            .io_client
-            .stream_handles
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        for id in ids {
-            if let Some(mut slot) = map.remove(id) {
-                slot.cancel.terminate(StreamTerminal::Closed);
-                if let Some(abort) = slot.reaper_abort.take() {
-                    abort.abort();
-                }
-                drop(slot.handle.take());
-            }
-        }
+    fn close_http_streams(&self, owner: &StreamOwner) {
+        self.io_client.close_stream_owner(owner);
     }
 
     /// Build an RAII guard that closes any outbound stream handles still tracked
@@ -4498,7 +4626,7 @@ impl Interpreter {
     fn outbound_stream_cleanup_guard(&self) -> OutboundStreamCleanup {
         OutboundStreamCleanup {
             io_client: Rc::clone(&self.io_client),
-            open_http_streams: Rc::clone(&self.open_http_streams),
+            open_http_streams: Arc::clone(&self.open_http_streams.borrow()),
             open_response_streams: Rc::clone(&self.open_response_streams),
             server_response_streams: Rc::clone(&self.server_response_streams),
             open_pending_requests: Rc::clone(&self.open_pending_requests),
@@ -4510,8 +4638,8 @@ impl Interpreter {
     /// open. Called at the end of each serial `main loop` iteration and at program
     /// exit, mirroring the concurrent path's per-handler `Drop`.
     fn close_open_http_streams(&self) {
-        let ids = std::mem::take(&mut *self.open_http_streams.borrow_mut());
-        self.close_http_streams(&ids);
+        let owner = Arc::clone(&self.open_http_streams.borrow());
+        self.close_http_streams(&owner);
     }
 
     /// Stop tracking an outbound stream id as handler-owned — it has already left
@@ -4520,7 +4648,9 @@ impl Interpreter {
     fn untrack_http_stream(&self, handle_id: &str) {
         self.open_http_streams
             .borrow_mut()
-            .retain(|id| id != handle_id);
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(handle_id);
     }
 
     /// Clone the sender of every downstream response stream this handler owns. A
@@ -7915,7 +8045,10 @@ impl Interpreter {
                         // Track the outbound handle as handler-owned so it is
                         // dropped (cancelling the upstream) if the handler ends
                         // without closing/exhausting it.
-                        self.open_http_streams.borrow_mut().push(handle_id.clone());
+                        let owner = Arc::clone(&self.open_http_streams.borrow());
+                        self.io_client
+                            .claim_stream_owner(&handle_id, &owner)
+                            .map_err(|error| self.http_client_error(error, *line, *column))?;
                         let mut headers_map = HashMap::new();
                         for (name, value) in response_headers {
                             headers_map.insert(name, Value::Text(value.into()));
@@ -14599,9 +14732,12 @@ mod outbound_stream_deadline_tests {
                 .await
                 .expect("open stalled stream");
             interpreter
-                .open_http_streams
-                .borrow_mut()
-                .push(handle.clone());
+                .io_client
+                .claim_stream_owner(
+                    &handle,
+                    &Arc::clone(&interpreter.open_http_streams.borrow()),
+                )
+                .expect("claim stalled stream ownership");
             handles.push(handle);
         }
 
@@ -14617,17 +14753,28 @@ mod outbound_stream_deadline_tests {
         .expect("expired stream bodies were not dropped promptly");
         assert_reapers_drained(&interpreter.io_client).await;
 
-        let retained_slots = interpreter
-            .io_client
-            .stream_handles
+        let (live_slots, retained_terminals) = {
+            let registry = interpreter
+                .io_client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            (registry.live.len(), registry.recent.len())
+        };
+        let retained_ownership = interpreter
+            .open_http_streams
+            .borrow()
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .len();
-        let retained_ownership = interpreter.open_http_streams.borrow().len();
+        assert_eq!(
+            live_slots, 0,
+            "expired stream bodies must leave no live registry slots"
+        );
         assert!(
-            retained_slots <= EXPECTED_RECENT_TIMEOUT_CAPACITY,
-            "expired terminal slots must have a hard ceiling of \
-             {EXPECTED_RECENT_TIMEOUT_CAPACITY}, got {retained_slots}"
+            retained_terminals <= EXPECTED_RECENT_TIMEOUT_CAPACITY,
+            "recent terminal records must have a hard ceiling of \
+             {EXPECTED_RECENT_TIMEOUT_CAPACITY}, got {retained_terminals}"
         );
         assert_eq!(
             retained_ownership, 0,
@@ -14721,6 +14868,7 @@ mod outbound_stream_deadline_tests {
                 .stream_handles
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
+                .live
                 .is_empty(),
             "EOF, error, and explicit close must remove every stream slot"
         );
@@ -14738,6 +14886,7 @@ mod outbound_stream_deadline_tests {
             .stream_handles
             .lock()
             .unwrap_or_else(|error| error.into_inner())
+            .live
             .insert(
                 handle_id.to_string(),
                 StreamSlot {
@@ -14753,6 +14902,7 @@ mod outbound_stream_deadline_tests {
                     deadline: outbound_stream_deadline(1),
                     cancel: Arc::clone(&cancel),
                     reaper_abort: None,
+                    owner: None,
                 },
             );
 
@@ -14771,6 +14921,7 @@ mod outbound_stream_deadline_tests {
                 .stream_handles
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
+                .live
                 .contains_key(handle_id),
             "an expired handle must never be reinserted after its active read"
         );
