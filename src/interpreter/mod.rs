@@ -4660,6 +4660,48 @@ impl Interpreter {
         }
     }
 
+    /// Whether the current execution context owns response stream `handle_id`:
+    /// it appears in the currently-installed per-handler open list (the
+    /// interpreter's own list under serial execution). Stream verbs
+    /// (`write`/`flush`/`close`) require ownership, so a handler holding a
+    /// sibling's stream handle (e.g. through a shared global) cannot inject
+    /// into, flush, or truncate the sibling's response (#642).
+    fn owns_response_stream(&self, handle_id: &str) -> bool {
+        self.open_response_streams
+            .borrow()
+            .iter()
+            .any(|s| s == handle_id)
+    }
+
+    /// The ownership-failure error for a stream verb: distinguishes a stream
+    /// that is live but owned by another handler from one that is simply no
+    /// longer open (closed earlier, or its owner exited).
+    fn response_stream_ownership_error(
+        &self,
+        verb: &str,
+        handle_id: &str,
+        line: usize,
+        column: usize,
+    ) -> RuntimeError {
+        if self
+            .server_response_streams
+            .borrow()
+            .contains_key(handle_id)
+        {
+            RuntimeError::new(
+                format!("Cannot {verb} a response stream owned by another handler"),
+                line,
+                column,
+            )
+        } else {
+            RuntimeError::new(
+                format!("Cannot {verb} a closed response stream"),
+                line,
+                column,
+            )
+        }
+    }
+
     /// Swap the interpreter's per-execution run-state fields with `state`.
     ///
     /// Used by [`IsolatedHandler`] to make the run state poll-local under
@@ -7034,6 +7076,18 @@ impl Interpreter {
                             self.untrack_http_stream(&id);
                             Ok((Value::Null, ControlFlow::None))
                         } else if let Some(id) = server_id {
+                            // Only the owning handler may end the response body.
+                            // A sibling holding this handle must not be able to
+                            // truncate the owner's in-flight response (#642).
+                            // Re-closing an already-closed own stream stays a
+                            // silent no-op (the live-elsewhere case errors).
+                            if !self.owns_response_stream(&id)
+                                && self.server_response_streams.borrow().contains_key(&id)
+                            {
+                                return Err(self.response_stream_ownership_error(
+                                    "close", &id, *line, *column,
+                                ));
+                            }
                             // Dropping the sender ends the response body stream.
                             self.server_response_streams.borrow_mut().remove(&id);
                             // Drop it from the handler's auto-close tracking so
@@ -10743,6 +10797,10 @@ impl Interpreter {
                         ));
                     }
                 };
+                if !self.owns_response_stream(&handle_id) {
+                    return Err(self
+                        .response_stream_ownership_error("write to", &handle_id, *line, *column));
+                }
                 let val = self.evaluate_expression(value, Rc::clone(&env)).await?;
                 let newline = usize::from(*is_line);
                 // Compute the outgoing byte length WITHOUT cloning a large
@@ -10912,6 +10970,11 @@ impl Interpreter {
                 let handle_id = self
                     .resolve_server_stream_handle(target, &env, *line, *column)
                     .await?;
+                if !self.owns_response_stream(&handle_id) {
+                    return Err(
+                        self.response_stream_ownership_error("flush", &handle_id, *line, *column)
+                    );
+                }
                 let exists = self
                     .server_response_streams
                     .borrow()
