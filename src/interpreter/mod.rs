@@ -1804,19 +1804,20 @@ impl StreamCancel {
 }
 
 /// Why a stream slot was terminated. Active readers observe the shared
-/// first-wins signal; unread expiry is retained briefly in the bounded recent
-/// terminal queue so the next read can still report the typed reason.
+/// first-wins signal; clean EOF and unread expiry are retained briefly in the
+/// bounded recent queue so the next read can consume the terminal outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamTerminal {
+    CleanEof,
     Timeout,
     Closed,
 }
 
 type StreamOwner = Arc<std::sync::Mutex<HashSet<String>>>;
 
-/// Keep a short, bounded window of typed terminal outcomes after a reaper has
-/// removed the live body. This lets the next read report `Timeout` without
-/// retaining the request body, cancel channel, owner, or sleeping task.
+/// Keep a short, bounded window of terminal outcomes after removing the live
+/// body. This preserves one clean-EOF read or a typed timeout without retaining
+/// the request body, cancel channel, owner, or sleeping task.
 const MAX_RECENT_STREAM_TERMINALS: usize = 64;
 const RECENT_STREAM_TERMINAL_TTL: Duration = Duration::from_secs(60);
 
@@ -1875,7 +1876,8 @@ impl StreamRegistry {
 /// (so the global map lock is not held across the network). Explicit
 /// finish/close removes the slot after signalling [`StreamCancel`]; expiry
 /// drops the parked body, removes the live slot, and records a bounded recent
-/// terminal so mid-read work aborts without losing the reason.
+/// terminal so mid-read work aborts without losing the reason. Clean EOF uses
+/// the same queue for its one follow-up read.
 struct StreamSlot {
     /// The live body handle. `None` while a body read owns it.
     handle: Option<HttpStreamHandle>,
@@ -2398,8 +2400,9 @@ impl IoClient {
 
     /// Remove a stream handle from its slot so a body read can await without
     /// holding the global handle lock. The cancel watch stays alive so close/
-    /// expire aborts the read. Errors if unknown, closed, or past deadline.
-    fn take_stream(&self, handle_id: &str) -> Result<TakenStream, HttpClientError> {
+    /// expire aborts the read. A recent clean EOF yields `Ok(None)`; unknown,
+    /// closed, and past-deadline handles remain errors.
+    fn take_stream(&self, handle_id: &str) -> Result<Option<TakenStream>, HttpClientError> {
         let now = Instant::now();
         let mut registry = self
             .stream_handles
@@ -2408,7 +2411,10 @@ impl IoClient {
         registry.prune_recent(now);
         if !registry.live.contains_key(handle_id) {
             if let Some(terminal) = registry.take_recent(handle_id, now) {
-                return Err(self.stream_terminal_error(terminal));
+                return match terminal {
+                    StreamTerminal::CleanEof => Ok(None),
+                    terminal => Err(self.stream_terminal_error(terminal)),
+                };
             }
             return Err(HttpClientError::Request(format!(
                 "Unknown or already-closed stream handle '{handle_id}'"
@@ -2452,7 +2458,7 @@ impl IoClient {
             .expect("live stream checked above");
         let cancel = Arc::clone(&slot.cancel);
         match slot.handle.take() {
-            Some(handle) => Ok(TakenStream { handle, cancel }),
+            Some(handle) => Ok(Some(TakenStream { handle, cancel })),
             None => Err(HttpClientError::Request(format!(
                 "Unknown or already-closed stream handle '{handle_id}'"
             ))),
@@ -2464,7 +2470,7 @@ impl IoClient {
     fn put_stream(
         &self,
         handle_id: &str,
-        mut handle: HttpStreamHandle,
+        handle: HttpStreamHandle,
         cancel: &StreamCancel,
     ) -> Result<(), HttpClientError> {
         if let Some(terminal) = cancel.terminal() {
@@ -2508,30 +2514,31 @@ impl IoClient {
             }
             return Err(self.stream_terminal_error(terminal));
         }
+        if handle.done {
+            drop(handle);
+            if let Some(mut slot) = registry.live.remove(handle_id) {
+                let terminal = slot.cancel.terminate(StreamTerminal::CleanEof);
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
+                registry.remember_recent(handle_id.to_string(), terminal, now);
+            }
+            return Ok(());
+        }
+
         let slot = registry
             .live
             .get_mut(handle_id)
             .expect("live stream checked above");
-        // A final unterminated line needs one subsequent read to produce
-        // `nothing`, matching the established WFL stream contract. Retain the
-        // exhausted handle for that one read, but abort its timer immediately
-        // so EOF never leaves a sleeping reaper task.
-        if handle.done {
-            // Clean EOF already won before the absolute deadline. Preserve the
-            // one established follow-up `nothing` read without letting the old
-            // wall-clock cap retroactively turn that EOF into Timeout.
-            handle.total_deadline = None;
-            slot.deadline = None;
-            if let Some(abort) = slot.reaper_abort.take() {
-                abort.abort();
-            }
-        }
         slot.handle = Some(handle);
         Ok(())
     }
 
     fn stream_terminal_error(&self, terminal: StreamTerminal) -> HttpClientError {
         match terminal {
+            StreamTerminal::CleanEof => HttpClientError::Closed,
             StreamTerminal::Timeout => self.outbound_stream_timeout_error(),
             StreamTerminal::Closed => HttpClientError::Closed,
         }
@@ -2646,7 +2653,9 @@ impl IoClient {
         handle_id: &str,
         budget: Arc<ExecutionBudget>,
     ) -> Result<Option<Vec<u8>>, HttpClientError> {
-        let TakenStream { mut handle, cancel } = self.take_stream(handle_id)?;
+        let Some(TakenStream { mut handle, cancel }) = self.take_stream(handle_id)? else {
+            return Ok(None);
+        };
 
         if let Err(e) = self.check_stream_deadline(&handle) {
             let _ = self.finish_stream_slot(handle_id).await;
@@ -2684,7 +2693,9 @@ impl IoClient {
         handle_id: &str,
         budget: Arc<ExecutionBudget>,
     ) -> Result<Option<String>, HttpClientError> {
-        let TakenStream { mut handle, cancel } = self.take_stream(handle_id)?;
+        let Some(TakenStream { mut handle, cancel }) = self.take_stream(handle_id)? else {
+            return Ok(None);
+        };
 
         loop {
             if let Err(e) = self.check_stream_deadline(&handle) {
@@ -2713,8 +2724,8 @@ impl IoClient {
                 if line.last() == Some(&b'\r') {
                     line.pop();
                 }
-                // Preserve one exhausted read so the next wait binds `nothing`.
-                // `put_stream` aborts the reaper before parking a done handle.
+                // Preserve one lightweight clean-EOF result so the next wait
+                // binds `nothing`; `put_stream` removes all live stream state.
                 self.put_stream(handle_id, handle, &cancel)?;
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
             }
@@ -16150,20 +16161,27 @@ mod outbound_stream_deadline_tests {
             "the final unterminated line is returned only after clean EOF was observed"
         );
 
-        let (live_slots, retained_terminal_records) = {
+        let (live_slots, clean_eof_records) = {
             let registry = interpreter
                 .io_client
                 .stream_handles
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            (registry.live.len(), registry.recent.len())
+            (
+                registry.live.len(),
+                registry
+                    .recent
+                    .iter()
+                    .filter(|entry| entry.reason == StreamTerminal::CleanEof)
+                    .count(),
+            )
         };
         assert_eq!(
             live_slots, 0,
             "returning the final unterminated line must remove its live stream slot"
         );
         assert_eq!(
-            retained_terminal_records, 1,
+            clean_eof_records, 1,
             "the final line must leave exactly one lightweight clean-EOF record"
         );
         assert_eq!(
@@ -16244,13 +16262,20 @@ mod outbound_stream_deadline_tests {
                 "stream {sequence} did not yield its final unterminated line"
             );
 
-            let (live_slots, recent_records) = {
+            let (live_slots, recent_records, all_clean_eof) = {
                 let registry = interpreter
                     .io_client
                     .stream_handles
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
-                (registry.live.len(), registry.recent.len())
+                (
+                    registry.live.len(),
+                    registry.recent.len(),
+                    registry
+                        .recent
+                        .iter()
+                        .all(|entry| entry.reason == StreamTerminal::CleanEof),
+                )
             };
             assert_eq!(
                 live_slots, 0,
@@ -16260,6 +16285,10 @@ mod outbound_stream_deadline_tests {
                 recent_records,
                 (sequence + 1).min(MAX_RECENT_STREAM_TERMINALS),
                 "clean-EOF records must fill only the bounded recent queue"
+            );
+            assert!(
+                all_clean_eof,
+                "the no-follow-up wave retained a non-clean-EOF terminal"
             );
             assert!(
                 interpreter
@@ -16475,9 +16504,12 @@ mod outbound_stream_deadline_tests {
                 },
             );
 
-        let TakenStream { handle, cancel } = client
+        let Some(TakenStream { handle, cancel }) = client
             .take_stream(handle_id)
-            .expect("active read takes body");
+            .expect("active read takes body")
+        else {
+            panic!("live stream unexpectedly reported clean EOF");
+        };
         cancel.terminate(StreamTerminal::Timeout);
         let result = client.put_stream(handle_id, handle, &cancel);
 
