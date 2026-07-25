@@ -633,6 +633,19 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 // operand follows, so a bare `flush` used as an action/variable
                 // name still parses as an expression statement.
                 Token::Identifier(id) if id.starts_with("flush ") => self.parse_flush_stream(),
+                // Parenthesized and explicit-call targets do not merge into the
+                // leading `flush` token. These two starters are unambiguous;
+                // broader primary-expression dispatch would steal legacy
+                // expressions such as `flush with suffix` and `flush at 0`.
+                Token::Identifier(id)
+                    if id == "flush"
+                        && matches!(
+                            self.cursor.peek_next().map(|t| &t.token),
+                            Some(Token::LeftParen | Token::KeywordCall)
+                        ) =>
+                {
+                    self.parse_flush_stream()
+                }
                 Token::Identifier(id) if id.starts_with("send websocket message") => {
                     self.parse_send_websocket_message()
                 }

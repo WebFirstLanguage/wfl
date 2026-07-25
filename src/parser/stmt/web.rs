@@ -548,7 +548,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
             .map(str::trim_start)
             .unwrap_or("");
         let (target, legacy_binding, action_fallback) = if rest.is_empty() {
-            (self.parse_primary_expression()?, None, None)
+            (self.parse_unmerged_operand(false)?, None, None)
         } else {
             // Stream reading: postfix on the split-off rest (`cache` from
             // `flush cache`). Legacy expression: same postfix on the FULL phrase
