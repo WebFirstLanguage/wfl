@@ -21,7 +21,8 @@
 | Maximum affected releases | **One** WFL release: the first release containing the approved candidate, and no later release |
 | Affected base | `b25aed57ea50697c596796446d1f47466668773d` |
 | Commits containing the earlier mixed Green work | `5e01e446ab9250d72a0f255bc81a27a79c5b5d63`, `fce5d86fe923666885e40ec484d902cfd18c4c85`, and `8e8be0fcde944d0d7b357b94d5951497af5ff0b7` |
-| Exact executable candidate for this draft | `c73260ff61a32694c5ecfe72ab8749810033de0d` |
+| Exact executable candidate for this draft | `de34e32e513d7d73634b0d7308c681930953a4db` |
+| Latest executable-test evidence descendant | `81b25745e757671538a833ddf7bc837e19ad83c7` (test-only; no production code) |
 | Requested project/reliability owner approval | Brad, Maintainer, Logbie LLC — **PENDING** |
 | Requested security-owner approval | Brad, Maintainer, Logbie LLC — **PENDING**, required for the archive-path item |
 
@@ -84,6 +85,19 @@ implementation commits:
 - response-expression disconnect cancellation, including request operands,
   early prechecks, and commit-time cleanup.
 
+The final candidate adds these three genuine Red-to-Green chains after the
+previous draft candidate:
+
+| Repair | Test-only Red | Green implementation | Evidence broadening |
+|---|---|---|---|
+| Immediate bounded clean-EOF terminalization | `96d53052388f75bd809c2af42f12445944e8fc69` | `b32ff55fa76fd03b07e2ade7159d3719f2ac0642` | `81b25745e757671538a833ddf7bc837e19ad83c7` deterministically covers close/reaper missing-slot races |
+| Loop-header fixed points, joined `try` endpoints, and deferred handler type isolation | `68569b31b9fd969cb5adc3b8c0832ec604bb98e2` | `527b8fb184245e7df35fe5229b23e2a969c74520` | Focused integration suites retained in the Green ancestry |
+| First-wins EOF observation and analyzer `try`-scope parity | `03966f06e78aec7c3bcdbd40feabc2bdff37a16d` | `de34e32e513d7d73634b0d7308c681930953a4db` | `81b25745e757671538a833ddf7bc837e19ad83c7` broadens terminal-race coverage without executable changes |
+
+These chains do not repair the older mixed-commit chronology rows in this
+exception. They do establish ordinary policy-compliant chronology for every
+behavior changed after `c73260ff61a32694c5ecfe72ab8749810033de0d`.
+
 The final-unterminated-line defect also has retained pre-Green CI evidence in
 [Actions run 30106107011](https://github.com/WebFirstLanguage/wfl/actions/runs/30106107011).
 Neither that behavior nor any later genuine Red-to-Green repair depends on this
@@ -119,31 +133,44 @@ ignore a current failure.
 - Later issue #642 repairs use retained test-only Red ancestors and Green
   commits; those repairs strengthen the candidate but do not retroactively
   supply the chronology missing from the earlier mixed commits.
+- The latest executable candidate is
+  `de34e32e513d7d73634b0d7308c681930953a4db`; the test-only descendant
+  `81b25745e757671538a833ddf7bc837e19ad83c7` adds deterministic coverage for
+  the clean-EOF close/reaper missing-slot paths without changing production
+  behavior.
 
 Actions run 30142079511 is evidence for the reviewed Green head, not automatic
 evidence for the exact candidate in this draft. Before approval, the approval
-record must link one complete, successful, unretried Actions run for the exact
-final candidate (or its evidence-only descendant) and the final local gate
-record. Until those fields are complete, current Green evidence is incomplete
-for merge.
+record must link one complete, successful, unretried Actions run for the final
+integrated PR head: a documentation descendant of
+`81b25745e757671538a833ddf7bc837e19ad83c7` that contains the deterministic
+evidence tests and this completed record. A run on executable identity
+`de34e32e513d7d73634b0d7308c681930953a4db` alone is insufficient because it
+omits those later tests and documents. Until that run and the final local gate
+record are complete, current Green evidence is incomplete for merge.
 
 ## Compensating verification and containment
 
 Approval is conditional on all of the following:
 
-1. Run, once and without changing test selection:
+1. Run, once and without changing product-test selection, the host-appropriate
+   complete local gate. The recorded Windows gate is:
    `cargo fmt --all -- --check`, `git diff --check`,
-   `cargo clippy --all-targets --all-features -- -D warnings`,
-   `cargo build --release`, `cargo test --all --verbose --jobs 2`,
-   `scripts/run_integration_tests.sh`,
-   `python3 scripts/validate_docs_examples.py --ci --force`, and
-   `scripts/run_web_tests.sh`.
+   `cargo clippy --all-targets --all-features --jobs 1 -- -D warnings`,
+   `cargo build --release --jobs 1`, `cargo test --all --jobs 1`,
+   `run_integration_tests.ps1 -TestOnly`, `run_web_tests.ps1`, and
+   `python scripts/validate_docs_examples.py --ci --force`. The single Cargo
+   job bounds compiler memory after an unbounded rustc invocation ended before
+   any test result with Windows pagefile error 1455; it does not alter test
+   selection. Exact Windows PowerShell invocation details are retained in the
+   Dev Diary. The required final Actions matrix separately runs the repository's
+   supported Linux and Windows commands.
 2. Preserve the exact commands, exit conclusions, candidate SHA, and complete
    logs in the PR evidence record.
-3. Require one complete GitHub Actions matrix on the exact candidate, covering
-   Linux and Windows integration, TestPrograms, documentation validation, web
-   tests, TLS, PostgreSQL, MariaDB, and fuzz-target compilation. Every required
-   job must pass.
+3. Require one complete GitHub Actions matrix on the final integrated PR head
+   described above, covering Linux and Windows integration, TestPrograms,
+   documentation validation, web tests, TLS, PostgreSQL, MariaDB, and
+   fuzz-target compilation. Every required job must pass.
 4. Obtain an independent R3 review of the implementation, regression
    assertions, real-boundary coverage, cleanup paths, and this exception's
    exact scope.
@@ -228,15 +255,15 @@ or release remains blocked.
 
 | Approval field | Required entry |
 |---|---|
-| Exact final executable candidate SHA | **PENDING** |
-| Final evidence-only descendant SHA, if any | **PENDING / N/A** |
-| Final local gate record | **PENDING** — commands, date, environment, and conclusions |
-| Final GitHub Actions run | **PENDING** — URL and every required job conclusion |
-| Independent R3 reviewer | **PENDING** — identity, date, and scope reviewed |
+| Exact final executable candidate SHA | `de34e32e513d7d73634b0d7308c681930953a4db` |
+| Final evidence-only descendant SHA, if any | `81b25745e757671538a833ddf7bc837e19ad83c7` (latest code/test descendant; the commit containing this documentation record is documentation-only) |
+| Final local gate record | **PASSED 2026-07-25** — Windows NT `10.0.26200.0`, rustc/cargo `1.97.0`, PowerShell `7.6.4`; the official `.ps1` runners executed under Windows PowerShell `5.1.26100.8875`. `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features --jobs 1 -- -D warnings`, `cargo test --all --jobs 1`, `cargo build --release --jobs 1`, and `git diff --check` passed. The official Windows integration runner passed all Rust targets plus 110 WFL programs (0 failed, 24 documented skips); web passed 2/2 runnable journeys with its OpenSSL-dependent certificate journey visibly skipped; forced docs validation passed 18/18. The earlier unbounded `cargo test --all` stopped in rustc before a test result with Windows pagefile error 1455; the unchanged suite passed with one compiler job. Full command context is in `Dev diary/2026-07-25-stream-terminal-typeflow-review-fixes.md`. |
+| Final GitHub Actions run | **PENDING** — URL, final integrated PR-head SHA (a documentation descendant of `81b25745`), and every required job conclusion |
+| Independent R3 reviewer | Independent Codex review task `/root/final_independent_review`, `2026-07-25`; reviewed `c9c748ce..de34e32e` for lifecycle/concurrency correctness, type-flow soundness, compatibility, and test integrity. Its three Important evidence/documentation findings are addressed by `81b25745` and the documentation-only descendant containing this record; this is review evidence, not approval authority. |
 | Requester | **PENDING** — identity and date |
 | Project/reliability owner decision | **PENDING** — Brad must record `APPROVE` or `REJECT`, rationale, date, and signature |
 | Security-owner decision for archive-path scope | **PENDING** — Brad must record `APPROVE` or `REJECT`, rationale, date, and signature |
-| No skip/retry/quarantine/muting/weakening/timing-only conversion attestation | **PENDING** |
+| No skip/retry/quarantine/muting/weakening/timing-only conversion attestation | **RECORDED 2026-07-25** — no changed-behavior test was skipped, retried, quarantined, muted, weakened, or converted to timing-only proof. The error-1455 compiler interruption produced no product-test result and was rerun only with bounded compiler parallelism. Existing Rust ignores, 24 documented WFL program skips, and the host's OpenSSL-dependent web skip remained visible; exact-candidate CI coverage is still required. |
 | Maximum-release and expiration acknowledgment | **PENDING** |
 
 The requester must not be the sole approver. If Brad is also the requester, a

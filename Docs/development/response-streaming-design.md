@@ -169,14 +169,19 @@ close out
   read return — including reads served from locally-buffered bytes — not only on
   a network read, so a buffered drain cannot outlive the stream's absolute cap.
 - Expiry removes the heavy live stream slot, aborts the body, and immediately
-  removes handler ownership. To preserve the next read's typed `Timeout`
-  without retaining an unbounded tombstone table, the registry keeps at most 64
-  lightweight terminal records for at most 60 seconds; reading a record consumes
-  it. Active readers share a first-wins terminal signal, and the post-`select!`
-  recheck makes expiry win over a simultaneously ready body chunk.
-- Clean EOF is terminal independently of the old absolute deadline. A final
-  unterminated line is returned once, the following read returns `nothing`, and
-  only a later read reports the documented closed-handle error.
+  removes handler ownership. To preserve one follow-up typed terminal result
+  without an unbounded tombstone table, the registry keeps at most 64 recent
+  lightweight terminal records (clean EOF and timeout records combined), each
+  for at most 60 seconds; reading a record consumes it. Active readers share a
+  first-wins terminal signal, and the post-`select!` recheck makes expiry win
+  over a simultaneously ready body chunk.
+- Clean EOF terminalizes the stream as soon as the runtime observes upstream
+  EOF: it removes the live slot and handler ownership, aborts the reaper, and
+  retains only a one-shot `CleanEof` record in that bounded recent-terminal
+  queue. A final unterminated line is returned once. The next read returns
+  `nothing` only if its `CleanEof` record is still retained; if the record has
+  expired after 60 seconds, was evicted by the 64-record bound, or was already
+  consumed, the read reports `Unknown or already-closed stream handle`.
 - Outbound close-on-exit (shipped): outbound `httpstream*` handles are also
   handler-owned — tracked in `RunState.open_http_streams` (swapped per poll) and
   dropped from `IoClient.stream_handles` when the handler ends on any path,
