@@ -118,6 +118,87 @@ fn explicit_call_flush_target_keeps_the_exact_zero_argument_action_fallback() {
     );
 }
 
+// Issue #642: before streaming, the exact forms `flush (…)` / `flush call …`
+// were TWO statements — the bare `flush` expression statement (auto-calling a
+// zero-argument `flush` action, or evaluating a plain binding) followed by the
+// operand as its own expression statement. Preserving only the `flush` half
+// silently drops the operand's side effects.
+
+#[test]
+fn parenthesized_flush_target_still_evaluates_the_operand_expression() {
+    let src = "define action called flush:\n\
+               \x20\x20\x20\x20display \"FLUSH_RAN\"\n\
+               end action\n\
+               define action called bump:\n\
+               \x20\x20\x20\x20display \"BUMP_RAN\"\n\
+               \x20\x20\x20\x20give back 1\n\
+               end action\n\
+               flush (call bump)\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "`flush (call bump)` must keep both legacy statements; output:\n{out}"
+    );
+    assert!(
+        out.contains("FLUSH_RAN"),
+        "the exact zero-argument `flush` action must run; output:\n{out}"
+    );
+    assert!(
+        out.contains("BUMP_RAN"),
+        "the parenthesized operand was a separate legacy expression statement \
+         and its side effects must still fire; output:\n{out}"
+    );
+}
+
+#[test]
+fn explicit_call_flush_target_still_evaluates_the_operand_expression() {
+    let src = "define action called flush:\n\
+               \x20\x20\x20\x20display \"FLUSH_RAN\"\n\
+               end action\n\
+               define action called acquire stream:\n\
+               \x20\x20\x20\x20display \"ACQUIRE_RAN\"\n\
+               \x20\x20\x20\x20give back 1\n\
+               end action\n\
+               flush call acquire stream\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "`flush call ...` must keep both legacy statements; output:\n{out}"
+    );
+    assert!(
+        out.contains("FLUSH_RAN"),
+        "the exact zero-argument `flush` action must run; output:\n{out}"
+    );
+    assert!(
+        out.contains("ACQUIRE_RAN"),
+        "the `call ...` operand was a separate legacy expression statement \
+         and its side effects must still fire; output:\n{out}"
+    );
+}
+
+#[test]
+fn non_callable_flush_binding_still_evaluates_the_paren_operand() {
+    let src = "store flush as 1\n\
+               define action called bump:\n\
+               \x20\x20\x20\x20display \"BUMP_RAN\"\n\
+               \x20\x20\x20\x20give back 1\n\
+               end action\n\
+               flush (call bump)\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "`flush (call bump)` with a plain `flush` binding must stay legal; output:\n{out}"
+    );
+    assert!(
+        out.contains("BUMP_RAN"),
+        "the parenthesized operand must still be evaluated when `flush` is a \
+         non-callable binding; output:\n{out}"
+    );
+}
+
 #[test]
 fn truly_bare_flush_still_evaluates_a_non_callable_legacy_variable() {
     let src = "store flush as 1\n\
