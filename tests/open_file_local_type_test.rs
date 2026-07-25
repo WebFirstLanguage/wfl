@@ -67,7 +67,7 @@ fn opening_a_local_file_shadows_instead_of_retyping_an_outer_binding() {
                   \x20\x20\x20\x20close out\n\
                   \x20\x20\x20\x20break\n\
                   end loop\n\
-                  store contents as read content from out\n";
+                  wait for store contents as read content from out\n";
     let errors =
         typecheck(source).expect_err("the outer Text binding must remain Text after the loop");
     assert!(
