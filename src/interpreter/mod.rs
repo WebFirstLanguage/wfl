@@ -1,4 +1,4 @@
-#![allow(clippy::await_holding_refcell_ref)]
+#![deny(clippy::await_holding_refcell_ref)]
 mod assertion_helpers;
 pub mod bounded_buffer;
 pub mod command_sanitizer;
@@ -53,7 +53,7 @@ use crate::parser::ast::{
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -63,7 +63,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 // Type alias for complex pending response type
-type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
+type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<HandlerReply>>>>;
+
+/// An open server response stream: the bounded body-chunk sender plus the
+/// running total of body bytes written (enforced against `max_response_bytes`).
+type ServerResponseStream = (mpsc::Sender<Vec<u8>>, usize);
 
 /// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
 ///
@@ -89,6 +93,39 @@ use warp::Filter;
 /// `count & (STRIDE - 1)` is exact; large enough that the yield is negligible.
 const COOP_YIELD_STRIDE: u64 = 1024;
 
+/// Bounded capacity of a server response stream's body-chunk channel. A slow
+/// client fills this and then backpressures the handler's `write` (it awaits a
+/// free slot) rather than letting queued chunks grow without bound.
+const RESPONSE_STREAM_BUFFER: usize = 64;
+
+/// Maximum number of `main loop concurrently:` iterations in flight at once. The
+/// transport already bounds the request *queue*; this bounds concurrent *handler*
+/// execution so a burst cannot spawn unbounded cooperative tasks. Requests
+/// beyond this run as handlers free up (and the transport sheds 503 if its queue
+/// also fills).
+const CONCURRENT_HANDLER_LIMIT: usize = 256;
+const MAX_CONSECUTIVE_HANDLER_FAILURES: u32 = 256;
+const REQUEST_WAIT_TIMEOUT_PREFIX: &str = "Timeout waiting for request";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConcurrentHandlerDisposition {
+    RequestLocal,
+    Structural,
+}
+
+fn classify_concurrent_handler_error(
+    error: &RuntimeError,
+    accepted_request: bool,
+) -> ConcurrentHandlerDisposition {
+    let request_wait_timeout =
+        error.kind == ErrorKind::Timeout && error.message.starts_with(REQUEST_WAIT_TIMEOUT_PREFIX);
+    if accepted_request || error.kind == ErrorKind::Cancelled || request_wait_timeout {
+        ConcurrentHandlerDisposition::RequestLocal
+    } else {
+        ConcurrentHandlerDisposition::Structural
+    }
+}
+
 // Web server data structures
 #[derive(Debug)]
 pub struct WflHttpRequest {
@@ -105,7 +142,7 @@ pub struct WflHttpRequest {
     /// binary value, so binary uploads survive intact.
     pub body: Vec<u8>,
     pub headers: HashMap<String, String>,
-    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
+    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<HandlerReply>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,19 +156,53 @@ pub struct WflHttpResponse {
     pub headers: HashMap<String, String>,
 }
 
-/// Ensures an HTTP `respond` always resolves its request. The response sender is
-/// taken out of `pending_responses` (and out of its mutex) up front and held
-/// here; if a fallible step in `respond` returns early before a response is
-/// built, `Drop` answers 500 so the client is resolved deterministically instead
-/// of hanging until the request timeout. A successful `respond` calls
-/// [`ResponseCompletion::take_sender`] to disarm the fallback and deliver the
-/// real response.
+/// What a request handler delivers back to its warp transport task over the
+/// per-request `oneshot`.
+///
+/// `respond` sends a fully-buffered `Buffered` reply; `start streaming response`
+/// sends a `Streaming` reply whose head (status/headers) is written immediately
+/// and whose body is fed chunk-by-chunk over a bounded channel by `write
+/// line|chunk`. A bounded channel gives backpressure: a slow client slows the
+/// handler's writes. Dropping the sender (handler end, `close`, or a caught
+/// error) closes the body stream and finalizes the response.
+#[derive(Debug)]
+pub enum HandlerReply {
+    Buffered(WflHttpResponse),
+    Streaming {
+        status: u16,
+        content_type: String,
+        headers: HashMap<String, String>,
+        body: mpsc::Receiver<Vec<u8>>,
+    },
+}
+
+/// Ensures an HTTP `respond` always resolves its request after the commit point.
+/// Fallible response expressions are evaluated while the pending sender remains
+/// available as a disconnect signal. At commit, the sender is atomically removed
+/// and held here; if delivery then exits early, `Drop` answers 500 rather than
+/// leaving the client hanging. Successful delivery calls
+/// [`ResponseCompletion::take_sender`] to disarm that fallback.
 struct ResponseCompletion {
-    sender: Option<oneshot::Sender<WflHttpResponse>>,
+    sender: Option<oneshot::Sender<HandlerReply>>,
+}
+
+/// Interpreter state that must survive cancellation of fallible response
+/// expressions. The evaluation future is explicitly dropped before this state
+/// is restored, so partially-entered actions and loops cannot leak into a
+/// handler that catches `Cancelled` and continues.
+struct ResponsePrecommitSnapshot {
+    call_stack: Vec<CallFrame>,
+    call_depth: usize,
+    current_count: Option<f64>,
+    in_count_loop: bool,
+    http_owner: StreamOwner,
+    http_streams: HashSet<String>,
+    response_streams: HashSet<String>,
+    pending_requests: HashSet<String>,
 }
 
 impl ResponseCompletion {
-    fn take_sender(&mut self) -> Option<oneshot::Sender<WflHttpResponse>> {
+    fn take_sender(&mut self) -> Option<oneshot::Sender<HandlerReply>> {
         self.sender.take()
     }
 }
@@ -139,12 +210,12 @@ impl ResponseCompletion {
 impl Drop for ResponseCompletion {
     fn drop(&mut self) {
         if let Some(sender) = self.sender.take() {
-            let _ = sender.send(WflHttpResponse {
+            let _ = sender.send(HandlerReply::Buffered(WflHttpResponse {
                 content: b"Internal Server Error\n".to_vec(),
                 status: 500,
                 content_type: "text/plain; charset=utf-8".to_string(),
                 headers: HashMap::new(),
-            });
+            }));
         }
     }
 }
@@ -751,6 +822,191 @@ impl Drop for CallDepthGuard<'_> {
     }
 }
 
+/// A snapshot of the interpreter's per-execution "run state" — the mutable
+/// bookkeeping that belongs to a single in-flight execution rather than to the
+/// interpreter as a whole: the count-loop variable, recursion depth, the
+/// diagnostic call stack, and the current block's overload-dup set.
+///
+/// Under serial execution this state lives directly on `Interpreter` and is
+/// never contended. Under `main loop concurrently:` several handler futures are
+/// interleaved cooperatively on one thread, so at every `await` point one
+/// handler's run state must not be visible to (or clobbered by) another. Each
+/// handler owns a `RunState` that is swapped into the interpreter only while
+/// that handler is actively being polled (see [`IsolatedHandler`]).
+#[derive(Default)]
+struct RunState {
+    current_count: Option<f64>,
+    in_count_loop: bool,
+    call_depth: usize,
+    call_stack: Vec<CallFrame>,
+    block_overload_dups: Option<Rc<std::collections::HashSet<String>>>,
+    /// Server response streams opened by this handler and not yet explicitly
+    /// closed. Closed automatically when the handler ends on any path (see
+    /// `IsolatedHandler`'s `Drop` and the serial main loop's per-iteration
+    /// drain), so a handler that forgets `close out` never hangs the client.
+    open_response_streams: Vec<String>,
+    /// Request ids this handler dequeued (`wait for request comes in`) and has
+    /// not yet answered. If the handler ends on any path without responding, each
+    /// is answered 500 immediately instead of leaving the client to wait out the
+    /// request timeout (see `fail_unanswered_requests`).
+    open_pending_requests: Vec<String>,
+    /// Outbound streaming-response handle ids (`... stream response as <name>`)
+    /// this handler opened and has not yet closed/exhausted. Handler-OWNED: when
+    /// the handler ends on any path (normal, error, panic, cancellation, loop
+    /// exit) these are dropped from `IoClient.stream_handles`, which cancels the
+    /// in-flight upstream request — so an abandoned proxy read never leaks an
+    /// upstream connection or handle past the handler's lifetime.
+    open_http_streams: StreamOwner,
+    /// Sticky: this handler successfully dequeued at least one request via
+    /// `wait for request`. Used by the concurrent main loop to distinguish
+    /// structural pre-request failures (feed the consecutive-failure breaker)
+    /// from request-local outcomes (must never tear the server down because one
+    /// accepted request failed). Survives respond clearing `open_pending_requests`.
+    accepted_request: bool,
+}
+
+impl RunState {
+    /// A fresh run state for a handler starting from `base_call_depth` (0 for a
+    /// top-level run; the parent's live depth for an `execute file` child).
+    fn fresh(base_call_depth: usize) -> Self {
+        RunState {
+            call_depth: base_call_depth,
+            ..RunState::default()
+        }
+    }
+}
+
+/// Wraps a handler future so its [`RunState`] is swapped into the interpreter
+/// for the duration of each `poll` and swapped back out again the instant the
+/// poll returns (ready **or** pending). This makes the interpreter's run-state
+/// fields effectively poll-local: while handler A is suspended at an `await`,
+/// its count-loop variable, recursion depth, and call stack are parked in A's
+/// own `RunState`, so handler B — polled next — neither sees nor corrupts them.
+///
+/// `inner` is a boxed handler future (already wrapped in `catch_unwind`); a
+/// panic therefore surfaces as `Poll::Ready` and the swap-back still runs,
+/// leaving the interpreter's scratch fields restored for the next sibling.
+///
+/// The wrapper's output is `(inner_output, accepted_request)` so the concurrent
+/// loop can classify request-local vs structural failures after the handler's
+/// run state has been swapped out (and its pending list drained by `Drop`).
+struct IsolatedHandler<'a, T> {
+    interp: &'a Interpreter,
+    state: RunState,
+    inner: std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>,
+}
+
+impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
+    type Output = (T, bool);
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<(T, bool)> {
+        // Every field is `Unpin` (`&`, `RunState`, and `Pin<Box<..>>`), so the
+        // wrapper itself is `Unpin` and `get_mut` is sound.
+        let this = self.get_mut();
+        this.interp.swap_run_state(&mut this.state);
+        let result = this.inner.as_mut().poll(cx);
+        this.interp.swap_run_state(&mut this.state);
+        match result {
+            std::task::Poll::Ready(value) => {
+                std::task::Poll::Ready((value, this.state.accepted_request))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl<'a, T> Drop for IsolatedHandler<'a, T> {
+    fn drop(&mut self) {
+        // The handler is finished (normal return, error, panic contained by
+        // `catch_unwind`, or cancellation as the loop tears down). After the
+        // final poll's swap-out, `state` holds any streams it opened but never
+        // closed and any requests it dequeued but never answered. Close the
+        // streams (finalizing the client's body) and 500 the unanswered requests,
+        // so every exit path resolves the client instead of leaving it hanging.
+        self.interp
+            .close_response_streams(&self.state.open_response_streams);
+        self.interp
+            .fail_unanswered_requests(&self.state.open_pending_requests);
+        // Drop any outbound streams this handler still owns, cancelling their
+        // in-flight upstream requests so an abandoned proxy read never leaks.
+        self.interp
+            .close_http_streams(&self.state.open_http_streams);
+    }
+}
+
+/// RAII guard that finalizes the interpreter's still-open server-request state
+/// when the running `interpret()` future ends — crucially including when that
+/// future is *dropped* (an embedder cancels the run) before the normal
+/// handler-exit / program-cleanup sites execute. It shares the interpreter's
+/// tracking lists and maps via `Rc`, so its `Drop` runs even as the interpreter
+/// itself stays alive (e.g. a reused REPL). It covers, for the top-level/serial
+/// context whose state lives directly on the interpreter (concurrent handlers
+/// finalize their own via `IsolatedHandler`'s `Drop`):
+///
+/// - **outbound streams** — dropped from `IoClient.stream_handles`, cancelling
+///   the in-flight upstream request;
+/// - **server response streams** — dropped from `server_response_streams`, ending
+///   the client's body so a `start streaming response` that never `close`d does
+///   not leave the connection hanging;
+/// - **pending requests** — answered 500 so a dequeued-but-unanswered request is
+///   resolved instead of waiting out the request timeout.
+///
+/// On a normal run the cleanup sites have already drained the lists, so this is a
+/// no-op. All work is synchronous and best-effort (`try_lock` never blocks in a
+/// `Drop`).
+struct OutboundStreamCleanup {
+    io_client: Rc<IoClient>,
+    open_http_streams: StreamOwner,
+    open_response_streams: Rc<RefCell<Vec<String>>>,
+    server_response_streams: Rc<RefCell<HashMap<String, ServerResponseStream>>>,
+    open_pending_requests: Rc<RefCell<Vec<String>>>,
+    pending_responses: Rc<RefCell<HashMap<String, PendingResponse>>>,
+}
+
+impl Drop for OutboundStreamCleanup {
+    fn drop(&mut self) {
+        // Outbound upstream streams: removing a handle drops its reqwest stream,
+        // cancelling the in-flight upstream request.
+        self.io_client.close_stream_owner(&self.open_http_streams);
+
+        // Server response streams: dropping the sender ends the client's body.
+        let stream_ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
+        if !stream_ids.is_empty() {
+            let mut map = self.server_response_streams.borrow_mut();
+            for id in &stream_ids {
+                map.remove(id);
+            }
+        }
+
+        // Pending requests dequeued but never answered: resolve each with 500 so
+        // the client is not left waiting out its request timeout. Mirrors
+        // `fail_unanswered_requests`, but operates on the shared `Rc` maps so it
+        // runs even when the interpreter's own methods are unreachable (future
+        // dropped). The sender mutex is only held during `respond`, which a
+        // dropped run is no longer inside, so `try_lock` succeeds.
+        let request_ids = std::mem::take(&mut *self.open_pending_requests.borrow_mut());
+        if !request_ids.is_empty() {
+            let mut pending = self.pending_responses.borrow_mut();
+            for id in &request_ids {
+                if let Some(entry) = pending.remove(id)
+                    && let Ok(mut guard) = entry.sender.try_lock()
+                    && let Some(sender) = guard.take()
+                {
+                    let _ = sender.send(HandlerReply::Buffered(WflHttpResponse {
+                        content: b"Internal Server Error\n".to_vec(),
+                        status: 500,
+                        content_type: "text/plain; charset=utf-8".to_string(),
+                        headers: HashMap::new(),
+                    }));
+                }
+            }
+        }
+    }
+}
+
 /// RAII guard that ensures module loading context is restored on scope exit.
 /// Automatically pops loading_stack and restores current_source_file when dropped.
 struct ModuleLoadGuard<'a> {
@@ -893,6 +1149,22 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::HttpRequestStatement { variable_name, .. } => {
             format!("HttpRequestStatement '{variable_name}'")
         }
+        Statement::HttpStreamStatement { variable_name, .. } => {
+            format!("HttpStreamStatement '{variable_name}'")
+        }
+        Statement::WaitForNextChunkStatement { variable_name, .. } => {
+            format!("WaitForNextChunkStatement '{variable_name}'")
+        }
+        Statement::WaitForNextLineStatement { variable_name, .. } => {
+            format!("WaitForNextLineStatement '{variable_name}'")
+        }
+        Statement::StartStreamingResponseStatement { variable_name, .. } => {
+            format!("StartStreamingResponseStatement '{variable_name}'")
+        }
+        Statement::StreamWriteStatement { is_line, .. } => {
+            format!("StreamWriteStatement (line={is_line})")
+        }
+        Statement::FlushStreamStatement { .. } => "FlushStreamStatement".to_string(),
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
         Statement::CreateListStatement { name, .. } => format!("CreateListStatement '{name}'"),
         Statement::MapCreation { name, .. } => format!("MapCreation '{name}'"),
@@ -1099,7 +1371,47 @@ pub struct Interpreter {
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     web_socket_servers: RefCell<HashMap<String, WflWebSocketServer>>, // WebSocket servers keyed by address
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
-    pending_responses: RefCell<HashMap<String, PendingResponse>>, // Pending responses (channel + admission slot) by request ID
+    pending_responses: Rc<RefCell<HashMap<String, PendingResponse>>>, // Pending responses (channel + admission slot) by request ID
+    /// Open server response streams (`start streaming response`), keyed by
+    /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender
+    /// plus the running total of body bytes written, enforced against
+    /// `max_response_bytes` so a stream cannot bypass the buffered response
+    /// ceiling. `write line|chunk`/`flush` push to it, `close` drops it.
+    server_response_streams: Rc<RefCell<HashMap<String, ServerResponseStream>>>,
+    next_response_stream_id: std::cell::Cell<usize>,
+    /// Handle ids of server response streams opened by the currently executing
+    /// handler and not yet explicitly closed. Part of the per-handler `RunState`
+    /// (swapped in/out per poll under `main loop concurrently:`) so each handler
+    /// tracks only its own streams; drained and closed when the handler ends on
+    /// any path so the client's body is always finalized (see
+    /// `close_response_streams`).
+    /// `Rc<RefCell<..>>` (not a bare `RefCell`) so the `interpret()`-scoped
+    /// cleanup guard can share it and finalize any still-open server response
+    /// bodies if the future is dropped before its normal exit sites run (see
+    /// `OutboundStreamCleanup`).
+    open_response_streams: Rc<RefCell<Vec<String>>>,
+    /// Request ids the currently executing handler dequeued but has not yet
+    /// answered. Part of the per-handler `RunState` (swapped per poll) so each
+    /// handler tracks only its own requests; any still unanswered when the handler
+    /// ends are answered 500 immediately (see `fail_unanswered_requests`).
+    /// `Rc<RefCell<..>>` (not a bare `RefCell`) so the `interpret()`-scoped
+    /// cleanup guard can share it and 500 any still-unanswered requests if the
+    /// future is dropped before its normal exit sites run (see
+    /// `OutboundStreamCleanup`).
+    open_pending_requests: Rc<RefCell<Vec<String>>>,
+    /// Outbound stream handle ids (`... stream response as <name>`) the currently
+    /// executing handler opened and has not yet closed/exhausted. Part of the
+    /// per-handler `RunState` (swapped per poll); any still open when the handler
+    /// ends are dropped, cancelling their upstream requests (see
+    /// `close_http_streams`).
+    /// `Rc<RefCell<..>>` (not a bare `RefCell`) so an RAII cleanup guard tied to
+    /// the `interpret()` future can share the list and close these handles if the
+    /// future is dropped/cancelled before its normal exit sites run (see
+    /// `OutboundStreamCleanup`).
+    open_http_streams: Rc<RefCell<StreamOwner>>,
+    /// Sticky per-handler flag: at least one request was dequeued and parked.
+    /// Part of `RunState` (swapped per poll); see `RunState::accepted_request`.
+    accepted_request: Cell<bool>,
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -1398,7 +1710,231 @@ pub struct IoClient {
     next_process_id: Mutex<usize>,
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
+    /// Live outbound streaming response bodies, keyed by handle id
+    /// ("httpstream1", ...). See [`StreamSlot`] / [`HttpStreamHandle`].
+    ///
+    /// Uses a **std** mutex so Drop/cleanup paths can lock reliably (tokio's
+    /// async mutex only offers `try_lock` from sync Drop, which previously
+    /// abandoned handles when the map was briefly held). Critical sections are
+    /// short (no `.await` while held).
+    stream_handles: Arc<std::sync::Mutex<StreamRegistry>>,
+    next_stream_id: Mutex<usize>,
+    /// Test-only live-task accounting. The production build carries no
+    /// instrumentation; unit tests retain a runtime and assert that closing a
+    /// stream actually drops its sleeping reaper instead of relying on runtime
+    /// shutdown to hide leaked timers.
+    #[cfg(test)]
+    active_stream_reapers: Arc<std::sync::atomic::AtomicUsize>,
     config: Arc<WflConfig>,
+}
+
+#[cfg(test)]
+struct ActiveStreamReaperGuard {
+    active: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl ActiveStreamReaperGuard {
+    fn new(active: Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self { active }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ActiveStreamReaperGuard {
+    fn drop(&mut self) {
+        self.active
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Hard ceiling on `outbound_stream_max_seconds` when converting to an
+/// `Instant` deadline. Extreme `u64` values must not panic
+/// `Instant::now() + Duration::from_secs(secs)` (which can overflow).
+const MAX_OUTBOUND_STREAM_DEADLINE_SECS: u64 = 365 * 24 * 60 * 60; // 1 year
+
+/// Compute the absolute stream deadline from a configured second cap.
+/// `0` is the documented sentinel for "no absolute total cap". Values above
+/// [`MAX_OUTBOUND_STREAM_DEADLINE_SECS`] are clamped before `Instant`
+/// arithmetic so even an extreme configuration remains finite and cannot
+/// panic.
+fn outbound_stream_deadline(secs: u64) -> Option<Instant> {
+    let effective = outbound_stream_effective_seconds(secs)?;
+    Instant::now().checked_add(Duration::from_secs(effective))
+}
+
+fn outbound_stream_effective_seconds(secs: u64) -> Option<u64> {
+    (secs != 0).then(|| secs.min(MAX_OUTBOUND_STREAM_DEADLINE_SECS))
+}
+
+/// Shared per-stream cancellation: close, expire, and EOF all trip this so an
+/// active body read can select against it and drop the upstream promptly
+/// (rather than only noticing when `put_stream` finds a missing slot).
+struct StreamCancel {
+    terminal: tokio::sync::watch::Sender<Option<StreamTerminal>>,
+}
+
+impl StreamCancel {
+    fn new() -> Arc<Self> {
+        let (terminal, _receiver) = tokio::sync::watch::channel(None);
+        Arc::new(Self { terminal })
+    }
+
+    fn terminal(&self) -> Option<StreamTerminal> {
+        *self.terminal.borrow()
+    }
+
+    fn terminate(&self, reason: StreamTerminal) -> StreamTerminal {
+        self.terminal.send_if_modified(|terminal| {
+            if terminal.is_none() {
+                *terminal = Some(reason);
+                true
+            } else {
+                false
+            }
+        });
+        self.terminal()
+            .expect("stream terminal reason must be set after terminate")
+    }
+
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<Option<StreamTerminal>> {
+        self.terminal.subscribe()
+    }
+}
+
+/// Why a stream slot was terminated. Active readers observe the shared
+/// first-wins signal; clean EOF and unread expiry are retained briefly in the
+/// bounded recent queue so the next read can consume the terminal outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamTerminal {
+    CleanEof,
+    Timeout,
+    Closed,
+}
+
+type StreamOwner = Arc<std::sync::Mutex<HashSet<String>>>;
+
+/// Keep a short, bounded window of terminal outcomes after removing the live
+/// body. This preserves one clean-EOF read or a typed timeout without retaining
+/// the request body, cancel channel, owner, or sleeping task.
+const MAX_RECENT_STREAM_TERMINALS: usize = 64;
+const RECENT_STREAM_TERMINAL_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct StreamRegistry {
+    live: HashMap<String, StreamSlot>,
+    recent: VecDeque<RecentStreamTerminal>,
+}
+
+struct RecentStreamTerminal {
+    id: String,
+    reason: StreamTerminal,
+    expires_at: Instant,
+}
+
+impl StreamRegistry {
+    fn prune_recent(&mut self, now: Instant) {
+        while self
+            .recent
+            .front()
+            .is_some_and(|entry| entry.expires_at <= now)
+        {
+            self.recent.pop_front();
+        }
+    }
+
+    fn remember_recent(&mut self, id: String, reason: StreamTerminal, now: Instant) {
+        self.prune_recent(now);
+        self.recent.retain(|entry| entry.id != id);
+        while self.recent.len() >= MAX_RECENT_STREAM_TERMINALS {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(RecentStreamTerminal {
+            id,
+            reason,
+            expires_at: now + RECENT_STREAM_TERMINAL_TTL,
+        });
+    }
+
+    fn take_recent(&mut self, id: &str, now: Instant) -> Option<StreamTerminal> {
+        self.prune_recent(now);
+        let index = self.recent.iter().position(|entry| entry.id == id)?;
+        self.recent.remove(index).map(|entry| entry.reason)
+    }
+
+    fn forget_recent(&mut self, id: &str) -> bool {
+        let before = self.recent.len();
+        self.recent.retain(|entry| entry.id != id);
+        self.recent.len() != before
+    }
+}
+
+/// Per-handle shared lifecycle for an outbound stream.
+///
+/// Reads take the inner [`HttpStreamHandle`] out for the duration of the await
+/// (so the global map lock is not held across the network). Explicit
+/// finish/close removes the slot after signalling [`StreamCancel`]; expiry
+/// drops the parked body, removes the live slot, and records a bounded recent
+/// terminal so mid-read work aborts without losing the reason. Clean EOF uses
+/// the same queue for its one follow-up read.
+struct StreamSlot {
+    /// The live body handle. `None` while a body read owns it.
+    handle: Option<HttpStreamHandle>,
+    /// Absolute deadline for the whole stream (`None` = no absolute total cap).
+    deadline: Option<Instant>,
+    /// Shared cancel signal for active-read races.
+    cancel: Arc<StreamCancel>,
+    /// Abort handle for the reaper timer. Cancelled on EOF, error, or explicit
+    /// close so rapid open/close cycles do not accumulate sleeping tasks.
+    reaper_abort: Option<tokio::task::AbortHandle>,
+    /// Handler ownership is stored with the live slot so the reaper can remove
+    /// the id immediately. Recent terminal records never retain an owner.
+    owner: Option<StreamOwner>,
+}
+
+fn remove_stream_owner(slot: &mut StreamSlot, handle_id: &str) {
+    if let Some(owner) = slot.owner.take() {
+        owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(handle_id);
+    }
+}
+
+/// A live, parked outbound streaming response body.
+///
+/// The status and headers were already handed to the WFL program by
+/// `open url ... and stream response as <name>`; this holds the still-open body
+/// stream so `wait for next chunk|line` can pull it incrementally without ever
+/// buffering the whole body. Dropping the handle — on clean EOF, a mid-stream
+/// error, an explicit `close`, or interpreter teardown — drops the underlying
+/// reqwest body future and thereby cancels the in-flight upstream request.
+struct HttpStreamHandle {
+    /// The response body as a stream of raw byte chunks. `Vec<u8>` (not
+    /// `bytes::Bytes`) so the boxed trait object stays nameable here.
+    stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = reqwest::Result<Vec<u8>>> + Send>>,
+    /// Bytes read from the network but not yet handed to the program: the
+    /// remainder after a line split, plus bytes accumulated while scanning for
+    /// the next newline. Bounded by the run's `max_response_bytes` because
+    /// every byte placed here was counted against that ceiling as it was read.
+    buffer: Vec<u8>,
+    /// True once the underlying stream has yielded a clean end of stream.
+    done: bool,
+    /// Total body bytes pulled from the network so far, enforced against
+    /// `max_response_bytes`.
+    bytes_read: usize,
+    /// Absolute deadline for the whole stream, set from
+    /// `outbound_stream_max_seconds` at open time. Distinct from the per-read
+    /// idle timeout: an upstream that trickles a byte before every idle timeout
+    /// still cannot run past this. `None` disables the total cap.
+    total_deadline: Option<Instant>,
+}
+
+/// A body read in progress: the handle plus a cancel watch shared with close/reaper.
+struct TakenStream {
+    handle: HttpStreamHandle,
+    cancel: Arc<StreamCancel>,
 }
 
 /// Errors raised while an outbound HTTP request is in flight.
@@ -1411,7 +1947,18 @@ pub struct IoClient {
 enum HttpClientError {
     Request(String),
     Budget(BudgetExceeded),
-    Timeout { seconds: u64 },
+    Timeout {
+        seconds: u64,
+    },
+    /// The stream was explicitly closed (or finished) while a body read was in
+    /// flight. Distinct from absolute-lifetime [`Self::Timeout`].
+    Closed,
+    /// The downstream (browser) client disconnected while a proxy handler was
+    /// blocked on this upstream read, so the read was cancelled cooperatively.
+    /// A normal, expected event — distinct from a fault — surfaced with
+    /// `ErrorKind::Cancelled` so the concurrent loop does not count it as a
+    /// handler failure.
+    Disconnected,
 }
 
 impl From<BudgetExceeded> for HttpClientError {
@@ -1441,6 +1988,13 @@ enum OutboundHttpDeadline {
 /// atomic flag rather than a notification primitive. This interval bounds how
 /// quickly an in-flight socket operation observes `ExecutionBudget::cancel()`.
 const HTTP_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// How often a blocked upstream operation polls its handler's pending requests
+/// for a client disconnect (the transport drops the oneshot receiver). Polled
+/// because the sender lives behind an `Arc<Mutex<Option<..>>>` shared with the
+/// transport rather than an awaitable primitive; small so a disconnect is
+/// observed promptly.
+const REQUEST_DISCONNECT_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Debug)]
 enum FileReadError {
@@ -1495,6 +2049,10 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
+            stream_handles: Arc::new(std::sync::Mutex::new(StreamRegistry::default())),
+            next_stream_id: Mutex::new(1),
+            #[cfg(test)]
+            active_stream_reapers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             config,
         }
     }
@@ -1588,6 +2146,631 @@ impl IoClient {
         }
 
         self.send_http_request(request, method, budget).await
+    }
+
+    /// Open a streaming outbound request: send it and return
+    /// `(status, response headers, stream handle id)` as soon as the response
+    /// head arrives, WITHOUT buffering the body. The body stays open behind the
+    /// returned handle id for incremental `wait for next chunk|line` reads.
+    ///
+    /// The head phase (connect + headers) is bounded by the same finite
+    /// deadline and cooperative-cancellation machinery as a buffered request;
+    /// each later body read is bounded per-chunk in [`Self::stream_pull`].
+    async fn open_http_stream(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+        body: Option<String>,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<(u16, Vec<(String, String)>, String), HttpClientError> {
+        use futures_util::StreamExt;
+
+        let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
+        let mut request = self.http_client.request(parsed_method, url);
+        for (name, value) in headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        if let Some(body) = body {
+            request = request.body(body);
+        }
+
+        let method_owned = method.to_string();
+        // Start the absolute total-lifetime clock at request initiation — BEFORE
+        // `send()` — so connect + header time counts toward
+        // `outbound_stream_max_seconds`, matching the documented "total lifetime
+        // measured from when the stream is opened". The head phase below is then
+        // bounded by the remaining time to that deadline as well as the idle
+        // timeout, so a stalled connect/header handshake cannot outlive the total.
+        // `outbound_stream_deadline` clamps extreme config values so Instant
+        // arithmetic cannot panic.
+        let total_deadline = outbound_stream_deadline(self.config.outbound_stream_max_seconds);
+        let idle_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let configured_timeout = match total_deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(self.outbound_stream_timeout_error());
+                }
+                idle_timeout.min(remaining)
+            }
+            None => idle_timeout,
+        };
+        let op = async move {
+            request.send().await.map_err(|e| {
+                HttpClientError::Request(format!("Failed to send HTTP {method_owned} request: {e}"))
+            })
+        };
+        // Only the head is awaited here; dropping this future on
+        // timeout/cancel aborts the connection cleanly.
+        let response =
+            Self::run_http_with_budget(Arc::clone(&budget), configured_timeout, op).await?;
+
+        let status = response.status().as_u16();
+        let response_headers = response
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_ascii_lowercase(),
+                    String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                )
+            })
+            .collect();
+
+        // Reject an over-ceiling body up front when the length is advertised;
+        // per-chunk reads enforce the same ceiling for chunked/unknown lengths.
+        let max_response_bytes = budget.limits().max_response_bytes;
+        if let Some(content_length) = response.content_length() {
+            let max_as_u64 = u64::try_from(max_response_bytes).unwrap_or(u64::MAX);
+            if content_length > max_as_u64 {
+                return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                    limit: max_response_bytes,
+                    actual: usize::try_from(content_length).unwrap_or(usize::MAX),
+                }));
+            }
+        }
+
+        let stream = response
+            .bytes_stream()
+            .map(|chunk| chunk.map(|b| b.to_vec()));
+        // `total_deadline` was started at request initiation above (before the
+        // head was sent) so it covers connect/header time too.
+        let handle = HttpStreamHandle {
+            stream: Box::pin(stream),
+            buffer: Vec::new(),
+            done: false,
+            bytes_read: 0,
+            total_deadline,
+        };
+        let handle_id = {
+            let mut next_id = self.next_stream_id.lock().await;
+            let id = format!("httpstream{}", *next_id);
+            *next_id += 1;
+            id
+        };
+
+        // Insert the slot FIRST, then arm the reaper under the same lock so the
+        // reaper can never fire before the slot exists (and so close/finish that
+        // races with open still sees a consistent cancel handle).
+        let cancel = StreamCancel::new();
+        {
+            let mut registry = self
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            registry.prune_recent(Instant::now());
+            registry.live.insert(
+                handle_id.clone(),
+                StreamSlot {
+                    handle: Some(handle),
+                    deadline: total_deadline,
+                    cancel: Arc::clone(&cancel),
+                    reaper_abort: None,
+                    owner: None,
+                },
+            );
+            if let Some(deadline) = total_deadline {
+                let handles = Arc::clone(&self.stream_handles);
+                let reap_id = handle_id.clone();
+                let cancel_reap = Arc::clone(&cancel);
+                #[cfg(test)]
+                let reaper_guard =
+                    ActiveStreamReaperGuard::new(Arc::clone(&self.active_stream_reapers));
+                let join = tokio::spawn(async move {
+                    #[cfg(test)]
+                    let _reaper_guard = reaper_guard;
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    tokio::time::sleep(remaining).await;
+                    // Remove the heavy live slot and preserve only a bounded,
+                    // lightweight typed terminal record for one later read.
+                    let now = Instant::now();
+                    let mut registry = handles.lock().unwrap_or_else(|e| e.into_inner());
+                    registry.prune_recent(now);
+                    if let Some(mut slot) = registry.live.remove(&reap_id) {
+                        let terminal = cancel_reap.terminate(StreamTerminal::Timeout);
+                        slot.reaper_abort = None; // we are the reaper
+                        drop(slot.handle.take());
+                        remove_stream_owner(&mut slot, &reap_id);
+                        registry.remember_recent(reap_id, terminal, now);
+                    }
+                });
+                if let Some(slot) = registry.live.get_mut(&handle_id) {
+                    slot.reaper_abort = Some(join.abort_handle());
+                } else {
+                    // Already finished before we armed — cancel the timer.
+                    join.abort();
+                }
+            }
+        }
+
+        Ok((status, response_headers, handle_id))
+    }
+
+    /// Atomically attach a handler owner to a freshly opened stream. If expiry
+    /// won the race, return its typed outcome without creating stale ownership.
+    fn claim_stream_owner(
+        &self,
+        handle_id: &str,
+        owner: &StreamOwner,
+    ) -> Result<(), HttpClientError> {
+        let now = Instant::now();
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        registry.prune_recent(now);
+        if let Some(slot) = registry.live.get_mut(handle_id) {
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(handle_id.to_string());
+            slot.owner = Some(Arc::clone(owner));
+            return Ok(());
+        }
+        if let Some(terminal) = registry.take_recent(handle_id, now) {
+            return Err(self.stream_terminal_error(terminal));
+        }
+        Err(HttpClientError::Closed)
+    }
+
+    /// Close every live stream owned by one handler. The owner lock is released
+    /// before the registry lock is acquired, preserving the registry->owner
+    /// nesting order used by the reaper.
+    fn close_stream_owner(&self, owner: &StreamOwner) {
+        let ids: Vec<String> = {
+            let mut owned = owner.lock().unwrap_or_else(|error| error.into_inner());
+            owned.drain().collect()
+        };
+        self.close_stream_ids(&ids);
+    }
+
+    /// Close a selected set of live streams without disturbing other handles
+    /// owned by the same handler.
+    fn close_stream_ids(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        registry.prune_recent(Instant::now());
+        for id in ids {
+            if let Some(mut slot) = registry.live.remove(id) {
+                slot.cancel.terminate(StreamTerminal::Closed);
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, id);
+            }
+            registry.forget_recent(id);
+        }
+    }
+
+    /// Signal cancel, abort the reaper, drop any parked handle, and remove the
+    /// slot. Guaranteed (std mutex) — usable from Drop. Returns whether a slot
+    /// was present.
+    fn finish_stream_slot_sync(&self, handle_id: &str, terminal: StreamTerminal) -> bool {
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        registry.prune_recent(Instant::now());
+        let had_recent = registry.forget_recent(handle_id);
+        if let Some(mut slot) = registry.live.remove(handle_id) {
+            slot.cancel.terminate(terminal);
+            if let Some(abort) = slot.reaper_abort.take() {
+                abort.abort();
+            }
+            drop(slot.handle.take());
+            remove_stream_owner(&mut slot, handle_id);
+            true
+        } else {
+            had_recent
+        }
+    }
+
+    async fn finish_stream_slot(&self, handle_id: &str) -> bool {
+        self.finish_stream_slot_sync(handle_id, StreamTerminal::Closed)
+    }
+
+    /// Remove a stream handle from its slot so a body read can await without
+    /// holding the global handle lock. The cancel watch stays alive so close/
+    /// expire aborts the read. A recent clean EOF yields `Ok(None)`; unknown,
+    /// closed, and past-deadline handles remain errors.
+    fn take_stream(&self, handle_id: &str) -> Result<Option<TakenStream>, HttpClientError> {
+        let now = Instant::now();
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        registry.prune_recent(now);
+        if !registry.live.contains_key(handle_id) {
+            if let Some(terminal) = registry.take_recent(handle_id, now) {
+                return match terminal {
+                    StreamTerminal::CleanEof => Ok(None),
+                    terminal => Err(self.stream_terminal_error(terminal)),
+                };
+            }
+            return Err(HttpClientError::Request(format!(
+                "Unknown or already-closed stream handle '{handle_id}'"
+            )));
+        }
+        if let Some(terminal) = registry
+            .live
+            .get(handle_id)
+            .and_then(|slot| slot.cancel.terminal())
+        {
+            if let Some(mut slot) = registry.live.remove(handle_id) {
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
+            }
+            return Err(self.stream_terminal_error(terminal));
+        }
+        let past_deadline = registry
+            .live
+            .get(handle_id)
+            .expect("live stream checked above")
+            .deadline
+            .is_some_and(|deadline| deadline <= now);
+        if past_deadline {
+            if let Some(mut slot) = registry.live.remove(handle_id) {
+                let terminal = slot.cancel.terminate(StreamTerminal::Timeout);
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
+                return Err(self.stream_terminal_error(terminal));
+            }
+            return Err(self.outbound_stream_timeout_error());
+        }
+        let slot = registry
+            .live
+            .get_mut(handle_id)
+            .expect("live stream checked above");
+        let cancel = Arc::clone(&slot.cancel);
+        match slot.handle.take() {
+            Some(handle) => Ok(Some(TakenStream { handle, cancel })),
+            None => Err(HttpClientError::Request(format!(
+                "Unknown or already-closed stream handle '{handle_id}'"
+            ))),
+        }
+    }
+
+    /// Return a still-open stream handle after a body read. Refuses reinsertion
+    /// if the stream was closed/expired mid-read (cancel flag or missing slot).
+    fn put_stream(
+        &self,
+        handle_id: &str,
+        handle: HttpStreamHandle,
+        cancel: &StreamCancel,
+    ) -> Result<(), HttpClientError> {
+        // Observing upstream EOF is the linearization point for clean
+        // completion. Finalize that already-latched result before consulting
+        // the wall clock or generic terminal rejection below: a reaper/close
+        // may have removed the slot after EOF won, but it must not erase the
+        // one follow-up `nothing` read.
+        if handle.done {
+            let terminal = cancel.terminate(StreamTerminal::CleanEof);
+            if terminal == StreamTerminal::CleanEof {
+                drop(handle);
+                let now = Instant::now();
+                let mut registry = self
+                    .stream_handles
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                registry.prune_recent(now);
+                if let Some(mut slot) = registry.live.remove(handle_id) {
+                    slot.cancel.terminate(StreamTerminal::CleanEof);
+                    if let Some(abort) = slot.reaper_abort.take() {
+                        abort.abort();
+                    }
+                    drop(slot.handle.take());
+                    remove_stream_owner(&mut slot, handle_id);
+                }
+                // `remember_recent` replaces an existing record for this ID,
+                // so terminalization leaves exactly one bounded one-shot
+                // result even when the racing reaper already recorded EOF.
+                registry.remember_recent(handle_id.to_string(), StreamTerminal::CleanEof, now);
+                return Ok(());
+            }
+        }
+
+        if let Some(terminal) = cancel.terminal() {
+            drop(handle);
+            // Ensure the slot is gone (reaper/close may already have removed it).
+            let _ = self.finish_stream_slot_sync(handle_id, terminal);
+            return Err(self.stream_terminal_error(terminal));
+        }
+        let now = Instant::now();
+        let mut registry = self
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        registry.prune_recent(now);
+        if !registry.live.contains_key(handle_id) {
+            drop(handle);
+            let terminal = cancel
+                .terminal()
+                .or_else(|| registry.take_recent(handle_id, now));
+            return Err(terminal
+                .map(|reason| self.stream_terminal_error(reason))
+                .unwrap_or(HttpClientError::Closed));
+        }
+        let terminal = registry.live.get(handle_id).and_then(|slot| {
+            slot.cancel.terminal().or_else(|| {
+                if slot.deadline.is_some_and(|deadline| deadline <= now) {
+                    Some(slot.cancel.terminate(StreamTerminal::Timeout))
+                } else {
+                    None
+                }
+            })
+        });
+        if let Some(terminal) = terminal {
+            drop(handle);
+            if let Some(mut slot) = registry.live.remove(handle_id) {
+                if let Some(abort) = slot.reaper_abort.take() {
+                    abort.abort();
+                }
+                drop(slot.handle.take());
+                remove_stream_owner(&mut slot, handle_id);
+            }
+            return Err(self.stream_terminal_error(terminal));
+        }
+        let slot = registry
+            .live
+            .get_mut(handle_id)
+            .expect("live stream checked above");
+        slot.handle = Some(handle);
+        Ok(())
+    }
+
+    fn stream_terminal_error(&self, terminal: StreamTerminal) -> HttpClientError {
+        match terminal {
+            StreamTerminal::CleanEof => HttpClientError::Closed,
+            StreamTerminal::Timeout => self.outbound_stream_timeout_error(),
+            StreamTerminal::Closed => HttpClientError::Closed,
+        }
+    }
+
+    fn outbound_stream_timeout_error(&self) -> HttpClientError {
+        HttpClientError::Timeout {
+            seconds: outbound_stream_effective_seconds(self.config.outbound_stream_max_seconds)
+                .unwrap_or(self.config.timeout_seconds.max(1)),
+        }
+    }
+
+    /// Pull one network chunk into `handle.buffer`, bounded by the per-chunk
+    /// read deadline, the absolute total, and cooperative stream cancellation
+    /// (close/expire while reading). Returns `Ok(true)` when bytes were added,
+    /// `Ok(false)` at clean EOF (sets `handle.done`).
+    async fn stream_pull(
+        &self,
+        handle: &mut HttpStreamHandle,
+        budget: &Arc<ExecutionBudget>,
+        cancel: &StreamCancel,
+    ) -> Result<bool, HttpClientError> {
+        use futures_util::StreamExt;
+
+        if handle.done {
+            let terminal = cancel.terminate(StreamTerminal::CleanEof);
+            return if terminal == StreamTerminal::CleanEof {
+                Ok(false)
+            } else {
+                Err(self.stream_terminal_error(terminal))
+            };
+        }
+        let mut terminal_rx = cancel.subscribe();
+        if let Some(terminal) = *terminal_rx.borrow() {
+            return Err(self.stream_terminal_error(terminal));
+        }
+        let max_response_bytes = budget.limits().max_response_bytes;
+        let idle_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let configured_timeout = match handle.total_deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(self.outbound_stream_timeout_error());
+                }
+                idle_timeout.min(remaining)
+            }
+            None => idle_timeout,
+        };
+
+        // Race the network read against stream cancellation so close-during-
+        // active-read aborts the upstream promptly.
+        let op = Self::run_http_with_budget(Arc::clone(budget), configured_timeout, async {
+            Ok::<Option<reqwest::Result<Vec<u8>>>, HttpClientError>(handle.stream.next().await)
+        });
+        tokio::pin!(op);
+        let next = tokio::select! {
+            // Prefer a simultaneously-ready body result so the terminal
+            // re-check below is the single deterministic arbiter: expiry still
+            // wins, and a ready chunk can never be reinserted after the reaper.
+            biased;
+            result = &mut op => result?,
+            changed = terminal_rx.changed() => {
+                let _ = changed;
+                let terminal = (*terminal_rx.borrow()).unwrap_or(StreamTerminal::Closed);
+                return Err(self.stream_terminal_error(terminal));
+            }
+        };
+        // Re-check after select so a simultaneously-ready body chunk cannot win
+        // over an already-recorded hard deadline and be reinserted.
+        if let Some(terminal) = cancel.terminal() {
+            return Err(self.stream_terminal_error(terminal));
+        }
+
+        match next {
+            Some(Ok(bytes)) => {
+                let actual = handle.bytes_read.saturating_add(bytes.len());
+                if bytes.len() > max_response_bytes.saturating_sub(handle.bytes_read) {
+                    return Err(HttpClientError::Budget(BudgetExceeded::ResponseBytes {
+                        limit: max_response_bytes,
+                        actual,
+                    }));
+                }
+                handle.bytes_read = actual;
+                handle.buffer.extend_from_slice(&bytes);
+                Ok(true)
+            }
+            Some(Err(e)) => Err(HttpClientError::Request(format!(
+                "Failed to read response chunk: {e}"
+            ))),
+            None => {
+                let terminal = cancel.terminate(StreamTerminal::CleanEof);
+                if terminal == StreamTerminal::CleanEof {
+                    handle.done = true;
+                    Ok(false)
+                } else {
+                    Err(self.stream_terminal_error(terminal))
+                }
+            }
+        }
+    }
+
+    /// Return a `Timeout` error if the handle's absolute stream lifetime
+    /// (`outbound_stream_max_seconds`, tracked as `total_deadline`) has elapsed.
+    /// Called before serving locally-buffered bytes so the absolute lifetime is
+    /// enforced even when no network read is performed; `stream_pull` performs the
+    /// same check before each network read.
+    fn check_stream_deadline(&self, handle: &HttpStreamHandle) -> Result<(), HttpClientError> {
+        if let Some(deadline) = handle.total_deadline
+            && deadline.saturating_duration_since(Instant::now()).is_zero()
+        {
+            return Err(self.outbound_stream_timeout_error());
+        }
+        Ok(())
+    }
+
+    /// Pull the next raw byte chunk from a streaming response. Returns
+    /// `Ok(None)` at clean end of stream (handle is finished). On error or EOF
+    /// the slot is removed and the reaper aborted so the upstream is released
+    /// and no sleeping timer remains.
+    async fn next_chunk(
+        &self,
+        handle_id: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<Option<Vec<u8>>, HttpClientError> {
+        let Some(TakenStream { mut handle, cancel }) = self.take_stream(handle_id)? else {
+            return Ok(None);
+        };
+
+        if let Err(e) = self.check_stream_deadline(&handle) {
+            let _ = self.finish_stream_slot(handle_id).await;
+            return Err(e);
+        }
+
+        if !handle.buffer.is_empty() {
+            let chunk = std::mem::take(&mut handle.buffer);
+            self.put_stream(handle_id, handle, &cancel)?;
+            return Ok(Some(chunk));
+        }
+
+        match self.stream_pull(&mut handle, &budget, &cancel).await {
+            Ok(true) => {
+                let chunk = std::mem::take(&mut handle.buffer);
+                self.put_stream(handle_id, handle, &cancel)?;
+                Ok(Some(chunk))
+            }
+            Ok(false) => {
+                let _ = self.finish_stream_slot(handle_id).await;
+                Ok(None)
+            }
+            Err(e) => {
+                let _ = self.finish_stream_slot(handle_id).await;
+                Err(e)
+            }
+        }
+    }
+
+    /// Pull the next newline-delimited line (trailing `\n`, and a paired `\r`,
+    /// stripped) from a streaming response. A final unterminated line is
+    /// returned before EOF. Returns `Ok(None)` at clean end of stream.
+    async fn next_line(
+        &self,
+        handle_id: &str,
+        budget: Arc<ExecutionBudget>,
+    ) -> Result<Option<String>, HttpClientError> {
+        let Some(TakenStream { mut handle, cancel }) = self.take_stream(handle_id)? else {
+            return Ok(None);
+        };
+
+        loop {
+            let clean_eof_latched =
+                handle.done && cancel.terminal() == Some(StreamTerminal::CleanEof);
+            if !clean_eof_latched && let Err(e) = self.check_stream_deadline(&handle) {
+                let _ = self.finish_stream_slot(handle_id).await;
+                return Err(e);
+            }
+
+            if let Some(pos) = handle.buffer.iter().position(|&b| b == b'\n') {
+                let mut line: Vec<u8> = handle.buffer.drain(..=pos).collect();
+                line.pop(); // drop '\n'
+                if line.last() == Some(&b'\r') {
+                    line.pop(); // drop paired '\r' (CRLF)
+                }
+                self.put_stream(handle_id, handle, &cancel)?;
+                return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+
+            if handle.done {
+                // Final unterminated line (if any), then fully finish — do NOT
+                // leave a done slot + reaper parked for a subsequent read.
+                if handle.buffer.is_empty() {
+                    let _ = self.finish_stream_slot(handle_id).await;
+                    return Ok(None);
+                }
+                let mut line = std::mem::take(&mut handle.buffer);
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                // Preserve one lightweight clean-EOF result so the next wait
+                // binds `nothing`; `put_stream` removes all live stream state.
+                self.put_stream(handle_id, handle, &cancel)?;
+                return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+
+            if let Err(e) = self.stream_pull(&mut handle, &budget, &cancel).await {
+                let _ = self.finish_stream_slot(handle_id).await;
+                return Err(e);
+            }
+        }
+    }
+
+    /// Close a streaming response handle if present. Signals cancel (aborting
+    /// any active read), drops the handle, and aborts the reaper timer.
+    /// Idempotent.
+    async fn close_stream(&self, handle_id: &str) -> bool {
+        self.finish_stream_slot(handle_id).await
     }
 
     /// Send a request and consume its body without ever buffering more than the
@@ -1788,10 +2971,24 @@ impl IoClient {
         F: std::future::Future<Output = Result<T, HttpClientError>>,
     {
         let deadline = Self::outbound_http_deadline(&budget, configured_timeout)?;
-        let timeout_duration = match deadline {
+        // The budget/run-derived finite duration, if any.
+        let budget_duration = match deadline {
             OutboundHttpDeadline::None => None,
             OutboundHttpDeadline::Execution { remaining, .. } => Some(remaining),
             OutboundHttpDeadline::MainLoop { duration } => Some(duration),
+        };
+        // The operation is bounded by the SHORTER of the caller's configured
+        // timeout — which already encodes the stream's idle timeout AND its
+        // remaining absolute-total deadline (see `stream_pull`/`open_http_stream`)
+        // — and the run/budget deadline. Whichever is smaller decides both how
+        // long we wait and which error we report. `configured_timeout` is always
+        // finite, so the operation is bounded even when the budget has no
+        // run-wide deadline (previously that path discarded the stream deadline
+        // entirely and could wait out the whole run).
+        let budget_is_binding = matches!(budget_duration, Some(bd) if bd <= configured_timeout);
+        let timeout_duration = match budget_duration {
+            Some(bd) if budget_is_binding => bd,
+            _ => configured_timeout,
         };
 
         let cancellation_budget = Arc::clone(&budget);
@@ -1803,12 +3000,7 @@ impl IoClient {
                 tokio::time::sleep(HTTP_CANCELLATION_POLL_INTERVAL).await;
             }
         };
-        let timeout = async move {
-            match timeout_duration {
-                Some(duration) => tokio::time::sleep(duration).await,
-                None => std::future::pending::<()>().await,
-            }
-        };
+        let timeout = async move { tokio::time::sleep(timeout_duration).await };
 
         tokio::pin!(operation);
         tokio::pin!(cancellation);
@@ -1816,15 +3008,28 @@ impl IoClient {
         tokio::select! {
             result = &mut operation => result,
             _ = &mut cancellation => Err(HttpClientError::Budget(BudgetExceeded::Cancelled)),
-            _ = &mut timeout => match deadline {
-                OutboundHttpDeadline::Execution { limit_secs, .. } => {
-                    Err(HttpClientError::Budget(BudgetExceeded::Deadline { limit_secs }))
+            _ = &mut timeout => {
+                if budget_is_binding {
+                    // The run/budget deadline was the shorter bound.
+                    match deadline {
+                        OutboundHttpDeadline::Execution { limit_secs, .. } => {
+                            Err(HttpClientError::Budget(BudgetExceeded::Deadline { limit_secs }))
+                        }
+                        OutboundHttpDeadline::MainLoop { duration } => {
+                            Err(HttpClientError::Timeout { seconds: duration.as_secs() })
+                        }
+                        OutboundHttpDeadline::None => {
+                            unreachable!("budget cannot be binding when there is no budget deadline")
+                        }
+                    }
+                } else {
+                    // The caller's configured timeout (stream idle / absolute
+                    // total) was the shorter bound.
+                    Err(HttpClientError::Timeout {
+                        seconds: configured_timeout.as_secs().max(1),
+                    })
                 }
-                OutboundHttpDeadline::MainLoop { duration } => {
-                    Err(HttpClientError::Timeout { seconds: duration.as_secs() })
-                }
-                OutboundHttpDeadline::None => unreachable!("disabled timeout cannot complete"),
-            },
+            }
         }
     }
 
@@ -2888,7 +4093,15 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             web_socket_servers: RefCell::new(HashMap::new()), // Initialize empty WebSocket servers map
             ws_connections: Arc::new(std::sync::Mutex::new(HashMap::new())), // Live WebSocket connections
-            pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
+            pending_responses: Rc::new(RefCell::new(HashMap::new())), // Initialize empty pending responses map
+            server_response_streams: Rc::new(RefCell::new(HashMap::new())),
+            open_response_streams: Rc::new(RefCell::new(Vec::new())),
+            open_pending_requests: Rc::new(RefCell::new(Vec::new())),
+            open_http_streams: Rc::new(RefCell::new(Arc::new(std::sync::Mutex::new(
+                HashSet::new(),
+            )))),
+            accepted_request: Cell::new(false),
+            next_response_stream_id: std::cell::Cell::new(1),
             config,
             current_source_file: RefCell::new(None), // No source file initially
             loading_stack: RefCell::new(Vec::new()), // Empty loading stack
@@ -3341,7 +4554,840 @@ impl Interpreter {
                 column,
                 ErrorKind::Timeout,
             ),
+            HttpClientError::Closed => {
+                RuntimeError::new("Stream was closed while reading".to_string(), line, column)
+            }
+            HttpClientError::Disconnected => RuntimeError::with_kind(
+                "Client disconnected; upstream read cancelled".to_string(),
+                line,
+                column,
+                ErrorKind::Cancelled,
+            ),
         }
+    }
+
+    /// Resolve a `wait for next chunk|line from <source>` operand to a stream
+    /// handle id. Requires the streaming-response object bound by
+    /// `stream response as <name>` (reads its internal `_stream` id); a bare text
+    /// id is rejected so an arbitrary string can't be aimed at a stream handle.
+    async fn resolve_stream_handle(
+        &self,
+        source: &Expression,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        let value = self.evaluate_expression(source, Rc::clone(env)).await?;
+        match &value {
+            Value::Object(obj) => match obj.borrow().get("_stream") {
+                Some(Value::Text(id)) => Ok(id.to_string()),
+                _ => Err(RuntimeError::new(
+                    "Expected a streaming response handle (from `stream response as ...`), \
+                     but this value has no open stream"
+                        .to_string(),
+                    line,
+                    column,
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected a streaming response handle (from `stream response as ...`), got {}",
+                    value.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    /// Resolve a `write line|chunk`/`flush` operand to a server response-stream
+    /// handle id. Requires the object bound by `start streaming response as ...`
+    /// (reads its internal `_server_stream` id); a bare text id is rejected so an
+    /// arbitrary string can't be aimed at a server response stream.
+    async fn resolve_server_stream_handle(
+        &self,
+        target: &Expression,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        let value = self.evaluate_expression(target, Rc::clone(env)).await?;
+        match &value {
+            Value::Object(obj) => match obj.borrow().get("_server_stream") {
+                Some(Value::Text(id)) => Ok(id.to_string()),
+                _ => Err(RuntimeError::new(
+                    "Expected a server response stream (from `start streaming response as ...`), \
+                     but this value has no open stream"
+                        .to_string(),
+                    line,
+                    column,
+                )),
+            },
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected a server response stream (from `start streaming response as ...`), got {}",
+                    value.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    /// Swap the interpreter's per-execution run-state fields with `state`.
+    ///
+    /// Used by [`IsolatedHandler`] to make the run state poll-local under
+    /// concurrent execution: the interpreter's live fields and the parked
+    /// snapshot trade places, so exactly one handler's run state is installed at
+    /// a time. A plain field-by-field `mem::swap`, so it is its own inverse.
+    fn swap_run_state(&self, state: &mut RunState) {
+        std::mem::swap(
+            &mut *self.current_count.borrow_mut(),
+            &mut state.current_count,
+        );
+        std::mem::swap(
+            &mut *self.in_count_loop.borrow_mut(),
+            &mut state.in_count_loop,
+        );
+        let depth = self.call_depth.replace(state.call_depth);
+        state.call_depth = depth;
+        std::mem::swap(&mut *self.call_stack.borrow_mut(), &mut state.call_stack);
+        std::mem::swap(
+            &mut *self.current_block_overload_dups.borrow_mut(),
+            &mut state.block_overload_dups,
+        );
+        std::mem::swap(
+            &mut *self.open_response_streams.borrow_mut(),
+            &mut state.open_response_streams,
+        );
+        std::mem::swap(
+            &mut *self.open_pending_requests.borrow_mut(),
+            &mut state.open_pending_requests,
+        );
+        std::mem::swap(
+            &mut *self.open_http_streams.borrow_mut(),
+            &mut state.open_http_streams,
+        );
+        let accepted = self.accepted_request.replace(state.accepted_request);
+        state.accepted_request = accepted;
+    }
+
+    /// Drop each outbound streaming handle whose id is in `ids` from
+    /// `IoClient.stream_handles`, cancelling its in-flight upstream request
+    /// (dropping the reqwest body stream aborts the connection). Best-effort and
+    /// synchronous (usable from `Drop`): if the async lock is momentarily held,
+    /// the handles remain and are reclaimed at interpreter teardown. Idempotent —
+    /// an id already removed by EOF/error/explicit `close` is a no-op.
+    fn close_http_streams(&self, owner: &StreamOwner) {
+        self.io_client.close_stream_owner(owner);
+    }
+
+    /// Build an RAII guard that closes any outbound stream handles still tracked
+    /// as open when the guard drops — including when the `interpret()` future is
+    /// dropped/cancelled before reaching its normal handler-exit/program-cleanup
+    /// sites. On a normal run those sites have already drained the list, so the
+    /// guard is a no-op; on a dropped future it releases the leaked upstreams
+    /// (instead of leaking them until the interpreter itself is torn down).
+    fn outbound_stream_cleanup_guard(&self) -> OutboundStreamCleanup {
+        OutboundStreamCleanup {
+            io_client: Rc::clone(&self.io_client),
+            open_http_streams: Arc::clone(&self.open_http_streams.borrow()),
+            open_response_streams: Rc::clone(&self.open_response_streams),
+            server_response_streams: Rc::clone(&self.server_response_streams),
+            open_pending_requests: Rc::clone(&self.open_pending_requests),
+            pending_responses: Rc::clone(&self.pending_responses),
+        }
+    }
+
+    /// Drain and drop every outbound stream the current (serial) handler left
+    /// open. Called at the end of each serial `main loop` iteration and at program
+    /// exit, mirroring the concurrent path's per-handler `Drop`.
+    fn close_open_http_streams(&self) {
+        let owner = Arc::clone(&self.open_http_streams.borrow());
+        self.close_http_streams(&owner);
+    }
+
+    /// Stop tracking an outbound stream id as handler-owned — it has already left
+    /// `IoClient.stream_handles` (EOF, error, or an explicit `close`), so the
+    /// handler-exit cleanup must not try to (re-)drop it.
+    fn untrack_http_stream(&self, handle_id: &str) {
+        self.open_http_streams
+            .borrow_mut()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(handle_id);
+    }
+
+    /// Clone the sender of every downstream response stream this handler owns. A
+    /// client disconnect drops the stream's `Receiver`, so `Sender::closed()` on
+    /// a clone resolves — a proactive disconnect signal that a blocked upstream
+    /// read can select against, so a proxy handler wakes and cancels its upstream
+    /// the moment the browser goes away, instead of only discovering it at the
+    /// next downstream `write` or when the absolute stream deadline elapses.
+    /// Returns owned clones (no `RefCell` borrow is held across the later await).
+    fn downstream_disconnect_senders(&self) -> Vec<mpsc::Sender<Vec<u8>>> {
+        let open = self.open_response_streams.borrow();
+        if open.is_empty() {
+            return Vec::new();
+        }
+        let map = self.server_response_streams.borrow();
+        open.iter()
+            .filter_map(|id| map.get(id).map(|(tx, _)| tx.clone()))
+            .collect()
+    }
+
+    /// Await until ANY of `senders`' downstream clients has disconnected (its
+    /// `Receiver` dropped). Never resolves if `senders` is empty — the caller
+    /// guards that case so `select!` still has a live branch.
+    async fn any_downstream_disconnected(senders: Vec<mpsc::Sender<Vec<u8>>>) {
+        if senders.is_empty() {
+            std::future::pending::<()>().await;
+            return;
+        }
+        let closes: Vec<_> = senders.iter().map(|tx| Box::pin(tx.closed())).collect();
+        let _ = futures_util::future::select_all(closes).await;
+    }
+
+    /// Await until any of this handler's open pending requests has had its client
+    /// disconnect — the transport route task drops the oneshot receiver when the
+    /// client goes away, so the parked sender reports `is_closed()`. This is the
+    /// disconnect signal that is valid BEFORE `start streaming response` (when no
+    /// downstream response stream exists yet), so a handler blocked opening an
+    /// upstream head can still be cancelled by a browser disconnect. Polled (the
+    /// sender lives behind an `Arc<Mutex<Option<..>>>` shared with the transport,
+    /// not an awaitable primitive); never resolves when the handler holds no
+    /// pending request, so the caller's `select!` still has a live branch.
+    async fn any_pending_request_disconnected(&self) {
+        loop {
+            // Compute in a tight scope so no `RefCell`/`Mutex` guard is held across
+            // the await below. `None` => nothing to watch.
+            let any_closed = {
+                let open = self.open_pending_requests.borrow();
+                if open.is_empty() {
+                    None
+                } else {
+                    let pending = self.pending_responses.borrow();
+                    Some(open.iter().any(|id| match pending.get(id) {
+                        Some(p) => match p.sender.try_lock() {
+                            Ok(guard) => guard.as_ref().is_some_and(|s| s.is_closed()),
+                            // Being responded to right now — not a disconnect.
+                            Err(_) => false,
+                        },
+                        // Owned by this handler yet absent from the map: the only
+                        // removal that leaves an id in `open_pending_requests` is a
+                        // sibling handler's `wait for request` global prune, which
+                        // deletes ONLY closed (disconnected) senders — and a handler
+                        // that answered its own request drops the id from
+                        // `open_pending_requests` in the same step. So a missing
+                        // owned id is a terminal disconnect, not "still connected";
+                        // reporting it as connected here is exactly the bug where a
+                        // parked handler waits out its timeout after a sibling pruned
+                        // its since-disconnected entry.
+                        None => true,
+                    }))
+                }
+            };
+            match any_closed {
+                None => {
+                    std::future::pending::<()>().await;
+                    return;
+                }
+                Some(true) => return,
+                Some(false) => {
+                    tokio::time::sleep(REQUEST_DISCONNECT_POLL_INTERVAL).await;
+                }
+            }
+        }
+    }
+
+    /// Await until this handler's client has disconnected by EITHER signal: an
+    /// open downstream response stream's receiver dropped (post-`start streaming
+    /// response`, event-driven) OR an open pending request's oneshot receiver
+    /// dropped (pre-`start streaming response`, polled). Racing an upstream head
+    /// open / body read against this cancels it the moment the browser goes away,
+    /// whichever phase the handler is in.
+    async fn any_client_disconnected(&self, senders: Vec<mpsc::Sender<Vec<u8>>>) {
+        tokio::select! {
+            _ = Self::any_downstream_disconnected(senders) => {}
+            _ = self.any_pending_request_disconnected() => {}
+        }
+    }
+
+    /// Close (drop the sender for) each server response stream whose handle id is
+    /// in `ids`, ending its body so the client stops waiting. Idempotent — an id
+    /// already closed by an explicit `close out` (or a disconnect) is a no-op —
+    /// so it is safe to call over a handler's full opened-stream list on exit.
+    fn close_response_streams(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut map = self.server_response_streams.borrow_mut();
+        for id in ids {
+            map.remove(id);
+        }
+    }
+
+    /// Drain and close every server response stream the current (serial) handler
+    /// left open. Called at the end of each serial `main loop` iteration and at
+    /// program exit, mirroring the concurrent path's per-handler `Drop`.
+    fn close_open_response_streams(&self) {
+        let ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
+        self.close_response_streams(&ids);
+    }
+
+    fn pending_response_disconnected_now(&self, request_id: &str) -> bool {
+        let owned = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .any(|id| id == request_id);
+        if !owned {
+            return false;
+        }
+
+        let pending = self.pending_responses.borrow();
+        match pending.get(request_id) {
+            Some(entry) => match entry.sender.try_lock() {
+                Ok(sender) => sender.as_ref().is_none_or(|sender| sender.is_closed()),
+                Err(_) => false,
+            },
+            None => true,
+        }
+    }
+
+    /// Wait for one specific still-owned request to disconnect. Losing ownership
+    /// is deliberately not treated as cancellation: duplicate/forged responses
+    /// must retain their established general-error classification.
+    async fn pending_response_disconnected(&self, request_id: &str) {
+        loop {
+            if self.pending_response_disconnected_now(request_id) {
+                return;
+            }
+            if !self
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == request_id)
+            {
+                std::future::pending::<()>().await;
+                return;
+            }
+            tokio::time::sleep(REQUEST_DISCONNECT_POLL_INTERVAL).await;
+        }
+    }
+
+    fn first_pending_response_disconnected_now(&self, request_ids: &[String]) -> Option<String> {
+        request_ids
+            .iter()
+            .find(|request_id| self.pending_response_disconnected_now(request_id))
+            .cloned()
+    }
+
+    /// A response request operand can itself be asynchronous, so its target id
+    /// is not available until evaluation finishes. Watch only the pending
+    /// requests owned when evaluation starts; requests accepted by nested work
+    /// are cleaned as newly-created resources if this evaluation is cancelled.
+    async fn first_pending_response_disconnected(&self, request_ids: &[String]) -> String {
+        loop {
+            if let Some(request_id) = self.first_pending_response_disconnected_now(request_ids) {
+                return request_id;
+            }
+            let any_still_owned = {
+                let owned = self.open_pending_requests.borrow();
+                request_ids
+                    .iter()
+                    .any(|request_id| owned.iter().any(|id| id == request_id))
+            };
+            if !any_still_owned {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(REQUEST_DISCONNECT_POLL_INTERVAL).await;
+        }
+    }
+
+    fn response_precommit_snapshot(&self) -> ResponsePrecommitSnapshot {
+        let http_owner = Arc::clone(&self.open_http_streams.borrow());
+        let http_streams = http_owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        ResponsePrecommitSnapshot {
+            call_stack: self.call_stack.borrow().clone(),
+            call_depth: self.call_depth.get(),
+            current_count: *self.current_count.borrow(),
+            in_count_loop: *self.in_count_loop.borrow(),
+            http_owner,
+            http_streams,
+            response_streams: self
+                .open_response_streams
+                .borrow()
+                .iter()
+                .cloned()
+                .collect(),
+            pending_requests: self
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// Restore poll-local state and release only resources opened by the
+    /// cancelled evaluation. Existing handler resources remain owned.
+    fn cancel_response_precommit(&self, request_id: &str, snapshot: ResponsePrecommitSnapshot) {
+        *self.call_stack.borrow_mut() = snapshot.call_stack;
+        self.call_depth.set(snapshot.call_depth);
+        *self.current_count.borrow_mut() = snapshot.current_count;
+        *self.in_count_loop.borrow_mut() = snapshot.in_count_loop;
+
+        let new_http_streams: Vec<String> = snapshot
+            .http_owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .filter(|id| !snapshot.http_streams.contains(*id))
+            .cloned()
+            .collect();
+        self.io_client.close_stream_ids(&new_http_streams);
+
+        let new_response_streams: Vec<String> = self
+            .open_response_streams
+            .borrow()
+            .iter()
+            .filter(|id| !snapshot.response_streams.contains(*id))
+            .cloned()
+            .collect();
+        self.close_response_streams(&new_response_streams);
+        self.open_response_streams
+            .borrow_mut()
+            .retain(|id| snapshot.response_streams.contains(id));
+
+        let new_pending_requests: Vec<String> = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .filter(|id| !snapshot.pending_requests.contains(*id))
+            .cloned()
+            .collect();
+        self.fail_unanswered_requests(&new_pending_requests);
+        self.open_pending_requests
+            .borrow_mut()
+            .retain(|id| id != request_id && snapshot.pending_requests.contains(id));
+        self.pending_responses.borrow_mut().remove(request_id);
+    }
+
+    /// Evaluate the response request operand while racing every request this
+    /// handler already owns. The target request id is not known until the
+    /// operand resolves, so this establishes the response-attempt snapshot that
+    /// is carried through field evaluation and commit.
+    async fn evaluate_response_request<T, F>(
+        &self,
+        line: usize,
+        column: usize,
+        disconnect_message: &'static str,
+        evaluation: F,
+    ) -> Result<(T, ResponsePrecommitSnapshot), RuntimeError>
+    where
+        F: std::future::Future<Output = Result<T, RuntimeError>>,
+    {
+        let snapshot = self.response_precommit_snapshot();
+        let mut watched_requests: Vec<String> = snapshot.pending_requests.iter().cloned().collect();
+        watched_requests.sort();
+        let mut evaluation = Box::pin(evaluation);
+        let mut disconnected =
+            Box::pin(self.first_pending_response_disconnected(&watched_requests));
+        let outcome = tokio::select! {
+            biased;
+            request_id = disconnected.as_mut() => (None, Some(request_id)),
+            result = evaluation.as_mut() => (Some(result), None),
+        };
+        let disconnected_request = outcome
+            .1
+            .or_else(|| self.first_pending_response_disconnected_now(&watched_requests));
+
+        if let Some(result) = outcome.0
+            && disconnected_request.is_none()
+        {
+            drop(evaluation);
+            drop(disconnected);
+            return result.map(|value| (value, snapshot));
+        }
+
+        // Drop first so action/loop RAII runs before restoring the baseline.
+        drop(evaluation);
+        drop(disconnected);
+        let request_id =
+            disconnected_request.expect("disconnect watcher completed without a request id");
+        self.cancel_response_precommit(&request_id, snapshot);
+        Err(RuntimeError::with_kind(
+            disconnect_message.to_string(),
+            line,
+            column,
+            ErrorKind::Cancelled,
+        ))
+    }
+
+    /// Evaluate every fallible response field while racing the target request's
+    /// disconnect signal. Disconnect wins ties, and the evaluation future is
+    /// dropped before partially-entered interpreter state is restored.
+    async fn evaluate_response_precommit<T, F>(
+        &self,
+        request_id: &str,
+        line: usize,
+        column: usize,
+        disconnect_message: &'static str,
+        snapshot: ResponsePrecommitSnapshot,
+        evaluation: F,
+    ) -> Result<(T, ResponsePrecommitSnapshot), RuntimeError>
+    where
+        F: std::future::Future<Output = Result<T, RuntimeError>>,
+    {
+        if let Err(error) = self
+            .ensure_pending_response_owned(request_id, line, column)
+            .await
+        {
+            if error.kind == ErrorKind::Cancelled {
+                self.cancel_response_precommit(request_id, snapshot);
+            }
+            return Err(error);
+        }
+        let mut evaluation = Box::pin(evaluation);
+        let mut disconnected = Box::pin(self.pending_response_disconnected(request_id));
+        let outcome = tokio::select! {
+            biased;
+            _ = disconnected.as_mut() => None,
+            result = evaluation.as_mut() => Some(result),
+        };
+        let disconnected_now = self.pending_response_disconnected_now(request_id);
+
+        if let Some(result) = outcome
+            && !disconnected_now
+        {
+            drop(evaluation);
+            drop(disconnected);
+            return result.map(|value| (value, snapshot));
+        }
+
+        // This ordering is intentional: dropping the future runs RAII guards
+        // before we overwrite any manually-restored run-state fields.
+        drop(evaluation);
+        drop(disconnected);
+        self.cancel_response_precommit(request_id, snapshot);
+        Err(RuntimeError::with_kind(
+            disconnect_message.to_string(),
+            line,
+            column,
+            ErrorKind::Cancelled,
+        ))
+    }
+
+    /// Take a pending response sender into an RAII completion guard for
+    /// `respond` / `start streaming response`.
+    ///
+    /// Ownership is checked against `open_pending_requests` *before* clearing the
+    /// id: a sibling `wait for request` may globally prune a closed (client-
+    /// disconnected) sender, so the map entry is missing while this handler still
+    /// owns the request. That path is `ErrorKind::Cancelled`. A missing entry when
+    /// the handler no longer owns the id (duplicate respond after a successful
+    /// one, or a forged request id) remains a general error.
+    /// Check that this handler still owns `request_id` and a pending entry is
+    /// present (or was pruned as disconnected → Cancelled), WITHOUT taking the
+    /// sender. Used before evaluating respond/stream-head expressions so the
+    /// parked sender remains a disconnect signal for upstream work.
+    async fn ensure_pending_response_owned(
+        &self,
+        request_id: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<(), RuntimeError> {
+        let was_owned = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .any(|id| id == request_id);
+        if !was_owned {
+            return Err(RuntimeError::new(
+                "Request ID not found - response may have already been sent".to_string(),
+                line,
+                column,
+            ));
+        }
+        let present = self.pending_responses.borrow().contains_key(request_id);
+        if !present {
+            // Sibling prune of a closed sender while we still own the request.
+            return Err(RuntimeError::with_kind(
+                "Client disconnected before the response was sent".to_string(),
+                line,
+                column,
+                ErrorKind::Cancelled,
+            ));
+        }
+        // Optionally check is_closed early for a clearer cancel before heavy eval.
+        let closed = {
+            let pending = self.pending_responses.borrow();
+            match pending.get(request_id) {
+                Some(p) => match p.sender.try_lock() {
+                    Ok(g) => g.as_ref().is_none_or(|s| s.is_closed()),
+                    Err(_) => false,
+                },
+                None => true,
+            }
+        };
+        if closed {
+            return Err(RuntimeError::with_kind(
+                "Client disconnected before the response was sent".to_string(),
+                line,
+                column,
+                ErrorKind::Cancelled,
+            ));
+        }
+        Ok(())
+    }
+
+    async fn take_pending_response_completion(
+        &self,
+        request_id: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<ResponseCompletion, RuntimeError> {
+        let was_owned = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .any(|id| id == request_id);
+        let pending_entry = {
+            let mut pending = self.pending_responses.borrow_mut();
+            pending.remove(request_id)
+        };
+        // Answered (or definitively cancelled) now: drop it from the handler's
+        // unanswered-request tracking so the exit-time 500 fallback skips it.
+        self.open_pending_requests
+            .borrow_mut()
+            .retain(|id| id != request_id);
+        match pending_entry {
+            // The admission slot is released by the transport task when it
+            // finishes delivering this response (or on its timeout), so the
+            // completion guard carries only the response channel.
+            Some(entry) => match entry.sender.lock().await.take() {
+                Some(sender) => Ok(ResponseCompletion {
+                    sender: Some(sender),
+                }),
+                None => Err(RuntimeError::new(
+                    "Response already sent for this request".to_string(),
+                    line,
+                    column,
+                )),
+            },
+            None if was_owned => {
+                // Sibling prune removed a closed sender, or the entry otherwise
+                // vanished while this handler still owned the request — treat as
+                // client disconnect / cooperative cancellation.
+                Err(RuntimeError::with_kind(
+                    "Client disconnected before the response was sent".to_string(),
+                    line,
+                    column,
+                    ErrorKind::Cancelled,
+                ))
+            }
+            None => Err(RuntimeError::new(
+                "Request ID not found - response may have already been sent".to_string(),
+                line,
+                column,
+            )),
+        }
+    }
+
+    /// Answer 500 for each request id in `ids` that is still unanswered (its
+    /// sender is still parked in `pending_responses`). A request the handler
+    /// already answered is gone from the map, so its `remove` is a no-op —
+    /// idempotent and safe to call over a handler's full dequeued list on exit.
+    ///
+    /// Fully synchronous (a non-blocking `try_lock` plus a `oneshot` send) so it
+    /// runs from `IsolatedHandler`'s `Drop`. The sender's mutex is only ever held
+    /// during `respond`, which the finished handler is no longer inside, so the
+    /// `try_lock` succeeds; if it somehow does not, the transport's request
+    /// timeout remains the backstop.
+    fn fail_unanswered_requests(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut pending = self.pending_responses.borrow_mut();
+        for id in ids {
+            if let Some(entry) = pending.remove(id)
+                && let Ok(mut guard) = entry.sender.try_lock()
+                && let Some(sender) = guard.take()
+            {
+                let _ = sender.send(HandlerReply::Buffered(WflHttpResponse {
+                    content: b"Internal Server Error\n".to_vec(),
+                    status: 500,
+                    content_type: "text/plain; charset=utf-8".to_string(),
+                    headers: HashMap::new(),
+                }));
+            }
+        }
+    }
+
+    /// Drain and 500 any requests the current (serial) handler dequeued but never
+    /// answered. Called at the end of each serial `main loop` iteration and at
+    /// program exit, mirroring the concurrent path's per-handler `Drop`.
+    fn fail_open_pending_requests(&self) {
+        let ids = std::mem::take(&mut *self.open_pending_requests.borrow_mut());
+        self.fail_unanswered_requests(&ids);
+    }
+
+    /// Execute a `main loop concurrently:` body. Keeps up to
+    /// `CONCURRENT_HANDLER_LIMIT` iterations of `body` in flight at once, each in
+    /// its own isolated child scope, driven cooperatively on this single thread
+    /// (no threads, no `Send`/`Arc` across the interpreter core). A handler that
+    /// errors or panics is contained — its request is resolved with 500 by the
+    /// response-completion drop guard — and its siblings keep running.
+    ///
+    /// Each handler also carries an isolated [`RunState`] (count-loop variable,
+    /// recursion depth, call stack, block overload set) via [`IsolatedHandler`],
+    /// so one handler's loop/recursion bookkeeping can never leak into another
+    /// across an `await`.
+    async fn execute_concurrent_main_loop(
+        &self,
+        body: &[Statement],
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<(Value, ControlFlow), RuntimeError> {
+        use futures_util::FutureExt;
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+
+        let cap = CONCURRENT_HANDLER_LIMIT.max(1);
+        let mut futs = FuturesUnordered::new();
+        let mut last_value = Value::Null;
+
+        // A handler that fails *before* it ever awaits (a deterministic bad
+        // expression, or `wait for request` on a server that was closed without
+        // the loop breaking) completes instantly, so a naive refill-and-repoll
+        // would spin the CPU (and the log) forever — and this loop is exempt from
+        // the wall-clock deadline. Count consecutive failures with no successful
+        // iteration in between: back off between them, and terminate the loop once
+        // it's clearly a structural failure rather than incidental handler errors.
+        let mut consecutive_failures: u32 = 0;
+
+        loop {
+            self.check_time()?;
+
+            // Refill to the concurrency cap. Each iteration gets a fresh isolated
+            // scope so concurrent requests never clobber each other's variables,
+            // and a fresh `RunState` (wrapped by `IsolatedHandler`) so their
+            // count-loop/recursion/call-stack bookkeeping stays poll-local.
+            while futs.len() < cap {
+                let scope = Environment::new_child_env(env);
+                let handler =
+                    std::panic::AssertUnwindSafe(self.execute_block(body, scope)).catch_unwind();
+                futs.push(IsolatedHandler {
+                    interp: self,
+                    state: RunState::fresh(self.base_call_depth),
+                    inner: Box::pin(handler),
+                });
+            }
+
+            // With cap >= 1 the set is never empty, so `next()` never returns a
+            // `Ready(None)` that would busy-spin the loop.
+            match futs.next().await {
+                // `IsolatedHandler` yields `(inner, accepted_request)` so we can
+                // tell request-local outcomes from structural pre-request failures
+                // after the handler's run state (and open-pending list) is gone.
+                Some((Ok(Ok((value, flow))), _accepted)) => {
+                    // A completed iteration (request handled) — not a failure.
+                    consecutive_failures = 0;
+                    last_value = value;
+                    match flow {
+                        ControlFlow::Break => break,
+                        ControlFlow::Exit => return Ok((last_value, ControlFlow::Exit)),
+                        ControlFlow::Return(val) => {
+                            return Ok((val.clone(), ControlFlow::Return(val)));
+                        }
+                        ControlFlow::Continue | ControlFlow::None => {}
+                    }
+                }
+                // Expected / request-local outcomes must NEVER feed the structural
+                // consecutive-failure breaker:
+                // - `Cancelled`: client disconnect (cooperative cancellation)
+                // - finite `wait for request ... with timeout` expiry ONLY
+                //   (not every ErrorKind::Timeout — e.g. pre-request structural
+                //   timeouts still feed the breaker)
+                // - any error from a handler that already accepted a request
+                //
+                // Structural pre-request failures feed the breaker.
+                Some((Ok(Err(err)), accepted)) => {
+                    match classify_concurrent_handler_error(&err, accepted) {
+                        ConcurrentHandlerDisposition::RequestLocal => {
+                            log::debug!(
+                                "concurrent main loop: non-structural handler outcome \
+                                 (kind={:?}, accepted_request={accepted}): {err}",
+                                err.kind
+                            );
+                        }
+                        ConcurrentHandlerDisposition::Structural => {
+                            log::warn!("concurrent main loop: structural handler error: {err}");
+                            if self
+                                .backoff_or_break_concurrent(
+                                    &mut consecutive_failures,
+                                    MAX_CONSECUTIVE_HANDLER_FAILURES,
+                                )
+                                .await
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                // Panic after accepting a request is contained and the request is
+                // answered 500 by the drop guard — request-local, not structural.
+                // Panic before accepting a request can hot-spin; count it toward
+                // the structural breaker.
+                Some((Err(_panic), accepted)) => {
+                    if accepted {
+                        log::warn!(
+                            "concurrent main loop: handler panicked after accepting a request; \
+                             request answered 500"
+                        );
+                    } else {
+                        log::warn!(
+                            "concurrent main loop: handler panicked before accepting a request"
+                        );
+                        if self
+                            .backoff_or_break_concurrent(
+                                &mut consecutive_failures,
+                                MAX_CONSECUTIVE_HANDLER_FAILURES,
+                            )
+                            .await
+                        {
+                            break;
+                        }
+                    }
+                }
+                None => break, // unreachable while cap >= 1; end cleanly if reached
+            }
+        }
+
+        Ok((last_value, ControlFlow::None))
+    }
+
+    /// Handle a failed concurrent-handler iteration: bump the consecutive-failure
+    /// counter, back off proportionally (capped) so instant failures cannot hot-
+    /// spin the CPU/log while the loop is deadline-exempt, and report whether the
+    /// caller should break the loop because failures have crossed the structural-
+    /// failure threshold (e.g. the server was closed without the loop breaking).
+    /// Returns `true` to break.
+    async fn backoff_or_break_concurrent(&self, consecutive_failures: &mut u32, max: u32) -> bool {
+        *consecutive_failures += 1;
+        if *consecutive_failures >= max {
+            log::error!(
+                "concurrent main loop: {consecutive_failures} consecutive handler failures with no successful request; stopping the loop to avoid a hot spin"
+            );
+            return true;
+        }
+        // Small, capped backoff so a burst of instant failures yields the thread
+        // (and rate-limits the log) instead of spinning.
+        let backoff_ms = (*consecutive_failures).min(50) as u64;
+        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+        false
     }
 
     /// Preserve ordinary file I/O failures while classifying byte-ceiling
@@ -3543,6 +5589,20 @@ impl Interpreter {
         // the invariant holds regardless of how the previous run ended.
         *self.in_count_loop.borrow_mut() = false;
         *self.current_count.borrow_mut() = None;
+        // A prior run that ended while a stream was open or a request was
+        // unanswered (REPL reuse) must not leave dangling entries. Actually CLOSE
+        // those streams and 500 those requests (draining the tracking), rather
+        // than only clearing the id lists — clearing alone would strand the
+        // still-open sender/receiver in `server_response_streams` /
+        // `pending_responses`, hanging the client and leaking the entry.
+        self.close_open_response_streams();
+        self.fail_open_pending_requests();
+        self.close_open_http_streams();
+        // RAII: if THIS run's future is dropped/cancelled before its normal exit
+        // sites run, still close any outbound handles it opened (they would
+        // otherwise leak the upstream until the interpreter itself is dropped).
+        // On a normal run the exit sites drain the list first, so this is a no-op.
+        let _outbound_cleanup = self.outbound_stream_cleanup_guard();
         // Reset to the inherited base depth (0 for a top-level run/REPL; the
         // parent's live depth for an `execute file` child) so recursion
         // accounting spans the execute-file boundary instead of granting the
@@ -3721,6 +5781,11 @@ impl Interpreter {
                     );
                 }
                 errors.push(err);
+                // A mid-run timeout is still an exit path: finalize any open
+                // top-level streams and unanswered requests before returning.
+                self.close_open_response_streams();
+                self.fail_open_pending_requests();
+                self.close_open_http_streams();
                 return Err(errors);
             }
 
@@ -3765,6 +5830,9 @@ impl Interpreter {
             }
         }
 
+        // Run the conventional `main` action (if any) before cleanup, so a
+        // stream/request opened by `main` is finalized by the drain below rather
+        // than leaking.
         if errors.is_empty() {
             let main_func_opt = {
                 match self.global_env.borrow().get("main") {
@@ -3792,11 +5860,22 @@ impl Interpreter {
                     }
                 }
             }
+        }
 
-            self.assert_invariants();
+        // Close any server response streams opened directly at top level or by
+        // `main` (outside a `main loop`, which already closes
+        // per-iteration/per-handler), and 500 any top-level request dequeued but
+        // never answered — on EVERY exit path (normal end, statement error, or a
+        // failing `main`), so a script that exits without `close` still finalizes
+        // the client's body rather than leaving it hanging until process death.
+        self.close_open_response_streams();
+        self.fail_open_pending_requests();
+        self.close_open_http_streams();
+
+        self.assert_invariants();
+        if errors.is_empty() {
             Ok(last_value)
         } else {
-            self.assert_invariants();
             Err(errors)
         }
     }
@@ -3879,6 +5958,12 @@ impl Interpreter {
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
             Statement::HttpRequestStatement { line, column, .. } => (*line, *column),
+            Statement::HttpStreamStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForNextChunkStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForNextLineStatement { line, column, .. } => (*line, *column),
+            Statement::StartStreamingResponseStatement { line, column, .. } => (*line, *column),
+            Statement::StreamWriteStatement { line, column, .. } => (*line, *column),
+            Statement::FlushStreamStatement { line, column, .. } => (*line, *column),
             Statement::PushStatement { line, column, .. } => (*line, *column),
             Statement::CreateListStatement { line, column, .. } => (*line, *column),
             Statement::MapCreation { line, column, .. } => (*line, *column),
@@ -4542,6 +6627,7 @@ impl Interpreter {
 
             Statement::MainLoop {
                 body,
+                concurrent,
                 line: _line,
                 column: _column,
             } => {
@@ -4556,6 +6642,14 @@ impl Interpreter {
                 // `execute file` sharing this budget inherits the exemption too.
                 let _main_loop_guard = self.budget.enter_main_loop();
 
+                // `main loop concurrently:` runs body iterations cooperatively
+                // concurrently, each in its own isolated scope, so a slow handler
+                // (e.g. one streaming a slow upstream) does not block its
+                // siblings. Plain `main loop` stays strictly serial below.
+                if *concurrent {
+                    return self.execute_concurrent_main_loop(body, &env).await;
+                }
+
                 let mut _last_value = Value::Null;
                 let mut loop_env_recycle = None;
 
@@ -4565,7 +6659,16 @@ impl Interpreter {
 
                     // OPTIMIZATION: Recycle environment if possible
                     let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
-                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await;
+                    // On every path (including the error path below): close any
+                    // server response streams this iteration left open, and 500
+                    // any request it dequeued but never answered — so a handler
+                    // that forgets `close out`/`respond` never leaves the client
+                    // hanging or waiting out the request timeout.
+                    self.close_open_response_streams();
+                    self.fail_open_pending_requests();
+                    self.close_open_http_streams();
+                    let result = result?;
                     _last_value = result.0;
 
                     // Save environment for potential recycling in next iteration
@@ -4762,10 +6865,12 @@ impl Interpreter {
                     match self.io_client.open_file(&path_str).await {
                         Ok(handle) => match self.io_client.read_file(&handle, &self.budget).await {
                             Ok(content) => {
-                                match env
+                                // Capture the define result and drop the env
+                                // borrow before the `close_file` await below.
+                                let define_result = env
                                     .borrow_mut()
-                                    .define(variable_name, Value::Text(content.into()))
-                                {
+                                    .define(variable_name, Value::Text(content.into()));
+                                match define_result {
                                     Ok(_) => {
                                         let _ = self.io_client.close_file(&handle).await;
                                         Ok((Value::Null, ControlFlow::None))
@@ -4848,20 +6953,61 @@ impl Interpreter {
             Statement::CloseFileStatement { file, line, column } => {
                 let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
 
-                let file_str = match &file_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {file_value:?}"),
-                            *line,
-                            *column,
-                        ));
+                match &file_value {
+                    // A bare text handle closes a file (existing behavior).
+                    Value::Text(s) => match self.io_client.close_file(s).await {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    },
+                    // A streaming-response object closes its underlying stream.
+                    // For a client upstream (`_stream`) this cancels the in-flight
+                    // request; for a server response stream (`_server_stream`)
+                    // this drops the body sender, ending the response. Closing a
+                    // stream is always safe, even after EOF / already closed.
+                    Value::Object(obj) => {
+                        let (client_id, server_id) = {
+                            let obj_ref = obj.borrow();
+                            let client = obj_ref.get("_stream").and_then(|v| match v {
+                                Value::Text(s) => Some(s.to_string()),
+                                _ => None,
+                            });
+                            let server = obj_ref.get("_server_stream").and_then(|v| match v {
+                                Value::Text(s) => Some(s.to_string()),
+                                _ => None,
+                            });
+                            (client, server)
+                        };
+                        if let Some(id) = client_id {
+                            self.io_client.close_stream(&id).await;
+                            // Drop it from the handler's ownership tracking so the
+                            // exit cleanup does not try to re-close it.
+                            self.untrack_http_stream(&id);
+                            Ok((Value::Null, ControlFlow::None))
+                        } else if let Some(id) = server_id {
+                            // Dropping the sender ends the response body stream.
+                            self.server_response_streams.borrow_mut().remove(&id);
+                            // Drop it from the handler's auto-close tracking so
+                            // the list stays bounded to actually-open streams.
+                            self.open_response_streams.borrow_mut().retain(|s| s != &id);
+                            Ok((Value::Null, ControlFlow::None))
+                        } else {
+                            Err(RuntimeError::new(
+                                "Cannot close this value: it is not a file handle or a \
+                                 streaming response"
+                                    .to_string(),
+                                *line,
+                                *column,
+                            ))
+                        }
                     }
-                };
-
-                match self.io_client.close_file(&file_str).await {
-                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    _ => Err(RuntimeError::new(
+                        format!(
+                            "Expected a file handle or streaming response, got {}",
+                            file_value.type_name()
+                        ),
+                        *line,
+                        *column,
+                    )),
                 }
             }
             Statement::CreateDirectoryStatement { path, line, column } => {
@@ -5685,10 +7831,12 @@ impl Interpreter {
                                 Ok(handle) => {
                                     match self.io_client.read_file(&handle, &self.budget).await {
                                         Ok(content) => {
-                                            match env
+                                            // Capture the define result and drop the
+                                            // env borrow before the `close_file` await.
+                                            let define_result = env
                                                 .borrow_mut()
-                                                .define(variable_name, Value::Text(content.into()))
-                                            {
+                                                .define(variable_name, Value::Text(content.into()));
+                                            match define_result {
                                                 Ok(_) => {
                                                     let _ =
                                                         self.io_client.close_file(&handle).await;
@@ -6080,6 +8228,269 @@ impl Interpreter {
                         }
                     }
                     Err(error) => Err(self.http_client_error(error, *line, *column)),
+                }
+            }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                line,
+                column,
+            } => {
+                let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
+                let url_str = match &url_val {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for URL, got {url_val:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let method_str = match method {
+                    Some(method_expr) => {
+                        let method_val = self
+                            .evaluate_expression(method_expr, Rc::clone(&env))
+                            .await?;
+                        match &method_val {
+                            Value::Text(s) => s.trim().to_ascii_uppercase(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Expected text for HTTP method, got {method_val:?}"),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => "GET".to_string(),
+                };
+
+                let mut header_list: Vec<(String, String)> = Vec::new();
+                if let Some(headers_expr) = headers {
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
+                    match &headers_val {
+                        Value::Object(obj) => {
+                            for (name, value) in obj.borrow().iter() {
+                                let value_str = match value {
+                                    Value::Text(s) => s.to_string(),
+                                    Value::Number(_) | Value::Bool(_) => value.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Header '{name}' must be text, got {}",
+                                                value.type_name()
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                };
+                                header_list.push((name.clone(), value_str));
+                            }
+                            header_list.sort();
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Expected a map for headers, got {}",
+                                    headers_val.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                }
+
+                let body_str = match body {
+                    Some(body_expr) => {
+                        let body_val = self.evaluate_expression(body_expr, Rc::clone(&env)).await?;
+                        match &body_val {
+                            Value::Text(s) => Some(s.to_string()),
+                            Value::Number(_) | Value::Bool(_) => Some(body_val.to_string()),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected text for request body, got {}",
+                                        body_val.type_name()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+                // Race the head open (connect + await response head) against a
+                // client disconnect, so a browser that goes away while the upstream
+                // withholds its head cancels the open promptly (dropping `open_fut`
+                // aborts the upstream connection) instead of waiting out the head
+                // timeout. Valid before `start streaming response` via the pending
+                // request's oneshot (see `any_pending_request_disconnected`).
+                let open_fut = self.io_client.open_http_stream(
+                    &method_str,
+                    &url_str,
+                    &header_list,
+                    body_str,
+                    Arc::clone(&self.budget),
+                );
+                let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
+                let opened = {
+                    tokio::pin!(open_fut);
+                    tokio::pin!(disconnect);
+                    tokio::select! {
+                        r = &mut open_fut => r,
+                        _ = &mut disconnect => Err(HttpClientError::Disconnected),
+                    }
+                };
+                match opened {
+                    Ok((status, response_headers, handle_id)) => {
+                        // Track the outbound handle as handler-owned so it is
+                        // dropped (cancelling the upstream) if the handler ends
+                        // without closing/exhausting it.
+                        let owner = Arc::clone(&self.open_http_streams.borrow());
+                        self.io_client
+                            .claim_stream_owner(&handle_id, &owner)
+                            .map_err(|error| self.http_client_error(error, *line, *column))?;
+                        let mut headers_map = HashMap::new();
+                        for (name, value) in response_headers {
+                            headers_map.insert(name, Value::Text(value.into()));
+                        }
+
+                        let mut stream_map = HashMap::new();
+                        stream_map.insert("status".to_string(), Value::Number(status as f64));
+                        stream_map
+                            .insert("ok".to_string(), Value::Bool((200..300).contains(&status)));
+                        stream_map.insert(
+                            "headers".to_string(),
+                            Value::Object(Rc::new(RefCell::new(headers_map))),
+                        );
+                        // Internal id used by `wait for next chunk|line` and
+                        // `close`. Underscore-prefixed to signal "not for
+                        // direct program use", mirroring request objects.
+                        stream_map.insert("_stream".to_string(), Value::Text(handle_id.into()));
+
+                        let value = Value::Object(Rc::new(RefCell::new(stream_map)));
+                        // define_or_replace so a `main loop` handler that rebinds
+                        // `upstream` on each request works.
+                        env.borrow_mut().define_or_replace(variable_name, value);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    Err(error) => Err(self.http_client_error(error, *line, *column)),
+                }
+            }
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                line,
+                column,
+            } => {
+                let handle_id = self
+                    .resolve_stream_handle(source, &env, *line, *column)
+                    .await?;
+                // Race the upstream read against a client disconnect (either an
+                // open downstream response stream, or — if the handler has not
+                // called `start streaming response` yet — the pending request's
+                // oneshot) so a blocked proxy read is cancelled promptly when the
+                // browser goes away.
+                let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
+                let read = self
+                    .io_client
+                    .next_chunk(&handle_id, Arc::clone(&self.budget));
+                let outcome = {
+                    tokio::pin!(read);
+                    tokio::pin!(disconnect);
+                    tokio::select! {
+                        r = &mut read => r,
+                        _ = &mut disconnect => {
+                            // Client gone: dropping `read` above already cancels
+                            // the upstream; close the handle too in case the read
+                            // had not yet taken it, and report the disconnect as a
+                            // cooperative cancellation (not a handler failure).
+                            self.io_client.close_stream(&handle_id).await;
+                            Err(HttpClientError::Disconnected)
+                        }
+                    }
+                };
+                match outcome {
+                    // Raw bytes as Binary so callers can handle any payload.
+                    // define_or_replace (not define) so re-reading into the same
+                    // variable across a loop refreshes it, matching
+                    // `wait for request ... as req`.
+                    Ok(Some(bytes)) => {
+                        let value = Value::Binary(Arc::from(bytes.as_slice()));
+                        env.borrow_mut().define_or_replace(variable_name, value);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    // Clean EOF binds `nothing` so `check if chunk is nothing` ends the loop.
+                    Ok(None) => {
+                        // The handle left the map at EOF — stop owning it.
+                        self.untrack_http_stream(&handle_id);
+                        env.borrow_mut()
+                            .define_or_replace(variable_name, Value::Null);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    Err(error) => {
+                        // The read dropped the handle (timeout/cancel/error).
+                        self.untrack_http_stream(&handle_id);
+                        Err(self.http_client_error(error, *line, *column))
+                    }
+                }
+            }
+            Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                line,
+                column,
+            } => {
+                let handle_id = self
+                    .resolve_stream_handle(source, &env, *line, *column)
+                    .await?;
+                // Race the upstream read against a client disconnect by EITHER
+                // signal (open downstream stream OR the pre-response pending
+                // request's oneshot), exactly like the `wait for next chunk`
+                // handler — a line read blocked before `start streaming response`
+                // must also be cancelled the moment the browser goes away.
+                let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
+                let read = self
+                    .io_client
+                    .next_line(&handle_id, Arc::clone(&self.budget));
+                let outcome = {
+                    tokio::pin!(read);
+                    tokio::pin!(disconnect);
+                    tokio::select! {
+                        r = &mut read => r,
+                        _ = &mut disconnect => {
+                            self.io_client.close_stream(&handle_id).await;
+                            Err(HttpClientError::Disconnected)
+                        }
+                    }
+                };
+                match outcome {
+                    Ok(Some(line_text)) => {
+                        let value = Value::Text(line_text.into());
+                        env.borrow_mut().define_or_replace(variable_name, value);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    Ok(None) => {
+                        self.untrack_http_stream(&handle_id);
+                        env.borrow_mut()
+                            .define_or_replace(variable_name, Value::Null);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    Err(error) => {
+                        self.untrack_http_stream(&handle_id);
+                        Err(self.http_client_error(error, *line, *column))
+                    }
                 }
             }
             Statement::RepeatWhileLoop {
@@ -6753,12 +9164,16 @@ impl Interpreter {
 
                 // Check if this is a container instance
                 if let Value::ContainerInstance(instance_rc) = &this_val {
-                    let instance = instance_rc.borrow();
+                    // Clone the parent Rc out so the instance's RefCell borrow does
+                    // not span the awaited method call below (a sibling handler
+                    // could otherwise re-borrow the same instance across the yield).
+                    let parent_opt = instance_rc.borrow().parent.clone();
 
                     // Check if the instance has a parent
-                    if let Some(parent_rc) = &instance.parent {
-                        let parent = parent_rc.borrow();
-                        let parent_type = parent.container_type.clone();
+                    if let Some(parent_rc) = parent_opt {
+                        // Read the parent's type, then release its borrow too — no
+                        // container RefCell borrow is held across the `.await`s.
+                        let parent_type = parent_rc.borrow().container_type.clone();
 
                         // Look up the parent container definition
                         let parent_def = match env.borrow().get(&parent_type) {
@@ -6994,7 +9409,8 @@ impl Interpreter {
                                                     .map(|a| a.ip().to_string())
                                                     .unwrap_or_else(|| "unknown".to_string()),
                                             );
-                                            return Ok(request_timeout_response());
+                                            return Ok(request_timeout_response()
+                                                .map(warp::hyper::Body::from));
                                         }
                                     },
                                     None => read_fut.await,
@@ -7002,7 +9418,9 @@ impl Interpreter {
                                 let body_bytes = match body_read {
                                     Ok(bytes) => bytes,
                                     Err(BodyReadError::TooLarge) => {
-                                        return Ok(payload_too_large_response());
+                                        return Ok(
+                                            payload_too_large_response().map(warp::hyper::Body::from)
+                                        );
                                     }
                                     Err(BodyReadError::Io) => {
                                         return Err(warp::reject::custom(ServerError(
@@ -7029,7 +9447,7 @@ impl Interpreter {
 
                                 // Create response channel
                                 let (response_sender, response_receiver) =
-                                    oneshot::channel::<WflHttpResponse>();
+                                    oneshot::channel::<HandlerReply>();
 
                                 // Create the WFL request. The admission guard is
                                 // NOT moved in — it stays bound to this transport
@@ -7065,7 +9483,9 @@ impl Interpreter {
                                             shed.path,
                                             shed.client_ip
                                         );
-                                        return Ok(overloaded_response());
+                                        return Ok(
+                                            overloaded_response().map(warp::hyper::Body::from)
+                                        );
                                     }
                                     Err(mpsc::error::TrySendError::Closed(_)) => {
                                         return Err(warp::reject::custom(ServerError(
@@ -7092,7 +9512,8 @@ impl Interpreter {
                                                         .map(|a| a.ip().to_string())
                                                         .unwrap_or_else(|| "unknown".to_string()),
                                                 );
-                                                return Ok(gateway_timeout_response());
+                                                return Ok(gateway_timeout_response()
+                                                    .map(warp::hyper::Body::from));
                                             }
                                         }
                                     }
@@ -7100,7 +9521,7 @@ impl Interpreter {
                                 };
 
                                 match received {
-                                    Ok(response) => {
+                                    Ok(HandlerReply::Buffered(response)) => {
                                         let status_code =
                                             warp::http::StatusCode::from_u16(response.status)
                                                 .unwrap_or(warp::http::StatusCode::OK);
@@ -7122,10 +9543,53 @@ impl Interpreter {
                                             reply_builder = reply_builder.header(name, value);
                                         }
 
-                                        match reply_builder.body(content_bytes) {
+                                        match reply_builder.body(warp::hyper::Body::from(content_bytes)) {
                                             Ok(response) => Ok(response),
                                             Err(_) => Err(warp::reject::custom(ServerError(
                                                 "Failed to build response".to_string(),
+                                            ))),
+                                        }
+                                    }
+                                    Ok(HandlerReply::Streaming {
+                                        status,
+                                        content_type,
+                                        headers,
+                                        body,
+                                    }) => {
+                                        let status_code = warp::http::StatusCode::from_u16(status)
+                                            .unwrap_or(warp::http::StatusCode::OK);
+
+                                        // No Content-Length: the body length is unknown
+                                        // up front. hyper frames it with chunked
+                                        // transfer-encoding and writes each chunk as it
+                                        // arrives off the bounded channel.
+                                        let mut reply_builder = warp::http::Response::builder()
+                                            .status(status_code)
+                                            .header("Content-Type", content_type);
+                                        for (name, value) in headers {
+                                            reply_builder = reply_builder.header(name, value);
+                                        }
+
+                                        // Turn the chunk receiver into a body stream.
+                                        // When the client disconnects, hyper drops this
+                                        // body, dropping `body`, which makes the
+                                        // handler's next `write` fail (the interpreter
+                                        // observes the closed channel) — that is how a
+                                        // browser disconnect cancels the handler.
+                                        let stream = futures_util::stream::unfold(
+                                            body,
+                                            |mut rx| async move {
+                                                rx.recv()
+                                                    .await
+                                                    .map(|chunk| (Ok::<Vec<u8>, std::io::Error>(chunk), rx))
+                                            },
+                                        );
+                                        match reply_builder
+                                            .body(warp::hyper::Body::wrap_stream(stream))
+                                        {
+                                            Ok(response) => Ok(response),
+                                            Err(_) => Err(warp::reject::custom(ServerError(
+                                                "Failed to build streaming response".to_string(),
                                             ))),
                                         }
                                     }
@@ -7488,8 +9952,21 @@ impl Interpreter {
                             .evaluate_expression(timeout_expr, Rc::clone(&env))
                             .await?;
                         match timeout_val {
-                            Value::Number(ms) if ms > 0.0 => {
+                            // Reject fractional values that would truncate to 0 ms
+                            // (e.g. 0.5) and hot-spin forever with zero-duration
+                            // timeouts. Require at least 1 millisecond.
+                            Value::Number(ms) if ms >= 1.0 => {
                                 Some(std::time::Duration::from_millis(ms as u64))
+                            }
+                            Value::Number(ms) if ms > 0.0 => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Timeout must be at least 1 millisecond (got {ms} ms); \
+                                         fractional values below 1 would truncate to zero and spin"
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
                             }
                             _ => {
                                 return Err(RuntimeError::new(
@@ -7521,13 +9998,19 @@ impl Interpreter {
                                     ));
                                 }
                                 Err(_) => {
-                                    return Err(RuntimeError::new(
+                                    // Finite wait expiry is an expected idle-server
+                                    // outcome, not a structural fault. Classify as
+                                    // `Timeout` so the concurrent loop's consecutive-
+                                    // failure breaker does not tear a healthy server
+                                    // down after enough empty poll intervals.
+                                    return Err(RuntimeError::with_kind(
                                         format!(
-                                            "Timeout waiting for request ({} ms)",
+                                            "{REQUEST_WAIT_TIMEOUT_PREFIX} ({} ms)",
                                             duration.as_millis()
                                         ),
                                         *line,
                                         *column,
+                                        ErrorKind::Timeout,
                                     ));
                                 }
                             }
@@ -7656,6 +10139,15 @@ impl Interpreter {
                         },
                     );
                 }
+                // Track it against the current handler so it is answered 500 if
+                // the handler ends without responding (rather than the client
+                // waiting out the request timeout).
+                self.open_pending_requests
+                    .borrow_mut()
+                    .push(request.id.clone());
+                // Sticky: this handler accepted work. Request-local failures from
+                // here on must not trip the concurrent structural-failure breaker.
+                self.accepted_request.set(true);
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -7668,8 +10160,17 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Get the request object
-                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                // The request operand can call actions or wait asynchronously.
+                // Establish the response-attempt baseline before evaluating it
+                // so a client disconnect cancels that work too.
+                let (request_val, response_snapshot) = self
+                    .evaluate_response_request(
+                        *line,
+                        *column,
+                        "Client disconnected before the response request was resolved",
+                        self.evaluate_expression(request, Rc::clone(&env)),
+                    )
+                    .await?;
                 let request_id = match &request_val {
                     Value::Object(obj) => {
                         let obj_ref = obj.borrow();
@@ -7693,47 +10194,26 @@ impl Interpreter {
                     }
                 };
 
-                // Take the response sender out of the pending map (and out of its
-                // mutex) up front, into an RAII completion guard, *before* any
-                // fallible response construction below (content/status/type/header
-                // evaluation, byte-cap checks). On an early error the guard's Drop
-                // answers 500, so the request is always resolved instead of
-                // hanging until its timeout; a successful respond disarms it via
-                // `take_sender`.
-                let pending_entry = {
-                    let mut pending = self.pending_responses.borrow_mut();
-                    pending.remove(&request_id)
-                };
-                let mut completion = match pending_entry {
-                    // The admission slot is released by the transport task when it
-                    // finishes delivering this response (or on its timeout), so the
-                    // completion guard carries only the response channel.
-                    Some(entry) => match entry.sender.lock().await.take() {
-                        Some(sender) => ResponseCompletion {
-                            sender: Some(sender),
-                        },
-                        None => {
-                            return Err(RuntimeError::new(
-                                "Response already sent for this request".to_string(),
-                                *line,
-                                *column,
-                            ));
-                        }
-                    },
-                    None => {
-                        return Err(RuntimeError::new(
-                            "Request ID not found - response may have already been sent"
-                                .to_string(),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                // Evaluate response content. Binary values are carried through
-                // as raw bytes so fonts/images/etc. serve losslessly; text and
-                // scalar values keep their existing UTF-8 rendering.
-                let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                // Keep the pending request parked until content/status/header
+                // expressions are evaluated so a browser disconnect still cancels
+                // any upstream open/read performed during that evaluation
+                // (`any_pending_request_disconnected` watches the parked sender).
+                // Only after evaluation do we take the sender into the completion
+                // guard. Early eval errors leave the id in open_pending so the
+                // handler-exit 500 path still resolves the client.
+                let (response, response_snapshot) = self
+                    .evaluate_response_precommit(
+                        &request_id,
+                        *line,
+                        *column,
+                        "Client disconnected before the response was sent",
+                        response_snapshot,
+                        async {
+                            // Evaluate response content. Binary values are carried through
+                            // as raw bytes so fonts/images/etc. serve losslessly; text and
+                            // scalar values keep their existing UTF-8 rendering.
+                            let content_val =
+                                self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let is_binary = matches!(content_val, Value::Binary(_));
 
                 // Enforce the response-body ceiling on the *borrowed* length
@@ -7876,24 +10356,44 @@ impl Interpreter {
                     }
                 }
 
-                // Create response
-                let response = WflHttpResponse {
-                    content: content_bytes,
-                    status: status_code,
-                    content_type: content_type_str,
-                    headers: custom_headers,
-                };
+                            Ok(WflHttpResponse {
+                                content: content_bytes,
+                                status: status_code,
+                                content_type: content_type_str,
+                                headers: custom_headers,
+                            })
+                        },
+                    )
+                    .await?;
 
-                // Deliver the response and disarm the guard's 500 fallback. The
-                // sender was taken up front, so this is the sole delivery path.
+                // Now commit: take the sender (disconnect signal ends) and deliver.
+                let mut completion = match self
+                    .take_pending_response_completion(&request_id, *line, *column)
+                    .await
+                {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        if error.kind == ErrorKind::Cancelled {
+                            self.cancel_response_precommit(&request_id, response_snapshot);
+                        }
+                        return Err(error);
+                    }
+                };
                 match completion.take_sender() {
                     Some(sender) => {
-                        if sender.send(response).is_err() {
-                            return Err(RuntimeError::new(
-                                "Failed to send response - client may have disconnected"
-                                    .to_string(),
+                        if sender.send(HandlerReply::Buffered(response)).is_err() {
+                            // Receiver dropped => the client hung up before the
+                            // buffered reply landed. That is a cooperative
+                            // cancellation, not a handler fault — mark it `Cancelled`
+                            // so the concurrent loop's structural-failure breaker
+                            // skips it (a burst of post-dequeue disconnects must not
+                            // tear the server down).
+                            self.cancel_response_precommit(&request_id, response_snapshot);
+                            return Err(RuntimeError::with_kind(
+                                "Client disconnected before the response was sent".to_string(),
                                 *line,
                                 *column,
+                                ErrorKind::Cancelled,
                             ));
                         }
                     }
@@ -7906,6 +10406,472 @@ impl Interpreter {
                     }
                 }
 
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Resolve the request id under the same cancellation baseline as
+                // the streaming-head fields and final transport commit.
+                let (request_val, response_snapshot) = self
+                    .evaluate_response_request(
+                        *line,
+                        *column,
+                        "Client disconnected before the streaming response request was resolved",
+                        self.evaluate_expression(request, Rc::clone(&env)),
+                    )
+                    .await?;
+                let request_id = match &request_val {
+                    Value::Object(obj) => match obj.borrow().get("_response_sender") {
+                        Some(Value::Text(id)) => id.as_ref().to_string(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Request object missing response sender ID".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected request object".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Keep pending parked through status/content-type/header
+                // evaluation so disconnect still cancels any upstream work those
+                // expressions perform. Handler-exit 500 covers early eval errors.
+                let ((status_code, content_type_str, custom_headers), response_snapshot) = self
+                    .evaluate_response_precommit(
+                        &request_id,
+                        *line,
+                        *column,
+                        "Client disconnected before the streaming response started",
+                        response_snapshot,
+                        async {
+                            let status_code = match status {
+                    Some(expr) => {
+                        let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                        match &v {
+                            // Require a whole number in the HTTP status range
+                            // rather than silently wrapping a fractional or
+                            // out-of-range value through `as u16`.
+                            Value::Number(n) if n.fract() == 0.0 && *n >= 100.0 && *n <= 599.0 => {
+                                *n as u16
+                            }
+                            Value::Number(n) => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected a whole HTTP status code between 100 and 599, got {n}"
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Expected number for status, got {}", v.type_name()),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => 200,
+                };
+
+                let content_type_str = match content_type {
+                    Some(expr) => {
+                        let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                        match &v {
+                            Value::Text(s) => s.to_string(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected text for content type, got {}",
+                                        v.type_name()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => "application/octet-stream".to_string(),
+                };
+
+                let mut custom_headers: HashMap<String, String> = HashMap::new();
+                if let Some(expr) = headers {
+                    let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                    match &v {
+                        Value::Object(obj) => {
+                            for (name, value) in obj.borrow().iter() {
+                                let value_str = match value {
+                                    Value::Text(s) => s.to_string(),
+                                    Value::Number(_) | Value::Bool(_) => value.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Header '{name}' must be text, got {}",
+                                                value.type_name()
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                };
+                                // The pipeline owns framing headers.
+                                if name.eq_ignore_ascii_case("content-type")
+                                    || name.eq_ignore_ascii_case("content-length")
+                                    || name.eq_ignore_ascii_case("transfer-encoding")
+                                {
+                                    continue;
+                                }
+                                custom_headers.insert(name.clone(), value_str);
+                            }
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Expected a map for response headers, got {}",
+                                    v.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                }
+
+                            Ok((status_code, content_type_str, custom_headers))
+                        },
+                    )
+                    .await?;
+
+                // Commit: take the sender and hand the streaming head to the transport.
+                let (tx, rx) = mpsc::channel::<Vec<u8>>(RESPONSE_STREAM_BUFFER);
+                let mut completion = match self
+                    .take_pending_response_completion(&request_id, *line, *column)
+                    .await
+                {
+                    Ok(completion) => completion,
+                    Err(error) => {
+                        if error.kind == ErrorKind::Cancelled {
+                            self.cancel_response_precommit(&request_id, response_snapshot);
+                        }
+                        return Err(error);
+                    }
+                };
+                match completion.take_sender() {
+                    Some(sender) => {
+                        if sender
+                            .send(HandlerReply::Streaming {
+                                status: status_code,
+                                content_type: content_type_str,
+                                headers: custom_headers,
+                                body: rx,
+                            })
+                            .is_err()
+                        {
+                            // Client hung up before the streaming head committed —
+                            // cooperative cancellation, not a fault (see the buffered
+                            // `respond` path). `Cancelled` keeps the concurrent
+                            // breaker from counting a disconnect as a failure.
+                            self.cancel_response_precommit(&request_id, response_snapshot);
+                            return Err(RuntimeError::with_kind(
+                                "Client disconnected before the streaming response started"
+                                    .to_string(),
+                                *line,
+                                *column,
+                                ErrorKind::Cancelled,
+                            ));
+                        }
+                    }
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Response already sent for this request".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                }
+
+                let handle_id = {
+                    let n = self.next_response_stream_id.get();
+                    self.next_response_stream_id.set(n + 1);
+                    format!("respstream{n}")
+                };
+                self.server_response_streams
+                    .borrow_mut()
+                    .insert(handle_id.clone(), (tx, 0));
+                // Track it against the current handler so it is auto-closed if
+                // the handler ends without an explicit `close out`.
+                self.open_response_streams
+                    .borrow_mut()
+                    .push(handle_id.clone());
+
+                let mut stream_map = HashMap::new();
+                stream_map.insert("_server_stream".to_string(), Value::Text(handle_id.into()));
+                stream_map.insert("status".to_string(), Value::Number(status_code as f64));
+                let value = Value::Object(Rc::new(RefCell::new(stream_map)));
+                // define_or_replace so a `main loop` handler that rebinds `out`
+                // each request works — and so binding never fails after the
+                // stream head was already committed (which would otherwise leak
+                // the sender and hang the client).
+                env.borrow_mut().define_or_replace(variable_name, value);
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                is_line,
+                fallback_content,
+                line,
+                column,
+            } => {
+                // The target decides the interpretation. Evaluate it once; if it
+                // is a server response stream, this is a stream write. If it is
+                // not and this parsed from the ambiguous merged form
+                // (`write line <ident> to <target>`), fall back to the classic
+                // file write `write <fallback_content> to <target>` so a
+                // pre-existing file write is never reinterpreted.
+                let target_val = self.evaluate_expression(target, Rc::clone(&env)).await?;
+                let handle_id = match &target_val {
+                    Value::Object(obj) => match obj.borrow().get("_server_stream") {
+                        Some(Value::Text(id)) => Some(id.to_string()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let handle_id = match handle_id {
+                    Some(id) => id,
+                    None => {
+                        if let Some(fallback) = fallback_content {
+                            // Classic file write: `write <fallback> to <target>`.
+                            let content_value =
+                                self.evaluate_expression(fallback, Rc::clone(&env)).await?;
+                            let file_str = match &target_val {
+                                Value::Text(s) => s.clone(),
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Expected a server response stream or a file handle, got {}",
+                                            target_val.type_name()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                            };
+                            let content_str = format!("{content_value}");
+                            return match self.io_client.write_file(&file_str, &content_str).await {
+                                Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                                Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                            };
+                        }
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected a server response stream (from `start streaming response as ...`), got {}",
+                                target_val.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                let val = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let newline = usize::from(*is_line);
+                // Compute the outgoing byte length WITHOUT cloning a large
+                // text/binary value, so an over-budget write is rejected *before*
+                // any big allocation/copy (a huge write must not be materialized
+                // just to be refused).
+                let incoming_len = match &val {
+                    Value::Text(s) => s.len() + newline,
+                    Value::Binary(b) => b.len() + newline,
+                    // Numbers/booleans render to a short string; the tiny
+                    // allocation to measure them is not a DoS concern.
+                    Value::Number(_) | Value::Bool(_) => val.to_string().len() + newline,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Can only write text or binary to a response stream, got {}",
+                                val.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Reserve the response-byte budget on the running total FIRST (so a
+                // stream cannot bypass `web_server_max_response_size` via one huge
+                // chunk or many chunks), then clone the sender out so the map borrow
+                // is not held across the (possibly backpressured) send await.
+                let max_response_bytes = self.budget.limits().max_response_bytes;
+                let sender = {
+                    let mut map = self.server_response_streams.borrow_mut();
+                    match map.get_mut(&handle_id) {
+                        Some((tx, bytes_written)) => {
+                            let new_total = bytes_written.saturating_add(incoming_len);
+                            if new_total > max_response_bytes {
+                                let actual = new_total;
+                                // Drop the stream so the body ends rather than
+                                // silently truncating, and untrack it so a handler
+                                // that catches this error keeps no stale id.
+                                map.remove(&handle_id);
+                                self.open_response_streams
+                                    .borrow_mut()
+                                    .retain(|s| s != &handle_id);
+                                return Err(self.budget_error(
+                                    BudgetExceeded::ResponseBytes {
+                                        limit: max_response_bytes,
+                                        actual,
+                                    },
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                            *bytes_written = new_total;
+                            Some(tx.clone())
+                        }
+                        None => None,
+                    }
+                };
+                match sender {
+                    Some(tx) => {
+                        // Within budget and the stream is open: materialize the
+                        // bytes now (after the ceiling check) and send them.
+                        let mut bytes = match &val {
+                            Value::Text(s) => s.as_bytes().to_vec(),
+                            Value::Binary(b) => b.to_vec(),
+                            _ => val.to_string().into_bytes(),
+                        };
+                        if *is_line {
+                            bytes.push(b'\n');
+                        }
+                        // Bound the (possibly backpressured) send. Once the 64-slot
+                        // channel fills, `tx.send(..).await` parks until the client
+                        // reads — a client that stays connected but stops reading
+                        // would otherwise pin this handler forever (`main loop` is
+                        // deadline-exempt). Cap the wait at
+                        // `web_server_response_timeout_seconds` (0 = disabled, the
+                        // documented sentinel — keep the unbounded behavior). A
+                        // dropped receiver (disconnect) still returns immediately.
+                        let write_timeout = self.config.web_server_response_timeout_seconds;
+                        // `Ok(())` sent; `Err(false)` receiver dropped (disconnect);
+                        // `Err(true)` timed out with the client still connected but
+                        // not reading (a stall).
+                        let outcome: Result<(), bool> = if write_timeout == 0 {
+                            tx.send(bytes).await.map_err(|_| false)
+                        } else {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(write_timeout),
+                                tx.send(bytes),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => Ok(()),
+                                Ok(Err(_)) => Err(false),
+                                Err(_) => Err(true),
+                            }
+                        };
+                        match outcome {
+                            Ok(()) => Ok((Value::Null, ControlFlow::None)),
+                            Err(stalled) => {
+                                // Disconnect → Cancelled (cooperative). Stall
+                                // (client still connected, not reading) → Timeout
+                                // (not Cancelled). Post-accept either way so the
+                                // concurrent breaker does not tear the server down.
+                                self.server_response_streams.borrow_mut().remove(&handle_id);
+                                self.open_response_streams
+                                    .borrow_mut()
+                                    .retain(|s| s != &handle_id);
+                                if stalled {
+                                    Err(RuntimeError::with_kind(
+                                        "Cannot write to response stream: the client stopped reading \
+                                         (write timed out)"
+                                            .to_string(),
+                                        *line,
+                                        *column,
+                                        ErrorKind::Timeout,
+                                    ))
+                                } else {
+                                    Err(RuntimeError::with_kind(
+                                        "Cannot write to response stream: the client has disconnected"
+                                            .to_string(),
+                                        *line,
+                                        *column,
+                                        ErrorKind::Cancelled,
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                    None => Err(RuntimeError::new(
+                        "Cannot write to a closed response stream".to_string(),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::FlushStreamStatement {
+                target,
+                legacy_binding,
+                action_fallback,
+                line,
+                column,
+            } => {
+                // Backward compatibility: before `flush` was a streaming command,
+                // the full merged form (including postfix) was an expression
+                // statement. When the root binding of the legacy AST exists,
+                // evaluate it with the same ExpressionStatement semantics
+                // (zero-arg auto-call; parameterized bare call → arity error).
+                if let Some(fallback_expr) = action_fallback {
+                    let root_bound = legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| env.borrow().get(name).is_some());
+                    if root_bound {
+                        // Reuse ExpressionStatement semantics by dispatching a
+                        // synthetic statement.
+                        return self
+                            .execute_statement(
+                                &Statement::ExpressionStatement {
+                                    expression: fallback_expr.clone(),
+                                    line: *line,
+                                    column: *column,
+                                },
+                                Rc::clone(&env),
+                            )
+                            .await;
+                    }
+                }
+                let handle_id = self
+                    .resolve_server_stream_handle(target, &env, *line, *column)
+                    .await?;
+                let exists = self
+                    .server_response_streams
+                    .borrow()
+                    .contains_key(&handle_id);
+                if !exists {
+                    return Err(RuntimeError::new(
+                        "Cannot flush a closed response stream".to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+                // Advisory: chunks are already handed to the transport as they
+                // are written; yield so the transport task is scheduled to push
+                // them to the socket.
+                tokio::task::yield_now().await;
                 Ok((Value::Null, ControlFlow::None))
             }
             // Graceful shutdown and signal handling statements
@@ -7990,7 +10956,9 @@ impl Interpreter {
                     && name.starts_with("WebSocketServer::")
                 {
                     let key = name.to_string();
-                    if let Some(mut ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                    // Remove and drop the borrow before any `.await` below.
+                    let removed_ws = self.web_socket_servers.borrow_mut().remove(&key);
+                    if let Some(mut ws_server) = removed_ws {
                         // Wake every live connection's reader so it stops waiting
                         // on the peer and tears down (releasing its slot), even if
                         // the peer never answers the close handshake.
@@ -8067,24 +11035,33 @@ impl Interpreter {
                     }
                 };
 
-                // Close the server
-                let mut web_servers = self.web_servers.borrow_mut();
-                if let Some(mut wfl_server) = web_servers.remove(&server_name) {
-                    // Graceful shutdown: Give in-flight responses time to complete transmission
-                    // before forcefully aborting the server task
-                    if let Some(handle) = wfl_server.server_handle.take() {
-                        // Allow 50ms for pending HTTP responses to be transmitted
-                        // This prevents race condition where abort() closes the TCP connection
-                        // before response bytes reach the client, causing IncompleteMessage errors
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                        handle.abort();
+                // Close the server. Remove it from the map and DROP the borrow
+                // before the graceful-shutdown await — holding `web_servers`
+                // borrowed across `.await` would panic a concurrent sibling that
+                // touches the map during the yield (the reason this module can
+                // drop its `await_holding_refcell_ref` allow — see lib.rs).
+                let removed = self.web_servers.borrow_mut().remove(&server_name);
+                match removed {
+                    Some(mut wfl_server) => {
+                        // Graceful shutdown: give in-flight responses time to
+                        // complete transmission before forcefully aborting the
+                        // server task. The map borrow is already released, so
+                        // this await cannot conflict with a sibling handler.
+                        if let Some(handle) = wfl_server.server_handle.take() {
+                            // Allow 50ms for pending HTTP responses to reach the
+                            // client before abort() closes the TCP connection
+                            // (otherwise IncompleteMessage on the client).
+                            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                            handle.abort();
+                        }
                     }
-                } else {
-                    return Err(RuntimeError::new(
-                        format!("Server '{}' not found", server_name),
-                        *line,
-                        *column,
-                    ));
+                    None => {
+                        return Err(RuntimeError::new(
+                            format!("Server '{}' not found", server_name),
+                            *line,
+                            *column,
+                        ));
+                    }
                 }
 
                 Ok((Value::Null, ControlFlow::None))
@@ -11820,6 +14797,2052 @@ impl Interpreter {
         }
 
         Ok(files)
+    }
+}
+
+#[cfg(test)]
+mod concurrent_handler_classification_tests {
+    use super::*;
+
+    fn error(kind: ErrorKind, message: &str) -> RuntimeError {
+        RuntimeError::with_kind(message.to_string(), 1, 1, kind)
+    }
+
+    #[test]
+    fn more_than_the_breaker_threshold_of_request_wait_timeouts_stays_request_local() {
+        let timeout = error(
+            ErrorKind::Timeout,
+            &format!("{REQUEST_WAIT_TIMEOUT_PREFIX} (1 ms)"),
+        );
+        for observed in 0..=MAX_CONSECUTIVE_HANDLER_FAILURES {
+            assert_eq!(
+                classify_concurrent_handler_error(&timeout, false),
+                ConcurrentHandlerDisposition::RequestLocal,
+                "finite request-wait timeout #{observed} must not feed the structural breaker"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_expected_timeout_origin_is_exempt_before_request_acceptance() {
+        let structural_timeout = error(
+            ErrorKind::Timeout,
+            "unrelated pre-request operation timed out",
+        );
+        assert_eq!(
+            classify_concurrent_handler_error(&structural_timeout, false),
+            ConcurrentHandlerDisposition::Structural
+        );
+        assert_eq!(
+            classify_concurrent_handler_error(&error(ErrorKind::General, "request failed"), true),
+            ConcurrentHandlerDisposition::RequestLocal,
+            "any failure after request acceptance is isolated to that request"
+        );
+        assert_eq!(
+            classify_concurrent_handler_error(
+                &error(ErrorKind::Cancelled, "client disconnected"),
+                false,
+            ),
+            ConcurrentHandlerDisposition::RequestLocal
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_pending_entry_is_cancelled_only_while_the_handler_owns_it() {
+        let interpreter = Interpreter::new();
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-1".to_string());
+
+        let disconnected = interpreter
+            .ensure_pending_response_owned("request-1", 1, 1)
+            .await
+            .expect_err("owned-but-pruned pending entry must be cancellation");
+        assert_eq!(disconnected.kind, ErrorKind::Cancelled);
+
+        interpreter.open_pending_requests.borrow_mut().clear();
+        let duplicate = interpreter
+            .ensure_pending_response_owned("request-1", 1, 1)
+            .await
+            .expect_err("non-owned missing entry must remain a duplicate-response error");
+        assert_eq!(duplicate.kind, ErrorKind::General);
+        assert!(
+            duplicate.message.contains("already been sent"),
+            "duplicate response diagnostic changed unexpectedly: {duplicate}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod response_expression_disconnect_tests {
+    use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct StalledUpstream {
+        port: u16,
+        head_sent: oneshot::Receiver<()>,
+        peer_closed: oneshot::Receiver<()>,
+        release: Option<oneshot::Sender<()>>,
+    }
+
+    async fn spawn_stalled_upstream() -> StalledUpstream {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stalled upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        let (head_sent_tx, head_sent) = oneshot::channel();
+        let (peer_closed_tx, peer_closed) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept upstream request");
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket
+                    .read(&mut chunk)
+                    .await
+                    .expect("read upstream request");
+                assert!(read > 0, "client closed before sending request head");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\n\
+                      Transfer-Encoding: chunked\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .expect("send stalled response head");
+            let _ = head_sent_tx.send(());
+
+            let mut probe = [0u8; 1];
+            tokio::select! {
+                result = socket.read(&mut probe) => {
+                    assert!(
+                        matches!(result, Ok(0) | Err(_)),
+                        "client unexpectedly sent bytes while response body was stalled: {result:?}"
+                    );
+                    let _ = peer_closed_tx.send(());
+                }
+                _ = release_rx => {
+                    let _ = socket.shutdown().await;
+                }
+            }
+        });
+
+        StalledUpstream {
+            port,
+            head_sent,
+            peer_closed,
+            release: Some(release_tx),
+        }
+    }
+
+    fn parse_statements(source: &str) -> Vec<Statement> {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        parser
+            .parse()
+            .unwrap_or_else(|errors| {
+                panic!("response disconnect fixture did not parse: {errors:?}")
+            })
+            .statements
+    }
+
+    fn install_pending_request(
+        interpreter: &Interpreter,
+        env: &Rc<RefCell<Environment>>,
+        request_id: &str,
+    ) -> oneshot::Receiver<HandlerReply> {
+        let (sender, receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            request_id.to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push(request_id.to_string());
+
+        let mut request = HashMap::new();
+        request.insert(
+            "_response_sender".to_string(),
+            Value::Text(Arc::from(request_id)),
+        );
+        env.borrow_mut()
+            .define_or_replace("req", Value::Object(Rc::new(RefCell::new(request))));
+        receiver
+    }
+
+    fn response_eval_is_stalled(interpreter: &Interpreter) -> bool {
+        let owned_streams = {
+            let owner = Arc::clone(&interpreter.open_http_streams.borrow());
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len()
+        };
+        owned_streams == 1
+            && interpreter.get_call_stack().len() == 1
+            && *interpreter.current_count.borrow() == Some(1.0)
+            && *interpreter.in_count_loop.borrow()
+    }
+
+    async fn assert_precommit_disconnect_cancels(response_statement: &str, action_return: &str) {
+        let mut upstream = spawn_stalled_upstream().await;
+        let config = Arc::new(WflConfig {
+            timeout_seconds: 120,
+            outbound_stream_max_seconds: 120,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(config);
+        let source = format!(
+            "define action called stalled_value:\n\
+             \x20\x20\x20\x20count from 1 to 1:\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20open url at \"http://127.0.0.1:{}/stall\" and stream response as upstream\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20wait for 60000 milliseconds\n\
+             \x20\x20\x20\x20end count\n\
+             \x20\x20\x20\x20return {action_return}\n\
+             end action\n\
+             {response_statement}\n",
+            upstream.port
+        );
+        let statements = parse_statements(&source);
+        assert_eq!(
+            statements.len(),
+            2,
+            "unexpected fixture AST: {statements:#?}"
+        );
+        let env = Rc::clone(interpreter.global_env());
+        interpreter
+            .execute_statement(&statements[0], Rc::clone(&env))
+            .await
+            .expect("define stalled action");
+
+        // Simulate an already-active outer count loop. Dropping the response
+        // evaluation must restore this exact run-state snapshot.
+        *interpreter.current_count.borrow_mut() = Some(41.0);
+        *interpreter.in_count_loop.borrow_mut() = true;
+        let receiver = install_pending_request(&interpreter, &env, "request-1");
+
+        let mut response = Box::pin(interpreter.execute_statement(&statements[1], env));
+        let mut stalled = Box::pin(async {
+            loop {
+                if response_eval_is_stalled(&interpreter) {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::select! {
+                result = response.as_mut() => {
+                    panic!("response evaluation finished before the disconnect latch: {result:?}")
+                }
+                _ = stalled.as_mut() => {}
+            }
+        })
+        .await
+        .expect("response expression never reached its stalled action");
+        upstream
+            .head_sent
+            .await
+            .expect("stalled upstream did not send its response head");
+
+        // Causal trigger: only after the action owns a live upstream stream and
+        // is sleeping inside a count loop do we drop the client receiver.
+        drop(receiver);
+        let result = match tokio::time::timeout(Duration::from_secs(2), response.as_mut()).await {
+            Ok(result) => result,
+            Err(_) => {
+                drop(response);
+                interpreter.close_open_http_streams();
+                if let Some(release) = upstream.release.take() {
+                    let _ = release.send(());
+                }
+                panic!(
+                    "response expression evaluation did not cancel after its request disconnected"
+                );
+            }
+        };
+        drop(response);
+
+        let error = result.expect_err("disconnect must cancel response precommit evaluation");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+        assert!(
+            interpreter.get_call_stack().is_empty(),
+            "dropped response evaluation leaked call frames"
+        );
+        assert_eq!(interpreter.call_depth.get(), 0, "call depth leaked");
+        assert_eq!(
+            *interpreter.current_count.borrow(),
+            Some(41.0),
+            "outer count binding was not restored"
+        );
+        assert!(
+            *interpreter.in_count_loop.borrow(),
+            "outer count-loop state was not restored"
+        );
+        assert!(
+            !interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-1"),
+            "cancelled request remained pending"
+        );
+        assert!(
+            !interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-1"),
+            "cancelled request remained handler-owned"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), &mut upstream.peer_closed)
+            .await
+            .expect("cancelled response evaluation did not drop its upstream socket")
+            .expect("upstream close observation task ended early");
+        assert!(
+            interpreter
+                .open_http_streams
+                .borrow()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "cancelled response evaluation retained upstream ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn buffered_content_evaluation_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels("respond to req with call stalled_value", "\"late\"")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn streaming_head_evaluation_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels(
+            "start streaming response to req with status call stalled_value and content type \"text/plain\" as out",
+            "201",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn buffered_request_operand_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels("respond to (call stalled_value) with \"ok\"", "req")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn streaming_request_operand_cancels_on_request_disconnect() {
+        assert_precommit_disconnect_cancels(
+            "start streaming response to (call stalled_value) with status 200 as out",
+            "req",
+        )
+        .await;
+    }
+}
+
+#[cfg(test)]
+mod response_disconnect_result_tests {
+    use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
+    use std::future::Future;
+    use std::task::Poll;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn parse_statement(source: &str) -> Statement {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        let program = parser
+            .parse()
+            .unwrap_or_else(|errors| panic!("disconnect fixture did not parse: {errors:?}"));
+        assert_eq!(program.statements.len(), 1);
+        program.statements.into_iter().next().expect("statement")
+    }
+
+    fn parse_statements(source: &str) -> Vec<Statement> {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        parser
+            .parse()
+            .unwrap_or_else(|errors| panic!("disconnect fixture did not parse: {errors:?}"))
+            .statements
+    }
+
+    fn request_value(request_id: &str) -> Value {
+        let mut request = HashMap::new();
+        request.insert(
+            "_response_sender".to_string(),
+            Value::Text(Arc::from(request_id)),
+        );
+        Value::Object(Rc::new(RefCell::new(request)))
+    }
+
+    async fn assert_response_commit_disconnect_is_cancelled(statement_source: &str) {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-commit"));
+        let (sender, receiver) = oneshot::channel();
+        let shared_sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-commit".to_string(),
+            PendingResponse {
+                sender: Arc::clone(&shared_sender),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-commit".to_string());
+
+        // Hold the sender lock so the statement can finish evaluation and reach
+        // the exact commit await without taking the sender yet.
+        let guard = shared_sender.lock().await;
+        let statement = parse_statement(statement_source);
+        let mut execution = Box::pin(interpreter.execute_statement(&statement, env));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if !interpreter
+                    .pending_responses
+                    .borrow()
+                    .contains_key("request-commit")
+                {
+                    break;
+                }
+                tokio::select! {
+                    result = execution.as_mut() => {
+                        panic!("response finished before reaching the commit latch: {result:?}")
+                    }
+                    _ = tokio::task::yield_now() => {}
+                }
+            }
+        })
+        .await
+        .expect("response did not reach its commit latch");
+
+        drop(receiver);
+        drop(guard);
+        let error = tokio::time::timeout(Duration::from_secs(2), execution.as_mut())
+            .await
+            .expect("commit did not observe the closed receiver")
+            .expect_err("closed receiver must cancel the response commit");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+    }
+
+    async fn spawn_commit_upstream() -> (u16, oneshot::Receiver<()>, oneshot::Receiver<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind commit upstream");
+        let port = listener
+            .local_addr()
+            .expect("commit upstream address")
+            .port();
+        let (head_tx, head_sent) = oneshot::channel();
+        let (closed_tx, peer_closed) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept commit upstream");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 512];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read request head");
+                assert!(read > 0, "client closed before commit request");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .expect("write commit response head");
+            socket.flush().await.expect("flush commit response head");
+            let _ = head_tx.send(());
+            loop {
+                match socket.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            let _ = closed_tx.send(());
+        });
+        (port, head_sent, peer_closed)
+    }
+
+    async fn assert_commit_disconnect_closes_evaluation_stream(response_statement: &str) {
+        let (port, head_sent, mut peer_closed) = spawn_commit_upstream().await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 120,
+            timeout_seconds: 120,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(config);
+        let source = format!(
+            "define action called open_then_return:\n\
+             \x20\x20\x20\x20open url at \"http://127.0.0.1:{port}/commit\" and stream response as upstream\n\
+             \x20\x20\x20\x20return 201\n\
+             end action\n\
+             {response_statement}\n"
+        );
+        let statements = parse_statements(&source);
+        assert_eq!(statements.len(), 2);
+        let env = Rc::clone(interpreter.global_env());
+        interpreter
+            .execute_statement(&statements[0], Rc::clone(&env))
+            .await
+            .expect("define commit action");
+
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-resource"));
+        let (sender, receiver) = oneshot::channel();
+        let shared_sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-resource".to_string(),
+            PendingResponse {
+                sender: Arc::clone(&shared_sender),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-resource".to_string());
+        let guard = shared_sender.lock().await;
+
+        let mut execution =
+            Box::pin(interpreter.execute_statement(&statements[1], Rc::clone(&env)));
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let at_commit = !interpreter
+                    .pending_responses
+                    .borrow()
+                    .contains_key("request-resource");
+                let owns_stream = interpreter
+                    .open_http_streams
+                    .borrow()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .len()
+                    == 1;
+                if at_commit && owns_stream {
+                    break;
+                }
+                tokio::select! {
+                    result = execution.as_mut() => {
+                        panic!("response finished before resource commit latch: {result:?}")
+                    }
+                    _ = tokio::task::yield_now() => {}
+                }
+            }
+        })
+        .await
+        .expect("response did not reach resource commit latch");
+        head_sent.await.expect("commit upstream did not send head");
+
+        drop(receiver);
+        drop(guard);
+        let error = tokio::time::timeout(Duration::from_secs(2), execution.as_mut())
+            .await
+            .expect("commit did not observe receiver disconnect")
+            .expect_err("commit disconnect must cancel");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+
+        if tokio::time::timeout(Duration::from_secs(1), &mut peer_closed)
+            .await
+            .is_err()
+        {
+            interpreter.close_open_http_streams();
+            let _ = tokio::time::timeout(Duration::from_secs(2), &mut peer_closed).await;
+            panic!("commit-time cancellation retained a stream opened during evaluation");
+        }
+        assert!(
+            interpreter
+                .open_http_streams
+                .borrow()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "commit cancellation retained stream ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn buffered_commit_disconnect_is_exactly_cancelled() {
+        assert_response_commit_disconnect_is_cancelled("respond to req with \"ok\"").await;
+    }
+
+    #[tokio::test]
+    async fn streaming_head_commit_disconnect_is_exactly_cancelled() {
+        assert_response_commit_disconnect_is_cancelled(
+            "start streaming response to req with status 200 as out",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn already_disconnected_precheck_removes_stale_pending_state() {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-closed"));
+        let (sender, receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-closed".to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-closed".to_string());
+        drop(receiver);
+
+        let statement = parse_statement("respond to req with \"late\"");
+        let error = interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect_err("closed request must cancel before evaluation");
+        assert_eq!(error.kind, ErrorKind::Cancelled);
+        assert!(
+            !interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-closed"),
+            "early cancellation retained the pending sender"
+        );
+        assert!(
+            !interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-closed"),
+            "early cancellation retained handler ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_response_expression_errors_remain_general_and_pending() {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-error"));
+        let (sender, _receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-error".to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-error".to_string());
+
+        let statement = parse_statement("respond to req with missing_value");
+        let error = interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect_err("undefined content must remain an ordinary expression error");
+        assert_eq!(error.kind, ErrorKind::General, "wrong error: {error:?}");
+        assert!(
+            error.message.contains("missing_value"),
+            "ordinary expression diagnostic changed: {error}"
+        );
+        assert!(
+            interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-error"),
+            "ordinary expression error consumed the pending response"
+        );
+        assert!(
+            interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-error"),
+            "ordinary expression error removed handler ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_buffered_response_behavior_is_preserved() {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-success"));
+        let (sender, receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-success".to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-success".to_string());
+
+        let statement = parse_statement(
+            "respond to req with \"ok\" and content_type \"text/plain\" and status 201",
+        );
+        interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect("connected buffered response must still succeed");
+        let reply = receiver.await.expect("buffered response was not delivered");
+        match reply {
+            HandlerReply::Buffered(response) => {
+                assert_eq!(response.status, 201);
+                assert_eq!(response.content_type, "text/plain");
+                assert_eq!(response.content, b"ok");
+            }
+            HandlerReply::Streaming { .. } => panic!("buffered respond produced streaming reply"),
+        }
+        assert!(
+            !interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-success"),
+            "successful response remained pending"
+        );
+        assert!(
+            !interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-success"),
+            "successful response retained handler ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn buffered_commit_disconnect_closes_evaluation_streams() {
+        assert_commit_disconnect_closes_evaluation_stream(
+            "respond to req with call open_then_return",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn streaming_commit_disconnect_closes_evaluation_streams() {
+        assert_commit_disconnect_closes_evaluation_stream(
+            "start streaming response to req with status call open_then_return as out",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn backpressured_stream_write_disconnect_is_exactly_cancelled() {
+        let config = Arc::new(WflConfig {
+            web_server_response_timeout_seconds: 0,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(config);
+        let env = Rc::clone(interpreter.global_env());
+        let handle_id = "respstream-test";
+        let (sender, receiver) = mpsc::channel(RESPONSE_STREAM_BUFFER);
+        for _ in 0..RESPONSE_STREAM_BUFFER {
+            sender
+                .try_send(vec![0])
+                .expect("fill response stream buffer");
+        }
+        interpreter
+            .server_response_streams
+            .borrow_mut()
+            .insert(handle_id.to_string(), (sender, 0));
+        interpreter
+            .open_response_streams
+            .borrow_mut()
+            .push(handle_id.to_string());
+        let mut stream = HashMap::new();
+        stream.insert(
+            "_server_stream".to_string(),
+            Value::Text(Arc::from(handle_id)),
+        );
+        env.borrow_mut()
+            .define_or_replace("out", Value::Object(Rc::new(RefCell::new(stream))));
+
+        let statement = parse_statement("write chunk \"next\" to out");
+        let mut execution = Box::pin(interpreter.execute_statement(&statement, env));
+        futures_util::future::poll_fn(|cx| match execution.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => {
+                panic!("full response stream write did not backpressure: {result:?}")
+            }
+        })
+        .await;
+        drop(receiver);
+
+        let error = tokio::time::timeout(Duration::from_secs(2), execution.as_mut())
+            .await
+            .expect("write did not wake after receiver disconnect")
+            .expect_err("closed stream receiver must cancel the write");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+        assert!(
+            !interpreter
+                .server_response_streams
+                .borrow()
+                .contains_key(handle_id),
+            "cancelled write retained its response stream"
+        );
+    }
+}
+
+#[cfg(test)]
+mod request_wait_timeout_tests {
+    use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
+
+    fn parse_statement(source: &str) -> Statement {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        parser
+            .parse()
+            .unwrap_or_else(|errors| panic!("timeout fixture did not parse: {errors:?}"))
+            .statements
+            .into_iter()
+            .next()
+            .expect("statement")
+    }
+
+    async fn timeout_error(value: &str) -> RuntimeError {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        let (request_sender, request_receiver) = mpsc::channel(1);
+        interpreter.web_servers.borrow_mut().insert(
+            "srv".to_string(),
+            WflWebServer {
+                request_receiver: Arc::new(tokio::sync::Mutex::new(request_receiver)),
+                request_sender,
+                server_handle: None,
+            },
+        );
+        env.borrow_mut()
+            .define_or_replace("srv", Value::Text(Arc::from("WebServer::127.0.0.1:1")));
+        let statement = parse_statement(&format!(
+            "wait for request comes in on srv as req with timeout {value}"
+        ));
+        interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect_err("invalid sub-millisecond timeout must be rejected")
+    }
+
+    #[tokio::test]
+    async fn zero_request_timeout_has_the_established_positive_number_error() {
+        let error = timeout_error("0").await;
+        assert_eq!(error.kind, ErrorKind::General);
+        assert_eq!(
+            error.message,
+            "Timeout must be a positive number (milliseconds)"
+        );
+    }
+
+    #[tokio::test]
+    async fn fractional_request_timeout_below_one_millisecond_is_rejected() {
+        let error = timeout_error("0.5").await;
+        assert_eq!(error.kind, ErrorKind::General);
+        assert_eq!(
+            error.message,
+            "Timeout must be at least 1 millisecond (got 0.5 ms); fractional values below 1 would truncate to zero and spin"
+        );
+    }
+}
+
+#[cfg(test)]
+mod outbound_stream_deadline_tests {
+    use super::*;
+    use futures_util::task::AtomicWaker;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn spawn_stream_cleanup_upstream(expected_requests: usize) -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stream cleanup upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        tokio::spawn(async move {
+            for _ in 0..expected_requests {
+                let (mut socket, _) = listener.accept().await.expect("accept cleanup request");
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buf = [0u8; 512];
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        let read = socket.read(&mut buf).await.expect("read request head");
+                        if read == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buf[..read]);
+                    }
+                    let request = String::from_utf8_lossy(&request);
+                    let truncated = request.starts_with("GET /truncated ");
+                    let unterminated = request.starts_with("GET /unterminated ");
+                    let response = if truncated {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nx"
+                    } else if unterminated {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc"
+                    } else {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    };
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write response");
+                    socket.flush().await.expect("flush response");
+                });
+            }
+        });
+        port
+    }
+
+    async fn spawn_stalled_streams(
+        expected_requests: usize,
+    ) -> (u16, tokio::sync::mpsc::UnboundedReceiver<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind terminal-retention upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        let (peer_closed_tx, peer_closed_rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            for _ in 0..expected_requests {
+                let (mut socket, _) = listener
+                    .accept()
+                    .await
+                    .expect("accept terminal-retention request");
+                let peer_closed_tx = peer_closed_tx.clone();
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buffer = [0u8; 512];
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        let read = socket.read(&mut buffer).await.expect("read request head");
+                        if read == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buffer[..read]);
+                    }
+                    socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\
+                              Connection: close\r\n\r\n",
+                        )
+                        .await
+                        .expect("write stalled response head");
+                    socket.flush().await.expect("flush stalled response head");
+
+                    loop {
+                        match socket.read(&mut buffer).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {}
+                        }
+                    }
+                    let _ = peer_closed_tx.send(());
+                });
+            }
+        });
+        (port, peer_closed_rx)
+    }
+
+    async fn assert_reapers_drained(client: &IoClient) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if client
+                    .active_stream_reapers
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    == 0
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("finished streams left hard-lifetime reaper tasks sleeping");
+    }
+
+    fn install_owned_empty_stream(client: &IoClient, handle_id: &str) -> StreamOwner {
+        let owner: StreamOwner =
+            Arc::new(std::sync::Mutex::new(HashSet::from(
+                [handle_id.to_string()],
+            )));
+        client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .insert(
+                handle_id.to_string(),
+                StreamSlot {
+                    handle: Some(HttpStreamHandle {
+                        stream: Box::pin(futures_util::stream::empty::<reqwest::Result<Vec<u8>>>()),
+                        buffer: Vec::new(),
+                        done: false,
+                        bytes_read: 0,
+                        total_deadline: None,
+                    }),
+                    deadline: None,
+                    cancel: StreamCancel::new(),
+                    reaper_abort: None,
+                    owner: Some(Arc::clone(&owner)),
+                },
+            );
+        owner
+    }
+
+    async fn take_and_observe_clean_eof(
+        client: &IoClient,
+        handle_id: &str,
+        budget: &Arc<ExecutionBudget>,
+    ) -> TakenStream {
+        let Some(mut taken) = client
+            .take_stream(handle_id)
+            .expect("take synthetic empty stream")
+        else {
+            panic!("live synthetic stream unexpectedly resolved as clean EOF");
+        };
+        assert!(
+            !client
+                .stream_pull(&mut taken.handle, budget, &taken.cancel)
+                .await
+                .expect("observe upstream clean EOF"),
+            "an empty upstream must return clean EOF"
+        );
+        assert!(taken.handle.done, "observing EOF must mark the body done");
+        assert_eq!(
+            taken.cancel.terminal(),
+            Some(StreamTerminal::CleanEof),
+            "observing upstream None must latch CleanEof before slot removal"
+        );
+        taken
+    }
+
+    async fn assert_one_shot_clean_eof_after_put(
+        client: &IoClient,
+        handle_id: &str,
+        owner: &StreamOwner,
+        budget: Arc<ExecutionBudget>,
+    ) {
+        {
+            let registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            assert!(
+                !registry.live.contains_key(handle_id),
+                "put_stream must not recreate a heavy live slot after clean EOF"
+            );
+            assert_eq!(
+                registry
+                    .recent
+                    .iter()
+                    .filter(|entry| {
+                        entry.id == handle_id && entry.reason == StreamTerminal::CleanEof
+                    })
+                    .count(),
+                1,
+                "put_stream must leave exactly one CleanEof tombstone"
+            );
+        }
+        assert!(
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "slot removal before put_stream must clear handler ownership"
+        );
+        assert_eq!(
+            client
+                .next_line(handle_id, Arc::clone(&budget))
+                .await
+                .expect("consume restored CleanEof tombstone"),
+            None,
+            "the first read after terminalization must observe clean EOF"
+        );
+        let later = client
+            .next_line(handle_id, budget)
+            .await
+            .expect_err("the CleanEof tombstone must be one-shot");
+        assert!(
+            matches!(&later, HttpClientError::Request(message)
+                if message.contains("Unknown or already-closed")),
+            "the read after consuming CleanEof must report a closed/unknown handle, got {later:?}"
+        );
+    }
+
+    struct DelayedHeadUpstream {
+        port: u16,
+        request_received: oneshot::Receiver<()>,
+        release_head: Option<oneshot::Sender<()>>,
+        peer_closed: oneshot::Receiver<()>,
+    }
+
+    async fn spawn_delayed_head_upstream() -> DelayedHeadUpstream {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind delayed-head upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        let (request_tx, request_received) = oneshot::channel();
+        let (release_head, release_rx) = oneshot::channel();
+        let (peer_closed_tx, peer_closed) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept delayed head");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 512];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read request");
+                assert!(read > 0, "client closed before request head");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = request_tx.send(());
+            release_rx.await.expect("release delayed response head");
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .expect("write delayed response head");
+            socket.flush().await.expect("flush delayed response head");
+            loop {
+                match socket.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            let _ = peer_closed_tx.send(());
+        });
+        DelayedHeadUpstream {
+            port,
+            request_received,
+            release_head: Some(release_head),
+            peer_closed,
+        }
+    }
+
+    struct GatedChunkState {
+        polled: AtomicBool,
+        ready: AtomicBool,
+        dropped: AtomicBool,
+        waker: AtomicWaker,
+    }
+
+    impl GatedChunkState {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                polled: AtomicBool::new(false),
+                ready: AtomicBool::new(false),
+                dropped: AtomicBool::new(false),
+                waker: AtomicWaker::new(),
+            })
+        }
+
+        fn make_ready(&self) {
+            self.ready.store(true, Ordering::SeqCst);
+            self.waker.wake();
+        }
+    }
+
+    struct GatedChunkStream {
+        state: Arc<GatedChunkState>,
+        yielded: bool,
+    }
+
+    impl futures_util::Stream for GatedChunkStream {
+        type Item = reqwest::Result<Vec<u8>>;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            if self.yielded {
+                return Poll::Ready(None);
+            }
+            self.state.polled.store(true, Ordering::SeqCst);
+            self.state.waker.register(cx.waker());
+            if self.state.ready.load(Ordering::SeqCst) {
+                self.yielded = true;
+                Poll::Ready(Some(Ok(vec![7])))
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+
+    impl Drop for GatedChunkStream {
+        fn drop(&mut self) {
+            self.state.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn close_during_active_read_returns_closed_and_drops_upstream() {
+        let (port, mut peer_closed) = spawn_stalled_streams(1).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 60,
+            timeout_seconds: 30,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let (_, _, handle_id) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/active-close"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open stalled stream");
+
+        let mut read = Box::pin(client.next_chunk(&handle_id, budget));
+        futures_util::future::poll_fn(|cx| match read.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => panic!("stalled read unexpectedly completed: {result:?}"),
+        })
+        .await;
+        assert!(
+            client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .get(&handle_id)
+                .is_some_and(|slot| slot.handle.is_none()),
+            "the close latch must observe a body read actively owning the handle"
+        );
+
+        assert!(
+            client.finish_stream_slot_sync(&handle_id, StreamTerminal::Closed),
+            "close must claim the active stream slot"
+        );
+        let error = tokio::time::timeout(Duration::from_secs(2), read.as_mut())
+            .await
+            .expect("active read did not wake after close")
+            .expect_err("active read must return Closed");
+        assert!(
+            matches!(error, HttpClientError::Closed),
+            "active close returned the wrong error: {error:?}"
+        );
+        tokio::time::timeout(Duration::from_secs(2), peer_closed.recv())
+            .await
+            .expect("active close did not drop the upstream socket")
+            .expect("upstream close notifier ended early");
+        assert_reapers_drained(&client).await;
+        assert!(
+            !client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .contains_key(&handle_id),
+            "active close retained its stream slot"
+        );
+    }
+
+    #[tokio::test]
+    async fn delayed_head_keeps_the_request_start_as_the_total_deadline_origin() {
+        let mut upstream = spawn_delayed_head_upstream().await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 2,
+            timeout_seconds: 30,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let started = Instant::now();
+        let url = format!("http://127.0.0.1:{}/delayed-head", upstream.port);
+        let mut opening =
+            Box::pin(client.open_http_stream("GET", &url, &[], None, Arc::clone(&budget)));
+        tokio::select! {
+            result = opening.as_mut() => {
+                panic!("stream opened before the response-head latch: {result:?}")
+            }
+            received = &mut upstream.request_received => {
+                received.expect("upstream did not receive request");
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        upstream
+            .release_head
+            .take()
+            .expect("head release")
+            .send(())
+            .expect("release response head");
+        let (_, _, handle_id) = tokio::time::timeout(Duration::from_secs(2), opening.as_mut())
+            .await
+            .expect("stream did not open after response-head release")
+            .expect("delayed-head stream open");
+
+        let deadline = client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .get(&handle_id)
+            .and_then(|slot| slot.deadline)
+            .expect("positive cap must register a slot deadline");
+        assert!(
+            deadline.saturating_duration_since(started) <= Duration::from_millis(2_100),
+            "the total deadline was restarted after the delayed head"
+        );
+        assert!(
+            deadline.saturating_duration_since(Instant::now()) < Duration::from_secs(1),
+            "the delayed head must leave less than one second of the original cap"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), &mut upstream.peer_closed)
+            .await
+            .expect("spawned reaper did not drop delayed-head upstream")
+            .expect("upstream close notifier ended early");
+        let error = client
+            .next_chunk(&handle_id, budget)
+            .await
+            .expect_err("read after delayed-head expiry must fail");
+        assert!(
+            matches!(error, HttpClientError::Timeout { seconds: 2 }),
+            "delayed-head expiry lost its typed timeout: {error:?}"
+        );
+        assert_reapers_drained(&client).await;
+    }
+
+    #[tokio::test]
+    async fn spawned_reaper_wins_over_a_simultaneously_ready_chunk() {
+        let (port, mut peer_closed) = spawn_stalled_streams(1).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 1,
+            timeout_seconds: 30,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let (_, _, handle_id) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/ready-expiry-race"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open stalled stream");
+        let state = GatedChunkState::new();
+        let cancel = {
+            let mut registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let slot = registry.live.get_mut(&handle_id).expect("live stream slot");
+            let handle = slot.handle.as_mut().expect("parked stream body");
+            handle.stream = Box::pin(GatedChunkStream {
+                state: Arc::clone(&state),
+                yielded: false,
+            });
+            // Leave the slot deadline and real spawned reaper intact, but keep
+            // the inner read timeout from independently deciding this race.
+            handle.total_deadline = None;
+            Arc::clone(&slot.cancel)
+        };
+        tokio::time::timeout(Duration::from_secs(2), peer_closed.recv())
+            .await
+            .expect("replacing the real body did not drop its upstream socket")
+            .expect("upstream close notifier ended early");
+
+        let mut read = Box::pin(client.next_chunk(&handle_id, budget));
+        futures_util::future::poll_fn(|cx| match read.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => panic!("gated read unexpectedly completed: {result:?}"),
+        })
+        .await;
+        assert!(
+            state.polled.load(Ordering::SeqCst),
+            "gated body was not polled"
+        );
+        assert!(
+            client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .get(&handle_id)
+                .is_some_and(|slot| slot.handle.is_none()),
+            "active read did not take ownership before expiry"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if cancel.terminal() == Some(StreamTerminal::Timeout)
+                    && client.active_stream_reapers.load(Ordering::SeqCst) == 0
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the production reaper did not establish Timeout");
+        state.make_ready();
+
+        let error = tokio::time::timeout(Duration::from_secs(2), read.as_mut())
+            .await
+            .expect("simultaneously-ready race did not resolve")
+            .expect_err("expiry must win over the ready body chunk");
+        assert!(
+            matches!(error, HttpClientError::Timeout { seconds: 1 }),
+            "ready chunk beat the spawned reaper: {error:?}"
+        );
+        assert!(
+            state.dropped.load(Ordering::SeqCst),
+            "expired active body was not dropped"
+        );
+        let registry = client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert!(
+            !registry.live.contains_key(&handle_id),
+            "expired body was reinserted after the reaper"
+        );
+        assert_eq!(
+            client.active_stream_reapers.load(Ordering::SeqCst),
+            0,
+            "spawned reaper survived the race"
+        );
+    }
+
+    #[tokio::test]
+    async fn observed_clean_eof_wins_over_a_later_deadline_claim() {
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 0,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let handle_id = "observed-clean-eof".to_string();
+        let cancel = StreamCancel::new();
+        let owner: StreamOwner =
+            Arc::new(std::sync::Mutex::new(HashSet::from([handle_id.clone()])));
+
+        client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .insert(
+                handle_id.clone(),
+                StreamSlot {
+                    handle: Some(HttpStreamHandle {
+                        stream: Box::pin(futures_util::stream::empty::<reqwest::Result<Vec<u8>>>()),
+                        buffer: b"abc".to_vec(),
+                        done: false,
+                        bytes_read: 3,
+                        total_deadline: None,
+                    }),
+                    deadline: None,
+                    cancel,
+                    reaper_abort: None,
+                    owner: Some(Arc::clone(&owner)),
+                },
+            );
+
+        let Some(TakenStream { mut handle, cancel }) = client
+            .take_stream(&handle_id)
+            .expect("take synthetic stream")
+        else {
+            panic!("synthetic stream unexpectedly resolved as clean EOF");
+        };
+
+        assert!(
+            !client
+                .stream_pull(&mut handle, &budget, &cancel)
+                .await
+                .expect("observe clean EOF"),
+            "the empty body must report clean EOF"
+        );
+        assert!(handle.done, "observing EOF must mark the body complete");
+
+        let winner = cancel.terminate(StreamTerminal::Timeout);
+        assert_eq!(
+            winner,
+            StreamTerminal::CleanEof,
+            "a deadline claim after the upstream yielded EOF must not overwrite clean EOF"
+        );
+
+        let final_line = std::mem::take(&mut handle.buffer);
+        client
+            .put_stream(&handle_id, handle, &cancel)
+            .expect("terminalize the EOF-latched body");
+        assert_eq!(final_line, b"abc");
+        assert!(
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "terminalization must remove the stream owner"
+        );
+
+        {
+            let registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            assert!(
+                !registry.live.contains_key(&handle_id),
+                "terminalization must remove the live stream slot"
+            );
+            assert_eq!(
+                registry
+                    .recent
+                    .iter()
+                    .filter(|entry| {
+                        entry.id == handle_id && entry.reason == StreamTerminal::CleanEof
+                    })
+                    .count(),
+                1,
+                "terminalization must retain exactly one one-shot clean-EOF record"
+            );
+        }
+
+        assert_eq!(
+            client
+                .next_line(&handle_id, budget)
+                .await
+                .expect("consume one-shot clean EOF"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn put_stream_restores_clean_eof_after_close_removed_the_live_slot() {
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 0,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let handle_id = "clean-eof-after-close";
+        let owner = install_owned_empty_stream(&client, handle_id);
+        let TakenStream { handle, cancel } =
+            take_and_observe_clean_eof(&client, handle_id, &budget).await;
+
+        assert!(
+            client.finish_stream_slot_sync(handle_id, StreamTerminal::Closed),
+            "close must remove the live slot while the EOF-observing read owns its body"
+        );
+        assert_eq!(
+            cancel.terminal(),
+            Some(StreamTerminal::CleanEof),
+            "the later close claim must not overwrite the observed CleanEof"
+        );
+
+        client
+            .put_stream(handle_id, handle, &cancel)
+            .expect("put_stream must restore CleanEof after close removed the slot");
+        assert_one_shot_clean_eof_after_put(&client, handle_id, &owner, budget).await;
+    }
+
+    #[tokio::test]
+    async fn put_stream_deduplicates_clean_eof_after_reaper_removed_the_live_slot() {
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 0,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let handle_id = "clean-eof-after-reaper";
+        let owner = install_owned_empty_stream(&client, handle_id);
+        let TakenStream { handle, cancel } =
+            take_and_observe_clean_eof(&client, handle_id, &budget).await;
+
+        // Mirror the production reaper's critical section without a wall-clock
+        // sleep: remove the slot, attempt Timeout, clear ownership, and retain
+        // the first-wins terminal outcome before the active read calls put.
+        {
+            let now = Instant::now();
+            let mut registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            registry.prune_recent(now);
+            let mut slot = registry
+                .live
+                .remove(handle_id)
+                .expect("reaper-style terminalization must claim the live slot");
+            let terminal = slot.cancel.terminate(StreamTerminal::Timeout);
+            assert_eq!(
+                terminal,
+                StreamTerminal::CleanEof,
+                "a reaper Timeout after observed EOF must retain CleanEof"
+            );
+            slot.reaper_abort = None;
+            drop(slot.handle.take());
+            remove_stream_owner(&mut slot, handle_id);
+            registry.remember_recent(handle_id.to_string(), terminal, now);
+        }
+
+        client
+            .put_stream(handle_id, handle, &cancel)
+            .expect("put_stream must preserve CleanEof after the reaper removed the slot");
+        assert_one_shot_clean_eof_after_put(&client, handle_id, &owner, budget).await;
+    }
+
+    #[test]
+    fn extreme_outbound_stream_max_seconds_does_not_panic() {
+        // u64::MAX must remain a finite cap rather than panicking or silently
+        // disabling the hard lifetime.
+        let before = Instant::now();
+        let extreme = outbound_stream_deadline(u64::MAX)
+            .expect("an extreme positive cap must still produce a finite deadline");
+        let effective = extreme.saturating_duration_since(before);
+        assert!(
+            effective <= Duration::from_secs(MAX_OUTBOUND_STREAM_DEADLINE_SECS + 1),
+            "extreme values must be clamped to the documented implementation ceiling; \
+             got {effective:?}"
+        );
+        assert_eq!(
+            outbound_stream_effective_seconds(u64::MAX),
+            Some(MAX_OUTBOUND_STREAM_DEADLINE_SECS),
+            "timeout diagnostics must report the effective clamp, not u64::MAX"
+        );
+        assert!(
+            outbound_stream_deadline(0).is_none(),
+            "0 is the documented sentinel for no absolute total cap"
+        );
+        assert!(
+            outbound_stream_deadline(1).is_some(),
+            "a normal positive cap must produce a deadline"
+        );
+        assert!(
+            outbound_stream_deadline(MAX_OUTBOUND_STREAM_DEADLINE_SECS).is_some(),
+            "the clamp ceiling itself must still produce a deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn final_unterminated_line_survives_deadline_after_clean_eof() {
+        let port = spawn_stream_cleanup_upstream(1).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 1,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let (_, _, handle) = tokio::time::timeout(
+            Duration::from_secs(3),
+            interpreter.io_client.open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/unterminated"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            ),
+        )
+        .await
+        .expect("open stream hung")
+        .expect("open stream");
+        interpreter
+            .io_client
+            .claim_stream_owner(
+                &handle,
+                &Arc::clone(&interpreter.open_http_streams.borrow()),
+            )
+            .expect("claim unterminated stream ownership");
+
+        let first = tokio::time::timeout(
+            Duration::from_secs(3),
+            interpreter
+                .io_client
+                .next_line(&handle, Arc::clone(&budget)),
+        )
+        .await
+        .expect("first line read hung")
+        .expect("first line read");
+        assert_eq!(
+            first.as_deref(),
+            Some("abc"),
+            "the final unterminated line is returned only after clean EOF was observed"
+        );
+
+        let (live_slots, clean_eof_records) = {
+            let registry = interpreter
+                .io_client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            (
+                registry.live.len(),
+                registry
+                    .recent
+                    .iter()
+                    .filter(|entry| entry.reason == StreamTerminal::CleanEof)
+                    .count(),
+            )
+        };
+        assert_eq!(
+            live_slots, 0,
+            "returning the final unterminated line must remove its live stream slot"
+        );
+        assert_eq!(
+            clean_eof_records, 1,
+            "the final line must leave exactly one lightweight clean-EOF record"
+        );
+        assert_eq!(
+            interpreter
+                .open_http_streams
+                .borrow()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            0,
+            "returning the final line must remove handler ownership immediately"
+        );
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        let eof = tokio::time::timeout(
+            Duration::from_secs(2),
+            interpreter
+                .io_client
+                .next_line(&handle, Arc::clone(&budget)),
+        )
+        .await
+        .expect("clean EOF read hung")
+        .expect("clean EOF observed before the cap must not become Timeout");
+        assert_eq!(eof, None);
+
+        let later = interpreter
+            .io_client
+            .next_line(&handle, budget)
+            .await
+            .expect_err("the single clean-EOF result must consume the handle");
+        assert!(
+            matches!(&later, HttpClientError::Request(message) if message.contains("already-closed")),
+            "a later read must retain the established closed-handle error, got {later:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unconsumed_clean_eof_records_are_bounded() {
+        const STREAM_COUNT: usize = MAX_RECENT_STREAM_TERMINALS + 8;
+
+        let port = spawn_stream_cleanup_upstream(STREAM_COUNT).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 60 * 60,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+
+        for sequence in 0..STREAM_COUNT {
+            let (_, _, handle) = interpreter
+                .io_client
+                .open_http_stream(
+                    "GET",
+                    &format!("http://127.0.0.1:{port}/unterminated"),
+                    &[],
+                    None,
+                    Arc::clone(&budget),
+                )
+                .await
+                .expect("open unterminated stream");
+            interpreter
+                .io_client
+                .claim_stream_owner(
+                    &handle,
+                    &Arc::clone(&interpreter.open_http_streams.borrow()),
+                )
+                .expect("claim unterminated stream ownership");
+
+            let final_line = interpreter
+                .io_client
+                .next_line(&handle, Arc::clone(&budget))
+                .await
+                .expect("read final unterminated line");
+            assert_eq!(
+                final_line.as_deref(),
+                Some("abc"),
+                "stream {sequence} did not yield its final unterminated line"
+            );
+
+            let (live_slots, recent_records, all_clean_eof) = {
+                let registry = interpreter
+                    .io_client
+                    .stream_handles
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                (
+                    registry.live.len(),
+                    registry.recent.len(),
+                    registry
+                        .recent
+                        .iter()
+                        .all(|entry| entry.reason == StreamTerminal::CleanEof),
+                )
+            };
+            assert_eq!(
+                live_slots, 0,
+                "stream {sequence} retained a live slot after its final line"
+            );
+            assert_eq!(
+                recent_records,
+                (sequence + 1).min(MAX_RECENT_STREAM_TERMINALS),
+                "clean-EOF records must fill only the bounded recent queue"
+            );
+            assert!(
+                all_clean_eof,
+                "the no-follow-up wave retained a non-clean-EOF terminal"
+            );
+            assert!(
+                interpreter
+                    .open_http_streams
+                    .borrow()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .is_empty(),
+                "stream {sequence} retained handler ownership after its final line"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unread_expired_stream_metadata_and_ownership_are_bounded() {
+        const EXPECTED_RECENT_TIMEOUT_CAPACITY: usize = 64;
+        const STREAM_COUNT: usize = EXPECTED_RECENT_TIMEOUT_CAPACITY + 8;
+
+        let (port, mut peer_closed) = spawn_stalled_streams(STREAM_COUNT).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 2,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let mut handles = Vec::with_capacity(STREAM_COUNT);
+
+        for sequence in 0..STREAM_COUNT {
+            let (_, _, handle) = interpreter
+                .io_client
+                .open_http_stream(
+                    "GET",
+                    &format!("http://127.0.0.1:{port}/stall/{sequence}"),
+                    &[],
+                    None,
+                    Arc::clone(&budget),
+                )
+                .await
+                .expect("open stalled stream");
+            interpreter
+                .io_client
+                .claim_stream_owner(
+                    &handle,
+                    &Arc::clone(&interpreter.open_http_streams.borrow()),
+                )
+                .expect("claim stalled stream ownership");
+            handles.push(handle);
+        }
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            for _ in 0..STREAM_COUNT {
+                peer_closed
+                    .recv()
+                    .await
+                    .expect("upstream close notification");
+            }
+        })
+        .await
+        .expect("expired stream bodies were not dropped promptly");
+        assert_reapers_drained(&interpreter.io_client).await;
+
+        let (live_slots, retained_terminals) = {
+            let registry = interpreter
+                .io_client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            (registry.live.len(), registry.recent.len())
+        };
+        let retained_ownership = interpreter
+            .open_http_streams
+            .borrow()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len();
+        assert_eq!(
+            live_slots, 0,
+            "expired stream bodies must leave no live registry slots"
+        );
+        assert!(
+            retained_terminals <= EXPECTED_RECENT_TIMEOUT_CAPACITY,
+            "recent terminal records must have a hard ceiling of \
+             {EXPECTED_RECENT_TIMEOUT_CAPACITY}, got {retained_terminals}"
+        );
+        assert_eq!(
+            retained_ownership, 0,
+            "the reaper must remove expired ids from handler ownership immediately"
+        );
+
+        let newest = handles.last().expect("newest stream");
+        let recent = interpreter
+            .io_client
+            .next_chunk(newest, budget)
+            .await
+            .expect_err("a recent expired stream must retain its typed terminal");
+        assert!(
+            matches!(recent, HttpClientError::Timeout { seconds: 2 }),
+            "a recent read-after-expiry must report Timeout, got {recent:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn eof_error_and_rapid_close_cancel_reaper_tasks_on_a_retained_runtime() {
+        const RAPID_CLOSES: usize = 40;
+        let port = spawn_stream_cleanup_upstream(RAPID_CLOSES + 2).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 60 * 60,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+
+        for sequence in 0..RAPID_CLOSES {
+            let (_, _, handle) = client
+                .open_http_stream(
+                    "GET",
+                    &format!("http://127.0.0.1:{port}/close/{sequence}"),
+                    &[],
+                    None,
+                    Arc::clone(&budget),
+                )
+                .await
+                .expect("open stream for explicit close");
+            assert!(
+                client.finish_stream_slot(&handle).await,
+                "explicit close should remove its live stream"
+            );
+        }
+
+        let (_, _, eof_handle) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/empty"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open empty stream");
+        assert_eq!(
+            client
+                .next_chunk(&eof_handle, Arc::clone(&budget))
+                .await
+                .expect("clean EOF"),
+            None
+        );
+
+        let (_, _, error_handle) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/truncated"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open truncated stream");
+        let first = client.next_chunk(&error_handle, Arc::clone(&budget)).await;
+        let terminal = match first {
+            Ok(Some(_)) => client.next_chunk(&error_handle, budget).await,
+            other => other,
+        };
+        assert!(
+            matches!(terminal, Err(HttpClientError::Request(_))),
+            "a truncated body should end as a network read error, got {terminal:?}"
+        );
+
+        // Keep this Tokio runtime alive while observing the task count. Runtime
+        // shutdown would cancel leaked timers and make this regression false-green.
+        assert_reapers_drained(&client).await;
+        assert!(
+            client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .is_empty(),
+            "EOF, error, and explicit close must remove every stream slot"
+        );
+    }
+
+    #[test]
+    fn a_ready_read_result_cannot_reinsert_after_expiry_claims_the_slot() {
+        let client = IoClient::new(Arc::new(WflConfig {
+            outbound_stream_max_seconds: 1,
+            ..WflConfig::default()
+        }));
+        let handle_id = "httpstream-race";
+        let cancel = StreamCancel::new();
+        client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .insert(
+                handle_id.to_string(),
+                StreamSlot {
+                    handle: Some(HttpStreamHandle {
+                        // Model a network chunk that became ready while the read
+                        // owned the handle.
+                        stream: Box::pin(futures_util::stream::iter([Ok(vec![1u8])])),
+                        buffer: vec![1],
+                        done: false,
+                        bytes_read: 1,
+                        total_deadline: outbound_stream_deadline(1),
+                    }),
+                    deadline: outbound_stream_deadline(1),
+                    cancel: Arc::clone(&cancel),
+                    reaper_abort: None,
+                    owner: None,
+                },
+            );
+
+        let Some(TakenStream { handle, cancel }) = client
+            .take_stream(handle_id)
+            .expect("active read takes body")
+        else {
+            panic!("live stream unexpectedly reported clean EOF");
+        };
+        cancel.terminate(StreamTerminal::Timeout);
+        let result = client.put_stream(handle_id, handle, &cancel);
+
+        assert!(
+            matches!(result, Err(HttpClientError::Timeout { .. })),
+            "expiry must win over a ready body result, got {result:?}"
+        );
+        assert!(
+            !client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .contains_key(handle_id),
+            "an expired handle must never be reinserted after its active read"
+        );
     }
 }
 

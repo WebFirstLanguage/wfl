@@ -6,19 +6,19 @@ display ""
 
 // Test 1: Simple Command Execution
 display "Test 1: Execute Command"
-wait for execute command "echo Hello from subprocess" as cmd_result
+wait for execute command "cargo --version" as cmd_result
 display "  Command executed successfully"
 display ""
 
 // Test 2: Execute Without Storing Result
 display "Test 2: Execute Without Variable"
-wait for execute command "echo No variable needed"
+wait for execute command "cargo --version"
 display "  Execution completed"
 display ""
 
 // Test 3: Background Process Spawn and Wait
 display "Test 3: Spawn and Wait for Process"
-wait for spawn command "echo Background process" as bg_proc
+wait for spawn command "cargo --version" as bg_proc
 display "  Process spawned"
 wait for process bg_proc to complete as exit_status
 display "  Process completed"
@@ -26,7 +26,7 @@ display ""
 
 // Test 4: Process Status Check
 display "Test 4: Check Process Status"
-wait for spawn command "echo Quick task" as status_proc
+wait for spawn command "cargo --version" as status_proc
 store proc_status as process status_proc is running
 check if proc_status:
     display "  Process was running (or completed too fast)"
@@ -37,17 +37,48 @@ display ""
 
 // Test 5: Process Termination
 display "Test 5: Kill Process"
-wait for spawn command "echo Terminated" as term_proc
-wait for 100 milliseconds
-kill process term_proc
+// Use the repo-owned WFL binary and a blocking fixture, then prove the child is
+// live before termination and absent afterward.
+check if file exists at "target/release/wfl.exe":
+    wait for spawn command "target/release/wfl.exe" with arguments ["TestPrograms/subprocess_blocking_helper.wfl"] as windows_term_proc
+    wait for 100 milliseconds
+    store windows_term_running as process windows_term_proc is running
+    check if windows_term_running:
+        kill process windows_term_proc
+    otherwise:
+        store windows_live_kill_failure as 1 divided by 0
+        display windows_live_kill_failure
+    end check
+    store windows_term_after_kill as process windows_term_proc is running
+    check if windows_term_after_kill:
+        store windows_post_kill_failure as 1 divided by 0
+        display windows_post_kill_failure
+    end check
+otherwise:
+    wait for spawn command "target/release/wfl" with arguments ["TestPrograms/subprocess_blocking_helper.wfl"] as unix_term_proc
+    wait for 100 milliseconds
+    store unix_term_running as process unix_term_proc is running
+    check if unix_term_running:
+        kill process unix_term_proc
+    otherwise:
+        store unix_live_kill_failure as 1 divided by 0
+        display unix_live_kill_failure
+    end check
+    store unix_term_after_kill as process unix_term_proc is running
+    check if unix_term_after_kill:
+        store unix_post_kill_failure as 1 divided by 0
+        display unix_post_kill_failure
+    end check
+end check
 display "  Process terminated"
 display ""
 
 // Test 6: Read Process Output
 display "Test 6: Capture Process Output"
-wait for spawn command "echo Output captured" as out_proc
+wait for spawn command "cargo --version" as out_proc
 wait for 200 milliseconds
 wait for read output from process out_proc as captured_data
+wait for process out_proc to complete
 display "  Output captured successfully"
 display ""
 
@@ -63,8 +94,8 @@ display ""
 
 // Test 8: Multiple Processes
 display "Test 8: Multiple Concurrent Processes"
-wait for spawn command "echo Process 1" as p1
-wait for spawn command "echo Process 2" as p2
+wait for spawn command "cargo --version" as p1
+wait for spawn command "cargo --version" as p2
 display "  Two processes spawned"
 wait for process p1 to complete
 wait for process p2 to complete

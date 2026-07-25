@@ -66,6 +66,20 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Reclaim runner disk before building. This job compiles the workspace
+      # several times (debug + two release builds) plus the whole test suite, and
+      # the release profile keeps full debuginfo (`debug = true`), so the target
+      # tree is large; a full GitHub-hosted runner can otherwise exhaust its disk
+      # mid-link (a linker `Bus error`/SIGBUS). Removing preinstalled SDKs we do
+      # not use frees ~20 GB with no third-party action.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
       # Cache Cargo registry and target directory for faster builds
       - name: Cache Cargo registry and target directory
         uses: Swatinem/rust-cache@v2
@@ -114,9 +128,11 @@ jobs:
       - name: Build LSP
         run: cargo build -p wfl-lsp --verbose
 
-      # Run Clippy for code quality
+      # Run Clippy for code quality. `--all-features` matches the binding gate in
+      # testing.md (the only features are opt-in dhat profiling, so this just
+      # compiles the feature-gated code for linting — it never runs it).
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   # Cross-platform integration test verification
   integration-tests:
@@ -134,6 +150,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      # Reclaim runner disk before building: this job builds the (debuginfo-heavy)
+      # release tree AND every integration test binary (`cargo test --test '*'`),
+      # which together can exhaust a full runner's disk mid-link (linker
+      # `Bus error`/SIGBUS). Freeing unused preinstalled SDKs gives ~20 GB of
+      # headroom. Linux only — the Windows runner is not affected.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/graalvm || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
 
       # Cache Cargo registry and target directory for faster builds
       - name: Cache Cargo registry and target directory
@@ -164,13 +193,47 @@ jobs:
           }
           Write-Host "✓ Release binary found: target/release/wfl.exe"
 
-      # Run integration tests specifically
-      - name: Run Integration Tests
-        run: cargo test --test split_functionality --verbose
+      # Run the DOCUMENTED WFL integration gate (testing.md): the same script a
+      # contributor runs locally. It executes the integration test binaries
+      # (`cargo test --test '*'`) AND the TestPrograms end-to-end programs —
+      # crucially including the intentional-error programs, which it asserts exit
+      # nonzero (previously those assertions lived only in this script and the
+      # script was never invoked in CI, so they never ran). Uses the release
+      # binary built above. Run on BOTH OSes so the declared Windows integration
+      # command is actually exercised, not merely documented.
+      - name: Run Integration Gate (Unix)
+        if: runner.os != 'Windows'
+        run: ./scripts/run_integration_tests.sh
 
-      # Run all integration tests to ensure comprehensive coverage
-      - name: Run All Integration Tests
-        run: cargo test --test '*' --verbose
+      - name: Run Integration Gate (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/run_integration_tests.ps1
+
+      # Validate that documentation examples still parse/analyze/lint against the
+      # current release binary (testing.md requires docs validation in CI).
+      # `--force` ignores the committed cache so CI always re-validates rather
+      # than trusting a stale cached result.
+      - name: Validate Docs Examples (Unix)
+        if: runner.os != 'Windows'
+        run: python3 scripts/validate_docs_examples.py --ci --force
+
+      - name: Validate Docs Examples (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/validate_docs_examples.py --ci --force
+
+      # Web-server integration tests: start real WFL servers and exercise them
+      # over HTTP (testing.md requires web tests in CI for the R3 web/streaming
+      # surface). Uses the release binary built above. Both OSes are covered so
+      # Windows web-server behavior does not go unvalidated.
+      - name: Run Web Server Tests (Unix)
+        if: runner.os != 'Windows'
+        run: ./scripts/run_web_tests.sh
+
+      - name: Run Web Server Tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/run_web_tests.ps1
 
   # Database integration tests against live PostgreSQL and MariaDB servers.
   # SQLite database tests need no services and already run everywhere via

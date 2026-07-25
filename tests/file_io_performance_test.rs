@@ -200,27 +200,31 @@ mod file_io_performance_tests {
 
     #[tokio::test]
     async fn test_directory_listing_performance() {
-        let test_files: Vec<String> = (0..30).map(|i| format!("dir_perf_{}.txt", i)).collect();
-        let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
-        cleanup_test_files(&test_file_refs);
+        let test_dir = tempfile::tempdir().expect("Failed to create directory-listing fixture");
+        let test_files: Vec<_> = (0..30)
+            .map(|i| test_dir.path().join(format!("dir_perf_{}.txt", i)))
+            .collect();
 
         // Create multiple files for directory listing
         for (i, file) in test_files.iter().enumerate() {
             fs::write(file, format!("Content for file {}", i)).expect("Failed to create test file");
         }
 
-        let code = r#"
+        let fixture_path = test_dir.path().to_string_lossy().replace('\\', "/");
+        let code = format!(
+            r#"
             // Test directory listing performance
-            wait for store all_files as list files in "."
-            wait for store txt_files as list files in "." with pattern "dir_perf_*.txt"
-            wait for store recursive_files as list files recursively in "."
+            wait for store all_files as list files in "{fixture_path}"
+            wait for store txt_files as list files in "{fixture_path}" with pattern "dir_perf_*.txt"
+            wait for store recursive_files as list files recursively in "{fixture_path}"
             
             display "Listed all files: " with length of all_files
             display "Listed TXT files: " with length of txt_files
             display "Listed recursive files: " with length of recursive_files
-        "#;
+        "#
+        );
 
-        let result = execute_wfl_code_with_timing(code).await;
+        let result = execute_wfl_code_with_timing(&code).await;
         assert!(
             result.is_ok(),
             "Directory listing performance test failed: {:?}",
@@ -234,8 +238,6 @@ mod file_io_performance_tests {
             "Directory listing took too long: {:?}",
             elapsed
         );
-
-        cleanup_test_files(&test_file_refs);
     }
 
     #[tokio::test]

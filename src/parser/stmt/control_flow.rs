@@ -610,6 +610,19 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
     {
         let main_token = self.bump_sync().unwrap(); // Consume "main"
         self.expect_token(Token::KeywordLoop, "Expected 'loop' after 'main'")?;
+
+        // Optional `concurrently` marker (a contextual identifier). Plain
+        // `main loop` stays serial and byte-compatible; `main loop
+        // concurrently:` opts into cooperative concurrent handling.
+        let mut concurrent = false;
+        if let Some(token) = self.cursor.peek()
+            && let Token::Identifier(id) = &token.token
+            && id == "concurrently"
+        {
+            self.bump_sync(); // Consume "concurrently"
+            concurrent = true;
+        }
+
         self.expect_token(Token::Colon, "Expected ':' after 'main loop'")?;
 
         // Skip any Eol tokens after the colon
@@ -633,6 +646,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         Ok(Statement::MainLoop {
             body,
+            concurrent,
             line: main_token.line,
             column: main_token.column,
         })

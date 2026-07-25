@@ -1339,6 +1339,71 @@ impl Analyzer {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);
             }
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                ..
+            } => {
+                // Count both interpretations of the ambiguous merged form as
+                // usages (stream value AND the classic file-write fallback), so a
+                // variable named `line <ident>` written to a file is not falsely
+                // reported unused.
+                self.mark_used_in_expression(value, usages);
+                self.mark_used_in_expression(target, usages);
+                if let Some(fallback) = fallback_content {
+                    self.mark_used_in_expression(fallback, usages);
+                }
+            }
+            Statement::FlushStreamStatement {
+                target,
+                legacy_binding,
+                action_fallback,
+                ..
+            } => {
+                // The runtime chooses between the stream target and the legacy
+                // expression interpretation. Mark both conservatively, matching
+                // ambiguous stream writes, and mark the preserved merged binding
+                // separately because split/find/replace rewrites may legitimately
+                // discard that seed from the fallback AST.
+                self.mark_used_in_expression(target, usages);
+                if let Some(name) = legacy_binding
+                    && let Some(usage) = usages.get_mut(name)
+                {
+                    usage.used = true;
+                }
+                if let Some(fallback) = action_fallback {
+                    self.mark_used_in_expression(fallback, usages);
+                }
+            }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                for expr in [method, headers, body].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
+            Statement::WaitForNextChunkStatement { source, .. }
+            | Statement::WaitForNextLineStatement { source, .. } => {
+                self.mark_used_in_expression(source, usages);
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                ..
+            } => {
+                self.mark_used_in_expression(request, usages);
+                for expr in [status, content_type, headers].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
             Statement::WriteContentStatement {
                 content, target, ..
             }
@@ -2154,6 +2219,82 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unused"));
         assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+    }
+
+    #[test]
+    fn test_streaming_statement_variables_are_not_reported_unused() {
+        // Variables referenced only inside the streaming/incremental-read
+        // statements must count as used — otherwise a program that opens a
+        // stream from a URL/body variable gets a false unused warning. Exercise
+        // every new arm and every metadata operand:
+        //   - HttpStreamStatement: url, method, body
+        //   - WaitForNextChunkStatement / WaitForNextLineStatement: source
+        //   - StartStreamingResponseStatement: status, content type
+        // and a genuinely-unused variable to prove the pass still flags real
+        // dead code (negative assertion).
+        let input = "store my_url as \"http://example.com/s\"\n\
+store my_method as \"POST\"\n\
+store my_body as \"payload\"\n\
+open url at my_url with method my_method and body my_body and stream response as upstream\n\
+wait for next chunk from upstream as ch\n\
+wait for next line from upstream as ln\n\
+store st as 200\n\
+store ctype as \"application/x-ndjson\"\n\
+start streaming response to req with status st and content type ctype as out\n\
+write line \"x\" to out\n\
+store dead as \"never read\"\n\
+display ch\n\
+display ln";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // The only unused variable is `dead`; every streaming operand counts as
+        // used (a missing arm would surface `my_url`/`my_method`/`my_body`/
+        // `upstream`/`st`/`ctype` here too).
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected only `dead` unused, got: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics[0].message.contains("dead"),
+            "expected the unused diagnostic to name `dead`, got: {:?}",
+            diagnostics[0].message
+        );
+    }
+
+    #[test]
+    fn test_legacy_flush_binding_and_fallback_operands_are_not_reported_unused() {
+        // `replace ... in ...` rewrites the expression AST and discards its
+        // seeded `flush cache` leaf. The explicit legacy-binding metadata must
+        // therefore count that declaration as used independently of the
+        // rewritten target/fallback expression.
+        let input = "create pattern letter_a:\n\
+                     \x20\x20\x20\x20\"a\"\n\
+                     end pattern\n\
+                     store flush cache as 1\n\
+                     store replacement_value as \"z\"\n\
+                     store text_value as \"abc\"\n\
+                     flush cache replace letter_a with replacement_value in text_value\n\
+                     store dead as \"never read\"";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected only `dead` unused, got: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics[0].message.contains("dead"),
+            "the legacy binding and fallback operands must count as used; got: {diagnostics:?}"
+        );
     }
 
     #[test]

@@ -12,17 +12,33 @@ use std::sync::Arc;
 /// Trait for parsing primary (atomic) expressions
 pub(crate) trait PrimaryExprParser<'a> {
     /// Parses a primary expression (atomic expression like literals, variables, etc.)
-    fn parse_primary_expression(&mut self) -> Result<Expression, ParseError>;
+    fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
+        self.parse_primary_expression_with_clause_boundary(false)
+    }
+
+    /// Parses a primary while preserving a surrounding streaming-response
+    /// clause boundary through un-delimited postfix forms such as `values at 0`.
+    fn parse_primary_expression_stopping_at_clause(&mut self) -> Result<Expression, ParseError> {
+        self.parse_primary_expression_with_clause_boundary(true)
+    }
+
+    fn parse_primary_expression_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError>;
 
     /// Parses a single list element without parsing binary operators
     fn parse_list_element(&mut self) -> Result<Expression, ParseError>;
 }
 
 impl<'a> PrimaryExprParser<'a> for Parser<'a> {
-    fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
+    fn parse_primary_expression_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
         #[cfg(debug_assertions)]
         let leading = self.cursor.peek().cloned();
-        let result = self.parse_primary_expression_dispatch();
+        let result = self.parse_primary_expression_dispatch(stop_at_clause);
 
         // Runtime coupling check between `can_start_primary_expression` (the
         // predicate `display`'s multi-value fold is built on, in
@@ -89,12 +105,274 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Parse an un-delimited recursive expression while retaining the
+    /// streaming-response clause boundary inherited from its outer operand.
+    fn parse_expression_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
+        if stop_at_clause {
+            self.parse_binary_expression_stopping_at_clause(0)
+        } else {
+            self.parse_expression()
+        }
+    }
+
+    /// Consume postfix accessors — bracket index (`["key"]`, `[0]`) and dotted
+    /// property access (`.field`) — that chain off a completed lead expression, so
+    /// they bind to the lead instead of splitting into bogus separate statements.
+    ///
+    /// This runs where the lexer has merged the lead into one identifier token and
+    /// left the accessors as following tokens: an identifier property access
+    /// (`upstream.headers["content-type"]`, which otherwise parsed as
+    /// `upstream.headers` + a stray `["content-type"]` list literal), and the
+    /// merged-command operands (`flush streams["a"]`, `flush obj.out`). Handles
+    /// arbitrary chains (`grid.rows[0][1]`, `obj.a.b["k"]`).
+    pub(crate) fn parse_trailing_postfix(
+        &mut self,
+        expr: Expression,
+    ) -> Result<Expression, ParseError> {
+        self.parse_trailing_postfix_with_clause_boundary(expr, false, None)
+    }
+
+    /// Clause-aware counterpart to [`Self::parse_trailing_postfix`]. Natural
+    /// `at` indexes are not delimited, so their recursive expression parser must
+    /// inherit the response-clause boundary from the surrounding operand.
+    pub(crate) fn parse_trailing_postfix_stopping_at_clause(
+        &mut self,
+        expr: Expression,
+    ) -> Result<Expression, ParseError> {
+        self.parse_trailing_postfix_with_clause_boundary(expr, true, None)
+    }
+
+    fn parse_trailing_postfix_after_member(
+        &mut self,
+        expr: Expression,
+        stop_at_clause: bool,
+        member_end: usize,
+    ) -> Result<Expression, ParseError> {
+        self.parse_trailing_postfix_with_clause_boundary(expr, stop_at_clause, Some(member_end))
+    }
+
+    fn parse_trailing_postfix_with_clause_boundary(
+        &mut self,
+        mut expr: Expression,
+        stop_at_clause: bool,
+        mut adjacent_member_end: Option<usize>,
+    ) -> Result<Expression, ParseError> {
+        while let Some(tok) = self.cursor.peek() {
+            let (line, column) = (tok.line, tok.column);
+            match &tok.token {
+                Token::LeftBracket => {
+                    // A bracket separated from `.property` / `.method()` by
+                    // whitespace starts a fresh display value (`display
+                    // alice.name [1, 2]`). Only an adjacent bracket belongs to
+                    // the completed member expression. Seeded streaming operands
+                    // pass `None` and retain their historical permissive spacing.
+                    if adjacent_member_end.is_some_and(|member_end| member_end != tok.byte_start) {
+                        break;
+                    }
+                    // Anchor a "missing `]`" span to the `[` token itself, not the
+                    // start of the file.
+                    let (bracket_start, bracket_end) = (tok.byte_start, tok.byte_end);
+                    self.bump_sync(); // Consume '['
+
+                    let index = self.parse_expression()?;
+
+                    match self.cursor.peek() {
+                        Some(closing) if closing.token == Token::RightBracket => {
+                            adjacent_member_end = Some(closing.byte_end);
+                            self.bump_sync(); // Consume ']'
+                        }
+                        Some(closing) => {
+                            return Err(ParseError::from_token(
+                                format!("Expected ']' after index, found {:?}", closing.token),
+                                closing,
+                            ));
+                        }
+                        None => {
+                            return Err(ParseError::from_span(
+                                "Expected ']' after index, found end of input".to_string(),
+                                crate::diagnostics::Span {
+                                    start: bracket_start,
+                                    end: bracket_end,
+                                },
+                                line,
+                                column,
+                            ));
+                        }
+                    }
+
+                    expr = Expression::IndexAccess {
+                        collection: Box::new(expr),
+                        index: Box::new(index),
+                        line,
+                        column,
+                    };
+                }
+                Token::Dot => {
+                    // Anchor an end-of-input error to the `.` token, not the start
+                    // of the file.
+                    let (dot_start, dot_end) = (tok.byte_start, tok.byte_end);
+                    self.bump_sync(); // Consume '.'
+                    let (property, property_end) = match self.cursor.peek() {
+                        // Keywords that double as common property names (e.g.
+                        // `response.status`) are accepted, matching the primary
+                        // dispatch's property-access handling.
+                        Some(prop) => match &prop.token {
+                            Token::Identifier(name) => (name.clone(), prop.byte_end),
+                            Token::KeywordStatus => ("status".to_string(), prop.byte_end),
+                            _ => {
+                                return Err(ParseError::from_token(
+                                    "Expected a property name after '.'".to_string(),
+                                    prop,
+                                ));
+                            }
+                        },
+                        None => {
+                            return Err(ParseError::from_span(
+                                "Expected a property name after '.', found end of input"
+                                    .to_string(),
+                                crate::diagnostics::Span {
+                                    start: dot_start,
+                                    end: dot_end,
+                                },
+                                line,
+                                column,
+                            ));
+                        }
+                    };
+                    self.bump_sync(); // Consume the property name
+                    adjacent_member_end = Some(property_end);
+                    // `.method(args)` — a method call, not a bare property access.
+                    // Mirrors the primary dispatch so merged-command operands like
+                    // `write line obj.method() to out` / `flush obj.method()` compose
+                    // the call instead of leaving the `(...)` to dangle.
+                    if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::LeftParen)) {
+                        self.bump_sync(); // Consume '('
+                        let mut arguments = Vec::new();
+                        if let Some(next) = self.cursor.peek()
+                            && next.token != Token::RightParen
+                        {
+                            arguments.push(Argument {
+                                name: None,
+                                value: self.parse_expression()?,
+                            });
+                            while matches!(self.cursor.peek().map(|t| &t.token), Some(Token::Comma))
+                            {
+                                self.bump_sync(); // Consume ','
+                                arguments.push(Argument {
+                                    name: None,
+                                    value: self.parse_expression()?,
+                                });
+                            }
+                        }
+                        let method_end = self
+                            .cursor
+                            .peek()
+                            .filter(|token| token.token == Token::RightParen)
+                            .map(|token| token.byte_end);
+                        self.expect_token(
+                            Token::RightParen,
+                            "Expected ')' after method arguments",
+                        )?;
+                        adjacent_member_end = method_end;
+                        expr = Expression::MethodCall {
+                            object: Box::new(expr),
+                            method: property,
+                            arguments,
+                            line,
+                            column,
+                        };
+                    } else {
+                        expr = Expression::PropertyAccess {
+                            object: Box::new(expr),
+                            property,
+                            line,
+                            column,
+                        };
+                    }
+                }
+                // Direct integer indexing (`values 0`) — same form as the ordinary
+                // primary postfix loop. Required so classic
+                // `write line values 0 to "/tmp/out"` still parses (issue #642).
+                Token::IntLiteral(index) => {
+                    // Direct integer indexing after a property/method was not
+                    // part of the legacy primary grammar. Leaving it unconsumed
+                    // lets `display alice.name 5` fold two display values.
+                    if adjacent_member_end.is_some() {
+                        break;
+                    }
+                    if matches!(
+                        expr,
+                        Expression::Variable(_, _, _)
+                            | Expression::IndexAccess { .. }
+                            | Expression::FunctionCall { .. }
+                            | Expression::PropertyAccess { .. }
+                            | Expression::MethodCall { .. }
+                    ) {
+                        let index_val = *index;
+                        let (base_line, base_col) = match &expr {
+                            Expression::Variable(_, l, c)
+                            | Expression::IndexAccess {
+                                line: l, column: c, ..
+                            }
+                            | Expression::FunctionCall {
+                                line: l, column: c, ..
+                            }
+                            | Expression::PropertyAccess {
+                                line: l, column: c, ..
+                            }
+                            | Expression::MethodCall {
+                                line: l, column: c, ..
+                            } => (*l, *c),
+                            _ => (line, column),
+                        };
+                        self.bump_sync();
+                        expr = Expression::IndexAccess {
+                            collection: Box::new(expr),
+                            index: Box::new(Expression::Literal(
+                                Literal::Integer(index_val),
+                                line,
+                                column,
+                            )),
+                            line: base_line,
+                            column: base_col,
+                        };
+                    } else {
+                        break;
+                    }
+                }
+                // Natural-language indexing (`values at 0`) — same as primary.
+                Token::KeywordAt => {
+                    self.bump_sync();
+                    let index = if stop_at_clause {
+                        self.parse_binary_expression_stopping_at_clause(0)?
+                    } else {
+                        self.parse_expression()?
+                    };
+                    expr = Expression::IndexAccess {
+                        collection: Box::new(expr),
+                        index: Box::new(index),
+                        line,
+                        column,
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
     /// The actual primary-expression dispatch. Call `parse_primary_expression`
     /// (the trait method above), not this directly — it wraps this function
     /// with a debug-only check that keeps `can_start_primary_expression` from
     /// silently drifting away from what this dispatch really accepts, and
     /// recursive calls from within the arms below go through that wrapper too.
-    fn parse_primary_expression_dispatch(&mut self) -> Result<Expression, ParseError> {
+    fn parse_primary_expression_dispatch(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
         // Strided run-budget checkpoint. Every operand (list element, operator-
         // chain term, call argument) routes through here, so this bounds a single
         // huge expression that the statement-boundary checkpoint would miss.
@@ -217,7 +495,7 @@ impl<'a> Parser<'a> {
                     let call_line = token.line;
                     let call_column = token.column;
                     self.bump_sync(); // Consume 'call'
-                    return self.parse_call_expression(call_line, call_column);
+                    return self.parse_call_expression(call_line, call_column, stop_at_clause);
                 }
                 Token::Identifier(name) => {
                     self.bump_sync();
@@ -230,6 +508,7 @@ impl<'a> Parser<'a> {
                             self.bump_sync(); // Consume '.'
 
                             if let Some(property_token) = self.cursor.peek() {
+                                let property_end = property_token.byte_end;
                                 // Keywords that are also common property names
                                 // (e.g. `response.status`) are accepted here
                                 let parsed_property = match &property_token.token {
@@ -272,12 +551,18 @@ impl<'a> Parser<'a> {
                                             }
                                         }
 
+                                        let method_end = self
+                                            .cursor
+                                            .peek()
+                                            .filter(|token| token.token == Token::RightParen)
+                                            .map(|token| token.byte_end)
+                                            .unwrap_or(property_end);
                                         self.expect_token(
                                             Token::RightParen,
                                             "Expected ')' after method arguments",
                                         )?;
 
-                                        return Ok(Expression::MethodCall {
+                                        let call = Expression::MethodCall {
                                             object: Box::new(Expression::Variable(
                                                 name.clone(),
                                                 token_line,
@@ -287,11 +572,22 @@ impl<'a> Parser<'a> {
                                             arguments,
                                             line: token_line,
                                             column: token_column,
-                                        });
+                                        };
+                                        return self.parse_trailing_postfix_after_member(
+                                            call,
+                                            stop_at_clause,
+                                            method_end,
+                                        );
                                     }
 
-                                    // Property access without method call
-                                    return Ok(Expression::PropertyAccess {
+                                    // Property access without method call.
+                                    // Route through the trailing-index helper so a
+                                    // following `["key"]`/`[i]` binds to the
+                                    // property value (e.g.
+                                    // `upstream.headers["content-type"]`) instead
+                                    // of splitting off into a bogus list-literal
+                                    // statement.
+                                    let access = Expression::PropertyAccess {
                                         object: Box::new(Expression::Variable(
                                             name.clone(),
                                             token_line,
@@ -300,7 +596,12 @@ impl<'a> Parser<'a> {
                                         property: property_name.clone(),
                                         line: token_line,
                                         column: token_column,
-                                    });
+                                    };
+                                    return self.parse_trailing_postfix_after_member(
+                                        access,
+                                        stop_at_clause,
+                                        property_end,
+                                    );
                                 } else {
                                     return Err(ParseError::from_token(
                                         "Expected property name after '.'".to_string(),
@@ -318,7 +619,11 @@ impl<'a> Parser<'a> {
                         {
                             self.bump_sync(); // Consume "with"
 
-                            let arguments = self.parse_argument_list()?;
+                            let arguments = if stop_at_clause {
+                                self.parse_argument_list_stopping_at_clause()?
+                            } else {
+                                self.parse_argument_list()?
+                            };
 
                             return Ok(Expression::ActionCall {
                                 name: name.clone(),
@@ -348,7 +653,8 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordNot => {
                     self.bump_sync(); // Consume "not"
-                    let expr = self.parse_primary_expression()?;
+                    let expr =
+                        self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::UnaryOperation {
@@ -360,7 +666,8 @@ impl<'a> Parser<'a> {
                 }
                 Token::Minus => {
                     self.bump_sync(); // Consume "-"
-                    let expr = self.parse_primary_expression()?;
+                    let expr =
+                        self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::UnaryOperation {
@@ -372,7 +679,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordWith => {
                     self.bump_sync(); // Consume "with"
-                    let expr = self.parse_expression()?;
+                    let expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
                     Ok(expr)
                 }
                 Token::KeywordCount => {
@@ -502,7 +809,8 @@ impl<'a> Parser<'a> {
                     {
                         self.bump_sync(); // Consume "size"
                         self.expect_token(Token::KeywordOf, "Expected 'of' after 'file size'")?;
-                        let file_handle = self.parse_primary_expression()?;
+                        let file_handle =
+                            self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                         return Ok(Expression::FileSizeOf {
                             file_handle: Box::new(file_handle),
                             line: token_line,
@@ -516,7 +824,8 @@ impl<'a> Parser<'a> {
                     {
                         self.bump_sync(); // Consume "exists"
                         self.expect_token(Token::KeywordAt, "Expected 'at' after 'file exists'")?;
-                        let path = self.parse_primary_expression()?;
+                        let path =
+                            self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                         return Ok(Expression::FileExists {
                             path: Box::new(path),
                             line: token_line,
@@ -545,7 +854,8 @@ impl<'a> Parser<'a> {
                             Token::KeywordAt,
                             "Expected 'at' after 'directory exists'",
                         )?;
-                        let path = self.parse_primary_expression()?;
+                        let path =
+                            self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                         return Ok(Expression::DirectoryExists {
                             path: Box::new(path),
                             line: token_line,
@@ -566,7 +876,8 @@ impl<'a> Parser<'a> {
                     let token_column = token.column;
 
                     // Parse process ID expression
-                    let process_id = self.parse_primary_expression()?;
+                    let process_id =
+                        self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
 
                     // Check if followed by "is running"
                     if let Some(next_token) = self.cursor.peek()
@@ -615,7 +926,8 @@ impl<'a> Parser<'a> {
                     self.expect_token(Token::KeywordOf, "Expected 'of' after header name")?;
 
                     // Parse request expression
-                    let request = self.parse_primary_expression()?;
+                    let request =
+                        self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
 
                     Ok(Expression::HeaderAccess {
                         header_name,
@@ -718,7 +1030,8 @@ impl<'a> Parser<'a> {
                             Token::KeywordIn,
                             "Expected 'in' after 'list files [recursively]'",
                         )?;
-                        let path = self.parse_primary_expression()?;
+                        let path =
+                            self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
 
                         // Handle recursive listing (if not already handled)
                         if is_recursive {
@@ -727,7 +1040,7 @@ impl<'a> Parser<'a> {
                                 && with_token.token == Token::KeywordWith
                             {
                                 self.bump_sync(); // Consume "with"
-                                let extensions = self.parse_extension_filter()?;
+                                let extensions = self.parse_extension_filter(stop_at_clause)?;
                                 return Ok(Expression::ListFilesRecursive {
                                     path: Box::new(path),
                                     extensions: Some(extensions),
@@ -756,7 +1069,8 @@ impl<'a> Parser<'a> {
                                         && with_token.token == Token::KeywordWith
                                     {
                                         self.bump_sync(); // Consume "with"
-                                        let extensions = self.parse_extension_filter()?;
+                                        let extensions =
+                                            self.parse_extension_filter(stop_at_clause)?;
                                         return Ok(Expression::ListFilesRecursive {
                                             path: Box::new(path),
                                             extensions: Some(extensions),
@@ -775,7 +1089,7 @@ impl<'a> Parser<'a> {
                                 }
                                 Token::KeywordWith => {
                                     self.bump_sync(); // Consume "with"
-                                    let extensions = self.parse_extension_filter()?;
+                                    let extensions = self.parse_extension_filter(stop_at_clause)?;
                                     return Ok(Expression::ListFilesFiltered {
                                         path: Box::new(path),
                                         extensions,
@@ -815,7 +1129,8 @@ impl<'a> Parser<'a> {
                                 Token::KeywordFrom,
                                 "Expected 'from' after 'read content'",
                             )?;
-                            let file_handle = self.parse_primary_expression()?;
+                            let file_handle =
+                                self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                             return Ok(Expression::ReadContent {
                                 file_handle: Box::new(file_handle),
                                 line: token_line,
@@ -830,7 +1145,8 @@ impl<'a> Parser<'a> {
                                 Token::KeywordFrom,
                                 "Expected 'from' after 'read binary'",
                             )?;
-                            let file_handle = self.parse_primary_expression()?;
+                            let file_handle =
+                                self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                             return Ok(Expression::ReadBinaryContent {
                                 file_handle: Box::new(file_handle),
                                 line: token_line,
@@ -845,7 +1161,8 @@ impl<'a> Parser<'a> {
                         ) {
                             // Speculatively parse count expression, then check for "bytes"
                             let saved_pos = self.cursor.checkpoint();
-                            if let Ok(count_expr) = self.parse_primary_expression()
+                            if let Ok(count_expr) =
+                                self.parse_primary_expression_with_clause_boundary(stop_at_clause)
                                 && let Some(bytes_tok) = self.cursor.peek()
                                 && bytes_tok.token == Token::KeywordBytes
                             {
@@ -854,7 +1171,10 @@ impl<'a> Parser<'a> {
                                     Token::KeywordFrom,
                                     "Expected 'from' after 'read N bytes'",
                                 )?;
-                                let file_handle = self.parse_primary_expression()?;
+                                let file_handle = self
+                                    .parse_primary_expression_with_clause_boundary(
+                                        stop_at_clause,
+                                    )?;
                                 return Ok(Expression::ReadBinaryN {
                                     file_handle: Box::new(file_handle),
                                     count: Box::new(count_expr),
@@ -876,12 +1196,13 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordFind => {
                     self.bump_sync(); // Consume "find"
-                    let pattern_expr = self.parse_expression()?;
+                    let pattern_expr =
+                        self.parse_expression_with_clause_boundary(stop_at_clause)?;
                     self.expect_token(
                         Token::KeywordIn,
                         "Expected 'in' after pattern in find expression",
                     )?;
-                    let text_expr = self.parse_expression()?;
+                    let text_expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
                     Ok(Expression::PatternFind {
                         pattern: Box::new(pattern_expr),
                         text: Box::new(text_expr),
@@ -891,17 +1212,19 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordReplace => {
                     self.bump_sync(); // Consume "replace"
-                    let pattern_expr = self.parse_primary_expression()?;
+                    let pattern_expr =
+                        self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                     self.expect_token(
                         Token::KeywordWith,
                         "Expected 'with' after pattern in replace expression",
                     )?;
-                    let replacement_expr = self.parse_expression()?;
+                    let replacement_expr =
+                        self.parse_expression_with_clause_boundary(stop_at_clause)?;
                     self.expect_token(
                         Token::KeywordIn,
                         "Expected 'in' after replacement in replace expression",
                     )?;
-                    let text_expr = self.parse_expression()?;
+                    let text_expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
                     Ok(Expression::PatternReplace {
                         pattern: Box::new(pattern_expr),
                         replacement: Box::new(replacement_expr),
@@ -917,7 +1240,7 @@ impl<'a> Parser<'a> {
                     // optionally consuming "of" (equivalent to `split X by DELIM`).
                     self.consume_optional_of();
 
-                    let text_expr = self.parse_expression()?;
+                    let text_expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
 
                     // Check for "by" (string split) or "on" (pattern split)
                     if let Some(next_token) = self.cursor.peek() {
@@ -925,7 +1248,8 @@ impl<'a> Parser<'a> {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
                                 self.bump_sync(); // Consume "by"
-                                let delimiter_expr = self.parse_expression()?;
+                                let delimiter_expr =
+                                    self.parse_expression_with_clause_boundary(stop_at_clause)?;
                                 Ok(Expression::StringSplit {
                                     text: Box::new(text_expr),
                                     delimiter: Box::new(delimiter_expr),
@@ -940,7 +1264,8 @@ impl<'a> Parser<'a> {
                                     Token::KeywordPattern,
                                     "Expected 'pattern' after 'on' in split expression",
                                 )?;
-                                let pattern_expr = self.parse_expression()?;
+                                let pattern_expr =
+                                    self.parse_expression_with_clause_boundary(stop_at_clause)?;
                                 Ok(Expression::PatternSplit {
                                     text: Box::new(text_expr),
                                     pattern: Box::new(pattern_expr),
@@ -1019,7 +1344,8 @@ impl<'a> Parser<'a> {
                         } else {
                             // Try to parse as "contains X in Y"
                             // Parse the needle expression
-                            let needle = self.parse_primary_expression()?;
+                            let needle =
+                                self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
 
                             // Check if next token is "in"
                             if let Some(in_token) = self.cursor.peek()
@@ -1028,7 +1354,9 @@ impl<'a> Parser<'a> {
                                 self.bump_sync(); // Consume "in"
 
                                 // Parse the haystack expression
-                                let haystack = self.parse_primary_expression()?;
+                                let haystack = self.parse_primary_expression_with_clause_boundary(
+                                    stop_at_clause,
+                                )?;
 
                                 // Create a function call expression for contains
                                 Ok(Expression::FunctionCall {
@@ -1207,7 +1535,11 @@ impl<'a> Parser<'a> {
                             // but stops at `and`, `with`, `from`/`by`, comparisons,
                             // and pattern keywords so multi-argument and postfix
                             // forms keep working.
-                            let first_arg = self.parse_of_call_argument()?;
+                            let first_arg = if stop_at_clause {
+                                self.parse_of_call_argument_stopping_at_clause()?
+                            } else {
+                                self.parse_of_call_argument()?
+                            };
 
                             let is_function_call = matches!(
                                 expr,
@@ -1237,11 +1569,23 @@ impl<'a> Parser<'a> {
                                     );
 
                                     if is_separator {
+                                        if stop_at_clause
+                                            && matches!(&sep_token.token, Token::KeywordAnd)
+                                            && Self::is_streaming_clause_keyword(
+                                                self.cursor.peek_n(1).map(|t| &t.token),
+                                            )
+                                        {
+                                            break;
+                                        }
                                         self.bump_sync(); // Consume the separator
 
                                         // Each argument absorbs arithmetic while
                                         // `and`/`with`/`from`/`by` stay separators.
-                                        let arg_value = self.parse_of_call_argument()?;
+                                        let arg_value = if stop_at_clause {
+                                            self.parse_of_call_argument_stopping_at_clause()?
+                                        } else {
+                                            self.parse_of_call_argument()?
+                                        };
 
                                         arguments.push(Argument {
                                             name: None,
@@ -1269,7 +1613,11 @@ impl<'a> Parser<'a> {
                         Token::KeywordAt => {
                             self.bump_sync(); // Consume "at"
 
-                            let index = self.parse_expression()?;
+                            let index = if stop_at_clause {
+                                self.parse_binary_expression_stopping_at_clause(0)?
+                            } else {
+                                self.parse_expression()?
+                            };
 
                             expr = Expression::IndexAccess {
                                 collection: Box::new(expr),

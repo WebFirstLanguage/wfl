@@ -68,6 +68,24 @@ fn test_display_statement() {
 }
 
 #[test]
+fn test_ambiguous_write_line_uses_classic_file_fallback() {
+    let source = "store line note as \"hello\"\nwrite line note to \"f.txt\"";
+    let js = transpile_wfl(source)
+        .expect("an ambiguous write with a classic file fallback must transpile");
+    assert_contains(&js, "WFL.file.write(\"f.txt\".path, line_note);");
+}
+
+#[test]
+fn test_unambiguous_stream_write_still_fails_to_transpile() {
+    let error = transpile_wfl("write line \"hello\" to out")
+        .expect_err("a genuine response-stream write has no JavaScript translation");
+    assert!(
+        error.contains("Streaming HTTP statements are not supported"),
+        "expected the streaming-specific transpiler error, got: {error}"
+    );
+}
+
+#[test]
 fn test_if_statement() {
     let source = r#"
 store x as 10
@@ -679,4 +697,26 @@ fn test_describe_and_test_descriptions_are_javascript_string_literals() {
     let js = transpile_wfl(source).unwrap();
     assert_contains(&js, "describe(\"quoted \\\"suite\\\"\", function()");
     assert_contains(&js, "it(\"quoted \\\"case\\\"\", function()");
+}
+
+#[test]
+fn test_main_loop_concurrently_fails_to_transpile() {
+    // `main loop concurrently:` has no serial JavaScript translation; it must
+    // error rather than silently emit a serial loop.
+    let source = "main loop concurrently:\n    display \"x\"\nend loop";
+    let result = transpile_wfl(source);
+    // Assert the specific transpiler rejection, not merely any error — so a
+    // future parse failure can't masquerade as the intended rejection.
+    let error = result.expect_err("main loop concurrently should fail to transpile");
+    assert!(
+        error.contains("not supported in JavaScript transpilation"),
+        "expected the unsupported-transpilation error, got: {error}"
+    );
+
+    // Plain `main loop` still transpiles.
+    let serial = transpile_wfl("main loop:\n    display \"x\"\nend loop");
+    assert!(
+        serial.is_ok(),
+        "plain main loop should transpile: {serial:?}"
+    );
 }

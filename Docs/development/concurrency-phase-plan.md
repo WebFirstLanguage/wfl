@@ -46,9 +46,60 @@ HARD RULES:
 | 0 | 0a | Docs honesty + `panic=unwind` CI | ✅ Done |
 | 0 | 0b | `spawn_blocking` for blocking crypto | ✅ Done |
 | 0 | 0c | Bound accept/queue (OOM shed) | ✅ Done |
-| 1 | 1a | Runtime spike (bridge, no surface) | ⬜ Not started |
-| 1 | 1b | `main loop concurrently:` surface + ops defaults | ⬜ Not started |
-| 1 | 1c | Honesty docs for real concurrent model | ⬜ Not started |
+| 1 | 1a | Runtime spike (bridge, no surface) | ✅ Done (folded into 1b) |
+| 1 | 1b | `main loop concurrently:` surface + ops defaults | ✅ Done — awaiting maintainer review |
+| 1 | 1c | Honesty docs for real concurrent model | ✅ Docs landed — some 1b/1c checklist items still open (request-ID logging; RefCell shutdown/signal-path audit), see notes below |
+
+> **Phase 1 landed in one change** (`Dev diary/2026-07-22-concurrent-request-handlers.md`),
+> not the staged 1a→1b→1c sequence. What is covered: `main loop concurrently:`
+> surface (locked marker); plain `main loop` byte-compatible serial (tested);
+> `FuturesUnordered` of `!Send`, `&self`-borrowing handler futures on the
+> existing runtime; per-request isolation of both the **environment** scope
+> *and* interpreter run-state (see the run-state note below) — note that a
+> handler's environment is a fresh child of the shared parent, so top-level
+> (global) bindings and any shallow-shared collections reachable through them
+> remain shared, by design; a slow handler not blocking a fast sibling (tested);
+> in-flight cap (`CONCURRENT_HANDLER_LIMIT`), with 503/504/500 provided by the
+> transport plus the interpreter's per-handler exit sweep (bounded queue → 503,
+> response deadline → 504, `ResponseCompletion` drop → 500 mid-`respond`, and a
+> handler that dequeues a request and ends **without** responding → an immediate
+> 500 rather than waiting out the request timeout — *this immediate-500 case is
+> covered by a dedicated test*; the 503/504 cases are transport-provided and are
+> **not** exercised by a dedicated Phase-1 test); the empty-set
+> busy-spin trap is avoided (cap ≥ 1 keeps the set non-empty). Cooperative, not
+> parallel: handlers interleave only at await points, so a CPU-bound handler with
+> no await still holds the interpreter thread (documented in `web-servers.md`).
+>
+> **Containment:** *runtime-error* containment is tested (an erroring handler
+> does not kill the server). *Panic* containment is by construction via
+> `catch_unwind` on each handler future but is **not** covered by a dedicated
+> test — a deterministic WFL-level Rust panic is not readily expressible from
+> the language, so the guarantee rests on the wrapper + the `panic = "unwind"`
+> gate, not a regression test.
+>
+> **Run-state isolation (review gap — FIXED):** the concurrent loop already
+> isolates the **environment** per handler; it now also isolates interpreter
+> run-state. Each handler carries its own `RunState` (`current_count`/
+> `in_count_loop`, `call_depth`, `call_stack`, and the block overload-dup set),
+> and an `IsolatedHandler` poll wrapper swaps that state into the interpreter
+> only for the duration of each `poll`, swapping it back out the instant the poll
+> returns (ready *or* pending). While a handler is suspended at an `await`, its
+> count-loop/recursion/call-stack bookkeeping is parked in its own `RunState`, so
+> a sibling polled next neither sees nor clobbers it. Serial execution is
+> untouched (the wrapper is used only by `execute_concurrent_main_loop`).
+> Regression: `tests/concurrent_main_loop_test.rs::test_concurrent_handlers_do_not_share_count_loop_state`
+> (Red without the swap: `/a` observed `/b`'s entire count range).
+>
+> **Also lighter than the full 1b checklist (open items):** request-ID
+> *structured* logging is not yet added; the eval-core `RefCell`-across-await
+> audit is **only partially covered** — the crate-wide
+> `#![deny(clippy::await_holding_refcell_ref)]` backstop catches borrows held
+> across `.await`, but the **shutdown/signal lifecycle paths** (dropped borrows on
+> teardown, e.g. `close server`'s `web_servers.borrow_mut()` held across a short
+> await) are **not yet separately audited or tested**. Treat the RefCell audit as
+> **open**, with the clippy lint as supplementary — not complete — coverage.
+>
+> **This is the maintainer STOP/review point** — please review before Phase 2.
 | 2 | 2a | Structured nursery + join engine | ⬜ Not started |
 | 2 | 2b | `change shared` critical region | ⬜ Not started |
 | 3 | 3a | Multi-process workers (if profiling forces) | ⬜ Deferred |
@@ -203,31 +254,44 @@ HARD RULES:
 
 **Goal:** User-visible opt-in concurrent loop; serial path untouched.
 
+> **Status:** shipped in the single Phase 1 change (see the tracker note above).
+> The checklist below is updated to the as-shipped state; `[~]` marks items
+> provided by the existing transport layer rather than net-new here, and the two
+> remaining known gaps are called out explicitly.
+
 #### TODOs — language / runtime
 
-- [ ] Parser: `main loop concurrently:` (and matching `end`)
-- [ ] Analyzer / typechecker / keyword docs if needed
-- [ ] Runtime: concurrent path uses proven 1a bridge
-- [ ] **G1:** plain `main loop` remains serial and byte-compatible
-- [ ] Isolated-per-request scopes (default)
-- [ ] Semaphore / in-flight cap (default e.g. 256) → shed **503**
-- [ ] Per-request timeout (default e.g. 30s) → **504** (only at await points — document cliff)
+- [x] Parser: `main loop concurrently:` (and matching `end`)
+- [x] Analyzer / typechecker / keyword docs if needed
+- [x] Runtime: concurrent path uses proven 1a bridge
+- [x] **G1:** plain `main loop` remains serial and byte-compatible
+- [x] Isolated-per-request scopes (default) — plus per-handler run-state isolation
+- [~] Semaphore / in-flight cap (default e.g. 256) → shed **503** (cap in the
+  concurrent loop; 503 shedding from the transport's bounded queue)
+- [~] Per-request timeout (default e.g. 30s) → **504** (transport response
+  deadline; await-point cliff documented)
 - [ ] Request-ID structured logging on accept / complete / fail / shed / timeout
-- [ ] catch_unwind boundary → **500**, siblings survive
-- [ ] Eval-core audit: every `RefCell` borrow/borrow_mut on await paths drops before `.await`
-  - [ ] PR description lists each site and drop-before-await story
-- [ ] clippy `await_holding_refcell_ref` enabled/enforced where applicable (backstop only)
+  — **known gap** (not yet added)
+- [x] catch_unwind boundary → **500**, siblings survive
+- [~] Eval-core audit: every `RefCell` borrow/borrow_mut on await paths drops
+  before `.await` — **partial**: the clippy backstop catches await-holding
+  borrows, but the shutdown/signal lifecycle paths are not yet separately audited
+  (see the "open items" note above); treat as open
+  - [~] PR description lists each site and drop-before-await story (mechanical
+    lint in lieu of a written per-site walkthrough)
+- [x] clippy `await_holding_refcell_ref` enabled/enforced where applicable (backstop only)
 
 #### TODOs — tests (write first where possible)
 
-- [ ] Serial `main loop` still processes one request at a time (no silent upgrade)
-- [ ] Concurrent loop: slow handler does not block fast sibling
-- [ ] Cap exceeded → 503
-- [ ] Timeout → 504
-- [ ] Panic in A → 500; B still completes
-- [ ] No empty-set busy-spin
-- [ ] Request IDs present in logs (if testable)
-- [ ] Existing web TestPrograms still pass on serial path
+- [x] Serial `main loop` still processes one request at a time (no silent upgrade)
+- [x] Concurrent loop: slow handler does not block fast sibling
+- [~] Cap exceeded → 503 (transport-provided; not a dedicated Phase 1 test)
+- [~] Timeout → 504 (transport-provided; not a dedicated Phase 1 test)
+- [ ] Panic in A → 500; B still completes — **known gap**: only *runtime-error*
+  containment is tested; panic containment is by construction (see tracker note)
+- [x] No empty-set busy-spin (cap ≥ 1 keeps the set non-empty)
+- [ ] Request IDs present in logs — **known gap** (tied to the logging item above)
+- [x] Existing web TestPrograms still pass on serial path
 
 #### TODOs — docs (minimum for ship; full honesty pass may be 1c)
 

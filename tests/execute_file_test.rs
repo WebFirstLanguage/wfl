@@ -4,6 +4,8 @@
 // Executes another WFL file in-process with a nested interpreter, optionally
 // passing HTTP request context and capturing the child's display/print output.
 
+mod common;
+
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
@@ -497,7 +499,7 @@ async fn test_web_server_serves_executed_wfl_page() {
     )
     .expect("Failed to write page file");
 
-    let port: u16 = 58123;
+    let port = common::free_tcp_port();
     let server_file = temp_dir.path().join("server.wfl");
     let server_code = format!(
         concat!(

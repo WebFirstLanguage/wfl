@@ -197,6 +197,92 @@ impl TypeChecker {
         self.analyzer.get_action_parameters()
     }
 
+    fn join_type_snapshots(
+        states: &[Vec<HashMap<String, Option<Type>>>],
+    ) -> Vec<HashMap<String, Option<Type>>> {
+        let Some(first) = states.first() else {
+            return Vec::new();
+        };
+        let mut joined = first.clone();
+
+        // Analyzer pass 1 normally pre-registers branch-visible symbols, but
+        // include names from every state so direct AST users receive the same
+        // conservative result.
+        for state in states.iter().skip(1) {
+            if joined.len() < state.len() {
+                joined.resize_with(state.len(), HashMap::new);
+            }
+            for (layer_index, layer) in state.iter().enumerate() {
+                for name in layer.keys() {
+                    joined[layer_index].entry(name.clone()).or_insert(None);
+                }
+            }
+        }
+
+        for (layer_index, joined_layer) in joined.iter_mut().enumerate() {
+            let names: Vec<String> = joined_layer.keys().cloned().collect();
+            for name in names {
+                let values: Vec<Option<Type>> = states
+                    .iter()
+                    .map(|state| {
+                        state
+                            .get(layer_index)
+                            .and_then(|layer| layer.get(&name))
+                            .cloned()
+                            .unwrap_or(None)
+                    })
+                    .collect();
+                let first_value = values.first().cloned().unwrap_or(None);
+                let merged = if values.iter().all(|value| value == &first_value) {
+                    first_value
+                } else if values
+                    .iter()
+                    .any(|value| value.is_none() || matches!(value.as_ref(), Some(Type::Unknown)))
+                {
+                    Some(Type::Unknown)
+                } else {
+                    Some(Type::Any)
+                };
+                joined_layer.insert(name, merged);
+            }
+        }
+
+        joined
+    }
+
+    /// Check a loop body under the conservative type state seen at the top of
+    /// every iteration. Exploratory passes contribute only their backedge
+    /// state; diagnostics are emitted once after the header stabilizes.
+    fn check_loop_body_fixed_point(&mut self, body: &[Statement]) {
+        let entry = self.analyzer.snapshot_symbol_types();
+        let mut header = entry.clone();
+
+        loop {
+            self.analyzer.restore_symbol_types(header.clone());
+            let error_count = self.errors.len();
+            for statement in body {
+                self.check_statement_types(statement);
+            }
+            if self.budget_error.is_some() {
+                return;
+            }
+            self.errors.truncate(error_count);
+
+            let backedge = self.analyzer.snapshot_symbol_types();
+            let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
+            if next == header {
+                break;
+            }
+            header = next;
+        }
+
+        self.analyzer.restore_symbol_types(header.clone());
+        for statement in body {
+            self.check_statement_types(statement);
+        }
+        self.analyzer.restore_symbol_types(header);
+    }
+
     /// Get the return type for builtin functions
     fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
         match name {
@@ -635,6 +721,16 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime keeps one child environment alive for every
+                // iteration, so bindings from a backedge are visible at the
+                // next header but remain local after the loop.
+                self.analyzer.push_scope();
+                self.check_loop_body_fixed_point(body);
+                if self.budget_error.is_some() {
+                    self.analyzer.pop_scope();
+                    return;
+                }
+
                 let condition_type = self.infer_expression_type(condition);
                 if condition_type != Type::Boolean && condition_type != Type::Unknown {
                     self.errors.push(TypeError::new(
@@ -647,10 +743,7 @@ impl TypeChecker {
                         *_column,
                     ));
                 }
-
-                for stmt in body {
-                    self.check_statement_types(stmt);
-                }
+                self.analyzer.pop_scope();
             }
             Statement::ExitStatement { line: _, column: _ } => {}
             Statement::WaitForStatement {
@@ -688,9 +781,30 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime evaluates the try body, handlers, otherwise, and
+                // finally block inside one shared child environment.
+                self.analyzer.push_scope();
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                if self.budget_error.is_some() {
+                    self.analyzer.pop_scope();
+                    return;
+                }
+                let success_endpoint = self.analyzer.snapshot_symbol_types();
+
+                // An error can leave the body from any statement, so handlers
+                // start from the conservative entry/success join. Keep the
+                // success scope's symbol set as the structural baseline:
+                // success-only bindings remain resolvable as gradual types,
+                // while exact restoration prevents one handler's new symbols
+                // from contaminating the next handler.
+                let handler_entry =
+                    Self::join_type_snapshots(&[entry_types, success_endpoint.clone()]);
+                let handler_scope_symbols = self.analyzer.snapshot_current_scope_symbols();
+                let mut joined_scope_symbols = handler_scope_symbols.clone();
+                let mut endpoints = vec![success_endpoint];
 
                 // Type check each when clause in its own scope so the bound
                 // error name cannot clobber an outer variable of the same
@@ -699,6 +813,9 @@ impl TypeChecker {
                 // the binding lives only in the child scope (runtime does the
                 // same via Environment::define_or_replace).
                 for when_clause in when_clauses {
+                    self.analyzer
+                        .restore_current_scope_symbols(handler_scope_symbols.clone());
+                    self.analyzer.restore_symbol_types(handler_entry.clone());
                     self.analyzer.push_scope();
                     self.analyzer.define_or_replace_symbol(Symbol {
                         name: when_clause.error_name.clone(),
@@ -722,20 +839,64 @@ impl TypeChecker {
                     for stmt in &when_clause.body {
                         self.check_statement_types(stmt);
                     }
-                    self.analyzer.pop_scope();
+                    let mut excluded_aliases = vec![when_clause.error_name.clone()];
+                    if when_clause.error_name != "error_message" {
+                        excluded_aliases.push("error_message".to_string());
+                    }
+                    self.analyzer.pop_scope_promoting_except(&excluded_aliases);
+
+                    if self.budget_error.is_some() {
+                        self.analyzer.pop_scope();
+                        return;
+                    }
+
+                    endpoints.push(self.analyzer.snapshot_symbol_types());
+                    for (name, symbol) in self.analyzer.snapshot_current_scope_symbols() {
+                        joined_scope_symbols.entry(name).or_insert(symbol);
+                    }
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
+                    self.analyzer
+                        .restore_current_scope_symbols(handler_scope_symbols.clone());
+                    self.analyzer.restore_symbol_types(handler_entry.clone());
                     for stmt in otherwise_stmts {
                         self.check_statement_types(stmt);
                     }
+                    if self.budget_error.is_some() {
+                        self.analyzer.pop_scope();
+                        return;
+                    }
+
+                    endpoints.push(self.analyzer.snapshot_symbol_types());
+                    for (name, symbol) in self.analyzer.snapshot_current_scope_symbols() {
+                        joined_scope_symbols.entry(name).or_insert(symbol);
+                    }
+                } else if !when_clauses.iter().any(|when_clause| {
+                    matches!(
+                        &when_clause.error_type,
+                        crate::parser::ast::ErrorType::General
+                    )
+                }) {
+                    // A non-matching error reaches finally without running a
+                    // handler when there is no catch-all or otherwise block.
+                    endpoints.push(handler_entry.clone());
                 }
+
+                self.analyzer
+                    .restore_current_scope_symbols(handler_scope_symbols);
+                for symbol in joined_scope_symbols.into_values() {
+                    self.analyzer.define_or_replace_symbol(symbol);
+                }
+                let joined_endpoint = Self::join_type_snapshots(&endpoints);
+                self.analyzer.restore_symbol_types(joined_endpoint);
 
                 if let Some(finally_stmts) = finally_block {
                     for stmt in finally_stmts {
                         self.check_statement_types(stmt);
                     }
                 }
+                self.analyzer.pop_scope();
             }
             Statement::HttpGetStatement {
                 url,
@@ -824,13 +985,10 @@ impl TypeChecker {
                 }
                 if let Some(headers) = headers {
                     let headers_type = self.infer_expression_type(headers);
-                    if !matches!(
-                        headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
-                    ) {
+                    if !self.is_valid_header_map_type(&headers_type) {
                         self.type_error(
                             "HTTP headers must be a map of header names to values".to_string(),
-                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
                             Some(headers_type),
                             *_line,
                             *_column,
@@ -851,8 +1009,11 @@ impl TypeChecker {
                             | Type::Error
                     ) {
                         self.type_error(
-                            "HTTP request body must be text".to_string(),
-                            Some(Type::Text),
+                            "HTTP request body must be text, a number, or a boolean (numbers and booleans are converted to text)".to_string(),
+                            // No single "expected" type — the accepted set is
+                            // Text|Number|Boolean, so a bare `Text` hint would
+                            // misrender the expected-vs-actual diagnostic.
+                            None,
                             Some(body_type),
                             *_line,
                             *_column,
@@ -868,6 +1029,291 @@ impl TypeChecker {
                     } else {
                         Type::Text
                     });
+                }
+            }
+            Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                line: _line,
+                column: _column,
+            } => {
+                let url_type = self.infer_expression_type(url);
+                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                    self.type_error(
+                        "URL must be a text string".to_string(),
+                        Some(Type::Text),
+                        Some(url_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                if let Some(method) = method {
+                    let method_type = self.infer_expression_type(method);
+                    if method_type != Type::Text
+                        && method_type != Type::Unknown
+                        && method_type != Type::Error
+                    {
+                        self.type_error(
+                            "HTTP method must be a text string".to_string(),
+                            Some(Type::Text),
+                            Some(method_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(headers) = headers {
+                    let headers_type = self.infer_expression_type(headers);
+                    if !self.is_valid_header_map_type(&headers_type) {
+                        self.type_error(
+                            "HTTP headers must be a map of header names to values".to_string(),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                            Some(headers_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(body) = body {
+                    let body_type = self.infer_expression_type(body);
+                    if !matches!(
+                        body_type,
+                        Type::Text
+                            | Type::Number
+                            | Type::Boolean
+                            | Type::Unknown
+                            | Type::Any
+                            | Type::Error
+                    ) {
+                        self.type_error(
+                            "HTTP request body must be text, a number, or a boolean (numbers and booleans are converted to text)".to_string(),
+                            // No single "expected" type — the accepted set is
+                            // Text|Number|Boolean, so a bare `Text` hint would
+                            // misrender the expected-vs-actual diagnostic.
+                            None,
+                            Some(body_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+
+                // Binds an outbound streaming-response handle (exposes
+                // status/ok/headers via index/member access, and is closeable).
+                // A distinct handle type — not a bare `Map` — so `close` accepts
+                // it without also accepting an ordinary user map.
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type = Some(Type::Custom("HttpStream".to_string()));
+                }
+            }
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                line,
+                column,
+            }
+            | Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                line,
+                column,
+            } => {
+                // The source must be an outbound stream handle. Gradual types
+                // (Unknown/Any/Error) pass; a concrete non-stream operand is a
+                // static error rather than a runtime "not a stream" surprise.
+                let source_type = self.infer_expression_type(source);
+                if !self.is_http_stream_source_type(&source_type) {
+                    self.type_error(
+                        "`wait for next chunk|line` requires an outbound stream handle \
+                         (from `open url ... and stream response as ...`)"
+                            .to_string(),
+                        Some(Type::Custom("HttpStream".to_string())),
+                        Some(source_type),
+                        *line,
+                        *column,
+                    );
+                }
+                // The binding may be a chunk/line value or `nothing` at end of
+                // stream, so leave the bound variable's type open (Any) to avoid
+                // false errors on the `check if <name> is nothing` termination.
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type = Some(Type::Any);
+                }
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                line: _line,
+                column: _column,
+            } => {
+                let _ = self.infer_expression_type(request);
+                // Enforce the clause types (like RespondStatement) so obvious
+                // mistakes fail at typecheck rather than at runtime.
+                if let Some(status) = status {
+                    let status_type = self.infer_expression_type(status);
+                    if !matches!(
+                        status_type,
+                        Type::Number | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "Streaming response status must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(status_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(content_type) = content_type {
+                    let ct_type = self.infer_expression_type(content_type);
+                    if !matches!(
+                        ct_type,
+                        Type::Text | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "Streaming response content type must be text".to_string(),
+                            Some(Type::Text),
+                            Some(ct_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(headers) = headers {
+                    let headers_type = self.infer_expression_type(headers);
+                    if !self.is_valid_header_map_type(&headers_type) {
+                        self.type_error(
+                            "Streaming response headers must be a map of header names to values"
+                                .to_string(),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                            Some(headers_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if !variable_name.is_empty() {
+                    // A distinct server-response-stream handle type (not a bare
+                    // `Map`) so `close out` is accepted without `close` also
+                    // type-checking an ordinary user map.
+                    //
+                    // Always bind in the *current* scope only (shadow, do not
+                    // mutate an outer symbol of the same name via get_symbol_mut
+                    // parent walk). Analyzer loop scopes are discarded after
+                    // body analysis, so we re-create the binding here.
+                    self.analyzer.define_or_replace_symbol(Symbol {
+                        name: variable_name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        symbol_type: Some(Type::Custom("ResponseStream".to_string())),
+                        line: *_line,
+                        column: *_column,
+                    });
+                }
+            }
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                line,
+                column,
+                ..
+            } => {
+                // Branch-aware: the runtime picks the reading by the TARGET's type
+                // (a response-stream handle -> stream write of `value`; anything
+                // else with a fallback -> classic file write of `fallback_content`).
+                // Type-check the reading the runtime will actually take, so a valid
+                // pre-existing file write is never rejected on the stream branch it
+                // never runs (and vice versa).
+                let target_type = self.infer_expression_type(target);
+                let has_fallback = fallback_content.is_some();
+
+                if self.is_response_stream_target_type(&target_type)
+                    && !self.is_gradual_type(&target_type)
+                {
+                    // Concrete response stream: the stream reading is taken.
+                    // Report undefined names on this branch (analyzer may have
+                    // stayed silent because the classic lead alone was defined).
+                    self.check_expression_names_defined(value);
+                    let value_type = self.infer_expression_type(value);
+                    self.check_streamable_payload(&value_type, *line, *column);
+                } else if has_fallback
+                    && (matches!(target_type, Type::Text)
+                        || matches!(&target_type, Type::Custom(n) if n == "File"))
+                {
+                    // Concrete text path OR open-file handle (`Custom("File")`):
+                    // the classic file-write reading is taken. Validate the
+                    // fallback (including definedness), not the stream `value`.
+                    if let Some(fallback) = fallback_content {
+                        self.check_expression_names_defined(fallback);
+                        let _ = self.infer_expression_type(fallback);
+                    }
+                } else if self.is_gradual_type(&target_type) {
+                    // Gradual/unknown target: both readings are viable and the
+                    // runtime decides by the target's runtime type. Conservatively
+                    // validate EVERY viable branch (not "accept if either is ok"),
+                    // so a valid file fallback cannot mask an invalid stream
+                    // payload or an undefined stream lead (issue #642).
+                    self.check_expression_names_defined(value);
+                    let value_type = self.infer_expression_type(value);
+                    self.check_streamable_payload(&value_type, *line, *column);
+                    if let Some(fallback) = fallback_content {
+                        self.check_expression_names_defined(fallback);
+                        let _ = self.infer_expression_type(fallback);
+                    }
+                } else {
+                    // Concrete non-stream, non-text target (or a text target with no
+                    // fallback): an unambiguous stream write to the wrong type.
+                    self.type_error(
+                        "`write line|chunk` requires a response-stream handle \
+                         (from `start streaming response ... as ...`)"
+                            .to_string(),
+                        Some(Type::Custom("ResponseStream".to_string())),
+                        Some(target_type),
+                        *line,
+                        *column,
+                    );
+                }
+            }
+            Statement::FlushStreamStatement {
+                target,
+                legacy_binding,
+                action_fallback,
+                line,
+                column,
+            } => {
+                // Legacy full-name expression (e.g. Variable("flush cache") or
+                // IndexAccess over it): when its root is bound, typecheck that
+                // expression. Otherwise this is a stream flush.
+                let is_expression_fallback = legacy_binding
+                    .as_deref()
+                    .is_some_and(|name| self.name_is_defined_for_write(name));
+                if is_expression_fallback {
+                    if let Some(fb) = action_fallback {
+                        let _ = self.infer_expression_type(fb);
+                    }
+                } else {
+                    let target_type = self.infer_expression_type(target);
+                    if !self.is_response_stream_target_type(&target_type) {
+                        self.type_error(
+                            "`flush` requires a response-stream handle \
+                             (from `start streaming response ... as ...`)"
+                                .to_string(),
+                            Some(Type::Custom("ResponseStream".to_string())),
+                            Some(target_type),
+                            *line,
+                            *column,
+                        );
+                    }
                 }
             }
             Statement::VariableDeclaration {
@@ -1137,15 +1583,23 @@ impl TypeChecker {
                     );
                 }
 
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 for stmt in then_block {
                     self.check_statement_types(stmt);
                 }
+                let then_types = self.analyzer.snapshot_symbol_types();
+                self.analyzer.restore_symbol_types(entry_types.clone());
 
-                if let Some(else_stmts) = else_block {
+                let else_types = if let Some(else_stmts) = else_block {
                     for stmt in else_stmts {
                         self.check_statement_types(stmt);
                     }
-                }
+                    self.analyzer.snapshot_symbol_types()
+                } else {
+                    entry_types
+                };
+                let joined = Self::join_type_snapshots(&[then_types, else_types]);
+                self.analyzer.restore_symbol_types(joined);
             }
             Statement::SingleLineIf {
                 condition,
@@ -1168,11 +1622,19 @@ impl TypeChecker {
                     );
                 }
 
+                let entry_types = self.analyzer.snapshot_symbol_types();
                 self.check_statement_types(then_stmt);
+                let then_types = self.analyzer.snapshot_symbol_types();
+                self.analyzer.restore_symbol_types(entry_types.clone());
 
-                if let Some(else_stmt) = else_stmt {
+                let else_types = if let Some(else_stmt) = else_stmt {
                     self.check_statement_types(else_stmt);
-                }
+                    self.analyzer.snapshot_symbol_types()
+                } else {
+                    entry_types
+                };
+                let joined = Self::join_type_snapshots(&[then_types, else_types]);
+                self.analyzer.restore_symbol_types(joined);
             }
             Statement::ForEachLoop {
                 item_name,
@@ -1233,6 +1695,7 @@ impl TypeChecker {
                 body,
                 line: _line,
                 column: _column,
+                variable_name,
                 ..
             } => {
                 let start_type = self.infer_expression_type(start);
@@ -1277,14 +1740,22 @@ impl TypeChecker {
                     }
                 }
 
-                // Register the "count" variable with type Number
-                if let Some(symbol) = self.analyzer.get_symbol_mut("count") {
-                    symbol.symbol_type = Some(Type::Number);
-                }
+                // Runtime creates the loop variable in a child environment,
+                // shadowing rather than retyping an outer `count` or custom
+                // loop-variable binding.
+                self.analyzer.push_scope();
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: variable_name.as_deref().unwrap_or("count").to_string(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Number),
+                    line: *_line,
+                    column: *_column,
+                });
 
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::WhileLoop {
                 condition,
@@ -1292,6 +1763,11 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.check_loop_body_fixed_point(body);
+                if self.budget_error.is_some() {
+                    return;
+                }
+
                 let condition_type = self.infer_expression_type(condition);
                 if condition_type != Type::Boolean
                     && condition_type != Type::Unknown
@@ -1304,10 +1780,6 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
-                }
-
-                for stmt in body {
-                    self.check_statement_types(stmt);
                 }
             }
             Statement::RepeatUntilLoop {
@@ -1335,14 +1807,22 @@ impl TypeChecker {
                 }
             }
             Statement::ForeverLoop { body, .. } => {
+                // Push a scope so bindings introduced in the body (e.g.
+                // `start streaming response ... as out`) remain visible to later
+                // statements in the same body for type checking. Analyzer loop
+                // scopes are discarded after analysis.
+                self.analyzer.push_scope();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::MainLoop { body, .. } => {
+                self.analyzer.push_scope();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.pop_scope();
             }
             Statement::DisplayStatement { value, .. } => {
                 self.infer_expression_type(value);
@@ -1379,9 +1859,17 @@ impl TypeChecker {
                     );
                 }
 
-                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                    symbol.symbol_type = Some(Type::Custom("File".to_string()));
-                }
+                // Runtime binds the opened handle in the current environment.
+                // Analyzer body scopes are discarded before this pass, so
+                // recreate the local symbol here and shadow (rather than
+                // parent-walk/retype) any outer binding with the same name.
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Custom("File".to_string())),
+                    line: *_line,
+                    column: *_column,
+                });
             }
             Statement::ReadFileStatement {
                 path,
@@ -1448,13 +1936,13 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let file_type = self.infer_expression_type(file);
-                if file_type != Type::Custom("File".to_string())
-                    && file_type != Type::Unknown
-                    && file_type != Type::Error
-                {
+                if !self.is_closeable_type(&file_type) {
+                    // No single `expected` type: `close` accepts a File *or* a
+                    // (map-shaped) stream handle, so pinning the hint to `File`
+                    // would mis-render the expected-vs-found diagnostic.
                     self.type_error(
-                        "Expected a File object".to_string(),
-                        Some(Type::Custom("File".to_string())),
+                        "Expected a file or stream handle".to_string(),
+                        None,
                         Some(file_type),
                         *_line,
                         *_column,
@@ -2187,9 +2675,13 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.analyzer.push_scope();
+                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
                 for stmt in handler_body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.analyzer.pop_scope();
             }
             Statement::ParentMethodCall {
                 method_name: _method_name,
@@ -2390,13 +2882,10 @@ impl TypeChecker {
                 // outbound HttpRequestStatement headers check.
                 if let Some(headers_expr) = headers {
                     let headers_type = self.infer_expression_type(headers_expr);
-                    if !matches!(
-                        headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
-                    ) {
+                    if !self.is_valid_header_map_type(&headers_type) {
                         self.type_error(
                             "Response headers must be a map of header names to values".to_string(),
-                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
                             Some(headers_type),
                             *_line,
                             *_column,
@@ -2456,9 +2945,13 @@ impl TypeChecker {
                 // bound variable resolves as an object at runtime (gradual typing
                 // keeps member access like `body of msg` permissive).
                 self.check_server_expression_type(server, *line, *column);
+                self.analyzer.push_scope();
+                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.analyzer.pop_scope();
             }
             Statement::SendWebSocketMessageStatement {
                 message, target, ..
@@ -2827,6 +3320,8 @@ impl TypeChecker {
                         // where a concrete type is required at runtime.
                         Type::Unknown
                     }
+                } else if let Some(property_type) = self.current_container_property_type(name) {
+                    property_type
                 } else {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
@@ -3367,6 +3862,27 @@ impl TypeChecker {
                     // result) is indexable; the element type is only known
                     // at runtime (issue #553).
                     Type::Any => Type::Any,
+                    // Stream handles expose fields (`status`/`ok`/`headers`) by
+                    // index; the key must be text (runtime object indexing rejects
+                    // a numeric key), and the field type is only known at runtime.
+                    Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => {
+                        if index_type != Type::Text
+                            && index_type != Type::Unknown
+                            && index_type != Type::Any
+                            && index_type != Type::Error
+                        {
+                            self.type_error(
+                                format!("Stream handle field name must be text, got {index_type}"),
+                                Some(Type::Text),
+                                Some(index_type),
+                                *line,
+                                *column,
+                            );
+                            Type::Error
+                        } else {
+                            Type::Any
+                        }
+                    }
                     _ => {
                         self.type_error(
                             format!("Cannot index into {collection_type}"),
@@ -4042,6 +4558,12 @@ impl TypeChecker {
                     // the value type is whatever the map stores.
                     Type::Map(_, value_type) => *value_type,
                     Type::Unknown | Type::Any | Type::Error => Type::Unknown,
+                    // Stream handles expose fields (`status`/`ok`/`headers`) via
+                    // the documented dot form too; the field type is only known at
+                    // runtime.
+                    Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => {
+                        Type::Unknown
+                    }
                     _ => {
                         self.type_error(
                             format!(
@@ -4495,6 +5017,303 @@ impl TypeChecker {
             .push(TypeError::new(message, expected, found, line, column));
     }
 
+    /// Whether an inferred type is acceptable as an HTTP header map. Header names
+    /// must be text, and header values are what the interpreter accepts and
+    /// stringifies — text, number, or boolean (see the `respond`/HTTP header
+    /// handling); a concretely-typed non-text key or a value type the runtime
+    /// rejects (e.g. `Map<Text, Binary>`) is flagged. `Unknown`/`Any`/`Error` —
+    /// whether as the whole type or as the key/value type of a map the checker
+    /// could not fully pin down (map literals often infer unknown key/value
+    /// types) — are always accepted so a header set the checker cannot resolve is
+    /// never falsely flagged.
+    fn is_valid_header_map_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Unknown | Type::Any | Type::Error => true,
+            Type::Map(key, value) => {
+                let key_ok = matches!(**key, Type::Text | Type::Unknown | Type::Any | Type::Error);
+                let value_ok = matches!(
+                    **value,
+                    Type::Text
+                        | Type::Number
+                        | Type::Boolean
+                        | Type::Unknown
+                        | Type::Any
+                        | Type::Error
+                );
+                key_ok && value_ok
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a type can name a closeable resource: a file handle
+    /// (`Custom("File")`), a stream handle (`Custom("HttpStream")` outbound or
+    /// `Custom("ResponseStream")` server-side), or a statically-unresolved value.
+    /// These are the only things the runtime can close, so an ordinary map,
+    /// another custom type (`Database`/`Request`), or a scalar (`close 5`) is
+    /// rejected — keeping real mistakes as static errors rather than runtime-only.
+    fn is_closeable_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Custom(name) => {
+                name == "File" || name == "HttpStream" || name == "ResponseStream"
+            }
+            Type::Unknown | Type::Any | Type::Error => true,
+            _ => false,
+        }
+    }
+
+    /// The operand of `wait for next chunk|line from <source>` must be an outbound
+    /// stream handle (`stream response as ...` binds `HttpStream`). Unknown/Any/
+    /// Error pass for gradual typing; a concrete non-stream type is rejected.
+    fn is_http_stream_source_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Custom(name) => name == "HttpStream",
+            Type::Unknown | Type::Any | Type::Error => true,
+            _ => false,
+        }
+    }
+
+    /// The `<target>` of `write line|chunk` / `flush` must be a server response
+    /// stream handle (`start streaming response as ...` binds `ResponseStream`).
+    /// Unknown/Any/Error pass for gradual typing.
+    fn is_response_stream_target_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Custom(name) => name == "ResponseStream",
+            Type::Unknown | Type::Any | Type::Error => true,
+            _ => false,
+        }
+    }
+
+    /// A type that inference has not pinned down (gradual typing): it may turn out
+    /// to be anything at runtime, so a static check must stay lenient rather than
+    /// reject it.
+    fn is_gradual_type(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Unknown | Type::Any | Type::Error)
+    }
+
+    /// The value types `write line|chunk` can send to a response stream — the
+    /// runtime stringifies numbers/booleans and sends text/binary as-is, and
+    /// rejects everything else (Map/List/Nothing/...). Gradual types pass.
+    fn is_streamable_payload(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Text | Type::Number | Type::Boolean | Type::Binary)
+            || self.is_gradual_type(ty)
+    }
+
+    /// Emit a type error if `ty` is a concrete value the runtime would reject as a
+    /// response-stream payload (a Map/List/Nothing/... reaches `write` only to fail
+    /// at runtime otherwise).
+    fn check_streamable_payload(&mut self, ty: &Type, line: usize, column: usize) {
+        if !self.is_streamable_payload(ty) {
+            self.type_error(
+                "`write line|chunk` can only send text, binary, a number, or a boolean \
+                 to a response stream"
+                    .to_string(),
+                Some(Type::Text),
+                Some(ty.clone()),
+                line,
+                column,
+            );
+        }
+    }
+
+    /// Whether a bare name is known to the typechecker/analyzer scopes (or is a
+    /// builtin / action parameter / loop counter). Used when validating the
+    /// concrete `write line|chunk` branch the runtime will select — the analyzer
+    /// may have stayed silent on a one-sided undefined lead because the other
+    /// reading was defined (issue #642).
+    fn name_is_defined_for_write(&self, name: &str) -> bool {
+        if self.analyzer.name_is_defined_for_write(name) {
+            return true;
+        }
+
+        self.current_container_property_type(name).is_some()
+    }
+
+    /// Resolve a direct or inherited property against the typechecker's live
+    /// container context. The analyzer has restored its own container context
+    /// by the time method bodies are typechecked, so both definedness and type
+    /// inference must use this view.
+    fn current_container_property_type(&self, name: &str) -> Option<Type> {
+        // Analyzer has already completed its container walk and restored its
+        // own `current_container` by the time TypeChecker revisits method
+        // bodies. Use TypeChecker's live container context here so direct and
+        // inherited properties remain defined on the selected write branch.
+        let mut container_name = self.current_container.as_deref();
+        while let Some(container_key) = container_name {
+            let Some(container) = self.analyzer.get_container(container_key) else {
+                break;
+            };
+            if let Some(property) = container
+                .properties
+                .get(name)
+                .or_else(|| container.static_properties.get(name))
+            {
+                return Some(property.property_type.clone());
+            }
+            container_name = container.extends.as_deref();
+        }
+
+        None
+    }
+
+    /// Walk an expression and report every undefined bare name. Used for the
+    /// selected (or every viable gradual) `write line|chunk` branch so a missing
+    /// classic `line <ident>` lead is not accepted just because the stream lead
+    /// alone exists (and vice versa).
+    fn check_expression_names_defined(&mut self, expression: &Expression) {
+        match expression {
+            Expression::Literal(Literal::List(items), ..) => {
+                for item in items {
+                    self.check_expression_names_defined(item);
+                }
+            }
+            Expression::Literal(_, _, _)
+            | Expression::StaticMemberAccess { .. }
+            | Expression::CurrentTimeMilliseconds { .. }
+            | Expression::CurrentTimeFormatted { .. } => {}
+            Expression::Variable(name, l, c) => {
+                if !self.name_is_defined_for_write(name) {
+                    self.type_error(
+                        format!("Variable '{name}' is not defined"),
+                        None,
+                        None,
+                        *l,
+                        *c,
+                    );
+                }
+            }
+            Expression::BinaryOperation { left, right, .. }
+            | Expression::Concatenation { left, right, .. }
+            | Expression::PatternMatch {
+                text: left,
+                pattern: right,
+                ..
+            }
+            | Expression::PatternFind {
+                text: left,
+                pattern: right,
+                ..
+            }
+            | Expression::PatternSplit {
+                text: left,
+                pattern: right,
+                ..
+            }
+            | Expression::StringSplit {
+                text: left,
+                delimiter: right,
+                ..
+            } => {
+                self.check_expression_names_defined(left);
+                self.check_expression_names_defined(right);
+            }
+            Expression::UnaryOperation {
+                expression: inner, ..
+            }
+            | Expression::AwaitExpression {
+                expression: inner, ..
+            }
+            | Expression::FileExists { path: inner, .. }
+            | Expression::DirectoryExists { path: inner, .. }
+            | Expression::ListFiles { path: inner, .. }
+            | Expression::ReadContent {
+                file_handle: inner, ..
+            }
+            | Expression::ReadBinaryContent {
+                file_handle: inner, ..
+            }
+            | Expression::FileSizeOf {
+                file_handle: inner, ..
+            }
+            | Expression::ProcessRunning {
+                process_id: inner, ..
+            } => {
+                self.check_expression_names_defined(inner);
+            }
+            Expression::IndexAccess {
+                collection, index, ..
+            } => {
+                self.check_expression_names_defined(collection);
+                self.check_expression_names_defined(index);
+            }
+            Expression::PropertyAccess { object, .. } | Expression::MemberAccess { object, .. } => {
+                self.check_expression_names_defined(object);
+            }
+            Expression::MethodCall {
+                object, arguments, ..
+            } => {
+                self.check_expression_names_defined(object);
+                for arg in arguments {
+                    self.check_expression_names_defined(&arg.value);
+                }
+            }
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } => {
+                self.check_expression_names_defined(function);
+                for arg in arguments {
+                    self.check_expression_names_defined(&arg.value);
+                }
+            }
+            Expression::ActionCall { arguments, .. } => {
+                for arg in arguments {
+                    self.check_expression_names_defined(&arg.value);
+                }
+            }
+            Expression::PatternReplace {
+                text,
+                pattern,
+                replacement,
+                ..
+            } => {
+                self.check_expression_names_defined(text);
+                self.check_expression_names_defined(pattern);
+                self.check_expression_names_defined(replacement);
+            }
+            Expression::HeaderAccess { request, .. } => {
+                self.check_expression_names_defined(request);
+            }
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                self.check_expression_names_defined(file_handle);
+                self.check_expression_names_defined(count);
+            }
+            Expression::ListFilesRecursive {
+                path, extensions, ..
+            } => {
+                self.check_expression_names_defined(path);
+                if let Some(extensions) = extensions {
+                    for extension in extensions {
+                        self.check_expression_names_defined(extension);
+                    }
+                }
+            }
+            Expression::ListFilesFiltered {
+                path, extensions, ..
+            } => {
+                self.check_expression_names_defined(path);
+                for extension in extensions {
+                    self.check_expression_names_defined(extension);
+                }
+            }
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.check_expression_names_defined(db);
+                self.check_expression_names_defined(sql);
+                if let Some(parameters) = parameters {
+                    self.check_expression_names_defined(parameters);
+                }
+            }
+        }
+    }
+
     fn are_types_compatible(&self, target_type: &Type, source_type: &Type) -> bool {
         #[allow(clippy::only_used_in_recursion)]
         let _self = self; // Suppress the warning for self parameter
@@ -4561,6 +5380,53 @@ mod tests {
     use super::*;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
     use std::sync::Arc;
+
+    #[test]
+    fn test_header_map_type_requires_text_keys() {
+        // HTTP header names must be text. The header-map validity check (shared by
+        // outbound HTTP, streaming-response, and `respond` header clauses) must
+        // reject a map with a concretely-typed non-text key, while accepting
+        // text-keyed maps and any map whose key the checker could not pin down.
+        let tc = TypeChecker::new();
+
+        // Accepted: text keys with a value type the runtime stringifies
+        // (text/number/bool), or an unresolved/loose key or value type.
+        for ok in [
+            Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Number)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Boolean)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
+            Type::Map(Box::new(Type::Unknown), Box::new(Type::Unknown)),
+            Type::Map(Box::new(Type::Any), Box::new(Type::Text)),
+            Type::Unknown,
+            Type::Any,
+        ] {
+            assert!(
+                tc.is_valid_header_map_type(&ok),
+                "expected {ok:?} to be a valid header map type"
+            );
+        }
+
+        // Rejected: a concrete non-text key, a value type the runtime rejects
+        // (e.g. Binary or a nested list), or a non-map entirely.
+        for bad in [
+            Type::Map(Box::new(Type::Number), Box::new(Type::Text)),
+            Type::Map(Box::new(Type::Boolean), Box::new(Type::Any)),
+            Type::Map(Box::new(Type::Text), Box::new(Type::Binary)),
+            Type::Map(
+                Box::new(Type::Text),
+                Box::new(Type::List(Box::new(Type::Text))),
+            ),
+            Type::Number,
+            Type::Text,
+        ] {
+            assert!(
+                !tc.is_valid_header_map_type(&bad),
+                "expected {bad:?} to be rejected as a header map type"
+            );
+        }
+    }
 
     #[test]
     fn test_variable_declaration_type_inference() {

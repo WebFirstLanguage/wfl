@@ -8,6 +8,12 @@ pub enum ErrorKind {
     /// A shared `ExecutionBudget` ceiling other than the deadline was reached
     /// (operation count, recursion/import/execute-file depth, byte caps, etc.).
     ResourceLimit,
+    /// A cooperative cancellation of an in-flight operation triggered by an
+    /// expected external event rather than a fault — currently a downstream
+    /// (browser) disconnect cancelling a proxy handler's blocked upstream read.
+    /// Catchable like any other error, but the concurrent `main loop` treats it
+    /// as a normal handler outcome, not a structural failure.
+    Cancelled,
     FileNotFound,
     PermissionDenied,
     ProcessNotFound,
@@ -51,6 +57,7 @@ impl fmt::Display for RuntimeError {
             ErrorKind::EnvDropped => "[Environment dropped] ",
             ErrorKind::Timeout => "[Timeout] ",
             ErrorKind::ResourceLimit => "[Resource limit] ",
+            ErrorKind::Cancelled => "[Cancelled] ",
             ErrorKind::FileNotFound => "[File not found] ",
             ErrorKind::PermissionDenied => "[Permission denied] ",
             ErrorKind::ProcessNotFound => "[Process not found] ",

@@ -1,0 +1,26 @@
+// CI-SKIP: starts a server + concurrent loop; needs HTTP clients (layers 1-4)
+// Concurrent request handling with `main loop concurrently:`.
+//
+// Iterations run in their own child scope, and their count-loop/recursion
+// run-state is isolated per handler — so per-request `store` variables never
+// clobber another request's. Global (top-level) bindings and any collections
+// shared through them remain shared, by design. Concurrency is cooperative on
+// one thread: a slow handler yields to its siblings at await points (wait for,
+// outbound HTTP, stream reads/writes, respond), so it does not block them there
+// — but CPU-bound work with no await still holds the thread. Plain `main loop`
+// stays serial; adding `concurrently` is the only way to opt in.
+//
+// Validated for syntax/analysis/lint only (layers 1-4): running it needs live
+// clients, so execution is skipped.
+
+listen on port 8080 as site
+
+main loop concurrently:
+    wait for request comes in on site as req
+    store p as req["path"]
+    check if p is equal to "/health":
+        respond to req with "ok"
+    otherwise:
+        respond to req with "Hello!"
+    end check
+end loop

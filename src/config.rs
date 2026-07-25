@@ -62,6 +62,12 @@ pub struct WflConfig {
     /// HTTP request before shedding it with 504 and releasing its in-flight
     /// slot. `0` disables the timeout. Feeds `ExecutionBudget`. Default 300.
     pub web_server_response_timeout_seconds: u64,
+    /// Absolute total lifetime (seconds) of a single outbound streaming response
+    /// (`open url ... and stream response`), measured from when the stream is
+    /// opened. Distinct from `timeout_seconds` (the per-read idle timeout): an
+    /// upstream that trickles a byte before every idle timeout can never run past
+    /// this hard cap. `0` disables the total cap. Default 300.
+    pub outbound_stream_max_seconds: u64,
     // --- Shared ExecutionBudget limits (see src/exec/budget.rs) ---
     /// Hard ceiling on charged interpreter operations. `None`/`0` = unlimited
     /// (the default, matching historic behavior). Feeds `ExecutionBudget`.
@@ -192,6 +198,8 @@ impl Default for WflConfig {
             // Free an accepted request's in-flight slot if its handler does not
             // answer within 5 minutes (far longer than any serial handler needs).
             web_server_response_timeout_seconds: 300,
+            // Absolute cap on a single outbound streaming response's lifetime.
+            outbound_stream_max_seconds: 300,
             // Shared ExecutionBudget limits (see src/exec/budget.rs). Defaults
             // are chosen so existing programs never trip them while runaway
             // behavior gets a clean error instead of a crash or OOM.
@@ -815,6 +823,25 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                     }
                     Err(_) => log::warn!(
                         "Invalid web_server_response_timeout_seconds '{}' in {}: expected a non-negative integer",
+                        value,
+                        file.display()
+                    ),
+                },
+                "outbound_stream_max_seconds" => match value.parse::<u64>() {
+                    Ok(secs) => {
+                        // 0 disables the total cap (the documented sentinel).
+                        // Extreme values are accepted into config but clamped when
+                        // converted to an Instant deadline (see interpreter
+                        // `outbound_stream_deadline`) so Instant arithmetic cannot
+                        // panic.
+                        config.outbound_stream_max_seconds = secs;
+                        log::debug!(
+                            "Loaded outbound_stream_max_seconds: {secs} from {}",
+                            file.display()
+                        );
+                    }
+                    Err(_) => log::warn!(
+                        "Invalid outbound_stream_max_seconds '{}' in {}: expected a non-negative integer",
                         value,
                         file.display()
                     ),

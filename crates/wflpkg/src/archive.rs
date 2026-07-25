@@ -267,7 +267,9 @@ pub fn extract_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), Packa
             .into_owned();
 
         // Reject absolute paths
-        if entry_path.is_absolute() {
+        // `Path::is_absolute` requires a drive prefix on Windows, but archive
+        // paths are portable and a leading slash is still rooted there.
+        if entry_path.has_root() {
             return Err(PackageError::General(format!(
                 "Archive contains absolute path: {}",
                 entry_path.display()

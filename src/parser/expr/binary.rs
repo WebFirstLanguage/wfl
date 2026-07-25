@@ -4,9 +4,24 @@
 //! comparison, pattern matching, and custom language constructs.
 
 use super::super::{Argument, Expression, Operator, ParseError, Parser};
-use super::{ExprParser, PrimaryExprParser};
+use super::PrimaryExprParser;
 use crate::diagnostics::Span;
 use crate::lexer::token::Token;
+
+#[derive(Clone, Copy)]
+enum BinaryExpressionTerminator {
+    With,
+    In,
+}
+
+impl BinaryExpressionTerminator {
+    fn matches(self, token: &Token) -> bool {
+        matches!(
+            (self, token),
+            (Self::With, Token::KeywordWith) | (Self::In, Token::KeywordIn)
+        )
+    }
+}
 
 /// Trait for parsing binary expressions with operator precedence
 pub(crate) trait BinaryExprParser<'a> {
@@ -21,6 +36,37 @@ pub(crate) trait BinaryExprParser<'a> {
     /// Returns an `Expression` representing the parsed binary expression, or a `ParseError` if the syntax is invalid.
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError>;
 
+    /// Parse a fresh binary expression while retaining a surrounding
+    /// streaming-response clause boundary through recursive operands.
+    fn parse_binary_expression_stopping_at_clause(
+        &mut self,
+        precedence: u8,
+    ) -> Result<Expression, ParseError>;
+
+    /// Continue a binary expression from an already-parsed left-hand side.
+    ///
+    /// `parse_binary_expression` parses a fresh primary and then runs the
+    /// operator loop; this exposes just the loop so a caller that consumed the
+    /// leading operand itself (e.g. the merged `write line <ident>` form) can
+    /// still absorb trailing `with`/operator continuations — so
+    /// `write line payload with "!" to out` parses its value like any other
+    /// expression instead of stopping at the bare variable.
+    fn parse_binary_continuation(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError>;
+
+    /// Like [`parse_binary_continuation`], but stops before streaming-response
+    /// clause connectives (`and headers`, `and content type`, `as out`, …) so a
+    /// `content type` / `headers` operand does not swallow the next clause as a
+    /// Boolean-AND / `with` continuation.
+    fn parse_binary_continuation_stopping_at_clause(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError>;
+
     /// Parses a function/action call expression.
     ///
     /// # Parameters
@@ -30,10 +76,22 @@ pub(crate) trait BinaryExprParser<'a> {
         &mut self,
         call_line: usize,
         call_column: usize,
+        stop_at_clause: bool,
     ) -> Result<Expression, ParseError>;
 
     /// Parses a comma-separated or 'and'-separated argument list for action calls.
-    fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError>;
+    fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError> {
+        self.parse_argument_list_with_clause_boundary(false)
+    }
+
+    fn parse_argument_list_stopping_at_clause(&mut self) -> Result<Vec<Argument>, ParseError> {
+        self.parse_argument_list_with_clause_boundary(true)
+    }
+
+    fn parse_argument_list_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Vec<Argument>, ParseError>;
 
     /// Parses a single argument of an `of`-call (e.g. `fibonacci of n minus 1`).
     ///
@@ -44,17 +102,57 @@ pub(crate) trait BinaryExprParser<'a> {
     /// separator), `with` (concatenation), `from`/`by`/`length` (stdlib call
     /// separators), comparisons, and pattern keywords, leaving those for the
     /// caller so multi-argument and postfix forms keep working.
-    fn parse_of_call_argument(&mut self) -> Result<Expression, ParseError>;
+    fn parse_of_call_argument(&mut self) -> Result<Expression, ParseError> {
+        self.parse_of_call_argument_with_clause_boundary(false)
+    }
+
+    fn parse_of_call_argument_stopping_at_clause(&mut self) -> Result<Expression, ParseError> {
+        self.parse_of_call_argument_with_clause_boundary(true)
+    }
+
+    fn parse_of_call_argument_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError>;
 
     /// Multiplicative level of an `of`-call argument: times / divided by / `/`
     /// / `%` / modulo (precedence 3).
-    fn parse_of_call_arg_term(&mut self) -> Result<Expression, ParseError>;
+    fn parse_of_call_arg_term_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError>;
 }
 
-impl<'a> BinaryExprParser<'a> for Parser<'a> {
-    fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
-        let mut left = self.parse_primary_expression()?;
+impl<'a> Parser<'a> {
+    fn parse_binary_expression_for_context(
+        &mut self,
+        precedence: u8,
+        stop_at_clause: bool,
+        terminator: Option<BinaryExpressionTerminator>,
+    ) -> Result<Expression, ParseError> {
+        let left = if stop_at_clause {
+            self.parse_primary_expression_stopping_at_clause()?
+        } else {
+            self.parse_primary_expression()?
+        };
+        self.parse_binary_continuation_inner(left, precedence, stop_at_clause, terminator)
+    }
 
+    fn parse_binary_expression_for_clause_context(
+        &mut self,
+        precedence: u8,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
+        self.parse_binary_expression_for_context(precedence, stop_at_clause, None)
+    }
+
+    fn parse_binary_continuation_inner(
+        &mut self,
+        mut left: Expression,
+        precedence: u8,
+        stop_at_clause: bool,
+        terminator: Option<BinaryExpressionTerminator>,
+    ) -> Result<Expression, ParseError> {
         while let Some(token_pos) = self.cursor.peek() {
             let token = &token_pos.token;
             let line = token_pos.line;
@@ -63,6 +161,22 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
             // Stop at Eol (statement boundary) or statement starter
             if matches!(token, Token::Eol) || Parser::is_statement_starter(token) {
                 break;
+            }
+            if terminator.is_some_and(|terminator| terminator.matches(token)) {
+                break;
+            }
+            // Streaming-response clause connectives must not be absorbed as
+            // Boolean AND / `with` concatenation inside a clause operand.
+            if stop_at_clause {
+                if matches!(token, Token::KeywordAs) {
+                    break;
+                }
+                if matches!(token, Token::KeywordAnd | Token::KeywordWith) {
+                    let next = self.cursor.peek_n(1).map(|t| &t.token);
+                    if Self::is_streaming_clause_keyword(next) {
+                        break;
+                    }
+                }
             }
 
             // Precedence ladder (higher binds tighter):
@@ -113,12 +227,20 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                             // desugars to `X >= A and X <= B`.
                             Token::KeywordBetween => {
                                 self.bump_sync(); // Consume "between"
-                                let lower = self.parse_binary_expression(2)?;
+                                let lower = self.parse_binary_expression_for_context(
+                                    2,
+                                    stop_at_clause,
+                                    terminator,
+                                )?;
                                 self.expect_token(
                                     Token::KeywordAnd,
                                     "Expected 'and' between the bounds of 'is between'",
                                 )?;
-                                let upper = self.parse_binary_expression(2)?;
+                                let upper = self.parse_binary_expression_for_context(
+                                    2,
+                                    stop_at_clause,
+                                    terminator,
+                                )?;
 
                                 let lower_bound = Expression::BinaryOperation {
                                     left: Box::new(left.clone()),
@@ -331,7 +453,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         if name != "count" && crate::builtins::is_builtin_function(name) {
                             // Builtin function - keep legacy syntax
                             self.bump_sync(); // Consume "with"
-                            let arguments = self.parse_argument_list()?;
+                            let arguments = if stop_at_clause {
+                                self.parse_argument_list_stopping_at_clause()?
+                            } else {
+                                self.parse_argument_list()?
+                            };
 
                             left = Expression::ActionCall {
                                 name: name.clone(),
@@ -346,7 +472,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     // For all other cases (including user-defined actions),
                     // treat 'with' as concatenation
                     self.bump_sync(); // Consume "with"
-                    let right = self.parse_expression()?;
+                    let right =
+                        self.parse_binary_expression_for_context(0, stop_at_clause, terminator)?;
                     left = Expression::Concatenation {
                         left: Box::new(left),
                         right: Box::new(right),
@@ -422,7 +549,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume "pattern"
                     }
 
-                    let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+                    let pattern_expr = self.parse_binary_expression_for_context(
+                        precedence + 1,
+                        stop_at_clause,
+                        terminator,
+                    )?;
 
                     left = Expression::PatternMatch {
                         text: Box::new(left),
@@ -442,14 +573,22 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume "pattern"
                     }
 
-                    let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+                    let pattern_expr = self.parse_binary_expression_for_context(
+                        precedence + 1,
+                        stop_at_clause,
+                        Some(BinaryExpressionTerminator::In),
+                    )?;
 
                     if let Some(in_token) = self.cursor.peek()
                         && matches!(&in_token.token, Token::KeywordIn)
                     {
                         self.bump_sync(); // Consume "in"
 
-                        let text_expr = self.parse_binary_expression(precedence + 1)?;
+                        let text_expr = self.parse_binary_expression_for_context(
+                            precedence + 1,
+                            stop_at_clause,
+                            terminator,
+                        )?;
 
                         left = Expression::PatternFind {
                             text: Box::new(text_expr),
@@ -478,21 +617,33 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume "pattern"
                     }
 
-                    let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+                    let pattern_expr = self.parse_binary_expression_for_context(
+                        precedence + 1,
+                        stop_at_clause,
+                        Some(BinaryExpressionTerminator::With),
+                    )?;
 
                     if let Some(with_token) = self.cursor.peek()
                         && matches!(&with_token.token, Token::KeywordWith)
                     {
                         self.bump_sync(); // Consume "with"
 
-                        let replacement_expr = self.parse_binary_expression(precedence + 1)?;
+                        let replacement_expr = self.parse_binary_expression_for_context(
+                            precedence + 1,
+                            stop_at_clause,
+                            Some(BinaryExpressionTerminator::In),
+                        )?;
 
                         if let Some(in_token) = self.cursor.peek()
                             && matches!(&in_token.token, Token::KeywordIn)
                         {
                             self.bump_sync(); // Consume "in"
 
-                            let text_expr = self.parse_binary_expression(precedence + 1)?;
+                            let text_expr = self.parse_binary_expression_for_context(
+                                precedence + 1,
+                                stop_at_clause,
+                                terminator,
+                            )?;
 
                             left = Expression::PatternReplace {
                                 text: Box::new(text_expr),
@@ -529,7 +680,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     self.consume_optional_of();
 
                     // Parse the text expression to split
-                    let text_expr = self.parse_binary_expression(precedence + 1)?;
+                    let text_expr = self.parse_binary_expression_for_context(
+                        precedence + 1,
+                        stop_at_clause,
+                        terminator,
+                    )?;
 
                     // Check for "by" (string split) or "on" (pattern split)
                     if let Some(next_token) = self.cursor.peek() {
@@ -537,8 +692,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
                                 self.bump_sync(); // Consume "by"
-                                let delimiter_expr =
-                                    self.parse_binary_expression(precedence + 1)?;
+                                let delimiter_expr = self.parse_binary_expression_for_context(
+                                    precedence + 1,
+                                    stop_at_clause,
+                                    terminator,
+                                )?;
 
                                 left = Expression::StringSplit {
                                     text: Box::new(text_expr),
@@ -559,7 +717,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                     self.bump_sync(); // Consume "pattern"
                                 }
 
-                                let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+                                let pattern_expr = self.parse_binary_expression_for_context(
+                                    precedence + 1,
+                                    stop_at_clause,
+                                    terminator,
+                                )?;
 
                                 left = Expression::PatternSplit {
                                     text: Box::new(text_expr),
@@ -612,7 +774,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "with"
                     // RHS binds at precedence 2 (tighter than comparison), matching
                     // how `contains`/`is` parse their right-hand side.
-                    let right = self.parse_binary_expression(2)?;
+                    let right =
+                        self.parse_binary_expression_for_context(2, stop_at_clause, terminator)?;
                     let fn_name = if is_starts {
                         "starts_with"
                     } else {
@@ -647,7 +810,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     {
                         self.bump_sync(); // Consume "pattern"
 
-                        let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+                        let pattern_expr = self.parse_binary_expression_for_context(
+                            precedence + 1,
+                            stop_at_clause,
+                            terminator,
+                        )?;
 
                         left = Expression::PatternMatch {
                             text: Box::new(left),
@@ -717,7 +884,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     }
                 }
 
-                let right = self.parse_binary_expression(op_precedence + 1)?;
+                let right = self.parse_binary_expression_for_context(
+                    op_precedence + 1,
+                    stop_at_clause,
+                    terminator,
+                )?;
 
                 left = Expression::BinaryOperation {
                     left: Box::new(left),
@@ -733,11 +904,43 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
 
         Ok(left)
     }
+}
+
+impl<'a> BinaryExprParser<'a> for Parser<'a> {
+    fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
+        let left = self.parse_primary_expression()?;
+        self.parse_binary_continuation(left, precedence)
+    }
+
+    fn parse_binary_expression_stopping_at_clause(
+        &mut self,
+        precedence: u8,
+    ) -> Result<Expression, ParseError> {
+        let left = self.parse_primary_expression_stopping_at_clause()?;
+        self.parse_binary_continuation_inner(left, precedence, true, None)
+    }
+
+    fn parse_binary_continuation(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError> {
+        self.parse_binary_continuation_inner(left, precedence, false, None)
+    }
+
+    fn parse_binary_continuation_stopping_at_clause(
+        &mut self,
+        left: Expression,
+        precedence: u8,
+    ) -> Result<Expression, ParseError> {
+        self.parse_binary_continuation_inner(left, precedence, true, None)
+    }
 
     fn parse_call_expression(
         &mut self,
         call_line: usize,
         call_column: usize,
+        stop_at_clause: bool,
     ) -> Result<Expression, ParseError> {
         // We've already consumed Token::KeywordCall in the caller
 
@@ -791,7 +994,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         }
 
         // Parse argument list
-        let arguments = self.parse_argument_list()?;
+        let arguments = if stop_at_clause {
+            self.parse_argument_list_stopping_at_clause()?
+        } else {
+            self.parse_argument_list()?
+        };
 
         Ok(Expression::ActionCall {
             name,
@@ -801,9 +1008,12 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         })
     }
 
-    fn parse_of_call_argument(&mut self) -> Result<Expression, ParseError> {
+    fn parse_of_call_argument_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
         // Additive level: plus / minus (precedence 2).
-        let mut left = self.parse_of_call_arg_term()?;
+        let mut left = self.parse_of_call_arg_term_with_clause_boundary(stop_at_clause)?;
 
         while let Some(token_pos) = self.cursor.peek() {
             let (operator, line, column) = match &token_pos.token {
@@ -816,7 +1026,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 _ => break,
             };
             self.bump_sync(); // Consume the additive operator
-            let right = self.parse_of_call_arg_term()?;
+            let right = self.parse_of_call_arg_term_with_clause_boundary(stop_at_clause)?;
             left = Expression::BinaryOperation {
                 left: Box::new(left),
                 operator,
@@ -829,8 +1039,15 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         Ok(left)
     }
 
-    fn parse_of_call_arg_term(&mut self) -> Result<Expression, ParseError> {
-        let mut left = self.parse_primary_expression()?;
+    fn parse_of_call_arg_term_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
+        let mut left = if stop_at_clause {
+            self.parse_primary_expression_stopping_at_clause()?
+        } else {
+            self.parse_primary_expression()?
+        };
 
         while let Some(token_pos) = self.cursor.peek() {
             let line = token_pos.line;
@@ -859,7 +1076,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 }
             }
 
-            let right = self.parse_primary_expression()?;
+            let right = if stop_at_clause {
+                self.parse_primary_expression_stopping_at_clause()?
+            } else {
+                self.parse_primary_expression()?
+            };
             left = Expression::BinaryOperation {
                 left: Box::new(left),
                 operator,
@@ -872,7 +1093,10 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         Ok(left)
     }
 
-    fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError> {
+    fn parse_argument_list_with_clause_boundary(
+        &mut self,
+        stop_at_clause: bool,
+    ) -> Result<Vec<Argument>, ParseError> {
         let mut arguments = Vec::with_capacity(4);
 
         let start_pos = self.cursor.pos();
@@ -903,7 +1127,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
 
             // FIX: Parse expressions with precedence >= 1 (arithmetic operators)
             // This stops at 'and' (precedence 0), which is then used as argument separator
-            let arg_value = self.parse_binary_expression(1)?;
+            let arg_value = self.parse_binary_expression_for_clause_context(1, stop_at_clause)?;
 
             arguments.push(Argument {
                 name: arg_name,
@@ -912,6 +1136,13 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
 
             if let Some(token) = self.cursor.peek() {
                 if matches!(&token.token, Token::KeywordAnd) {
+                    if stop_at_clause
+                        && Parser::is_streaming_clause_keyword(
+                            self.cursor.peek_n(1).map(|t| &t.token),
+                        )
+                    {
+                        break;
+                    }
                     self.bump_sync(); // Consume "and"
                     continue; // Continue parsing next argument
                 } else {

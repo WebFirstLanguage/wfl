@@ -1,0 +1,26 @@
+// CI-SKIP: needs a live upstream; validated via docs-examples layers 1-4
+// Streaming an outbound response incrementally.
+//
+// `stream response as` returns as soon as the status and headers arrive,
+// without buffering the body. Pull the body one line (or chunk) at a time;
+// each read binds `nothing` at a clean end of stream.
+//
+// Validated for syntax/analysis/lint only (layers 1-4): running it needs a
+// live upstream, so execution is skipped.
+
+open url at "https://api.example.com/events" and stream response as upstream
+
+display "Status: " with upstream["status"]
+store content_type as upstream["headers"]["content-type"]
+display "Content type: " with content_type
+
+count from 1 to 1000000:
+    wait for next line from upstream as line
+    check if line is nothing:
+        break
+    otherwise:
+        display line
+    end check
+end count
+
+close upstream
