@@ -186,6 +186,21 @@ struct ResponseCompletion {
     sender: Option<oneshot::Sender<HandlerReply>>,
 }
 
+/// Interpreter state that must survive cancellation of fallible response
+/// expressions. The evaluation future is explicitly dropped before this state
+/// is restored, so partially-entered actions and loops cannot leak into a
+/// handler that catches `Cancelled` and continues.
+struct ResponsePrecommitSnapshot {
+    call_stack: Vec<CallFrame>,
+    call_depth: usize,
+    current_count: Option<f64>,
+    in_count_loop: bool,
+    http_owner: StreamOwner,
+    http_streams: HashSet<String>,
+    response_streams: HashSet<String>,
+    pending_requests: HashSet<String>,
+}
+
 impl ResponseCompletion {
     fn take_sender(&mut self) -> Option<oneshot::Sender<HandlerReply>> {
         self.sender.take()
@@ -2326,6 +2341,12 @@ impl IoClient {
             let mut owned = owner.lock().unwrap_or_else(|error| error.into_inner());
             owned.drain().collect()
         };
+        self.close_stream_ids(&ids);
+    }
+
+    /// Close a selected set of live streams without disturbing other handles
+    /// owned by the same handler.
+    fn close_stream_ids(&self, ids: &[String]) {
         if ids.is_empty() {
             return;
         }
@@ -2336,15 +2357,15 @@ impl IoClient {
             .unwrap_or_else(|error| error.into_inner());
         registry.prune_recent(Instant::now());
         for id in ids {
-            if let Some(mut slot) = registry.live.remove(&id) {
+            if let Some(mut slot) = registry.live.remove(id) {
                 slot.cancel.terminate(StreamTerminal::Closed);
                 if let Some(abort) = slot.reaper_abort.take() {
                     abort.abort();
                 }
                 drop(slot.handle.take());
-                remove_stream_owner(&mut slot, &id);
+                remove_stream_owner(&mut slot, id);
             }
-            registry.forget_recent(&id);
+            registry.forget_recent(id);
         }
     }
 
@@ -4768,6 +4789,166 @@ impl Interpreter {
     fn close_open_response_streams(&self) {
         let ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
         self.close_response_streams(&ids);
+    }
+
+    fn pending_response_disconnected_now(&self, request_id: &str) -> bool {
+        let owned = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .any(|id| id == request_id);
+        if !owned {
+            return false;
+        }
+
+        let pending = self.pending_responses.borrow();
+        match pending.get(request_id) {
+            Some(entry) => match entry.sender.try_lock() {
+                Ok(sender) => sender.as_ref().is_none_or(|sender| sender.is_closed()),
+                Err(_) => false,
+            },
+            None => true,
+        }
+    }
+
+    /// Wait for one specific still-owned request to disconnect. Losing ownership
+    /// is deliberately not treated as cancellation: duplicate/forged responses
+    /// must retain their established general-error classification.
+    async fn pending_response_disconnected(&self, request_id: &str) {
+        loop {
+            if self.pending_response_disconnected_now(request_id) {
+                return;
+            }
+            if !self
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == request_id)
+            {
+                std::future::pending::<()>().await;
+                return;
+            }
+            tokio::time::sleep(REQUEST_DISCONNECT_POLL_INTERVAL).await;
+        }
+    }
+
+    fn response_precommit_snapshot(&self) -> ResponsePrecommitSnapshot {
+        let http_owner = Arc::clone(&self.open_http_streams.borrow());
+        let http_streams = http_owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        ResponsePrecommitSnapshot {
+            call_stack: self.call_stack.borrow().clone(),
+            call_depth: self.call_depth.get(),
+            current_count: *self.current_count.borrow(),
+            in_count_loop: *self.in_count_loop.borrow(),
+            http_owner,
+            http_streams,
+            response_streams: self
+                .open_response_streams
+                .borrow()
+                .iter()
+                .cloned()
+                .collect(),
+            pending_requests: self
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// Restore poll-local state and release only resources opened by the
+    /// cancelled evaluation. Existing handler resources remain owned.
+    fn cancel_response_precommit(&self, request_id: &str, snapshot: ResponsePrecommitSnapshot) {
+        *self.call_stack.borrow_mut() = snapshot.call_stack;
+        self.call_depth.set(snapshot.call_depth);
+        *self.current_count.borrow_mut() = snapshot.current_count;
+        *self.in_count_loop.borrow_mut() = snapshot.in_count_loop;
+
+        let new_http_streams: Vec<String> = snapshot
+            .http_owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .filter(|id| !snapshot.http_streams.contains(*id))
+            .cloned()
+            .collect();
+        self.io_client.close_stream_ids(&new_http_streams);
+
+        let new_response_streams: Vec<String> = self
+            .open_response_streams
+            .borrow()
+            .iter()
+            .filter(|id| !snapshot.response_streams.contains(*id))
+            .cloned()
+            .collect();
+        self.close_response_streams(&new_response_streams);
+        self.open_response_streams
+            .borrow_mut()
+            .retain(|id| snapshot.response_streams.contains(id));
+
+        let new_pending_requests: Vec<String> = self
+            .open_pending_requests
+            .borrow()
+            .iter()
+            .filter(|id| !snapshot.pending_requests.contains(*id))
+            .cloned()
+            .collect();
+        self.fail_unanswered_requests(&new_pending_requests);
+        self.open_pending_requests
+            .borrow_mut()
+            .retain(|id| id != request_id && snapshot.pending_requests.contains(id));
+        self.pending_responses.borrow_mut().remove(request_id);
+    }
+
+    /// Evaluate every fallible response field while racing the target request's
+    /// disconnect signal. Disconnect wins ties, and the evaluation future is
+    /// dropped before partially-entered interpreter state is restored.
+    async fn evaluate_response_precommit<T, F>(
+        &self,
+        request_id: &str,
+        line: usize,
+        column: usize,
+        disconnect_message: &'static str,
+        evaluation: F,
+    ) -> Result<T, RuntimeError>
+    where
+        F: std::future::Future<Output = Result<T, RuntimeError>>,
+    {
+        self.ensure_pending_response_owned(request_id, line, column)
+            .await?;
+        let snapshot = self.response_precommit_snapshot();
+        let mut evaluation = Box::pin(evaluation);
+        let mut disconnected = Box::pin(self.pending_response_disconnected(request_id));
+        let outcome = tokio::select! {
+            biased;
+            _ = disconnected.as_mut() => None,
+            result = evaluation.as_mut() => Some(result),
+        };
+        let disconnected_now = self.pending_response_disconnected_now(request_id);
+
+        if let Some(result) = outcome
+            && !disconnected_now
+        {
+            drop(evaluation);
+            drop(disconnected);
+            return result;
+        }
+
+        // This ordering is intentional: dropping the future runs RAII guards
+        // before we overwrite any manually-restored run-state fields.
+        drop(evaluation);
+        drop(disconnected);
+        self.cancel_response_precommit(request_id, snapshot);
+        Err(RuntimeError::with_kind(
+            disconnect_message.to_string(),
+            line,
+            column,
+            ErrorKind::Cancelled,
+        ))
     }
 
     /// Take a pending response sender into an RAII completion guard for
@@ -9880,13 +10061,18 @@ impl Interpreter {
                 // Only after evaluation do we take the sender into the completion
                 // guard. Early eval errors leave the id in open_pending so the
                 // handler-exit 500 path still resolves the client.
-                self.ensure_pending_response_owned(&request_id, *line, *column)
-                    .await?;
-
-                // Evaluate response content. Binary values are carried through
-                // as raw bytes so fonts/images/etc. serve losslessly; text and
-                // scalar values keep their existing UTF-8 rendering.
-                let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let response = self
+                    .evaluate_response_precommit(
+                        &request_id,
+                        *line,
+                        *column,
+                        "Client disconnected before the response was sent",
+                        async {
+                            // Evaluate response content. Binary values are carried through
+                            // as raw bytes so fonts/images/etc. serve losslessly; text and
+                            // scalar values keep their existing UTF-8 rendering.
+                            let content_val =
+                                self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let is_binary = matches!(content_val, Value::Binary(_));
 
                 // Enforce the response-body ceiling on the *borrowed* length
@@ -10029,13 +10215,15 @@ impl Interpreter {
                     }
                 }
 
-                // Create response
-                let response = WflHttpResponse {
-                    content: content_bytes,
-                    status: status_code,
-                    content_type: content_type_str,
-                    headers: custom_headers,
-                };
+                            Ok(WflHttpResponse {
+                                content: content_bytes,
+                                status: status_code,
+                                content_type: content_type_str,
+                                headers: custom_headers,
+                            })
+                        },
+                    )
+                    .await?;
 
                 // Now commit: take the sender (disconnect signal ends) and deliver.
                 let mut completion = self
@@ -10103,10 +10291,14 @@ impl Interpreter {
                 // Keep pending parked through status/content-type/header
                 // evaluation so disconnect still cancels any upstream work those
                 // expressions perform. Handler-exit 500 covers early eval errors.
-                self.ensure_pending_response_owned(&request_id, *line, *column)
-                    .await?;
-
-                let status_code = match status {
+                let (status_code, content_type_str, custom_headers) = self
+                    .evaluate_response_precommit(
+                        &request_id,
+                        *line,
+                        *column,
+                        "Client disconnected before the streaming response started",
+                        async {
+                            let status_code = match status {
                     Some(expr) => {
                         let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
                         match &v {
@@ -10199,6 +10391,11 @@ impl Interpreter {
                         }
                     }
                 }
+
+                            Ok((status_code, content_type_str, custom_headers))
+                        },
+                    )
+                    .await?;
 
                 // Commit: take the sender and hand the streaming head to the transport.
                 let (tx, rx) = mpsc::channel::<Vec<u8>>(RESPONSE_STREAM_BUFFER);
