@@ -1,5 +1,8 @@
 //! Regression coverage for local `open file ... as ...` bindings that analyzer
 //! body scopes do not retain for the type-checker pass.
+//!
+//! These type-checker tests do not claim that runtime file bindings can shadow
+//! an outer variable: `Environment::define` rejects parent-scope collisions.
 
 use std::fs;
 use std::process::Command;
@@ -63,7 +66,9 @@ fn fresh_local_file_handles_are_concrete_in_action_loop_and_method_scopes() {
 }
 
 #[test]
-fn opening_a_local_file_shadows_instead_of_retyping_an_outer_binding() {
+fn reconstructed_local_file_type_does_not_retype_an_outer_visible_binding() {
+    // The type checker must reconstruct `out` as File while checking the loop,
+    // then expose the original outer Text binding after leaving that scope.
     let source = "store out as \"outer.txt\"\n\
                   main loop:\n\
                   \x20\x20\x20\x20open file at \"inner.txt\" for writing as out\n\

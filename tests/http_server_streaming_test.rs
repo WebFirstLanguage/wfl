@@ -288,6 +288,56 @@ async fn test_streamed_response_lines_and_headers() {
 }
 
 #[tokio::test]
+async fn test_post_of_index_operands_execute_for_content_write_and_flush() {
+    let port = common::free_tcp_port();
+    let server_code = format!(
+        r#"
+        define action called choose with parameters values:
+            return values
+        end action
+        define action called cache with parameters values:
+            return values
+        end action
+        store types as ["text/plain"]
+        store chunks as ["post-of body"]
+        listen on port {port} as s
+        wait for request comes in on s as req with timeout 10000
+        start streaming response to req with status 200 and content type choose of (types)[0] as out
+        store streams as [out]
+        write line choose of (chunks)[0] to out
+        flush cache of (streams)[0]
+        close out
+        close server s
+    "#
+    );
+
+    let server_handle = start_server_thread(server_code);
+    wait_for_server(port).await;
+
+    let response = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/post-of"))
+        .send()
+        .await
+        .expect("request failed");
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/plain"),
+        "the post-`of` index must select the content type returned by `choose`"
+    );
+    assert_eq!(
+        response.text().await.expect("read response body"),
+        "post-of body\n",
+        "the indexed return value must reach the streamed write"
+    );
+
+    join_server(server_handle);
+}
+
+#[tokio::test]
 async fn test_write_after_close_does_not_reach_client() {
     // Writing after `close out` is a catchable error and does NOT reach the
     // client: the client sees only the bytes written before close.

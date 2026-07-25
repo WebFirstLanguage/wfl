@@ -15,11 +15,15 @@
 //! breaker threshold), and an explicit handler-start barrier proves every intended
 //! result was consumed before probing `/ping` (so a General-classified disconnect
 //! cannot race past a premature success that resets the counter).
+//! Exact `ErrorKind::Cancelled` assertions remain at the interpreter unit layer; these
+//! real-boundary bursts prove the externally observable breaker and liveness contract.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 use wfl::Interpreter;
@@ -34,14 +38,7 @@ const DISCONNECT_WAVE: usize = 256;
 /// Both waves disconnect before `/ping`, so each path exercises 512 clients (>256).
 const DISCONNECT_TOTAL: usize = DISCONNECT_WAVE * 2;
 const _: () = assert!(DISCONNECT_TOTAL > 256);
-/// The initial 256 handlers plus one replacement handler per consumed disconnect
-/// across both waves. Observing this ordinal proves every one of the 512 intended
-/// disconnect outcomes left `FuturesUnordered` before `/ping` is allowed to run.
-const POST_DISCONNECT_BARRIER: usize = DISCONNECT_WAVE + DISCONNECT_TOTAL;
 const WAVE_DEADLINE: Duration = Duration::from_secs(30);
-/// The WFL handler waits this long after its checkpoint is released. That gives the
-/// test time to close every downstream socket before `respond` / response-head send.
-const POST_CHECKPOINT_DELAY_MS: u64 = 1_000;
 const ITERATION_PROOF_DEADLINE: Duration = Duration::from_secs(20);
 
 /// These cases deliberately fill the 256-handler cap. Rust's test harness otherwise
@@ -49,6 +46,53 @@ const ITERATION_PROOF_DEADLINE: Duration = Duration::from_secs(20);
 /// peak. Serializing the heavyweight cases keeps the test-host resource bound at one
 /// full handler wave while preserving the real >256-request breaker proof.
 static HEAVY_CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A causal release latch visible to WFL through `file exists at`.
+///
+/// The marker is created before a wave begins. Handlers poll its existence after
+/// reaching the precise response lifecycle point under test. The test removes it
+/// only after every browser task has returned, which is positive proof that all
+/// intended client sockets were dropped. The short wait inside the WFL loop is only
+/// a cooperative polling yield; marker removal, not elapsed time, releases handlers.
+struct WaveLatch {
+    _directory: TempDir,
+    marker: PathBuf,
+    wfl_path: String,
+}
+
+impl WaveLatch {
+    fn new(context: &str) -> Self {
+        let directory = tempfile::Builder::new()
+            .prefix("wfl-disconnect-release-")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("{context}: create release-latch directory: {error}"));
+        let marker = directory.path().join("hold-wave");
+        let wfl_path = marker
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('"', "\\\"");
+        Self {
+            _directory: directory,
+            marker,
+            wfl_path,
+        }
+    }
+
+    fn hold(&self, wave: usize, context: &str) {
+        assert!(
+            !self.marker.exists(),
+            "{context}: release marker unexpectedly existed before wave {wave}"
+        );
+        std::fs::write(&self.marker, format!("hold {context} wave {wave}\n")).unwrap_or_else(
+            |error| panic!("{context}: create release marker for wave {wave}: {error}"),
+        );
+    }
+
+    fn release(&self, wave: usize, context: &str) {
+        std::fs::remove_file(&self.marker)
+            .unwrap_or_else(|error| panic!("{context}: release wave {wave}: {error}"));
+    }
+}
 
 struct CountingGate {
     port: u16,
@@ -210,6 +254,7 @@ struct IterationCounter {
     port: u16,
     arrivals: mpsc::UnboundedReceiver<usize>,
     errors: mpsc::UnboundedReceiver<String>,
+    observed: HashSet<usize>,
 }
 
 /// Count a handler-start request and return an empty response immediately. A
@@ -273,6 +318,7 @@ async fn spawn_iteration_counter() -> IterationCounter {
         port,
         arrivals,
         errors,
+        observed: HashSet::new(),
     }
 }
 
@@ -282,8 +328,7 @@ async fn wait_for_proven_handler_iterations(
     context: &str,
 ) {
     let deadline = tokio::time::Instant::now() + ITERATION_PROOF_DEADLINE;
-    let mut seen = HashSet::with_capacity(expected);
-    while seen.len() < expected {
+    while !(1..=expected).all(|ordinal| counter.observed.contains(&ordinal)) {
         let ordinal = tokio::time::timeout_at(deadline, async {
             tokio::select! {
                 ordinal = counter.arrivals.recv() => {
@@ -300,18 +345,28 @@ async fn wait_for_proven_handler_iterations(
         })
         .await
         .unwrap_or_else(|_| {
+            let proven = (1..=expected)
+                .filter(|ordinal| counter.observed.contains(ordinal))
+                .count();
             panic!(
                 "observed only {} of {expected} {context} handler starts; the \
                  {expected}th start is required to prove the loop consumed every \
                  intended result before the liveness probe",
-                seen.len()
+                proven
             )
         });
         assert!(
-            seen.insert(ordinal),
+            counter.observed.insert(ordinal),
             "iteration counter duplicated handler-start ordinal {ordinal}"
         );
     }
+}
+
+fn post_wave_iteration_target(wave: usize) -> usize {
+    // The loop initially fills all 256 slots. Each completed disconnect wave must
+    // then yield another 256 starts. Reaching this exact prefix proves every result
+    // from this wave left FuturesUnordered before the next wave or `/ping`.
+    DISCONNECT_WAVE * (wave + 1)
 }
 
 async fn wait_for_gate_arrivals(
@@ -551,16 +606,20 @@ async fn join_client_wave(
 
 /// Drive two full checkpointed waves. All 256 first-wave handlers are held inside
 /// the checkpoint simultaneously. The second wave cannot put all 256 handlers into
-/// that checkpoint until the loop has consumed every first-wave result. After this
-/// returns, the separate handler-start barrier proves the second-wave results were
-/// consumed too, before `/ping` is sent.
+/// that checkpoint until the loop has consumed every first-wave result. The marker
+/// latch remains held until all 256 browser tasks confirm their sockets are dropped;
+/// after release, an exact handler-start prefix proves this wave's results were
+/// consumed before the next wave or `/ping`.
 async fn drive_two_gated_disconnect_waves(
     port: u16,
     path: &'static str,
     gate: &mut CountingGate,
+    latch: &WaveLatch,
+    iterations: &mut IterationCounter,
     context: &str,
 ) {
     for wave in 1..=2 {
+        latch.hold(wave, context);
         let (disconnect, clients) = spawn_gated_client_wave(port, path);
         wait_for_gate_arrivals(&mut gate.arrivals, &mut gate.errors, wave, context).await;
         gate.release_wave
@@ -577,16 +636,30 @@ async fn drive_two_gated_disconnect_waves(
             .send(true)
             .expect("all gated clients remain alive until explicitly disconnected");
         join_client_wave(clients, wave, context).await;
+        latch.release(wave, context);
+        wait_for_proven_handler_iterations(iterations, post_wave_iteration_target(wave), context)
+            .await;
     }
 }
 
-/// The streaming-head variant needs no auxiliary checkpoint: receiving a valid
-/// response head is itself the lifecycle proof. As above, all 256 second-wave heads
-/// can only arrive after every first-wave disconnect result was consumed.
-async fn drive_two_stream_disconnect_waves(port: u16, path: &'static str, context: &str) {
+/// Receiving a valid streaming head is the lifecycle proof for the write path.
+/// Every browser task drops its socket while the marker remains held. Only after
+/// all 256 tasks return does the test release the handlers to write, then the
+/// iteration prefix proves all results were consumed.
+async fn drive_two_stream_disconnect_waves(
+    port: u16,
+    path: &'static str,
+    latch: &WaveLatch,
+    iterations: &mut IterationCounter,
+    context: &str,
+) {
     for wave in 1..=2 {
+        latch.hold(wave, context);
         let clients = spawn_stream_client_wave(port, path);
         join_client_wave(clients, wave, context).await;
+        latch.release(wave, context);
+        wait_for_proven_handler_iterations(iterations, post_wave_iteration_target(wave), context)
+            .await;
     }
 }
 
@@ -648,11 +721,12 @@ async fn test_disconnect_before_buffered_respond_does_not_kill_the_loop() {
     let _heavy_case = HEAVY_CASE_LOCK.lock().await;
     let mut gate = spawn_counting_gate().await;
     let mut iterations = spawn_iteration_counter().await;
+    let latch = WaveLatch::new("buffered-respond disconnect");
     let port = common::free_tcp_port();
-    // `/slow` reaches the counting checkpoint, waits after its release, then
-    // responds. The test disconnects every client during that wait, so the buffered
-    // `respond` send fails (or the pending entry is sibling-pruned). That must be a
-    // cancellation, not a structural failure.
+    // `/slow` reaches the counting checkpoint and then parks on a filesystem
+    // marker. The test removes that marker only after every client task confirms
+    // its socket was dropped, so the subsequent buffered response deterministically
+    // sees a disconnected receiver.
     let code = format!(
         r#"
         listen on port {port} as srv
@@ -674,7 +748,9 @@ async fn test_disconnect_before_buffered_respond_does_not_kill_the_loop() {
                     open url at "http://127.0.0.1:{gate_port}/ack" and stream response as acknowledgement
                     wait for next chunk from acknowledgement as acknowledged
                     close acknowledgement
-                    wait for {POST_CHECKPOINT_DELAY_MS} milliseconds
+                    repeat while file exists at "{release_path}":
+                        wait for 1 milliseconds
+                    end repeat
                     respond to req with "late"
                 end check
             end check
@@ -682,14 +758,17 @@ async fn test_disconnect_before_buffered_respond_does_not_kill_the_loop() {
     "#,
         gate_port = gate.port,
         counter_port = iterations.port,
+        release_path = latch.wfl_path.as_str(),
     );
     let server = start_proxy_server(code);
     wait_for_server(port).await;
-    drive_two_gated_disconnect_waves(port, "/slow", &mut gate, "buffered-respond disconnect").await;
-    wait_for_proven_handler_iterations(
+    drive_two_gated_disconnect_waves(
+        port,
+        "/slow",
+        &mut gate,
+        &latch,
         &mut iterations,
-        POST_DISCONNECT_BARRIER,
-        "buffered-disconnect",
+        "buffered-respond disconnect",
     )
     .await;
     assert_ping_survives(port, "buffered-respond disconnect").await;
@@ -700,9 +779,11 @@ async fn test_disconnect_before_buffered_respond_does_not_kill_the_loop() {
 async fn test_disconnect_before_stream_write_does_not_kill_the_loop() {
     let _heavy_case = HEAVY_CASE_LOCK.lock().await;
     let mut iterations = spawn_iteration_counter().await;
+    let latch = WaveLatch::new("stream-write disconnect");
     let port = common::free_tcp_port();
-    // `/stream` sends the head, waits (the client reads the head then disconnects),
-    // then writes — the write send fails. That must be a cancellation, not a failure.
+    // `/stream` sends the head and parks on a filesystem marker. Each client reads
+    // that head and drops its socket; only after all client tasks return does the
+    // test remove the marker and let the handler attempt its writes.
     let code = format!(
         r#"
         listen on port {port} as srv
@@ -720,7 +801,9 @@ async fn test_disconnect_before_stream_write_does_not_kill_the_loop() {
                     break
                 otherwise:
                     start streaming response to req with status 200 and content type "text/plain" as out
-                    wait for 300 milliseconds
+                    repeat while file exists at "{release_path}":
+                        wait for 1 milliseconds
+                    end repeat
                     store payload as "0123456789"
                     count from 1 to 9:
                         store payload as payload with payload
@@ -734,13 +817,15 @@ async fn test_disconnect_before_stream_write_does_not_kill_the_loop() {
         end loop
     "#,
         counter_port = iterations.port,
+        release_path = latch.wfl_path.as_str(),
     );
     let server = start_proxy_server(code);
     wait_for_server(port).await;
-    drive_two_stream_disconnect_waves(port, "/stream", "stream-write disconnect").await;
-    wait_for_proven_handler_iterations(
+    drive_two_stream_disconnect_waves(
+        port,
+        "/stream",
+        &latch,
         &mut iterations,
-        POST_DISCONNECT_BARRIER,
         "stream-write-disconnect",
     )
     .await;
@@ -753,11 +838,12 @@ async fn test_disconnect_before_streaming_head_does_not_kill_the_loop() {
     let _heavy_case = HEAVY_CASE_LOCK.lock().await;
     let mut gate = spawn_counting_gate().await;
     let mut iterations = spawn_iteration_counter().await;
+    let latch = WaveLatch::new("pre-streaming-head disconnect");
     let port = common::free_tcp_port();
     // Client disconnects *before* the streaming head is sent (no head read). The
-    // handler reaches the counting checkpoint, parks after its release, then reaches
-    // `start streaming response` with a missing/closed pending entry — must be
-    // Cancelled, not a structural General that trips the breaker after >256 instances.
+    // handler reaches the counting checkpoint and then parks on a marker. The test
+    // releases it only after every client socket is confirmed dropped, so
+    // `start streaming response` deterministically sees the disconnected request.
     let code = format!(
         r#"
         listen on port {port} as srv
@@ -779,7 +865,9 @@ async fn test_disconnect_before_streaming_head_does_not_kill_the_loop() {
                     open url at "http://127.0.0.1:{gate_port}/ack" and stream response as acknowledgement
                     wait for next chunk from acknowledgement as acknowledged
                     close acknowledgement
-                    wait for {POST_CHECKPOINT_DELAY_MS} milliseconds
+                    repeat while file exists at "{release_path}":
+                        wait for 1 milliseconds
+                    end repeat
                     start streaming response to req with status 200 and content type "text/plain" as out
                     write line "late" to out
                     close out
@@ -789,15 +877,17 @@ async fn test_disconnect_before_streaming_head_does_not_kill_the_loop() {
     "#,
         gate_port = gate.port,
         counter_port = iterations.port,
+        release_path = latch.wfl_path.as_str(),
     );
     let server = start_proxy_server(code);
     wait_for_server(port).await;
-    drive_two_gated_disconnect_waves(port, "/prehead", &mut gate, "pre-streaming-head disconnect")
-        .await;
-    wait_for_proven_handler_iterations(
+    drive_two_gated_disconnect_waves(
+        port,
+        "/prehead",
+        &mut gate,
+        &latch,
         &mut iterations,
-        POST_DISCONNECT_BARRIER,
-        "pre-streaming-head-disconnect",
+        "pre-streaming-head disconnect",
     )
     .await;
     assert_ping_survives(port, "pre-streaming-head disconnect").await;

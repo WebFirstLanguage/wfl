@@ -1,5 +1,8 @@
-//! Regression coverage for type-checker scopes that must mirror runtime child
-//! environments when response-stream bindings shadow outer file handles.
+//! Regression coverage for response-stream symbols reconstructed in type-checker
+//! child scopes after analyzer body scopes have been discarded.
+//!
+//! These tests cover type visibility during checking, not runtime shadowing:
+//! `Environment::define` rejects parent-scope name collisions.
 
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -14,7 +17,7 @@ fn typecheck(code: &str) -> Result<(), String> {
 }
 
 #[test]
-fn response_stream_bindings_do_not_escape_runtime_child_scopes() {
+fn response_stream_bindings_do_not_escape_typechecker_child_scopes() {
     let scoped_blocks = [
         "repeat while false:\n\
          \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
@@ -40,9 +43,48 @@ fn response_stream_bindings_do_not_escape_runtime_child_scopes() {
         );
         assert!(
             typecheck(&source).is_ok(),
-            "a response stream created in a runtime child scope must not replace \
+            "a response stream reconstructed in a type-checker child scope must not replace \
              the outer File type; source:\n{source}\nerrors: {:?}",
             typecheck(&source).err()
+        );
+    }
+}
+
+#[test]
+fn response_stream_bindings_are_local_while_outer_text_remains_visible_afterward() {
+    let scoped_blocks = [
+        "repeat while false:\n\
+         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20flush out\n\
+         end repeat\n",
+        "try:\n\
+         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20flush out\n\
+         when error:\n\
+         \x20\x20\x20\x20display \"ignored\"\n\
+         end try\n",
+        "count from 1 to 1:\n\
+         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20flush out\n\
+         end count\n",
+    ];
+
+    for scoped_block in scoped_blocks {
+        let source = format!(
+            "store out as \"outer text\"\n\
+             {scoped_block}\
+             store invalid as out minus 1\n"
+        );
+        let errors = typecheck(&source)
+            .expect_err("the outer Text binding must remain Text after the child scope");
+        assert!(
+            errors.contains("Cannot perform Minus operation"),
+            "expected the restored outer Text subtraction error; source:\n{source}\nerrors: {errors}"
+        );
+        assert!(
+            !errors.contains("`flush` requires a response-stream handle"),
+            "the local binding must be visible as ResponseStream while checking its child scope; \
+             source:\n{source}\nerrors: {errors}"
         );
     }
 }

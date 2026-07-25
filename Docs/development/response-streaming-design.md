@@ -148,6 +148,19 @@ close out
   (pre-`start streaming response` — the head phase — polled via
   `is_closed()`). So a browser disconnect cancels the handler whether it is
   blocked opening the upstream head or reading its body, dropping the upstream.
+- Whole response evaluation is also cancellation-aware. The runtime snapshots
+  handler state and owned resources before evaluating the `respond` or
+  `start streaming response` request operand, races that operand and every
+  fallible response field against the pending request's disconnect signal, and
+  carries the same snapshot through the transport commit. Cancellation drops
+  the active evaluation future first, then restores action/loop state and closes
+  only outbound streams, response streams, and pending requests created by that
+  response attempt. This covers actions that sleep or perform buffered work, not
+  only outbound streaming operations that already observe disconnects.
+- A disconnect discovered by the ownership precheck, sender take, or final
+  oneshot send follows the same cleanup path and returns
+  `ErrorKind::Cancelled`. Ordinary expression failures and duplicate/forged
+  response errors retain their existing classifications.
 - Disconnect is a normal cancellation, not a handler failure: it unwinds with
   `ErrorKind::Cancelled`, which the concurrent `main loop` treats as an expected
   outcome (it does NOT feed the structural consecutive-failure breaker), so a
@@ -155,6 +168,15 @@ close out
 - Absolute lifetime (`outbound_stream_max_seconds`) is enforced before EVERY
   read return — including reads served from locally-buffered bytes — not only on
   a network read, so a buffered drain cannot outlive the stream's absolute cap.
+- Expiry removes the heavy live stream slot, aborts the body, and immediately
+  removes handler ownership. To preserve the next read's typed `Timeout`
+  without retaining an unbounded tombstone table, the registry keeps at most 64
+  lightweight terminal records for at most 60 seconds; reading a record consumes
+  it. Active readers share a first-wins terminal signal, and the post-`select!`
+  recheck makes expiry win over a simultaneously ready body chunk.
+- Clean EOF is terminal independently of the old absolute deadline. A final
+  unterminated line is returned once, the following read returns `nothing`, and
+  only a later read reports the documented closed-handle error.
 - Outbound close-on-exit (shipped): outbound `httpstream*` handles are also
   handler-owned — tracked in `RunState.open_http_streams` (swapped per poll) and
   dropped from `IoClient.stream_handles` when the handler ends on any path,

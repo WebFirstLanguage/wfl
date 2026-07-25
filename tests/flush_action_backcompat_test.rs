@@ -79,6 +79,27 @@ fn truly_bare_flush_still_calls_the_legacy_zero_argument_action() {
 }
 
 #[test]
+fn truly_bare_flush_still_evaluates_a_non_callable_legacy_variable() {
+    let src = "store flush as 1\n\
+               flush\n\
+               display flush\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "the exact bare `flush` variable must remain a valid expression statement; output:\n{out}"
+    );
+    assert!(
+        out.contains('1'),
+        "the bare legacy variable must remain readable after evaluation; output:\n{out}"
+    );
+    assert!(
+        !out.to_lowercase().contains("stream"),
+        "the exact bare `flush` variable must not become a stream operation; output:\n{out}"
+    );
+}
+
+#[test]
 fn flush_without_a_matching_action_still_errors_as_a_stream_flush() {
     // With no action `flush cache` and no stream `cache`, `flush cache` falls
     // through to the stream interpretation and errors (rather than silently
@@ -232,6 +253,30 @@ fn flush_with_of_call_uses_the_full_legacy_action_name() {
     assert!(
         out.contains('7'),
         "the full-name action should receive its argument; output:\n{out}"
+    );
+}
+
+#[test]
+fn flush_with_post_of_index_preserves_the_legacy_action_result() {
+    let src = "define action called flush cache with parameters values:\n\
+               \x20\x20\x20\x20return values\n\
+               end action\n\
+               store items as [7]\n\
+               flush cache of (items)[0]\n\
+               display \"OK\"\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "the indexed result of the full legacy action must remain an expression statement; output:\n{out}"
+    );
+    assert!(
+        out.contains("OK"),
+        "the legacy post-`of` expression must complete; output:\n{out}"
+    );
+    assert!(
+        !out.to_lowercase().contains("stream"),
+        "the legacy action result must not be reinterpreted as a stream target; output:\n{out}"
     );
 }
 

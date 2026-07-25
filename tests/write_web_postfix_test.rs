@@ -119,6 +119,38 @@ fn streaming_status_clause_accepts_full_expressions_without_swallowing_headers()
 }
 
 #[test]
+fn streaming_status_clause_accepts_a_builtin_call_without_swallowing_headers() {
+    let program = parse(
+        "start streaming response to req with status abs of requested_status and headers h as out\n",
+    );
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+
+    let (status, headers) = streaming_status_and_headers(&program.statements[0]);
+    assert!(
+        matches!(
+            status,
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } if matches!(function.as_ref(), Expression::Variable(name, ..) if name == "abs")
+                && matches!(
+                    arguments.as_slice(),
+                    [wfl::parser::ast::Argument {
+                        value: Expression::Variable(name, ..),
+                        ..
+                    }] if name == "requested_status"
+                )
+        ),
+        "the builtin status operand must remain `abs of requested_status`; got {status:#?}"
+    );
+    assert!(
+        matches!(headers, Expression::Variable(name, ..) if name == "h"),
+        "headers must remain a separate response clause; got {headers:#?}"
+    );
+}
+
+#[test]
 fn write_and_streaming_clauses_share_the_full_expression_suffix_grammar() {
     let cases = [
         ("values[0]", "index"),
@@ -646,6 +678,50 @@ fn assert_post_of_index(expr: &Expression, expected_function: &str, expected_arg
     }
 }
 
+fn post_of_index_shape(expr: &Expression) -> (String, String, i64) {
+    match expr {
+        Expression::IndexAccess {
+            collection, index, ..
+        } => {
+            let index = match index.as_ref() {
+                Expression::Literal(wfl::parser::ast::Literal::Integer(index), ..) => *index,
+                other => panic!("expected an integer post-call index, got {other:#?}"),
+            };
+            match collection.as_ref() {
+                Expression::FunctionCall {
+                    function,
+                    arguments,
+                    ..
+                } => {
+                    let function = leftmost_variable(function).unwrap_or_else(|| {
+                        panic!("expected a variable call root, got {function:#?}")
+                    });
+                    let argument = match arguments.as_slice() {
+                        [
+                            wfl::parser::ast::Argument {
+                                value: Expression::Variable(name, ..),
+                                ..
+                            },
+                        ] => name,
+                        other => panic!("expected one variable call argument, got {other:#?}"),
+                    };
+                    (function.to_string(), argument.to_string(), index)
+                }
+                other => panic!("expected the index to wrap an `of` call, got {other:#?}"),
+            }
+        }
+        other => panic!("expected a post-`of` index expression, got {other:#?}"),
+    }
+}
+
+fn initializer_expression(source: &str) -> Expression {
+    let program = parse(&format!("store parity result as {source}\n"));
+    match &program.statements[0] {
+        Statement::VariableDeclaration { value, .. } => value.clone(),
+        other => panic!("expected a variable initializer, got {other:#?}"),
+    }
+}
+
 #[test]
 fn seeded_operands_resume_postfix_parsing_after_of_calls() {
     let write = parse("write line choose of (chunks)[0] to out\n");
@@ -696,6 +772,57 @@ fn seeded_operands_resume_postfix_parsing_after_of_calls() {
         }
         other => panic!("expected ambiguous FlushStreamStatement, got {other:#?}"),
     }
+}
+
+#[test]
+fn post_of_operands_match_the_ordinary_expression_ast_shape() {
+    let write = parse("write line choose of (chunks)[0] to out\n");
+    let ordinary_write = initializer_expression("choose of (chunks)[0]");
+    assert_eq!(
+        post_of_index_shape(stream_write_value(&write.statements[0])),
+        post_of_index_shape(&ordinary_write),
+        "the seeded write operand must compose exactly like an ordinary expression"
+    );
+    let ordinary_classic_write = initializer_expression("line choose of (chunks)[0]");
+    assert_eq!(
+        post_of_index_shape(stream_write_fallback(&write.statements[0])),
+        post_of_index_shape(&ordinary_classic_write),
+        "the classic write fallback must preserve the ordinary post-`of` AST"
+    );
+
+    let streaming =
+        parse("start streaming response to req with content type choose of (types)[0] as out\n");
+    let ordinary_content_type = initializer_expression("choose of (types)[0]");
+    assert_eq!(
+        post_of_index_shape(streaming_clause_operand(
+            &streaming.statements[0],
+            "content type",
+        )),
+        post_of_index_shape(&ordinary_content_type),
+        "the content-type operand must compose exactly like an ordinary expression"
+    );
+
+    let flush = parse("flush cache of (items)[0]\n");
+    let (target, fallback) = match &flush.statements[0] {
+        Statement::FlushStreamStatement {
+            target,
+            action_fallback: Some(fallback),
+            ..
+        } => (target, fallback),
+        other => panic!("expected an ambiguous FlushStreamStatement, got {other:#?}"),
+    };
+    let ordinary_flush_target = initializer_expression("cache of (items)[0]");
+    assert_eq!(
+        post_of_index_shape(target),
+        post_of_index_shape(&ordinary_flush_target),
+        "the streaming flush target must preserve the ordinary post-`of` AST"
+    );
+    let ordinary_legacy_flush = initializer_expression("flush cache of (items)[0]");
+    assert_eq!(
+        post_of_index_shape(fallback),
+        post_of_index_shape(&ordinary_legacy_flush),
+        "the legacy flush fallback must preserve the ordinary post-`of` AST"
+    );
 }
 
 #[test]

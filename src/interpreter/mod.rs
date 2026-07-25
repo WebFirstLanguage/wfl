@@ -1803,9 +1803,9 @@ impl StreamCancel {
     }
 }
 
-/// Why a stream slot was terminated. Timeout remains in the stable slot until
-/// the next read consumes it, so an unread expired handle keeps its typed
-/// terminal reason instead of degrading to an unknown-handle error.
+/// Why a stream slot was terminated. Active readers observe the shared
+/// first-wins signal; unread expiry is retained briefly in the bounded recent
+/// terminal queue so the next read can still report the typed reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamTerminal {
     Timeout,
@@ -1874,8 +1874,8 @@ impl StreamRegistry {
 /// Reads take the inner [`HttpStreamHandle`] out for the duration of the await
 /// (so the global map lock is not held across the network). Explicit
 /// finish/close removes the slot after signalling [`StreamCancel`]; expiry
-/// records a timeout tombstone and drops the parked body so mid-read work aborts
-/// without losing the terminal reason.
+/// drops the parked body, removes the live slot, and records a bounded recent
+/// terminal so mid-read work aborts without losing the reason.
 struct StreamSlot {
     /// The live body handle. `None` while a body read owns it.
     handle: Option<HttpStreamHandle>,
@@ -15387,6 +15387,102 @@ mod response_disconnect_result_tests {
                 .iter()
                 .any(|id| id == "request-closed"),
             "early cancellation retained handler ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_response_expression_errors_remain_general_and_pending() {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-error"));
+        let (sender, _receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-error".to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-error".to_string());
+
+        let statement = parse_statement("respond to req with missing_value");
+        let error = interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect_err("undefined content must remain an ordinary expression error");
+        assert_eq!(error.kind, ErrorKind::General, "wrong error: {error:?}");
+        assert!(
+            error.message.contains("missing_value"),
+            "ordinary expression diagnostic changed: {error}"
+        );
+        assert!(
+            interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-error"),
+            "ordinary expression error consumed the pending response"
+        );
+        assert!(
+            interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-error"),
+            "ordinary expression error removed handler ownership"
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_buffered_response_behavior_is_preserved() {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-success"));
+        let (sender, receiver) = oneshot::channel();
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-success".to_string(),
+            PendingResponse {
+                sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-success".to_string());
+
+        let statement = parse_statement(
+            "respond to req with \"ok\" and content_type \"text/plain\" and status 201",
+        );
+        interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect("connected buffered response must still succeed");
+        let reply = receiver.await.expect("buffered response was not delivered");
+        match reply {
+            HandlerReply::Buffered(response) => {
+                assert_eq!(response.status, 201);
+                assert_eq!(response.content_type, "text/plain");
+                assert_eq!(response.content, b"ok");
+            }
+            HandlerReply::Streaming { .. } => panic!("buffered respond produced streaming reply"),
+        }
+        assert!(
+            !interpreter
+                .pending_responses
+                .borrow()
+                .contains_key("request-success"),
+            "successful response remained pending"
+        );
+        assert!(
+            !interpreter
+                .open_pending_requests
+                .borrow()
+                .iter()
+                .any(|id| id == "request-success"),
+            "successful response retained handler ownership"
         );
     }
 

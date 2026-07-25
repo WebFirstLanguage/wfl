@@ -1,199 +1,177 @@
-# Dev Diary - 2026-07-24: issue #642 completion pass
+# Dev Diary — 2026-07-24: PR #641 / issue #642 re-review repair
 
-Issue [#642](https://github.com/WebFirstLanguage/wfl/issues/642) re-reviewed
-PR #641 at `b25aed57` and identified five P1 groups plus missing R3
-lifecycle evidence. The completion pass fixes the remaining behavior, hardens
-the tests so they prove the promised boundaries, and records unrelated
-platform defects discovered by the full presubmit.
+Issue [#642](https://github.com/WebFirstLanguage/wfl/issues/642) requested a
+fresh review of PR #641 from reviewed head
+`8e8be0fcde944d0d7b357b94d5951497af5ff0b7`. This pass repaired every newly
+confirmed product defect in auditable test-only Red → later Green commits,
+replaced false-positive R3 tests with causal tests, and recorded the older
+evidence gap without rewriting history.
 
-## Risk and compatibility
+No merge or PR comment is part of this work. The previously preserved green
+Actions run is `30142079511`; it is not final evidence for the repaired
+candidate. Final local gates and a new complete Linux/Windows Actions matrix are
+required after the documentation and characterization commit.
+
+## Risk, compatibility, and gate status
 
 - **Risk class:** R3.
-- **Issue triggers:** concurrency, cancellation, HTTP lifecycle, streaming,
-  resource ownership, arbitrary duration configuration, and backward
-  compatibility of existing WFL expressions.
-- **Additional gate trigger:** untrusted archive paths and path containment.
-  This was a pre-existing Windows portability defect found by the full gate,
-  not a sixth issue #642 requirement.
-- **Public contract:** no existing WFL syntax is intentionally removed or
-  changed. The fixes restore classic `write` and `flush` expression behavior
-  and preserve typed timeout/cancellation outcomes.
-- **External state:** none. Rollback is a source revert; there is no data
-  migration or persistent-state recovery step.
+- **Triggers:** concurrency, cancellation, HTTP lifecycle, streaming, resource
+  ownership, bounded retention, async control flow, and backward-compatible WFL
+  grammar/typechecking.
+- **Compatibility:** no WFL syntax or public `ErrorKind` variant was removed.
+  The parser fixes restore ordinary-expression parity and legacy `flush`
+  behavior; typechecker fixes accept every runtime-viable classic/streaming
+  branch without changing runtime binding rules.
+- **External state:** none. Rollback is a source revert; no data migration is
+  involved.
+- **Policy gate:** unresolved pending maintainer approval of the Section 17
+  exception for pre-existing work that lacks retained Red chronology. New
+  defects found during this re-review do have valid Red ancestry.
 
-## Selected design
+## Implemented behavior
 
-The completion pass keeps the existing architecture and hardens each boundary:
+1. Streaming response `status` parses the full clause-aware expression grammar
+   without consuming `headers`, `content type`, or `as`.
+2. Seeded write/response/flush operands resume postfix composition after `of`
+   calls, matching ordinary expressions.
+3. Bare `type` is no longer treated as a nonexistent response clause boundary.
+4. Same-line unmerged `flush` operands reach stream parsing while genuinely
+   bare legacy bindings/actions keep their old meaning.
+5. Repeat, try, and count bodies receive checker child scopes; conditional and
+   possibly-zero-iteration control flow conservatively joins all runtime-viable
+   binding types.
+6. Locally opened files are recreated as `Custom("File")` when analyzer scope
+   reconstruction leaves no current checker symbol.
+7. A final unterminated outbound line is followed by clean EOF even after the
+   former absolute deadline.
+8. Expired unread streams release the live body, reaper, and handler ownership.
+   Typed terminal results use at most 64 lightweight records with a 60-second
+   TTL and are consumed by the next read.
+9. The complete buffered/streaming response precommit phase—including the
+   request operand, actions it calls, all response fields, ownership precheck,
+   sender take, and transport commit—observes disconnects as
+   `ErrorKind::Cancelled`.
+10. Cancellation drops the active future before restoring action/loop state and
+    closes only resources opened by that response attempt. Ordinary expression
+    failures and duplicate/forged response errors retain their prior behavior.
 
-1. **Concurrent server:** handler state records sticky request acceptance.
-   A centralized classifier separates request-local outcomes from structural
-   pre-request failures. Pending-response ownership is checked before
-   expression evaluation and consumed atomically only at response commit.
-2. **Outbound streams:** each handle keeps a stable slot and a first-wins
-   `watch` terminal reason. Expiry records a `Timeout` tombstone, wakes an
-   active reader, drops a parked upstream body, and refuses reinsertion. EOF,
-   error, and close abort the per-stream reaper.
-3. **Ambiguous writes:** type checking follows the branch selected by a
-   concrete target and checks every viable branch for a gradual target.
-   Typechecker-local and inherited container context participates in
-   definedness and property typing.
-4. **Merged operands:** one seeded-expression continuation parser is shared by
-   write operands, response content type, response headers, and legacy flush
-   candidates. Response-clause boundaries propagate through recursive primary
-   wrappers and explicit-call argument lists.
-5. **Flush compatibility:** the parser records the original merged binding as
-   `legacy_binding` metadata before split/find/replace rewrites. Analyzer,
-   static unused-variable analysis, typechecker, and runtime consult the same
-   metadata, then dispatch the full fallback AST through ordinary
-   expression-statement semantics.
+## Auditable Red → Green ledger
 
-This removes the reported races and restores grammar parity without changing
-public `ErrorKind` variants or adding a second request-lease subsystem.
+Every Red below is a test-only ancestor of its Green implementation. Fixture
+corrections and Green-first characterization commits are listed separately and
+are not represented as Red evidence.
 
-## Acceptance criteria to regression coverage
+| Behavior | Affected base | Test-only Red | Green implementation | Focused command |
+|---|---|---|---|---|
+| Full streaming status operands | `8e8be0fcde944d0d7b357b94d5951497af5ff0b7` | `09115f88b0ba1bcf8ecbdba3ca81ab62eaa07e40` | `99353201518917b350009822554c7d41f6662582` | `cargo test --test write_web_postfix_test -- --nocapture --test-threads=1` |
+| Post-`of` postfix continuation | `f23fb6bc0c3b2b77cf1f9eeab567b38032710f9c` | `d97f15b6d9a05be7f35d54b1bbf3d627472ea7d6` | `764685c081f62123a56cf2bbe11aa2b4617d2711` | `cargo test --test write_web_postfix_test -- --nocapture --test-threads=1` |
+| Remove false bare-`type` boundary | `764685c081f62123a56cf2bbe11aa2b4617d2711` | `c8cfa08c0352555bd4d302fd4ded21b827e5ceca` | `485bc34b4daad1354b838a74e59938b5041c0db5` | `cargo test --test write_web_postfix_test -- --nocapture --test-threads=1` |
+| Reach unmerged flush targets | `485bc34b4daad1354b838a74e59938b5041c0db5` | `55f3d507c741f44576afce24affbf643ee7d258e` | `4a838459bf985611338e69f81253b2a6eee0e269` | `cargo test --test flush_action_backcompat_test -- --nocapture --test-threads=1` and `cargo test --test http_server_streaming_test -- --nocapture --test-threads=1` |
+| Checker child scopes | `4a838459bf985611338e69f81253b2a6eee0e269` | `8b10f8bff36fba1df4e6bae0eda07e9f05c16721` | `a1bdd9d75bd3c8134cb0fb49dc601ff209d6c26f` | `cargo test --test typechecker_response_stream_scope_test -- --nocapture --test-threads=1` |
+| Conditional/loop type joins | `7bafc6da8682de19886bb3c47cc14e67c5d2b9e2` | `24f57d63dcd7018a1ea31d1f14c63c2e4069a982` | `046b012e8fd9d79a34ee2032fd2ae36da405816d` | `cargo test --test typechecker_response_stream_join_test -- --nocapture --test-threads=1` |
+| Recreate local File symbols | `046b012e8fd9d79a34ee2032fd2ae36da405816d` | `a30fe4f50f8beff3d3b3af67aa234723f6d858fb` | `370073e4431af2e3cbad7273bace3ee0ff307e9d` | `cargo test --test open_file_local_type_test -- --nocapture --test-threads=1` |
+| Stable clean EOF after final line | `0e98fe35415abe1e067293edfaa47a4509446303` | `5bef23578d0c315dd12b5613e63f6c9192d4e79a` | `af800a7dfe44a6188b591aebfd4f8211d51719e8` | `cargo test --lib interpreter::outbound_stream_deadline_tests::final_unterminated_line_survives_deadline_after_clean_eof -- --nocapture --test-threads=1` |
+| Bounded expired-stream state | `af800a7dfe44a6188b591aebfd4f8211d51719e8` | `5d8fa3d6775145f8f63a4684f365f5f2e95c55c4` | `c7f57b9594a7286d57692efa066502fd6c08c16e` | `cargo test --lib interpreter::outbound_stream_deadline_tests::unread_expired_stream_metadata_and_ownership_are_bounded -- --nocapture --test-threads=1` |
+| Cancel buffered content and streaming-head evaluation | `00a2a3fa5f60bf414ac211b2c76d546f784b0d49` | `4c45f1617097cbd39f92183bbe9dcbd986cea41d` | `0d4b26b23bcd356bd62fc4de6abf89e062e0279c` | `cargo test --lib interpreter::response_expression_disconnect_tests -- --nocapture --test-threads=1` |
+| Cancel request operands; clean precheck and commit races | `edb8ce89c3d693015f655daac012c73cbc12d293` | `3bc38c668a91229e213a10d8eaebdba3789556a9` | `c73260ff61a32694c5ecfe72ab8749810033de0d` | `cargo test --lib interpreter::response_expression_disconnect_tests -- --nocapture --test-threads=1` and `cargo test --lib interpreter::response_disconnect_result_tests -- --nocapture --test-threads=1` |
 
-| Issue requirement | Regression evidence |
-|---|---|
-| Request-local failures cannot stop the server | `concurrent_disconnect_paths_burst_test`: two serialized 256-client waves per disconnect path (512 disconnects total), exact checkpoint/ack synchronization, handler-start ordinal 768 (the initial 256 plus one replacement for every consumed disconnect result), then `/ping`; every socket operation and join is bounded |
-| Owned missing pending entry is cancellation; duplicate remains an error | `concurrent_handler_classification_tests::missing_pending_entry_is_cancelled_only_while_the_handler_owns_it` |
-| Repeated finite request waits survive | 257 direct classifier observations plus a real server using 1 ms waits until handler-start ordinal 512 |
-| Expiry/read ownership is atomic and preserves `Timeout` | active-read real-socket test, unread-expiry test, and deterministic `take -> expire -> ready result -> put` unit ordering |
-| Stream EOF is stable | final unterminated line, then exactly one EOF `nothing`, then the documented closed-handle result |
-| Reaper resources remain bounded | retained-runtime live-reaper counter across rapid close, clean EOF, truncated-body error, and opened-but-unread expiry |
-| Extreme duration cannot panic or disable the cap | deadline unit test proves `u64::MAX` becomes a finite one-year cap and diagnostics use that effective duration |
-| Concrete and gradual write branches are sound | one-sided leads in both directions, property roots, handler/action scopes, direct and inherited container properties, wrapped file/stream/list payloads, gradual definedness, and gradual payload tests |
-| Merged operands match ordinary expression grammar | 3 x 7 parser matrix plus clause boundaries in concatenation, `at` indexes, nested `of` calls, builtins, unary operands, explicit `call ... with ...` arguments, and `file exists at <indexed expression>` |
-| Full flush fallback is preserved | non-callable, overload, nested postfix, binary continuation, `of` calls, split/find/replace rewrites, invalid container-property types, and unused-variable accounting for `legacy_binding` and fallback operands |
-| Backpressure test proves the intended path | client confirms the 200 head, stays connected without reading, then asserts the exact typed stall timeout and lower bound |
-| Dropped pending request sends the explicit 500 | exact dequeue/drop/release synchronization followed by exact status, content type, body, prompt completion, and clean interpreter/server joins |
+The intended Red failures included incomplete/misbounded ASTs, unreachable flush
+forms, leaked checker types, unknown local File types, stale-deadline Timeout,
+unbounded live stream/owner populations, response evaluation that remained
+pending after its client disconnected, stale pending-response ownership, and
+upstream streams retained after commit-time cancellation.
 
-## Red evidence observed
+Post-Green fixture corrections were
+`f23fb6bc0c3b2b77cf1f9eeab567b38032710f9c`,
+`7bafc6da8682de19886bb3c47cc14e67c5d2b9e2`,
+`f0dc05db5b2c6722a3a400e629544295a3b07609`, and
+`85768c2384b2e414fe66c26751b28f12f2614890`. They correct or broaden
+test fixtures; none is claimed as a new Red.
 
-The following focused regressions failed before their matching implementation
-changes:
+## R3 characterization and preservation evidence
 
-- GitHub Actions run `30106107011` and the local focused run:
-  `http_stream_test::test_next_line_returns_final_unterminated_line` returned
-  `Unknown or already-closed stream handle 'httpstream1'` instead of EOF
-  `nothing`.
-- Active hard-expiry cancellation produced `ErrorKind::General` with a closed
-  stream message instead of `ErrorKind::Timeout`.
-- Reading an unread expired stream produced an unknown-handle General error
-  instead of a typed timeout.
-- Container method `write line value to "C:/tmp/out"` falsely reported
-  `Variable 'line value' is not defined`.
-- Wrapped write operands skipped undefined names in concrete-file,
-  concrete-stream, and gradual-target branches.
-- Unmerged response content type `"text/" with subtype` stopped parsing at
-  `with`.
-- Response clauses were swallowed by concatenation operands, `at` indexes, and
-  recursively nested `of`/builtin/unary expressions.
-- `call render with value and headers h` swallowed `headers h` as a second
-  explicit-call argument.
-- `file exists at paths at kind and headers h` absorbed the headers clause
-  into the nested index/Boolean-And expression.
-- `flush cache plus 1` left `plus` dangling, and `flush cache[0][0]` selected
-  the short `cache` root at runtime.
-- Split/find/replace flush rewrites discarded the original legacy binding, and
-  an invalid live container property was not rejected by the typechecker.
-- Static unused-variable analysis reported both `flush cache` and `dead`; only
-  `dead` should have been unused.
-- The original lifecycle tests could finish without proving the post-
-  disconnect checkpoint, exact drop point, bounded joins, or admission beyond
-  the breaker threshold. Deterministic synchronization was added before the
-  production behavior was accepted as Green.
+- `0e98fe35415abe1e067293edfaa47a4509446303` proves the classic write fallback
+  with a real opened File handle.
+- `90a225d4de36fc74a0b17e4312889c2fa3511c93` makes simultaneous body/expiry
+  arbitration deterministic.
+- `edb8ce89c3d693015f655daac012c73cbc12d293` replaces timing-only lifecycle
+  coverage with active-read close, spawned-reaper, exact disconnect
+  classification, zero/fractional timeout, backpressure, and real client
+  disconnect tests. The real TCP test covers buffered content plus streaming
+  status/content-type/headers, asserts upstream EOF, and proves `/ping`
+  remains serviceable.
+- `tests/concurrent_disconnect_paths_burst_test.rs` uses causal release markers
+  and iteration barriers. Each 256-client wave is fully consumed before the
+  next wave or `/ping`; fixed handler sleeps are not used as proof.
+- Green-first breadth checks cover builtin status operands, ordinary/seeded AST
+  parity and runtime behavior after `of`, a genuinely bare non-callable
+  `flush` binding, outer Text/File scope reconstruction, and ordinary
+  expression/error preservation.
 
-The original server-breaker defect is anchored to issue head `b25aed57`. Only
-GitHub Actions run `30106107011` is retained policy-compliant CI Red evidence.
-The other Reds were observed locally but are not preserved as Red commits or
-durable CI artifacts.
+Focused preservation commands run on the repaired tree include:
 
-A pre-existing zero-byte `.git/objects/maintenance.lock` (dated
-2026-07-18 03:36 local time) prevented Git object writes; its owning process
-was not established. Consequently there is no committed Red-to-Green ancestry
-for the local regressions, including the existing archive reproduction test.
-This is a testing-policy handoff limitation and must not be overstated as
-formal Red evidence.
+```text
+cargo test --lib interpreter::response_expression_disconnect_tests -- --nocapture --test-threads=1
+cargo test --lib interpreter::response_disconnect_result_tests -- --nocapture --test-threads=1
+cargo test --lib interpreter::request_wait_timeout_tests -- --nocapture --test-threads=1
+cargo test --lib interpreter::outbound_stream_deadline_tests -- --nocapture --test-threads=1
+cargo test --test response_expression_disconnect_runtime_test -- --nocapture --test-threads=1
+cargo test --test concurrent_disconnect_paths_burst_test -- --nocapture --test-threads=1
+cargo clippy --lib -- -D warnings
+```
 
-## Unrelated full-gate defects repaired
+All completed focused commands passed without retry, skip, quarantine,
+weakened assertions, or replacement with timing-only assertions.
 
-These changes are not issue #642 acceptance items, but each blocked or weakened
-the repository's required verification:
+## Historical evidence gap
 
-- `file_io_performance_test::test_directory_listing_performance` recursively
-  scanned the repository and `target` (about 65,000 files), exceeded its
-  10-second bound at 11.28 seconds, and left 30 fixtures. It now uses an
-  auto-cleaned temporary directory; focused Green was 1/1 in 0.02 seconds.
-- On Windows, `Path::is_absolute()` did not classify the portable archive entry
-  `/etc/shadow` as absolute. The existing containment guard still rejected it
-  as escaping the destination, but with the wrong classification and message.
-  `Path::has_root()` now performs portable rooted-path rejection; the
-  `wflpkg` security suite is 31/31.
-- `execute_file_test` reserved port 58123. It now uses `free_tcp_port()` to
-  avoid unrelated local collisions.
-- Windows PowerShell 5.1 rejected inherited environments containing identical
-  `Path` and `PATH` keys before `Start-Process` could run. Both official
-  scripts now canonicalize only identical duplicates and fail closed on
-  conflicting values. The integration runner also retains the child process
-  handle before a timed wait so a real exit code is available.
-- `subprocess_comprehensive.wfl` treated shell-only `echo` as a Windows
-  executable. It now uses `cargo --version`, an existing runner prerequisite,
-  explicitly waits after output capture so shutdown is orphan-free, and uses a
-  repo-owned blocking WFL helper to prove the child is running before kill and
-  absent afterward. The helper carries the first-line `CI-SKIP` directive used
-  by both platform runners so it is never treated as a standalone test.
+The original PR work before reviewed head `8e8be0fc` does not have retained
+test-only Red ancestors for every behavioral change. Actions run `30106107011`
+is the only located durable pre-Green Red artifact for that earlier work.
+Writing passing tests now, reverting finished code, or rewriting commit history
+would not establish the missing chronology.
 
-## Green evidence
+The repository therefore contains a narrowly scoped Section 17 exception draft
+under `Docs/development/testing-policy-exceptions/`. It records the exact
+missing rule/scope, reason, compensating verification, residual risk,
+containment, rollback, owner, repair deadline, and seven-day R3 expiry. It is
+explicitly **PENDING MAINTAINER APPROVAL**. Until approved, the testing-policy
+merge/release gate remains unresolved; the exception does not turn missing
+evidence into a pass.
 
-Focused final results:
+## Required final verification
 
-- Language-focused combined run: 68/68.
-- `write_web_postfix_test`: 21/21.
-- Static-analyzer focused units: 15/15.
-- Parser units: 110/110.
-- Strengthened disconnect binary: 4/4 in about 11.5 seconds; the handler-entry
-  barrier case also passed focused 1/1.
-- Directory-performance fixture: 1/1 in 0.02 seconds.
-- `cargo test -p wflpkg --test security_tests --verbose`: 31/31.
-- Final subprocess fixture: exit 0 with a live-child kill assertion and no
-  orphan warning.
+The final candidate must run these exact commands after all code, tests, and
+documentation are committed:
 
-Final-tree gates:
+```text
+cargo fmt --all -- --check
+git diff --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo build --release
+cargo test --all --verbose --jobs 2
+scripts/run_integration_tests.sh
+python3 scripts/validate_docs_examples.py --ci --force
+scripts/run_web_tests.sh
+```
 
-| Command | Result |
-|---|---|
-| `cargo fmt --all -- --check` | pass |
-| `git diff --check` | pass |
-| `cargo clippy --all-targets --all-features -- -D warnings` | pass |
-| `cargo build --release` | pass |
-| `cargo test --all --verbose --jobs 2` | pass; core 627 passed / 6 ignored, all workspace integration packages passed, WFL doctests 28 passed / 11 ignored |
-| `scripts/run_integration_tests.ps1 -TestOnly` | pass; Rust integration binaries passed and TestPrograms finished 110 passed / 0 failed / 24 explicit skips |
-| `scripts/run_web_tests.ps1` | pass; 2/2 HTTP tests, TLS script case explicitly skipped because OpenSSL was unavailable |
-| Git Bash syntax + first-line skip probe | pass; the Unix runner parses and recognizes the helper's `CI-SKIP` directive |
-| `python scripts/validate_docs_examples.py --ci --force` | pass; 18/18 examples across validation layers |
-
-The first unbounded `cargo test --all --verbose` attempt hit a pre-test Windows
-linker fan-out failure, `LNK1104: cannot open msvcrt.lib`. The library was
-present and readable, and the exact failed target linked immediately
-afterward. `--jobs 2` preserved the complete test selection while bounding
-concurrent linkers.
-
-The Cargo cache also reported a read-only last-use database in this sandbox.
-That warning did not affect dependency resolution, compilation, or test
-selection.
+After push, the new GitHub Actions run must finish successfully across Linux
+and Windows, including the integration gate, TestPrograms, docs validation, web
+tests, TLS, PostgreSQL, MariaDB, and fuzz-target compilation. Those results
+belong in the final handoff rather than being preclaimed here.
 
 ## Residual risk and recovery
 
-- Each disconnect path covers 512 clients in two 256-client waves, with at
-  most 256 simultaneous handlers. This proves every disconnected result is
-  consumed before the post-check while staying within the configured admission
-  bound.
-- The repeated finite-timeout proof is separate and uses handler-start ordinal
-  512.
-- `0` continues to disable the outbound absolute cap. Positive values above
-  one year use the documented one-year effective cap.
-- The script-level TLS case was not run because OpenSSL was unavailable, but
-  the Rust TLS integration suite passed 8/8 in the workspace test gate.
-- No deployment or external state changed. Reverting this source/test set is
-  the rollback; forward repair is preferred if a platform timing or socket-
-  limit issue appears.
+- Recent typed stream terminals are deliberately bounded to 64 records and 60
+  seconds. A much later read, or a read after capacity eviction, receives the
+  documented unknown/closed-handle result rather than retaining metadata
+  indefinitely.
+- A response request operand is raced against the stable set of requests owned
+  when it begins; normal handlers own one request. Newly accepted resources are
+  treated as work created by the attempt and are cleaned if it is cancelled.
+- The Section 17 approval is an explicit unresolved governance risk, not a
+  product-test failure.
+- No deployment or persistent state changed. A rollback returns the complete
+  affected change set to its recorded base and reruns the gate; it must not
+  claim the reverted behavior remains repaired. Forward repair is preferred
+  for any later race or platform defect.
