@@ -47,9 +47,29 @@ fn repeat_until_with_consistent_types_still_checks_cleanly() {
                 \x20\x20\x20\x20change counter to counter plus 1\n\
                 end repeat\n\
                 display counter\n";
+    let result = typecheck(code);
     assert!(
-        typecheck(code).is_ok(),
-        "a well-typed repeat-until loop must not be rejected: {:?}",
-        typecheck(code)
+        result.is_ok(),
+        "a well-typed repeat-until loop must not be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn repeat_until_break_path_does_not_force_post_body_condition_types() {
+    // Runtime exits at `break` WITHOUT evaluating the condition, so a body
+    // that retypes a binding and then always breaks is runtime-valid even if
+    // the condition would mistype against the retyped binding. The checker
+    // must not reject it — type errors are fatal inside `load module`, so a
+    // false positive here breaks working modules (PR #643 review).
+    let code = "store out as 5\n\
+                repeat until out is greater than 3:\n\
+                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20break\n\
+                end repeat\n";
+    let result = typecheck(code);
+    assert!(
+        result.is_ok(),
+        "a retype-then-break body never reaches the condition at runtime and \
+         must not be reported against post-body types: {result:?}"
     );
 }
