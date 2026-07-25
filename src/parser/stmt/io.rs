@@ -948,6 +948,13 @@ impl<'a> IoParser<'a> for Parser<'a> {
         // value (`write line with "!" to file`, `write line[0] to file`, ...),
         // not a streaming marker with a missing operand. This is common in
         // line-by-line file code and predates response streaming.
+        //
+        // This token set must cover every continuation the ordinary expression
+        // grammar accepts after a variable: the postfix/`of` starters plus every
+        // operator arm of `parse_binary_continuation_inner` (expr/binary.rs) —
+        // including `starts`/`ends` (`starts with` comparisons) and the silently
+        // absorbed `:`. A missing entry silently re-reads a classic program as a
+        // stream write (#642).
         let bare_marker_before_classic_continuation = matches!(
             self.cursor.peek(),
             Some(t) if matches!(&t.token, Token::Identifier(id) if id == "line" || id == "chunk")
@@ -979,6 +986,9 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     | Token::KeywordFind
                     | Token::KeywordReplace
                     | Token::KeywordSplit
+                    | Token::KeywordStarts
+                    | Token::KeywordEnds
+                    | Token::Colon
             )
         );
 
