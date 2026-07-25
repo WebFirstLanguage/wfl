@@ -14394,8 +14394,11 @@ mod outbound_stream_deadline_tests {
                     }
                     let request = String::from_utf8_lossy(&request);
                     let truncated = request.starts_with("GET /truncated ");
+                    let unterminated = request.starts_with("GET /unterminated ");
                     let response = if truncated {
                         "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nx"
+                    } else if unterminated {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc"
                     } else {
                         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                     };
@@ -14456,6 +14459,63 @@ mod outbound_stream_deadline_tests {
         assert!(
             outbound_stream_deadline(MAX_OUTBOUND_STREAM_DEADLINE_SECS).is_some(),
             "the clamp ceiling itself must still produce a deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn final_unterminated_line_survives_deadline_after_clean_eof() {
+        let port = spawn_stream_cleanup_upstream(1).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 1,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let (_, _, handle) = tokio::time::timeout(
+            Duration::from_secs(3),
+            client.open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/unterminated"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            ),
+        )
+        .await
+        .expect("open stream hung")
+        .expect("open stream");
+
+        let first = tokio::time::timeout(
+            Duration::from_secs(3),
+            client.next_line(&handle, Arc::clone(&budget)),
+        )
+        .await
+        .expect("first line read hung")
+        .expect("first line read");
+        assert_eq!(
+            first.as_deref(),
+            Some("abc"),
+            "the final unterminated line is returned only after clean EOF was observed"
+        );
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        let eof = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.next_line(&handle, Arc::clone(&budget)),
+        )
+        .await
+        .expect("clean EOF read hung")
+        .expect("clean EOF observed before the cap must not become Timeout");
+        assert_eq!(eof, None);
+
+        let later = client
+            .next_line(&handle, budget)
+            .await
+            .expect_err("the single clean-EOF result must consume the handle");
+        assert!(
+            matches!(&later, HttpClientError::Request(message) if message.contains("already-closed")),
+            "a later read must retain the established closed-handle error, got {later:?}"
         );
     }
 
