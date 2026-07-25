@@ -15774,6 +15774,115 @@ mod outbound_stream_deadline_tests {
         .expect("finished streams left hard-lifetime reaper tasks sleeping");
     }
 
+    fn install_owned_empty_stream(client: &IoClient, handle_id: &str) -> StreamOwner {
+        let owner: StreamOwner =
+            Arc::new(std::sync::Mutex::new(HashSet::from(
+                [handle_id.to_string()],
+            )));
+        client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .insert(
+                handle_id.to_string(),
+                StreamSlot {
+                    handle: Some(HttpStreamHandle {
+                        stream: Box::pin(futures_util::stream::empty::<reqwest::Result<Vec<u8>>>()),
+                        buffer: Vec::new(),
+                        done: false,
+                        bytes_read: 0,
+                        total_deadline: None,
+                    }),
+                    deadline: None,
+                    cancel: StreamCancel::new(),
+                    reaper_abort: None,
+                    owner: Some(Arc::clone(&owner)),
+                },
+            );
+        owner
+    }
+
+    async fn take_and_observe_clean_eof(
+        client: &IoClient,
+        handle_id: &str,
+        budget: &Arc<ExecutionBudget>,
+    ) -> TakenStream {
+        let Some(mut taken) = client
+            .take_stream(handle_id)
+            .expect("take synthetic empty stream")
+        else {
+            panic!("live synthetic stream unexpectedly resolved as clean EOF");
+        };
+        assert!(
+            !client
+                .stream_pull(&mut taken.handle, budget, &taken.cancel)
+                .await
+                .expect("observe upstream clean EOF"),
+            "an empty upstream must return clean EOF"
+        );
+        assert!(taken.handle.done, "observing EOF must mark the body done");
+        assert_eq!(
+            taken.cancel.terminal(),
+            Some(StreamTerminal::CleanEof),
+            "observing upstream None must latch CleanEof before slot removal"
+        );
+        taken
+    }
+
+    async fn assert_one_shot_clean_eof_after_put(
+        client: &IoClient,
+        handle_id: &str,
+        owner: &StreamOwner,
+        budget: Arc<ExecutionBudget>,
+    ) {
+        {
+            let registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            assert!(
+                !registry.live.contains_key(handle_id),
+                "put_stream must not recreate a heavy live slot after clean EOF"
+            );
+            assert_eq!(
+                registry
+                    .recent
+                    .iter()
+                    .filter(|entry| {
+                        entry.id == handle_id && entry.reason == StreamTerminal::CleanEof
+                    })
+                    .count(),
+                1,
+                "put_stream must leave exactly one CleanEof tombstone"
+            );
+        }
+        assert!(
+            owner
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "slot removal before put_stream must clear handler ownership"
+        );
+        assert_eq!(
+            client
+                .next_line(handle_id, Arc::clone(&budget))
+                .await
+                .expect("consume restored CleanEof tombstone"),
+            None,
+            "the first read after terminalization must observe clean EOF"
+        );
+        let later = client
+            .next_line(handle_id, budget)
+            .await
+            .expect_err("the CleanEof tombstone must be one-shot");
+        assert!(
+            matches!(&later, HttpClientError::Request(message)
+                if message.contains("Unknown or already-closed")),
+            "the read after consuming CleanEof must report a closed/unknown handle, got {later:?}"
+        );
+    }
+
     struct DelayedHeadUpstream {
         port: u16,
         request_received: oneshot::Receiver<()>,
@@ -16213,6 +16322,82 @@ mod outbound_stream_deadline_tests {
                 .expect("consume one-shot clean EOF"),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn put_stream_restores_clean_eof_after_close_removed_the_live_slot() {
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 0,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let handle_id = "clean-eof-after-close";
+        let owner = install_owned_empty_stream(&client, handle_id);
+        let TakenStream { handle, cancel } =
+            take_and_observe_clean_eof(&client, handle_id, &budget).await;
+
+        assert!(
+            client.finish_stream_slot_sync(handle_id, StreamTerminal::Closed),
+            "close must remove the live slot while the EOF-observing read owns its body"
+        );
+        assert_eq!(
+            cancel.terminal(),
+            Some(StreamTerminal::CleanEof),
+            "the later close claim must not overwrite the observed CleanEof"
+        );
+
+        client
+            .put_stream(handle_id, handle, &cancel)
+            .expect("put_stream must restore CleanEof after close removed the slot");
+        assert_one_shot_clean_eof_after_put(&client, handle_id, &owner, budget).await;
+    }
+
+    #[tokio::test]
+    async fn put_stream_deduplicates_clean_eof_after_reaper_removed_the_live_slot() {
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 0,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let handle_id = "clean-eof-after-reaper";
+        let owner = install_owned_empty_stream(&client, handle_id);
+        let TakenStream { handle, cancel } =
+            take_and_observe_clean_eof(&client, handle_id, &budget).await;
+
+        // Mirror the production reaper's critical section without a wall-clock
+        // sleep: remove the slot, attempt Timeout, clear ownership, and retain
+        // the first-wins terminal outcome before the active read calls put.
+        {
+            let now = Instant::now();
+            let mut registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            registry.prune_recent(now);
+            let mut slot = registry
+                .live
+                .remove(handle_id)
+                .expect("reaper-style terminalization must claim the live slot");
+            let terminal = slot.cancel.terminate(StreamTerminal::Timeout);
+            assert_eq!(
+                terminal,
+                StreamTerminal::CleanEof,
+                "a reaper Timeout after observed EOF must retain CleanEof"
+            );
+            slot.reaper_abort = None;
+            drop(slot.handle.take());
+            remove_stream_owner(&mut slot, handle_id);
+            registry.remember_recent(handle_id.to_string(), terminal, now);
+        }
+
+        client
+            .put_stream(handle_id, handle, &cancel)
+            .expect("put_stream must preserve CleanEof after the reaper removed the slot");
+        assert_one_shot_clean_eof_after_put(&client, handle_id, &owner, budget).await;
     }
 
     #[test]
