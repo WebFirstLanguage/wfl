@@ -2309,7 +2309,7 @@ impl IoClient {
     fn put_stream(
         &self,
         handle_id: &str,
-        handle: HttpStreamHandle,
+        mut handle: HttpStreamHandle,
         cancel: &StreamCancel,
     ) -> Result<(), HttpClientError> {
         if let Some(terminal) = cancel.terminal() {
@@ -2352,10 +2352,15 @@ impl IoClient {
         // `nothing`, matching the established WFL stream contract. Retain the
         // exhausted handle for that one read, but abort its timer immediately
         // so EOF never leaves a sleeping reaper task.
-        if handle.done
-            && let Some(abort) = slot.reaper_abort.take()
-        {
-            abort.abort();
+        if handle.done {
+            // Clean EOF already won before the absolute deadline. Preserve the
+            // one established follow-up `nothing` read without letting the old
+            // wall-clock cap retroactively turn that EOF into Timeout.
+            handle.total_deadline = None;
+            slot.deadline = None;
+            if let Some(abort) = slot.reaper_abort.take() {
+                abort.abort();
+            }
         }
         slot.handle = Some(handle);
         Ok(())
