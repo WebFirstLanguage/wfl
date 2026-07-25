@@ -414,6 +414,34 @@ fn streaming_clause_boundary_survives_nested_concatenation_rhs_in_both_orders() 
 }
 
 #[test]
+fn type_prefixed_identifier_is_content_not_a_response_clause() {
+    let source = "start streaming response to req with content type \"application/\" with type suffix and headers h as out\n";
+    let program = parse(source);
+    assert_eq!(
+        program.statements.len(),
+        1,
+        "`{source}` must remain one statement; got {:#?}",
+        program.statements
+    );
+    match &program.statements[0] {
+        Statement::StartStreamingResponseStatement {
+            content_type: Some(Expression::Concatenation { right, .. }),
+            headers: Some(Expression::Variable(headers, ..)),
+            ..
+        } => {
+            assert!(
+                matches!(right.as_ref(), Expression::Variable(name, ..) if name == "type suffix"),
+                "`type suffix` must remain the concatenation RHS, got {right:#?}"
+            );
+            assert_eq!(headers, "h", "the following headers clause must remain separate");
+        }
+        other => panic!(
+            "expected concatenated content type plus a separate headers clause, got {other:#?}"
+        ),
+    }
+}
+
+#[test]
 fn streaming_clause_boundary_survives_at_index_expression_in_both_orders() {
     let cases = [
         (
