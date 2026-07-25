@@ -983,3 +983,137 @@ fn classic_indexed_file_write_still_works_at_runtime() {
         "the indexed element must be written, not the whole list"
     );
 }
+
+fn run_file_write_with_line_binding(statement: &str, declaration: &str) -> String {
+    let dir = TempDir::new().expect("tempdir");
+    let out = dir.path().join("out.txt");
+    let out_str = out.to_string_lossy().replace('\\', "/");
+    let src = format!("{declaration}\n{statement} to \"{out_str}\"\n");
+    let program_file = dir.path().join("main.wfl");
+    fs::write(&program_file, &src).expect("write program");
+    let output = Command::new(env!("CARGO_BIN_EXE_wfl"))
+        .arg(&program_file)
+        .output()
+        .expect("run wfl");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success(),
+        "`{statement}` must remain a classic file write; output:\n{combined}"
+    );
+    fs::read_to_string(out).expect("classic write must create output file")
+}
+
+#[test]
+fn bare_line_binding_keeps_with_continuation_in_classic_file_write() {
+    let written =
+        run_file_write_with_line_binding("write line with \"!\"", "store line as \"hello\"");
+    assert_eq!(written, "hello!");
+}
+
+#[test]
+fn bare_line_binding_keeps_natural_index_continuation_in_classic_file_write() {
+    let written = run_file_write_with_line_binding("write line at 0", "store line as [\"first\"]");
+    assert_eq!(written, "first");
+}
+
+#[test]
+fn bare_line_binding_keeps_bracket_index_continuation_in_classic_file_write() {
+    let written = run_file_write_with_line_binding("write line[0]", "store line as [\"first\"]");
+    assert_eq!(written, "first");
+}
+
+#[test]
+fn bare_line_binding_keeps_binary_continuation_in_classic_file_write() {
+    let written = run_file_write_with_line_binding("write line plus 1", "store line as 4");
+    assert_eq!(written, "5");
+}
+
+#[test]
+fn bare_line_binding_keeps_direct_integer_index_as_classic_fallback() {
+    let written = run_file_write_with_line_binding("write line 0", "store line as [\"first\"]");
+    assert_eq!(written, "first");
+}
+
+#[test]
+fn display_property_followed_by_spaced_list_keeps_legacy_statement_split() {
+    let program = parse("display alice.name [1, 2]\n");
+    assert_eq!(program.statements.len(), 2, "got {:#?}", program.statements);
+    assert!(
+        matches!(
+            &program.statements[0],
+            Statement::DisplayStatement {
+                value: Expression::PropertyAccess { .. },
+                ..
+            }
+        ),
+        "the property itself must remain the displayed value; got {:#?}",
+        program.statements[0]
+    );
+    assert!(
+        matches!(
+            &program.statements[1],
+            Statement::ExpressionStatement {
+                expression: Expression::Literal(wfl::parser::ast::Literal::List(_), ..),
+                ..
+            }
+        ),
+        "the spaced list must remain the separate legacy expression, not an index; got {:#?}",
+        program.statements[1]
+    );
+}
+
+#[test]
+fn display_property_followed_by_integer_remains_a_display_fold() {
+    let program = parse("display alice.name 5\n");
+    assert_eq!(program.statements.len(), 1, "got {:#?}", program.statements);
+    assert!(
+        matches!(
+            &program.statements[0],
+            Statement::DisplayStatement {
+                value: Expression::Concatenation { left, right, .. },
+                ..
+            } if matches!(left.as_ref(), Expression::PropertyAccess { .. })
+                && matches!(
+                    right.as_ref(),
+                    Expression::Literal(wfl::parser::ast::Literal::Integer(5), ..)
+                )
+        ),
+        "the integer must be a second display value, not direct indexing; got {:#?}",
+        program.statements[0]
+    );
+}
+
+#[test]
+fn display_property_compatibility_executes_through_the_real_binary() {
+    let dir = TempDir::new().expect("tempdir");
+    let program_file = dir.path().join("main.wfl");
+    fs::write(
+        &program_file,
+        "create map alice:\n\
+         \x20\x20\x20\x20\"name\" is \"Alice\"\n\
+         end map\n\
+         display alice.name 5\n",
+    )
+    .expect("write program");
+    let output = Command::new(env!("CARGO_BIN_EXE_wfl"))
+        .arg(&program_file)
+        .output()
+        .expect("run wfl");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success(),
+        "display fold must not index `Alice` by 5; output:\n{combined}"
+    );
+    assert!(
+        combined.contains("Alice5"),
+        "legacy display fold must print both values; output:\n{combined}"
+    );
+}

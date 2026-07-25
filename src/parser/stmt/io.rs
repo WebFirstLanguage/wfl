@@ -943,20 +943,46 @@ impl<'a> IoParser<'a> for Parser<'a> {
         // the same token (`line payload` -> Identifier("line payload")), so
         // split the value off the marker, mirroring the websocket-message form.
         //
-        // Do NOT intercept a bare `line`/`chunk` that is immediately followed by
-        // `to`: that is the classic `write <var> to <file>` form using a
-        // variable literally named `line`/`chunk` (common in line-by-line file
-        // processing). The streaming form always has a value between the marker
-        // and `to`, so a bare marker directly before `to` is not a stream write.
-        let bare_marker_before_to = matches!(
+        // Do NOT intercept a bare `line`/`chunk` followed by an expression
+        // continuation. In that shape the marker is itself the classic file-write
+        // value (`write line with "!" to file`, `write line[0] to file`, ...),
+        // not a streaming marker with a missing operand. This is common in
+        // line-by-line file code and predates response streaming.
+        let bare_marker_before_classic_continuation = matches!(
             self.cursor.peek(),
             Some(t) if matches!(&t.token, Token::Identifier(id) if id == "line" || id == "chunk")
         ) && matches!(
             self.cursor.peek_kind_n(1),
-            Some(Token::KeywordTo)
+            Some(
+                Token::KeywordTo
+                    | Token::KeywordWith
+                    | Token::KeywordAt
+                    | Token::Dot
+                    | Token::LeftBracket
+                    | Token::KeywordOf
+                    | Token::Plus
+                    | Token::KeywordPlus
+                    | Token::Minus
+                    | Token::KeywordMinus
+                    | Token::KeywordTimes
+                    | Token::KeywordDividedBy
+                    | Token::KeywordDivided
+                    | Token::Slash
+                    | Token::Percent
+                    | Token::KeywordModulo
+                    | Token::Equals
+                    | Token::KeywordIs
+                    | Token::KeywordAnd
+                    | Token::KeywordOr
+                    | Token::KeywordMatches
+                    | Token::KeywordContains
+                    | Token::KeywordFind
+                    | Token::KeywordReplace
+                    | Token::KeywordSplit
+            )
         );
 
-        if !bare_marker_before_to
+        if !bare_marker_before_classic_continuation
             && let Some(next_token) = self.cursor.peek()
             && let Token::Identifier(id) = &next_token.token
             && (id == "line"
@@ -982,11 +1008,32 @@ impl<'a> IoParser<'a> for Parser<'a> {
             // space-separated names), so we carry the file-write interpretation
             // and let the interpreter pick based on whether `target` is a stream.
             let (value, fallback_content) = if rest.is_empty() {
-                // Value begins with a non-identifier (string/number), so the
-                // whole expression — including `with` concatenation — parses
-                // cleanly from here. This form was never a valid classic file
-                // write (`write line "x" to f` did not parse), so no fallback.
-                (self.parse_unmerged_operand(false)?, None)
+                // Non-identifier values normally have only the stream reading.
+                // Direct integers are the exception because legacy WFL also
+                // supports `line 0` as direct indexing.
+                let direct_index = matches!(
+                    self.cursor.peek().map(|token| &token.token),
+                    Some(Token::IntLiteral(_))
+                );
+                if direct_index {
+                    // A direct integer is ambiguous: stream value `0` vs legacy
+                    // direct indexing on a variable literally named `line`.
+                    let value_start = self.cursor.checkpoint();
+                    let value = self.parse_unmerged_operand(false)?;
+                    let after_stream = self.cursor.checkpoint();
+
+                    self.cursor.rewind(value_start);
+                    let file_left =
+                        Expression::Variable(marker.to_string(), marker_line, marker_column);
+                    let fallback = self.parse_write_value_from_lead(file_left).ok();
+                    let fallback_end = self.cursor.checkpoint();
+                    let fallback = fallback.filter(|_| fallback_end == after_stream);
+                    self.cursor.rewind(after_stream);
+
+                    (value, fallback.map(Box::new))
+                } else {
+                    (self.parse_unmerged_operand(false)?, None)
+                }
             } else {
                 // Ambiguous merged form: `<ident>` alone (stream) vs the full
                 // merged `line <ident>` (classic file write of that variable).

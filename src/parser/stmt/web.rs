@@ -548,7 +548,17 @@ impl<'a> WebParser<'a> for Parser<'a> {
             .map(str::trim_start)
             .unwrap_or("");
         let (target, legacy_binding, action_fallback) = if rest.is_empty() {
-            (self.parse_unmerged_operand(false)?, None, None)
+            // Exact `flush` followed by an unmerged target is dispatched only for
+            // the unambiguous streaming starters `(` and `call`. Before streaming,
+            // however, a defined zero-argument action named exactly `flush` still
+            // auto-ran and the remaining same-line expression did not turn that
+            // action into a stream operation. Preserve that binding as the same
+            // action fallback used by the merged form.
+            (
+                self.parse_unmerged_operand(false)?,
+                Some(phrase.clone()),
+                Some(Expression::Variable(phrase.clone(), line, column)),
+            )
         } else {
             // Stream reading: postfix on the split-off rest (`cache` from
             // `flush cache`). Legacy expression: same postfix on the FULL phrase

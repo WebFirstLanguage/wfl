@@ -79,6 +79,46 @@ fn truly_bare_flush_still_calls_the_legacy_zero_argument_action() {
 }
 
 #[test]
+fn parenthesized_flush_target_keeps_the_exact_zero_argument_action_fallback() {
+    let src = "define action called flush:\n\
+               \x20\x20\x20\x20display \"PAREN_CALLED\"\n\
+               end action\n\
+               store ignored as 1\n\
+               flush (ignored)\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "`flush (expr)` must keep the exact `flush` action fallback; output:\n{out}"
+    );
+    assert!(
+        out.contains("PAREN_CALLED"),
+        "the exact zero-argument action must run; output:\n{out}"
+    );
+}
+
+#[test]
+fn explicit_call_flush_target_keeps_the_exact_zero_argument_action_fallback() {
+    let src = "define action called flush:\n\
+               \x20\x20\x20\x20display \"CALL_CALLED\"\n\
+               end action\n\
+               define action called acquire stream:\n\
+               \x20\x20\x20\x20return 1\n\
+               end action\n\
+               flush call acquire stream\n";
+    let (out, code) = run_src(src);
+    assert_eq!(
+        code,
+        Some(0),
+        "`flush call ...` must keep the exact `flush` action fallback; output:\n{out}"
+    );
+    assert!(
+        out.contains("CALL_CALLED"),
+        "the exact zero-argument action must run; output:\n{out}"
+    );
+}
+
+#[test]
 fn truly_bare_flush_still_evaluates_a_non_callable_legacy_variable() {
     let src = "store flush as 1\n\
                flush\n\

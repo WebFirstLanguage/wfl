@@ -1,0 +1,50 @@
+// End-to-end compatibility coverage for syntax made ambiguous by HTTP streaming.
+
+define action called flush:
+    display "FLUSH_ACTION_CALLED"
+end action
+
+define action called acquire stream:
+    return 1
+end action
+
+describe "Parser streaming compatibility":
+
+    test "classic write keeps a with continuation on a variable named line":
+        store line as ["hello"]
+        write line with "!" to "parser_streaming_compat_with.txt"
+        open file at "parser_streaming_compat_with.txt" for reading as with_reader
+        wait for store with_result as read content from with_reader
+        close with_reader
+        expect with_result to contain "!"
+        delete file at "parser_streaming_compat_with.txt"
+    end test
+
+    test "classic write keeps an at continuation on a variable named line":
+        store line as ["first"]
+        write line at 0 to "parser_streaming_compat_at.txt"
+        open file at "parser_streaming_compat_at.txt" for reading as at_reader
+        wait for store at_result as read content from at_reader
+        close at_reader
+        expect at_result to equal "first"
+        delete file at "parser_streaming_compat_at.txt"
+    end test
+
+    test "classic write keeps a bracket continuation on a variable named line":
+        store line as ["first"]
+        write line[0] to "parser_streaming_compat_bracket.txt"
+        open file at "parser_streaming_compat_bracket.txt" for reading as bracket_reader
+        wait for store bracket_result as read content from bracket_reader
+        close bracket_reader
+        expect bracket_result to equal "first"
+        delete file at "parser_streaming_compat_bracket.txt"
+    end test
+
+    test "exact flush forms keep the zero argument action":
+        store ignored as 1
+        flush (ignored)
+        flush call acquire stream
+        expect ignored to equal 1
+    end test
+
+end describe

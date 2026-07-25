@@ -132,7 +132,7 @@ impl<'a> Parser<'a> {
         &mut self,
         expr: Expression,
     ) -> Result<Expression, ParseError> {
-        self.parse_trailing_postfix_with_clause_boundary(expr, false)
+        self.parse_trailing_postfix_with_clause_boundary(expr, false, None)
     }
 
     /// Clause-aware counterpart to [`Self::parse_trailing_postfix`]. Natural
@@ -142,18 +142,36 @@ impl<'a> Parser<'a> {
         &mut self,
         expr: Expression,
     ) -> Result<Expression, ParseError> {
-        self.parse_trailing_postfix_with_clause_boundary(expr, true)
+        self.parse_trailing_postfix_with_clause_boundary(expr, true, None)
+    }
+
+    fn parse_trailing_postfix_after_member(
+        &mut self,
+        expr: Expression,
+        stop_at_clause: bool,
+        member_end: usize,
+    ) -> Result<Expression, ParseError> {
+        self.parse_trailing_postfix_with_clause_boundary(expr, stop_at_clause, Some(member_end))
     }
 
     fn parse_trailing_postfix_with_clause_boundary(
         &mut self,
         mut expr: Expression,
         stop_at_clause: bool,
+        mut adjacent_member_end: Option<usize>,
     ) -> Result<Expression, ParseError> {
         while let Some(tok) = self.cursor.peek() {
             let (line, column) = (tok.line, tok.column);
             match &tok.token {
                 Token::LeftBracket => {
+                    // A bracket separated from `.property` / `.method()` by
+                    // whitespace starts a fresh display value (`display
+                    // alice.name [1, 2]`). Only an adjacent bracket belongs to
+                    // the completed member expression. Seeded streaming operands
+                    // pass `None` and retain their historical permissive spacing.
+                    if adjacent_member_end.is_some_and(|member_end| member_end != tok.byte_start) {
+                        break;
+                    }
                     // Anchor a "missing `]`" span to the `[` token itself, not the
                     // start of the file.
                     let (bracket_start, bracket_end) = (tok.byte_start, tok.byte_end);
@@ -163,6 +181,7 @@ impl<'a> Parser<'a> {
 
                     match self.cursor.peek() {
                         Some(closing) if closing.token == Token::RightBracket => {
+                            adjacent_member_end = Some(closing.byte_end);
                             self.bump_sync(); // Consume ']'
                         }
                         Some(closing) => {
@@ -196,13 +215,13 @@ impl<'a> Parser<'a> {
                     // of the file.
                     let (dot_start, dot_end) = (tok.byte_start, tok.byte_end);
                     self.bump_sync(); // Consume '.'
-                    let property = match self.cursor.peek() {
+                    let (property, property_end) = match self.cursor.peek() {
                         // Keywords that double as common property names (e.g.
                         // `response.status`) are accepted, matching the primary
                         // dispatch's property-access handling.
                         Some(prop) => match &prop.token {
-                            Token::Identifier(name) => name.clone(),
-                            Token::KeywordStatus => "status".to_string(),
+                            Token::Identifier(name) => (name.clone(), prop.byte_end),
+                            Token::KeywordStatus => ("status".to_string(), prop.byte_end),
                             _ => {
                                 return Err(ParseError::from_token(
                                     "Expected a property name after '.'".to_string(),
@@ -224,6 +243,7 @@ impl<'a> Parser<'a> {
                         }
                     };
                     self.bump_sync(); // Consume the property name
+                    adjacent_member_end = Some(property_end);
                     // `.method(args)` — a method call, not a bare property access.
                     // Mirrors the primary dispatch so merged-command operands like
                     // `write line obj.method() to out` / `flush obj.method()` compose
@@ -247,10 +267,16 @@ impl<'a> Parser<'a> {
                                 });
                             }
                         }
+                        let method_end = self
+                            .cursor
+                            .peek()
+                            .filter(|token| token.token == Token::RightParen)
+                            .map(|token| token.byte_end);
                         self.expect_token(
                             Token::RightParen,
                             "Expected ')' after method arguments",
                         )?;
+                        adjacent_member_end = method_end;
                         expr = Expression::MethodCall {
                             object: Box::new(expr),
                             method: property,
@@ -271,6 +297,12 @@ impl<'a> Parser<'a> {
                 // primary postfix loop. Required so classic
                 // `write line values 0 to "/tmp/out"` still parses (issue #642).
                 Token::IntLiteral(index) => {
+                    // Direct integer indexing after a property/method was not
+                    // part of the legacy primary grammar. Leaving it unconsumed
+                    // lets `display alice.name 5` fold two display values.
+                    if adjacent_member_end.is_some() {
+                        break;
+                    }
                     if matches!(
                         expr,
                         Expression::Variable(_, _, _)
@@ -476,6 +508,7 @@ impl<'a> Parser<'a> {
                             self.bump_sync(); // Consume '.'
 
                             if let Some(property_token) = self.cursor.peek() {
+                                let property_end = property_token.byte_end;
                                 // Keywords that are also common property names
                                 // (e.g. `response.status`) are accepted here
                                 let parsed_property = match &property_token.token {
@@ -518,6 +551,12 @@ impl<'a> Parser<'a> {
                                             }
                                         }
 
+                                        let method_end = self
+                                            .cursor
+                                            .peek()
+                                            .filter(|token| token.token == Token::RightParen)
+                                            .map(|token| token.byte_end)
+                                            .unwrap_or(property_end);
                                         self.expect_token(
                                             Token::RightParen,
                                             "Expected ')' after method arguments",
@@ -534,9 +573,10 @@ impl<'a> Parser<'a> {
                                             line: token_line,
                                             column: token_column,
                                         };
-                                        return self.parse_trailing_postfix_with_clause_boundary(
+                                        return self.parse_trailing_postfix_after_member(
                                             call,
                                             stop_at_clause,
+                                            method_end,
                                         );
                                     }
 
@@ -557,9 +597,10 @@ impl<'a> Parser<'a> {
                                         line: token_line,
                                         column: token_column,
                                     };
-                                    return self.parse_trailing_postfix_with_clause_boundary(
+                                    return self.parse_trailing_postfix_after_member(
                                         access,
                                         stop_at_clause,
+                                        property_end,
                                     );
                                 } else {
                                     return Err(ParseError::from_token(

@@ -635,11 +635,35 @@ impl JavaScriptTranspiler {
                 })
             }
 
+            Statement::StreamWriteStatement {
+                target,
+                fallback_content: Some(fallback_content),
+                ..
+            } => {
+                // The parser preserves both readings of ambiguous classic syntax
+                // such as `write line note to "f.txt"`. JavaScript has no response
+                // stream implementation, but it can still emit the pre-streaming
+                // file-write reading exactly as it did before.
+                let content_expr = self.transpile_expression(fallback_content)?;
+                let file_expr = self.transpile_expression(target)?;
+                Ok(format!(
+                    "{}WFL.file.write({}.path, {});\n",
+                    self.indent(),
+                    file_expr,
+                    content_expr
+                ))
+            }
+
             Statement::HttpStreamStatement { line, column, .. }
             | Statement::WaitForNextChunkStatement { line, column, .. }
             | Statement::WaitForNextLineStatement { line, column, .. }
             | Statement::StartStreamingResponseStatement { line, column, .. }
-            | Statement::StreamWriteStatement { line, column, .. }
+            | Statement::StreamWriteStatement {
+                line,
+                column,
+                fallback_content: None,
+                ..
+            }
             | Statement::FlushStreamStatement { line, column, .. } => {
                 // Streaming HTTP relies on the interpreter's parked-stream
                 // handles; emitting broken JS would be worse than a clear error.
