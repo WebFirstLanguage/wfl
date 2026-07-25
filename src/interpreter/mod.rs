@@ -14971,8 +14971,224 @@ mod response_expression_disconnect_tests {
 }
 
 #[cfg(test)]
+mod response_disconnect_result_tests {
+    use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
+    use std::future::Future;
+    use std::task::Poll;
+
+    fn parse_statement(source: &str) -> Statement {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        let program = parser
+            .parse()
+            .unwrap_or_else(|errors| panic!("disconnect fixture did not parse: {errors:?}"));
+        assert_eq!(program.statements.len(), 1);
+        program.statements.into_iter().next().expect("statement")
+    }
+
+    fn request_value(request_id: &str) -> Value {
+        let mut request = HashMap::new();
+        request.insert(
+            "_response_sender".to_string(),
+            Value::Text(Arc::from(request_id)),
+        );
+        Value::Object(Rc::new(RefCell::new(request)))
+    }
+
+    async fn assert_response_commit_disconnect_is_cancelled(statement_source: &str) {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        env.borrow_mut()
+            .define_or_replace("req", request_value("request-commit"));
+        let (sender, receiver) = oneshot::channel();
+        let shared_sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
+        interpreter.pending_responses.borrow_mut().insert(
+            "request-commit".to_string(),
+            PendingResponse {
+                sender: Arc::clone(&shared_sender),
+            },
+        );
+        interpreter
+            .open_pending_requests
+            .borrow_mut()
+            .push("request-commit".to_string());
+
+        // Hold the sender lock so the statement can finish evaluation and reach
+        // the exact commit await without taking the sender yet.
+        let guard = shared_sender.lock().await;
+        let statement = parse_statement(statement_source);
+        let mut execution = Box::pin(interpreter.execute_statement(&statement, env));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if !interpreter
+                    .pending_responses
+                    .borrow()
+                    .contains_key("request-commit")
+                {
+                    break;
+                }
+                tokio::select! {
+                    result = execution.as_mut() => {
+                        panic!("response finished before reaching the commit latch: {result:?}")
+                    }
+                    _ = tokio::task::yield_now() => {}
+                }
+            }
+        })
+        .await
+        .expect("response did not reach its commit latch");
+
+        drop(receiver);
+        drop(guard);
+        let error = tokio::time::timeout(Duration::from_secs(2), execution.as_mut())
+            .await
+            .expect("commit did not observe the closed receiver")
+            .expect_err("closed receiver must cancel the response commit");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+    }
+
+    #[tokio::test]
+    async fn buffered_commit_disconnect_is_exactly_cancelled() {
+        assert_response_commit_disconnect_is_cancelled("respond to req with \"ok\"").await;
+    }
+
+    #[tokio::test]
+    async fn streaming_head_commit_disconnect_is_exactly_cancelled() {
+        assert_response_commit_disconnect_is_cancelled(
+            "start streaming response to req with status 200 as out",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn backpressured_stream_write_disconnect_is_exactly_cancelled() {
+        let config = Arc::new(WflConfig {
+            web_server_response_timeout_seconds: 0,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(config);
+        let env = Rc::clone(interpreter.global_env());
+        let handle_id = "respstream-test";
+        let (sender, receiver) = mpsc::channel(RESPONSE_STREAM_BUFFER);
+        for _ in 0..RESPONSE_STREAM_BUFFER {
+            sender
+                .try_send(vec![0])
+                .expect("fill response stream buffer");
+        }
+        interpreter
+            .server_response_streams
+            .borrow_mut()
+            .insert(handle_id.to_string(), (sender, 0));
+        interpreter
+            .open_response_streams
+            .borrow_mut()
+            .push(handle_id.to_string());
+        let mut stream = HashMap::new();
+        stream.insert(
+            "_server_stream".to_string(),
+            Value::Text(Arc::from(handle_id)),
+        );
+        env.borrow_mut()
+            .define_or_replace("out", Value::Object(Rc::new(RefCell::new(stream))));
+
+        let statement = parse_statement("write chunk \"next\" to out");
+        let mut execution = Box::pin(interpreter.execute_statement(&statement, env));
+        futures_util::future::poll_fn(|cx| match execution.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => {
+                panic!("full response stream write did not backpressure: {result:?}")
+            }
+        })
+        .await;
+        drop(receiver);
+
+        let error = tokio::time::timeout(Duration::from_secs(2), execution.as_mut())
+            .await
+            .expect("write did not wake after receiver disconnect")
+            .expect_err("closed stream receiver must cancel the write");
+        assert_eq!(error.kind, ErrorKind::Cancelled, "wrong error: {error:?}");
+        assert!(
+            !interpreter
+                .server_response_streams
+                .borrow()
+                .contains_key(handle_id),
+            "cancelled write retained its response stream"
+        );
+    }
+}
+
+#[cfg(test)]
+mod request_wait_timeout_tests {
+    use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
+
+    fn parse_statement(source: &str) -> Statement {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        parser
+            .parse()
+            .unwrap_or_else(|errors| panic!("timeout fixture did not parse: {errors:?}"))
+            .statements
+            .into_iter()
+            .next()
+            .expect("statement")
+    }
+
+    async fn timeout_error(value: &str) -> RuntimeError {
+        let interpreter = Interpreter::new();
+        let env = Rc::clone(interpreter.global_env());
+        let (request_sender, request_receiver) = mpsc::channel(1);
+        interpreter.web_servers.borrow_mut().insert(
+            "srv".to_string(),
+            WflWebServer {
+                request_receiver: Arc::new(tokio::sync::Mutex::new(request_receiver)),
+                request_sender,
+                server_handle: None,
+            },
+        );
+        env.borrow_mut()
+            .define_or_replace("srv", Value::Text(Arc::from("WebServer::127.0.0.1:1")));
+        let statement = parse_statement(&format!(
+            "wait for request comes in on srv as req with timeout {value}"
+        ));
+        interpreter
+            .execute_statement(&statement, env)
+            .await
+            .expect_err("invalid sub-millisecond timeout must be rejected")
+    }
+
+    #[tokio::test]
+    async fn zero_request_timeout_has_the_established_positive_number_error() {
+        let error = timeout_error("0").await;
+        assert_eq!(error.kind, ErrorKind::General);
+        assert_eq!(
+            error.message,
+            "Timeout must be a positive number (milliseconds)"
+        );
+    }
+
+    #[tokio::test]
+    async fn fractional_request_timeout_below_one_millisecond_is_rejected() {
+        let error = timeout_error("0.5").await;
+        assert_eq!(error.kind, ErrorKind::General);
+        assert_eq!(
+            error.message,
+            "Timeout must be at least 1 millisecond (got 0.5 ms); fractional values below 1 would truncate to zero and spin"
+        );
+    }
+}
+
+#[cfg(test)]
 mod outbound_stream_deadline_tests {
     use super::*;
+    use futures_util::task::AtomicWaker;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn spawn_stream_cleanup_upstream(expected_requests: usize) -> u16 {
@@ -15076,6 +15292,349 @@ mod outbound_stream_deadline_tests {
         })
         .await
         .expect("finished streams left hard-lifetime reaper tasks sleeping");
+    }
+
+    struct DelayedHeadUpstream {
+        port: u16,
+        request_received: oneshot::Receiver<()>,
+        release_head: Option<oneshot::Sender<()>>,
+        peer_closed: oneshot::Receiver<()>,
+    }
+
+    async fn spawn_delayed_head_upstream() -> DelayedHeadUpstream {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind delayed-head upstream");
+        let port = listener.local_addr().expect("upstream address").port();
+        let (request_tx, request_received) = oneshot::channel();
+        let (release_head, release_rx) = oneshot::channel();
+        let (peer_closed_tx, peer_closed) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept delayed head");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 512];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read request");
+                assert!(read > 0, "client closed before request head");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = request_tx.send(());
+            release_rx.await.expect("release delayed response head");
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .expect("write delayed response head");
+            socket.flush().await.expect("flush delayed response head");
+            loop {
+                match socket.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+            let _ = peer_closed_tx.send(());
+        });
+        DelayedHeadUpstream {
+            port,
+            request_received,
+            release_head: Some(release_head),
+            peer_closed,
+        }
+    }
+
+    struct GatedChunkState {
+        polled: AtomicBool,
+        ready: AtomicBool,
+        dropped: AtomicBool,
+        waker: AtomicWaker,
+    }
+
+    impl GatedChunkState {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                polled: AtomicBool::new(false),
+                ready: AtomicBool::new(false),
+                dropped: AtomicBool::new(false),
+                waker: AtomicWaker::new(),
+            })
+        }
+
+        fn make_ready(&self) {
+            self.ready.store(true, Ordering::SeqCst);
+            self.waker.wake();
+        }
+    }
+
+    struct GatedChunkStream {
+        state: Arc<GatedChunkState>,
+        yielded: bool,
+    }
+
+    impl futures_util::Stream for GatedChunkStream {
+        type Item = reqwest::Result<Vec<u8>>;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            if self.yielded {
+                return Poll::Ready(None);
+            }
+            self.state.polled.store(true, Ordering::SeqCst);
+            self.state.waker.register(cx.waker());
+            if self.state.ready.load(Ordering::SeqCst) {
+                self.yielded = true;
+                Poll::Ready(Some(Ok(vec![7])))
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+
+    impl Drop for GatedChunkStream {
+        fn drop(&mut self) {
+            self.state.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn close_during_active_read_returns_closed_and_drops_upstream() {
+        let (port, mut peer_closed) = spawn_stalled_streams(1).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 60,
+            timeout_seconds: 30,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let (_, _, handle_id) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/active-close"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open stalled stream");
+
+        let mut read = Box::pin(client.next_chunk(&handle_id, budget));
+        futures_util::future::poll_fn(|cx| match read.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => panic!("stalled read unexpectedly completed: {result:?}"),
+        })
+        .await;
+        assert!(
+            client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .get(&handle_id)
+                .is_some_and(|slot| slot.handle.is_none()),
+            "the close latch must observe a body read actively owning the handle"
+        );
+
+        assert!(
+            client.finish_stream_slot_sync(&handle_id, StreamTerminal::Closed),
+            "close must claim the active stream slot"
+        );
+        let error = tokio::time::timeout(Duration::from_secs(2), read.as_mut())
+            .await
+            .expect("active read did not wake after close")
+            .expect_err("active read must return Closed");
+        assert!(
+            matches!(error, HttpClientError::Closed),
+            "active close returned the wrong error: {error:?}"
+        );
+        tokio::time::timeout(Duration::from_secs(2), peer_closed.recv())
+            .await
+            .expect("active close did not drop the upstream socket")
+            .expect("upstream close notifier ended early");
+        assert_reapers_drained(&client).await;
+        assert!(
+            !client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .contains_key(&handle_id),
+            "active close retained its stream slot"
+        );
+    }
+
+    #[tokio::test]
+    async fn delayed_head_keeps_the_request_start_as_the_total_deadline_origin() {
+        let mut upstream = spawn_delayed_head_upstream().await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 2,
+            timeout_seconds: 30,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let started = Instant::now();
+        let url = format!("http://127.0.0.1:{}/delayed-head", upstream.port);
+        let mut opening = Box::pin(client.open_http_stream(
+            "GET",
+            &url,
+            &[],
+            None,
+            Arc::clone(&budget),
+        ));
+        tokio::select! {
+            result = opening.as_mut() => {
+                panic!("stream opened before the response-head latch: {result:?}")
+            }
+            received = &mut upstream.request_received => {
+                received.expect("upstream did not receive request");
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        upstream
+            .release_head
+            .take()
+            .expect("head release")
+            .send(())
+            .expect("release response head");
+        let (_, _, handle_id) = tokio::time::timeout(Duration::from_secs(2), opening.as_mut())
+            .await
+            .expect("stream did not open after response-head release")
+            .expect("delayed-head stream open");
+
+        let deadline = client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .live
+            .get(&handle_id)
+            .and_then(|slot| slot.deadline)
+            .expect("positive cap must register a slot deadline");
+        assert!(
+            deadline.saturating_duration_since(started) <= Duration::from_millis(2_100),
+            "the total deadline was restarted after the delayed head"
+        );
+        assert!(
+            deadline.saturating_duration_since(Instant::now()) < Duration::from_secs(1),
+            "the delayed head must leave less than one second of the original cap"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), &mut upstream.peer_closed)
+            .await
+            .expect("spawned reaper did not drop delayed-head upstream")
+            .expect("upstream close notifier ended early");
+        let error = client
+            .next_chunk(&handle_id, budget)
+            .await
+            .expect_err("read after delayed-head expiry must fail");
+        assert!(
+            matches!(error, HttpClientError::Timeout { seconds: 2 }),
+            "delayed-head expiry lost its typed timeout: {error:?}"
+        );
+        assert_reapers_drained(&client).await;
+    }
+
+    #[tokio::test]
+    async fn spawned_reaper_wins_over_a_simultaneously_ready_chunk() {
+        let (port, mut peer_closed) = spawn_stalled_streams(1).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 1,
+            timeout_seconds: 30,
+            ..WflConfig::default()
+        });
+        let client = IoClient::new(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        let (_, _, handle_id) = client
+            .open_http_stream(
+                "GET",
+                &format!("http://127.0.0.1:{port}/ready-expiry-race"),
+                &[],
+                None,
+                Arc::clone(&budget),
+            )
+            .await
+            .expect("open stalled stream");
+        let state = GatedChunkState::new();
+        let cancel = {
+            let mut registry = client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let slot = registry.live.get_mut(&handle_id).expect("live stream slot");
+            let handle = slot.handle.as_mut().expect("parked stream body");
+            handle.stream = Box::pin(GatedChunkStream {
+                state: Arc::clone(&state),
+                yielded: false,
+            });
+            // Leave the slot deadline and real spawned reaper intact, but keep
+            // the inner read timeout from independently deciding this race.
+            handle.total_deadline = None;
+            Arc::clone(&slot.cancel)
+        };
+        tokio::time::timeout(Duration::from_secs(2), peer_closed.recv())
+            .await
+            .expect("replacing the real body did not drop its upstream socket")
+            .expect("upstream close notifier ended early");
+
+        let mut read = Box::pin(client.next_chunk(&handle_id, budget));
+        futures_util::future::poll_fn(|cx| match read.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => panic!("gated read unexpectedly completed: {result:?}"),
+        })
+        .await;
+        assert!(
+            state.polled.load(Ordering::SeqCst),
+            "gated body was not polled"
+        );
+        assert!(
+            client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .live
+                .get(&handle_id)
+                .is_some_and(|slot| slot.handle.is_none()),
+            "active read did not take ownership before expiry"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if cancel.terminal() == Some(StreamTerminal::Timeout)
+                    && client.active_stream_reapers.load(Ordering::SeqCst) == 0
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the production reaper did not establish Timeout");
+        state.make_ready();
+
+        let error = tokio::time::timeout(Duration::from_secs(2), read.as_mut())
+            .await
+            .expect("simultaneously-ready race did not resolve")
+            .expect_err("expiry must win over the ready body chunk");
+        assert!(
+            matches!(error, HttpClientError::Timeout { seconds: 1 }),
+            "ready chunk beat the spawned reaper: {error:?}"
+        );
+        assert!(
+            state.dropped.load(Ordering::SeqCst),
+            "expired active body was not dropped"
+        );
+        let registry = client
+            .stream_handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert!(
+            !registry.live.contains_key(&handle_id),
+            "expired body was reinserted after the reaper"
+        );
+        assert_eq!(
+            client.active_stream_reapers.load(Ordering::SeqCst),
+            0,
+            "spawned reaper survived the race"
+        );
     }
 
     #[test]
