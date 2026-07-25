@@ -1301,6 +1301,13 @@ impl TypeChecker {
                     if let Some(fb) = action_fallback {
                         let _ = self.infer_expression_type(fb);
                     }
+                    // Exact `flush (…)` / `flush call …`: the runtime also
+                    // evaluates the operand as its own legacy expression
+                    // statement, so typecheck it as an ordinary expression —
+                    // no response-stream requirement (#642).
+                    if legacy_binding.as_deref() == Some("flush") {
+                        let _ = self.infer_expression_type(target);
+                    }
                 } else {
                     let target_type = self.infer_expression_type(target);
                     if !self.is_response_stream_target_type(&target_type) {

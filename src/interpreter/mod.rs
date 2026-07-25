@@ -10976,7 +10976,7 @@ impl Interpreter {
                     if root_bound {
                         // Reuse ExpressionStatement semantics by dispatching a
                         // synthetic statement.
-                        return self
+                        let flush_result = self
                             .execute_statement(
                                 &Statement::ExpressionStatement {
                                     expression: fallback_expr.clone(),
@@ -10985,7 +10985,26 @@ impl Interpreter {
                                 },
                                 Rc::clone(&env),
                             )
-                            .await;
+                            .await?;
+                        // Exact `flush (…)` / `flush call …` (legacy binding is
+                        // the bare word `flush`; merged forms always carry the
+                        // operand in the phrase): pre-streaming these were TWO
+                        // statements — bare `flush`, then the operand as its own
+                        // expression statement. Keep the operand's side effects
+                        // by evaluating it too, in the original order (#642).
+                        if legacy_binding.as_deref() == Some("flush") {
+                            return self
+                                .execute_statement(
+                                    &Statement::ExpressionStatement {
+                                        expression: target.clone(),
+                                        line: *line,
+                                        column: *column,
+                                    },
+                                    Rc::clone(&env),
+                                )
+                                .await;
+                        }
+                        return Ok(flush_result);
                     }
                 }
                 let handle_id = self
