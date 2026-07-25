@@ -29,16 +29,25 @@ impl<'a> Parser<'a> {
         lead: Expression,
         stop_at_clause: bool,
     ) -> Result<Expression, ParseError> {
-        // The lexer merges the command word with the operand identifier and leaves
-        // any bracket-index / dotted-property / `at` / integer-index accessors as
-        // following tokens, so compose them onto the lead instead of leaving them
-        // to dangle after the statement.
-        let lead = if stop_at_clause {
-            self.parse_trailing_postfix_stopping_at_clause(lead)?
-        } else {
-            self.parse_trailing_postfix(lead)?
-        };
-        let lead = if matches!(self.cursor.peek().map(|t| &t.token), Some(Token::KeywordOf)) {
+        let mut lead = lead;
+        loop {
+            // The lexer merges the command word with the operand identifier and
+            // leaves postfix accessors as following tokens. Compose them before
+            // checking for `of`, and repeat after an `of` call so
+            // `choose of (values)[0]` indexes the call result just like an
+            // ordinary expression.
+            lead = if stop_at_clause {
+                self.parse_trailing_postfix_stopping_at_clause(lead)?
+            } else {
+                self.parse_trailing_postfix(lead)?
+            };
+            if !matches!(
+                self.cursor.peek().map(|t| &t.token),
+                Some(Token::KeywordOf)
+            ) {
+                break;
+            }
+
             // Anchor the `<field> of <object>` call to the `of` keyword itself,
             // matching how the rest of the parser positions FunctionCall nodes so
             // error spans point at the operator, not the lead (review feedback).
@@ -85,15 +94,13 @@ impl<'a> Parser<'a> {
                     },
                 });
             }
-            Expression::FunctionCall {
+            lead = Expression::FunctionCall {
                 function: Box::new(lead),
                 arguments,
                 line: of_line,
                 column: of_column,
-            }
-        } else {
-            lead
-        };
+            };
+        }
         if stop_at_clause {
             self.parse_binary_continuation_stopping_at_clause(lead, 0)
         } else {
