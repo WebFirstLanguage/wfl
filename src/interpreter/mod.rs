@@ -16112,11 +16112,11 @@ mod outbound_stream_deadline_tests {
             timeout_seconds: 10,
             ..WflConfig::default()
         });
-        let client = IoClient::new(Arc::clone(&config));
+        let interpreter = Interpreter::with_config(Arc::clone(&config));
         let budget = Arc::new(ExecutionBudget::from_config(&config));
         let (_, _, handle) = tokio::time::timeout(
             Duration::from_secs(3),
-            client.open_http_stream(
+            interpreter.io_client.open_http_stream(
                 "GET",
                 &format!("http://127.0.0.1:{port}/unterminated"),
                 &[],
@@ -16127,10 +16127,19 @@ mod outbound_stream_deadline_tests {
         .await
         .expect("open stream hung")
         .expect("open stream");
+        interpreter
+            .io_client
+            .claim_stream_owner(
+                &handle,
+                &Arc::clone(&interpreter.open_http_streams.borrow()),
+            )
+            .expect("claim unterminated stream ownership");
 
         let first = tokio::time::timeout(
             Duration::from_secs(3),
-            client.next_line(&handle, Arc::clone(&budget)),
+            interpreter
+                .io_client
+                .next_line(&handle, Arc::clone(&budget)),
         )
         .await
         .expect("first line read hung")
@@ -16141,17 +16150,47 @@ mod outbound_stream_deadline_tests {
             "the final unterminated line is returned only after clean EOF was observed"
         );
 
+        let (live_slots, retained_terminal_records) = {
+            let registry = interpreter
+                .io_client
+                .stream_handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            (registry.live.len(), registry.recent.len())
+        };
+        assert_eq!(
+            live_slots, 0,
+            "returning the final unterminated line must remove its live stream slot"
+        );
+        assert_eq!(
+            retained_terminal_records, 1,
+            "the final line must leave exactly one lightweight clean-EOF record"
+        );
+        assert_eq!(
+            interpreter
+                .open_http_streams
+                .borrow()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            0,
+            "returning the final line must remove handler ownership immediately"
+        );
+
         tokio::time::sleep(Duration::from_millis(1_100)).await;
         let eof = tokio::time::timeout(
             Duration::from_secs(2),
-            client.next_line(&handle, Arc::clone(&budget)),
+            interpreter
+                .io_client
+                .next_line(&handle, Arc::clone(&budget)),
         )
         .await
         .expect("clean EOF read hung")
         .expect("clean EOF observed before the cap must not become Timeout");
         assert_eq!(eof, None);
 
-        let later = client
+        let later = interpreter
+            .io_client
             .next_line(&handle, budget)
             .await
             .expect_err("the single clean-EOF result must consume the handle");
@@ -16159,6 +16198,79 @@ mod outbound_stream_deadline_tests {
             matches!(&later, HttpClientError::Request(message) if message.contains("already-closed")),
             "a later read must retain the established closed-handle error, got {later:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn unconsumed_clean_eof_records_are_bounded() {
+        const STREAM_COUNT: usize = MAX_RECENT_STREAM_TERMINALS + 8;
+
+        let port = spawn_stream_cleanup_upstream(STREAM_COUNT).await;
+        let config = Arc::new(WflConfig {
+            outbound_stream_max_seconds: 60 * 60,
+            timeout_seconds: 10,
+            ..WflConfig::default()
+        });
+        let interpreter = Interpreter::with_config(Arc::clone(&config));
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+
+        for sequence in 0..STREAM_COUNT {
+            let (_, _, handle) = interpreter
+                .io_client
+                .open_http_stream(
+                    "GET",
+                    &format!("http://127.0.0.1:{port}/unterminated"),
+                    &[],
+                    None,
+                    Arc::clone(&budget),
+                )
+                .await
+                .expect("open unterminated stream");
+            interpreter
+                .io_client
+                .claim_stream_owner(
+                    &handle,
+                    &Arc::clone(&interpreter.open_http_streams.borrow()),
+                )
+                .expect("claim unterminated stream ownership");
+
+            let final_line = interpreter
+                .io_client
+                .next_line(&handle, Arc::clone(&budget))
+                .await
+                .expect("read final unterminated line");
+            assert_eq!(
+                final_line.as_deref(),
+                Some("abc"),
+                "stream {sequence} did not yield its final unterminated line"
+            );
+
+            let (live_slots, recent_records) = {
+                let registry = interpreter
+                    .io_client
+                    .stream_handles
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                (registry.live.len(), registry.recent.len())
+            };
+            assert_eq!(
+                live_slots, 0,
+                "stream {sequence} retained a live slot after its final line"
+            );
+            assert_eq!(
+                recent_records,
+                (sequence + 1).min(MAX_RECENT_STREAM_TERMINALS),
+                "clean-EOF records must fill only the bounded recent queue"
+            );
+            assert!(
+                interpreter
+                    .open_http_streams
+                    .borrow()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .is_empty(),
+                "stream {sequence} retained handler ownership after its final line"
+            );
+        }
     }
 
     #[tokio::test]
