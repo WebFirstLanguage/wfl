@@ -21,6 +21,8 @@ fn response_stream_bindings_do_not_escape_runtime_child_scopes() {
          end repeat\n",
         "try:\n\
          \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         when error:\n\
+         \x20\x20\x20\x20display \"ignored\"\n\
          end try\n",
         "count from 1 to 1:\n\
          \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
