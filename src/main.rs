@@ -14,7 +14,6 @@ use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::linter::Linter;
 use wfl::parser::Parser;
 use wfl::repl;
-use wfl::transpiler::{TranspilerConfig, TranspilerTarget};
 use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
@@ -43,13 +42,6 @@ fn print_help() {
     println!("        --output <file>    Specify an output file for the environment dump");
     println!("    --time             Measure and display execution time");
     println!("    --test             Run file in test mode");
-    println!();
-    println!("TRANSPILATION:");
-    println!("    --transpile        Transpile WFL code to JavaScript");
-    println!("        --target <env> Target environment: node (default), browser, universal");
-    println!("        --output <file> Output file (default: <input>.js)");
-    println!("        --no-runtime   Don't include WFL runtime in output");
-    println!("        --es-modules   Generate ES modules (export/import)");
     println!();
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
@@ -391,10 +383,6 @@ async fn run() -> io::Result<()> {
     let mut dump_env_mode = false;
     let mut output_path = None;
     let mut time_mode = false;
-    let mut transpile_mode = false;
-    let mut transpile_target = TranspilerTarget::Node;
-    let mut transpile_no_runtime = false;
-    let mut transpile_es_modules = false;
     let mut test_mode = false;
     let mut file_path = String::new();
 
@@ -573,63 +561,18 @@ async fn run() -> io::Result<()> {
                 time_mode = true;
                 i += 1;
             }
-            "--transpile" => {
-                if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
-                    eprintln!(
-                        "Error: --transpile cannot be combined with --lint, --analyze, --fix, --configCheck, or --configFix"
-                    );
-                    process::exit(2);
-                }
-                transpile_mode = true;
-                i += 1;
-                // Parse transpile options
-                while i < args.len() && args[i].starts_with("--") {
-                    match args[i].as_str() {
-                        "--target" => {
-                            if i + 1 < args.len() {
-                                transpile_target = match args[i + 1].as_str() {
-                                    "node" => TranspilerTarget::Node,
-                                    "browser" => TranspilerTarget::Browser,
-                                    "universal" => TranspilerTarget::Universal,
-                                    _ => {
-                                        eprintln!(
-                                            "Error: Unknown transpile target '{}'. Use: node, browser, or universal",
-                                            args[i + 1]
-                                        );
-                                        process::exit(2);
-                                    }
-                                };
-                                i += 2;
-                            } else {
-                                eprintln!("Error: --target requires an argument");
-                                process::exit(2);
-                            }
-                        }
-                        "--no-runtime" => {
-                            transpile_no_runtime = true;
-                            i += 1;
-                        }
-                        "--es-modules" => {
-                            transpile_es_modules = true;
-                            i += 1;
-                        }
-                        "--output" => {
-                            if i + 1 < args.len() && !args[i + 1].starts_with("--") {
-                                output_path = Some(args[i + 1].clone());
-                                i += 2;
-                            } else {
-                                eprintln!("Error: --output requires a file path");
-                                process::exit(2);
-                            }
-                        }
-                        _ => break,
-                    }
-                }
-                // Get input file if not already set
-                if i < args.len() && !args[i].starts_with("--") && file_path.is_empty() {
-                    file_path = args[i].clone();
-                    i += 1;
-                }
+            // The WFL to JavaScript transpiler has been sunset. These flags are
+            // kept only so their former users get a clear explanation instead of
+            // the flag being mistaken for an input file path.
+            "--transpile" | "--target" | "--no-runtime" | "--es-modules" => {
+                eprintln!("Error: the WFL to JavaScript transpiler has been removed.");
+                eprintln!(
+                    "  '{}' was a transpiler-only option, so it is no longer supported.",
+                    args[i]
+                );
+                eprintln!("  Removed together: --transpile, --target, --no-runtime, --es-modules.");
+                eprintln!("  Run WFL programs directly with the interpreter: wfl <file.wfl>");
+                process::exit(2);
             }
             "--test" => {
                 if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
@@ -962,79 +905,6 @@ async fn run() -> io::Result<()> {
             Err(e) => {
                 eprintln!("Error reading input: {e}");
                 process::exit(1);
-            }
-        }
-    }
-
-    // Handle transpile mode
-    if transpile_mode {
-        let tokens_with_pos = lex_checked(&input);
-        match Parser::new(&tokens_with_pos).parse() {
-            Ok(program) => {
-                // Configure the transpiler
-                let transpiler_config = TranspilerConfig {
-                    include_runtime: !transpile_no_runtime,
-                    source_maps: false,
-                    target: transpile_target,
-                    minify: false,
-                    indent: "  ".to_string(),
-                    es_modules: transpile_es_modules,
-                };
-
-                // Run the transpiler
-                match wfl::transpiler::transpile(&program, &transpiler_config) {
-                    Ok(result) => {
-                        // Show warnings if any
-                        for warning in &result.warnings {
-                            eprintln!(
-                                "Warning at line {}, column {}: {}",
-                                warning.line, warning.column, warning.message
-                            );
-                        }
-
-                        // Determine output path
-                        let output_file = output_path.unwrap_or_else(|| {
-                            let base = Path::new(&file_path);
-                            let stem = base.file_stem().unwrap_or_default().to_string_lossy();
-                            format!("{}.js", stem)
-                        });
-
-                        // Write output
-                        if let Err(e) = fs::write(&output_file, &result.code) {
-                            eprintln!("Error writing output file: {e}");
-                            process::exit(1);
-                        }
-
-                        println!("Transpiled to: {output_file}");
-                        if !result.warnings.is_empty() {
-                            println!("  ({} warnings)", result.warnings.len());
-                        }
-                        process::exit(0);
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Transpilation error at line {}, column {}: {}",
-                            e.line, e.column, e.message
-                        );
-                        process::exit(1);
-                    }
-                }
-            }
-            Err(errors) => {
-                eprintln!("Parse errors:");
-
-                let mut reporter = DiagnosticReporter::new();
-                let file_id = reporter.add_file(&file_path, &input);
-
-                for error in errors {
-                    let diagnostic = reporter.convert_parse_error(file_id, &error);
-                    if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                        eprintln!("Error displaying diagnostic: {e}");
-                        eprintln!("Error: {error}");
-                    }
-                }
-
-                process::exit(2);
             }
         }
     }

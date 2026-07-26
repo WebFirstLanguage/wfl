@@ -105,6 +105,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - The static analyzer now marks variables inside list literals (e.g. `parameters [user_name]`) as used
 - `scripts/run_web_tests.sh` exited before running any test due to `set -e` combined with `((var++))` arithmetic increments
 
+### Removed
+- **The WFL to JavaScript transpiler has been sunset.** The `wfl --transpile`
+  command and its `--target`, `--no-runtime`, and `--es-modules` options are gone,
+  along with the `wfl::transpiler` library module (`JavaScriptTranspiler`,
+  `TranspilerConfig`, `TranspilerTarget`, `transpile`, `transpile_default`). The
+  transpiler only ever covered a shrinking subset of the language — it rejected
+  web servers, WebSockets, response streaming, and TLS listens outright — so it
+  could not keep pace with the interpreter and gave a misleading impression of
+  JavaScript output fidelity.
+  - **Impact:** no change to the WFL language itself. Every existing WFL program
+    still runs unchanged under the interpreter (`wfl <file.wfl>`); only the
+    JavaScript output path is affected.
+  - **Migration:** run programs directly with the WFL interpreter. The retired
+    flags now exit with code 2 and an explicit message rather than being
+    misparsed as an input file path, so existing build scripts fail loudly
+    instead of silently doing the wrong thing.
+
 ## [25.9.1] - 2025-09-20
 
 ### Added
