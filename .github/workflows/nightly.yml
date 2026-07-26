@@ -123,7 +123,19 @@ jobs:
     needs: check-for-changes
     if: needs.check-for-changes.outputs.should_build == 'true'
     runs-on: windows-latest
-    timeout-minutes: 90
+    # `cargo test --release` here compiles EVERY integration test binary in
+    # tests/ (112 of them as of 26.7.49) against the full dependency graph, in
+    # release mode with `[profile.release] debug = true` — so each one also links
+    # a large PDB on the MSVC target. PRs #641/#643 added 26 new test files,
+    # which pushed this single step from ~27 min (26.7.47, run 29805777509) to
+    # over 70 min without finishing, and the job hit the previous 90-minute cap
+    # (run 30190411454, cancelled mid-compile). Because a cancelled job never
+    # runs its cache-save post step, the enlarged test binaries never landed in
+    # the Swatinem/rust-cache entry, so every following nightly restarted from
+    # the same cold state and timed out again. 180 min gives the first post-#641
+    # nightly room to finish and repopulate the cache; warm runs stay far below
+    # it. Previous bump was 60 -> 90 in PR #618 for the same class of growth.
+    timeout-minutes: 180
     env:
       TARGET: x86_64-pc-windows-msvc
     steps:
