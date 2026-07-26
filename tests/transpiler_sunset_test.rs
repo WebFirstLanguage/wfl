@@ -25,6 +25,9 @@ fn run_cli(args: &[&str]) -> (String, String, Option<i32>, TempDir) {
     let dir = TempDir::new().expect("tempdir");
     let path = dir.path().join("main.wfl");
     fs::write(&path, SAMPLE).unwrap();
+    // A writable subdirectory, so a nested `--output` path is a real place the
+    // binary could emit to and `assert_no_js_output` has depth to search.
+    fs::create_dir(dir.path().join("nested")).unwrap();
 
     let mut cmd = Command::new(wfl_exe());
     cmd.current_dir(dir.path());
@@ -45,16 +48,26 @@ fn run_cli(args: &[&str]) -> (String, String, Option<i32>, TempDir) {
 }
 
 /// Assert no `.js` artifact was written anywhere under `dir`.
+///
+/// Walks nested directories too — an output path like `nested/out.js` must not
+/// slip past this check just because it is not at the top level.
 fn assert_no_js_output(dir: &TempDir) {
-    for entry in fs::read_dir(dir.path()).expect("read temp dir") {
-        let path = entry.expect("dir entry").path();
-        assert_ne!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("js"),
-            "transpiler is removed, but a JavaScript file was produced: {}",
-            path.display()
-        );
+    fn walk(path: &std::path::Path) {
+        for entry in fs::read_dir(path).expect("read temp dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                walk(&path);
+                continue;
+            }
+            assert_ne!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("js"),
+                "transpiler is removed, but a JavaScript file was produced: {}",
+                path.display()
+            );
+        }
     }
+    walk(dir.path());
 }
 
 /// `--transpile` must fail loudly with a sunset message, not be swallowed as a
@@ -110,7 +123,7 @@ fn full_transpile_invocation_produces_no_javascript() {
         "browser",
         "--es-modules",
         "--output",
-        "out.js",
+        "nested/out.js",
         "<FILE>",
     ]);
     let combined = format!("{stdout}{stderr}");
@@ -120,7 +133,7 @@ fn full_transpile_invocation_produces_no_javascript() {
         "historical transpile invocation should fail; got:\n{combined}"
     );
     assert!(
-        !dir.path().join("out.js").exists(),
+        !dir.path().join("nested").join("out.js").exists(),
         "no JavaScript output file may be written after the sunset"
     );
     assert_no_js_output(&dir);

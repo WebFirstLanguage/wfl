@@ -112,3 +112,27 @@ feature.
   the sunset arm. If a future feature wants one of those names, that arm must be
   narrowed at the same time (a test in the sunset suite will fail loudly, by
   design, rather than the flag quietly changing meaning).
+
+## Review follow-ups
+
+Two issues surfaced in review of this change:
+
+- **`assert_no_js_output` only searched the top level.** Its doc comment claimed
+  "anywhere under `dir`" while the body did a single non-recursive `read_dir`, so
+  a nested artifact like `nested/out.js` would have slipped through and the
+  absence assertion would have passed vacuously. The helper now walks
+  subdirectories, `run_cli` creates a writable `nested/` for the binary to emit
+  into, and the full historical invocation targets `--output nested/out.js` so
+  the recursion is actually exercised rather than being untested safety code.
+  Verified by planting a `nested/planted.js` and confirming the assertion fires.
+
+- **`wfl -h` and `wfl -V` were mistaken for input file paths.** This is the same
+  root cause as the transpiler flags: `main()` already classifies `-h`/`-V` as
+  trivial, non-interpreting invocations (they skip the large-stack reservation),
+  but the parser in `run()` only recognized `--help`, `--version`, and `-v`. Both
+  aliases fell through to the generic argument arm and failed with
+  `No such file or directory` — the exact confusing failure the sunset arm exists
+  to prevent. Fixed in `src/main.rs` and pinned by
+  `tests/cli_help_version_flags_test.rs`, which was observed Red (3 of 3 failing
+  on `-h`/`-V`) before the fix. Pre-existing, unrelated to the transpiler, but
+  fixed here because it is the same misparse the sunset work was about.

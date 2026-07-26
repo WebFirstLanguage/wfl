@@ -184,7 +184,9 @@ async fn run() -> io::Result<()> {
         return Ok(());
     }
 
-    if args.len() >= 2 && args[1] == "--help" {
+    // Accept the same spellings `main()` treats as trivial invocations, so `-h`
+    // is never mistaken for an input file path.
+    if args.len() >= 2 && matches!(args[1].as_str(), "--help" | "-h") {
         print_help();
         return Ok(());
     }
@@ -584,7 +586,7 @@ async fn run() -> io::Result<()> {
                 test_mode = true;
                 i += 1;
             }
-            "--version" | "-v" => {
+            "--version" | "-v" | "-V" => {
                 println!("WebFirst Language (WFL) version {}", wfl::version::VERSION);
                 return Ok(());
             }

@@ -104,6 +104,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `header "<Name>" of <request>` is now case-insensitive; warp normalizes header names to lowercase, so canonically-spelled names like `User-Agent` always returned nothing on real requests. Absent headers now compare equal to `nothing`
 - The static analyzer now marks variables inside list literals (e.g. `parameters [user_name]`) as used
 - `scripts/run_web_tests.sh` exited before running any test due to `set -e` combined with `((var++))` arithmetic increments
+- `wfl -h` and `wfl -V` now print help and version. Both were already treated as
+  trivial, non-interpreting invocations internally, but the argument parser only
+  recognized `--help`, `--version`, and `-v`, so the short aliases fell through
+  and were mistaken for an input file path, failing with
+  `No such file or directory`
 
 ### Removed
 - **The WFL to JavaScript transpiler has been sunset.** The `wfl --transpile`
