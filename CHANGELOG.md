@@ -104,6 +104,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `header "<Name>" of <request>` is now case-insensitive; warp normalizes header names to lowercase, so canonically-spelled names like `User-Agent` always returned nothing on real requests. Absent headers now compare equal to `nothing`
 - The static analyzer now marks variables inside list literals (e.g. `parameters [user_name]`) as used
 - `scripts/run_web_tests.sh` exited before running any test due to `set -e` combined with `((var++))` arithmetic increments
+- `wfl -h` and `wfl -V` now print help and version. Both were already treated as
+  trivial, non-interpreting invocations internally, but the argument parser only
+  recognized `--help`, `--version`, and `-v`, so the short aliases fell through
+  and were mistaken for an input file path, failing with
+  `No such file or directory`
+
+### Removed
+- **The WFL to JavaScript transpiler has been sunset.** The `wfl --transpile`
+  command and its `--target`, `--no-runtime`, and `--es-modules` options are gone,
+  along with the `wfl::transpiler` library module (`JavaScriptTranspiler`,
+  `TranspilerConfig`, `TranspilerTarget`, `transpile`, `transpile_default`). The
+  transpiler only ever covered a shrinking subset of the language — it rejected
+  web servers, WebSockets, response streaming, and TLS listens outright — so it
+  could not keep pace with the interpreter and gave a misleading impression of
+  JavaScript output fidelity.
+  - **Impact:** no change to the WFL language itself. Every existing WFL program
+    still runs unchanged under the interpreter (`wfl <file.wfl>`); only the
+    JavaScript output path is affected.
+  - **Migration:** run programs directly with the WFL interpreter. The retired
+    flags now exit with code 2 and an explicit message rather than being
+    misparsed as an input file path, so existing build scripts fail loudly
+    instead of silently doing the wrong thing.
+  - **Governance (`GOVERNANCE.md` §3.1):** the ≥ 1-year deprecation window applies
+    to breaking *existing WFL programs*, and no WFL program is affected — the
+    language, its semantics, and every program in `TestPrograms/` are unchanged.
+    What is withdrawn is a build-tooling surface (the `--transpile` CLI mode) and
+    a library module. Per §2.2, breaking-change decisions rest with the
+    Maintainer, who directed this sunset and accepted the immediate removal
+    rather than a deferred one. Recorded here so the decision is auditable rather
+    than implicit.
 
 ## [25.9.1] - 2025-09-20
 

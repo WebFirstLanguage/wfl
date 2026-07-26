@@ -184,7 +184,6 @@ end pattern
 ```wfl
 // Planned features:
 // Use JavaScript libraries naturally
-// Compile WFL to JavaScript
 // Integrate with HTML/CSS
 
 // Current: Web-first design
