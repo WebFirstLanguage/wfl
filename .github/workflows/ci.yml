@@ -16,7 +16,7 @@ permissions:
 jobs:
   fmt:
     name: Check formatting
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -31,7 +31,7 @@ jobs:
   # API on stable (libFuzzer/nightly is only needed to actually *run* them).
   fuzz-check:
     name: Fuzz targets compile
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: fmt
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
 
   clippy-and-test:
     name: Build, Test, Clippy
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: fmt
     # This job compiles the workspace three times (debug, release, and a third
     # release build for the panic=abort assert), runs the full workspace test
@@ -139,7 +139,7 @@ jobs:
     name: Integration Tests
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, blacksmith-4vcpu-windows-2025]
     runs-on: ${{ matrix.os }}
     needs: fmt
     # The password-hashing tests exercise deliberately slow, memory/CPU-hard
@@ -240,7 +240,7 @@ jobs:
   # `cargo test`; this job exercises the env-gated PostgreSQL/MariaDB paths.
   database-tests:
     name: Database Tests (PostgreSQL + MariaDB)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: fmt
     timeout-minutes: 15
     services:
@@ -291,7 +291,7 @@ jobs:
     name: Run WFL Programs
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, blacksmith-4vcpu-windows-2025]
     runs-on: ${{ matrix.os }}
     needs: fmt
     timeout-minutes: 20
@@ -554,7 +554,7 @@ jobs:
   # so API drift that breaks the fuzz targets blocks the post-merge version bump.
   bump-version:
     name: Bump Version
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [fmt, fuzz-check, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
