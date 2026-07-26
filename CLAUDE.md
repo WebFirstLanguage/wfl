@@ -71,7 +71,6 @@ Apply it as a test on every language, docs, or tooling change: if a beginner lea
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
-- `wflpkg/`: Package Manager design documents.
 - `wix/`: Windows Installer (MSI) configuration.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 

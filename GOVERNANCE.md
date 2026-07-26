@@ -73,7 +73,7 @@ Community input is valued and routinely sought through:
 
 - GitHub Issues and Discussions  
 - Pull request review comments  
-- Design notes, Dev Diary entries, and package-design ADRs under `wflpkg/` and `Dev diary/`  
+- Design notes and Dev Diary entries under `Dev diary/`  
 
 Input is advisory unless a Maintainer adopts it. Silence is not consent for
 breaking changes; Maintainers still own the compatibility bar.
@@ -239,13 +239,16 @@ Apache-2.0 terms.
 | Asset | Owner / steward |
 |---|---|
 | GitHub org `WebFirstLanguage` | Logbie LLC / Maintainers |
-| Package / registry designs (`wflpkg/`, future hub) | Maintainers; supply-chain and trust-root decisions are Maintainer-only |
+| Package / registry designs (future; prior art archived under `Docs/Archive/wflpkg/`) | Maintainers; supply-chain and trust-root decisions are Maintainer-only |
 | Domain and brand references | Logbie LLC |
 | Signing keys, release credentials | Maintainers only |
 
-Design documents under `wflpkg/` may describe future registry **governance
-risk** (longevity, key custody, transparency logs). Those designs do not
-transfer authority away from Maintainers unless this document is amended.
+WFL has no package manager. The `wflpkg` implementation was removed before the
+first release candidate and the system is being redesigned from scratch; its
+design documents are archived, unimplemented, under `Docs/Archive/wflpkg/`.
+Those archived documents — and any future ones — may describe registry
+**governance risk** (longevity, key custody, transparency logs), but they do
+not transfer authority away from Maintainers unless this document is amended.
 
 ---
 

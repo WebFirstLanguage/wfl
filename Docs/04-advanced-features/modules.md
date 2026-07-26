@@ -845,12 +845,6 @@ load module from "expensive.wfl"
 load module from "expensive.wfl"  # Uses cached version
 ```
 
-### Package System (V4)
-```text
-load module from "package:http-client"
-load module from "package:json-parser"
-```
-
 ## Summary
 
 WFL's hybrid module system provides flexible code organization:

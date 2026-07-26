@@ -368,8 +368,7 @@ def categorize(blk: Block) -> str:
         return "LANG_GAP"
     if re.search(r"repeat\s+\d+\s+times", code):
         return "LANG_GAP"
-    if any(s in se for s in ("Cannot resolve module path", "no project.wfl",
-                             "Cannot resolve package")):
+    if "Cannot resolve module path" in se:
         return "NEEDS_MODULE"
     if "test mode" in se:
         return "NEEDS_TESTMODE"
