@@ -27,8 +27,8 @@ fn print_help() {
     println!("    wfl [FLAGS] [OPTIONS] [file]");
     println!();
     println!("FLAGS:");
-    println!("    --help             Prints this help information");
-    println!("    --version, -v      Prints the version information");
+    println!("    --help, -h         Prints this help information");
+    println!("    --version, -v, -V  Prints the version information");
     println!("    --lint             Run the linter on the specified file");
     println!("    --lint --fix       Apply auto-fixes after linting");
     println!("        --in-place     Overwrite the file in place");
@@ -573,6 +573,9 @@ async fn run() -> io::Result<()> {
                     args[i]
                 );
                 eprintln!("  Removed together: --transpile, --target, --no-runtime, --es-modules.");
+                eprintln!(
+                    "  ('--output' still exists, but only for --dump-env; it no longer emits JavaScript.)"
+                );
                 eprintln!("  Run WFL programs directly with the interpreter: wfl <file.wfl>");
                 process::exit(2);
             }

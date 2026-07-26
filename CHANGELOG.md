@@ -126,6 +126,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     flags now exit with code 2 and an explicit message rather than being
     misparsed as an input file path, so existing build scripts fail loudly
     instead of silently doing the wrong thing.
+  - **Governance (`GOVERNANCE.md` §3.1):** the ≥ 1-year deprecation window applies
+    to breaking *existing WFL programs*, and no WFL program is affected — the
+    language, its semantics, and every program in `TestPrograms/` are unchanged.
+    What is withdrawn is a build-tooling surface (the `--transpile` CLI mode) and
+    a library module. Per §2.2, breaking-change decisions rest with the
+    Maintainer, who directed this sunset and accepted the immediate removal
+    rather than a deferred one. Recorded here so the decision is auditable rather
+    than implicit.
 
 ## [25.9.1] - 2025-09-20
 

@@ -113,6 +113,31 @@ feature.
   narrowed at the same time (a test in the sunset suite will fail loudly, by
   design, rather than the flag quietly changing meaning).
 
+## Governance: the §3.1 deprecation window
+
+Review raised `GOVERNANCE.md` §3.1, which requires announcing an unavoidable
+break ≥ 1 year in advance and keeping the old behavior working until that
+deadline. The objection is worth recording rather than waving past.
+
+§3.1 opens with "Never break existing **WFL programs** without a documented
+path," and that is the surface it protects. No WFL program is affected here: the
+language, its semantics, the analyzer, the type checker, and the interpreter are
+untouched, and all 110 runnable programs in `TestPrograms/` pass unchanged
+against the release build. What is withdrawn is build tooling (the `--transpile`
+CLI mode) and a library module (`wfl::transpiler`) — neither of which any WFL
+source file can depend on.
+
+Per §2.2, "Language design / breaking change" is a Maintainer decision. The
+Maintainer directed this sunset and, when the objection was put to them
+explicitly, chose immediate removal with the rationale recorded rather than a
+deferred window. That decision is logged in `CHANGELOG.md` under Removed so it
+is auditable.
+
+The residual cost is real and stated plainly: a downstream crate importing
+`wfl::transpiler` loses it without a shim, and a build script calling
+`--transpile` breaks — loudly and with the fix in the error text, but it does
+break. That trade was made deliberately, not overlooked.
+
 ## Review follow-ups
 
 Two issues surfaced in review of this change:
@@ -136,3 +161,25 @@ Two issues surfaced in review of this change:
   `tests/cli_help_version_flags_test.rs`, which was observed Red (3 of 3 failing
   on `-h`/`-V`) before the fix. Pre-existing, unrelated to the transpiler, but
   fixed here because it is the same misparse the sunset work was about.
+
+A second review round added three more:
+
+- **The `.js` check was case-sensitive.** `out.JS` is just as much a leaked
+  artifact, and on a case-insensitive filesystem it is the same file. Now
+  compared with `eq_ignore_ascii_case`; verified by planting `nested/LEAK.JS` and
+  watching the assertion fire.
+
+- **`print_help()` didn't document `-h`/`-V`.** An alias that works but is
+  undocumented is undiscoverable, so the help text now lists `--help, -h` and
+  `--version, -v, -V`, pinned by `help_text_documents_the_short_aliases`.
+
+- **The sunset error said nothing about `--output`.** `--output` outlived the
+  transpiler (it still serves `--dump-env`), so a former user had no way to tell
+  whether it still produced JavaScript. The error now says explicitly that it
+  does not.
+
+One review finding was **refuted rather than fixed**: a P1 claimed the Red commit
+was not an ancestor of the removal, citing `git merge-base --is-ancestor f29e1ca
+911f20e`. `911f20e` does not exist in this repository, and
+`git merge-base --is-ancestor f29e1ca HEAD` succeeds — the branch is linear
+(`f29e1ca` → `2327776` → …). Replied on the PR with the evidence; no change made.

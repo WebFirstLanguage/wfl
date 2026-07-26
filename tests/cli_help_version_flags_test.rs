@@ -59,6 +59,22 @@ fn version_flags_print_version() {
     }
 }
 
+/// The help text documents every spelling it accepts. An alias that works but
+/// is undocumented is undiscoverable, so `--help` must list the short forms.
+#[test]
+fn help_text_documents_the_short_aliases() {
+    let (stdout, stderr, _code) = run_flag("--help");
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("--help, -h"),
+        "help text should document the -h alias, got:\n{combined}"
+    );
+    assert!(
+        combined.contains("--version, -v, -V"),
+        "help text should document the -V alias, got:\n{combined}"
+    );
+}
+
 /// The regression itself: no help/version spelling may be mistaken for a file
 /// path. That misparse is what produced the confusing "No such file or
 /// directory" for `-h` and `-V`.

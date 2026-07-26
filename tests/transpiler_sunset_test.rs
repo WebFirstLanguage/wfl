@@ -97,6 +97,13 @@ fn transpile_flag_is_rejected_with_sunset_message() {
         lowered.contains("wfl <file"),
         "expected the error to point at running the file directly, got:\n{combined}"
     );
+    // `--output` outlived the transpiler (it still serves --dump-env), so the
+    // error has to say so rather than leave a former user guessing whether it
+    // still produces JavaScript.
+    assert!(
+        combined.contains("--output"),
+        "expected the error to say what became of --output, got:\n{combined}"
+    );
     assert_no_js_output(&dir);
 }
 
