@@ -59,9 +59,15 @@ fn assert_no_js_output(dir: &TempDir) {
                 walk(&path);
                 continue;
             }
-            assert_ne!(
-                path.extension().and_then(|e| e.to_str()),
-                Some("js"),
+            // Compare case-insensitively: `out.JS` is just as much a leaked
+            // artifact as `out.js`, and on a case-insensitive filesystem they
+            // are the same file.
+            let is_js = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("js"));
+            assert!(
+                !is_js,
                 "transpiler is removed, but a JavaScript file was produced: {}",
                 path.display()
             );
