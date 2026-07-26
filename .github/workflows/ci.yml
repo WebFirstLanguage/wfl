@@ -139,7 +139,7 @@ jobs:
     name: Integration Tests
     strategy:
       matrix:
-        os: [ubuntu-latest, blacksmith-4vcpu-windows-2025]
+        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-4vcpu-windows-2025]
     runs-on: ${{ matrix.os }}
     needs: fmt
     # The password-hashing tests exercise deliberately slow, memory/CPU-hard
@@ -291,7 +291,7 @@ jobs:
     name: Run WFL Programs
     strategy:
       matrix:
-        os: [ubuntu-latest, blacksmith-4vcpu-windows-2025]
+        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-4vcpu-windows-2025]
     runs-on: ${{ matrix.os }}
     needs: fmt
     timeout-minutes: 20
