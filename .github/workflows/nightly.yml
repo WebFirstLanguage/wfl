@@ -28,7 +28,7 @@ permissions:
 jobs:
   check-for-changes:
     name: Check for changes since last nightly build
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
       version:      ${{ steps.version.outputs.version }}
@@ -122,7 +122,7 @@ jobs:
     name: Build WFL for Windows
     needs: check-for-changes
     if: needs.check-for-changes.outputs.should_build == 'true'
-    runs-on: windows-latest
+    runs-on: blacksmith-4vcpu-windows-2025
     # `cargo test --release` here compiles EVERY integration test binary in
     # tests/ (112 of them as of 26.7.49) against the full dependency graph, in
     # release mode with `[profile.release] debug = true` — so each one also links
@@ -440,7 +440,7 @@ jobs:
     name: Create or Update Nightly Release
     needs: [check-for-changes, build]
     if: needs.check-for-changes.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
       contents: write
