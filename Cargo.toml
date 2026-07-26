@@ -26,8 +26,7 @@ executable = "wfl"
 [workspace]
 members = [
     ".",
-    "wfl-lsp",
-    "crates/wflpkg"
+    "wfl-lsp"
 ]
 # `fuzz/` is a standalone cargo-fuzz workspace (nightly + libFuzzer only); keep
 # it out of the stable-toolchain root build/test.
@@ -50,7 +49,6 @@ maintainer-scripts = "debian/"
 conf-files = ["/etc/wfl/wfl.cfg"]
 
 [dependencies]
-wflpkg = { path = "crates/wflpkg" }
 logos = "0.16.1"
 rand = "0.10.2"
 regex = "1.13.0"

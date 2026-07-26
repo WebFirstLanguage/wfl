@@ -13,37 +13,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   longer echoes request or response bodies into diagnostic logs.
 - Unsupported database URL errors no longer echo the full connection URL,
   preventing embedded credentials from being disclosed in diagnostics.
-- Package filesystem operations now enforce the manifest's package-name rules,
-  reject symlinked cache/install roots and targets, verify canonical directory
-  containment before recursive deletion, and prevent archive extraction through
-  pre-existing symlink ancestors.
-- **WFL package publishing now keeps credentials registry-scoped.** A
-  project-controlled `registry` setting can no longer redirect a saved token to
-  another origin; registry URLs are canonicalized and must use HTTPS without
-  userinfo, paths, queries, or fragments.
-- **Package archives are created in private external temporary files** and
-  cleaned up automatically. Archive creation refuses existing output paths, so
-  a project-supplied symlink can no longer redirect `wfl share` into truncating
-  another file.
-- **Published packages now honor root and nested `.gitignore` rules.** Ignored
-  logs, debug reports, `.env` files, and other local-only content are excluded
-  from both the archive and its checksum instead of being uploaded silently.
-- **Registry credentials are written atomically with private permissions.** On
-  Unix, the auth directory is mode `0700` and the token file is mode `0600`
-  before any secret bytes are written.
-- **Package integrity checks now use an explicitly versioned
-  `wflhash:v2:` transcript.** File records include domain, path, and content
-  lengths; paths use portable `/` separators; verification hashes every
-  extracted regular file; and publishing derives the digest from the completed
-  archive instead of re-reading a mutable source tree.
-- **Package publishing now fails closed on unsafe inputs and resource abuse.**
-  Manifests and entry points must be in-project regular files, unsupported
-  filesystem objects and ambiguous `.gitignore` patterns are rejected, package
-  traversal is bounded, archives upload as bounded streams, and registry
-  response bodies are capped at 1 MiB.
-- **Registry login supports an explicit registry address.** `wfl login
-  [registry]` scopes a token to that HTTPS origin, mismatched logins are
-  rejected, and `wfl logout` can recover malformed or incomplete credentials.
 - **Cyclic values no longer abort the interpreter during display, diagnostics,
   or isolated-module cloning.** List/object formatting now detects cycles and
   caps nesting depth, while deep clones preserve cycles and shared references
@@ -111,6 +80,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `No such file or directory`
 
 ### Removed
+- **The `wflpkg` package manager has been removed in its entirety.** The
+  `crates/wflpkg` crate and its standalone `wflpkg` binary are gone, along with
+  everything they reached into WFL:
+  - The positional `wfl` subcommands `create`, `add`, `remove`, `update`,
+    `build`, `run`, `share`, `search`, `info`, `login`, `logout`, and `check`,
+    and the `PACKAGE MANAGEMENT` section of `wfl --help`.
+  - The `package:` import protocol. `load module from "package:my-lib"` no
+    longer resolves through a `packages/` directory; the string is now an
+    ordinary relative path and fails as one.
+  - The `project.wfl` / `project.lock` / `workspace.wfl` manifest formats, the
+    `.wflpkg` archive format, the `wflhash:v2:` package-integrity transcript,
+    the download cache, and the `wflhub.org` registry client and credential
+    store. The corresponding `[Unreleased] Security` entries have been dropped,
+    since they described code that never shipped a release.
+  - **Impact on the WFL language: none**, with one exception. The file-based
+    module system — `load module from "path.wfl"`, `include from "path.wfl"`,
+    and `export` — is untouched and fully supported. Only the `package:` prefix
+    is withdrawn, and no released WFL program could depend on it in practice:
+    resolving it required an installed `packages/` tree that only the removed
+    `wfl add` could produce.
+  - **Impact on tooling:** `wfl run <file.wfl>` and `wfl test <file.wfl>` were
+    handled inside the same subcommand dispatch and go with it. Use the
+    documented spellings `wfl <file.wfl>` and `wfl --test <file.wfl>`; neither
+    alias was ever listed in `wfl --help` or in `Docs/`.
+  - **Rationale:** the package manager is being redesigned from scratch. Its
+    supply-chain and trust-root decisions are the hardest in the project to walk
+    back once published, so it was withdrawn before the first release candidate
+    rather than shipped and then revised. The design documents are archived,
+    unimplemented, under `Docs/Archive/wflpkg/`.
+  - **Governance (`GOVERNANCE.md` §2.2, §8):** package and registry design is a
+    Maintainer-only decision area. The Maintainer directed this removal and
+    accepted the immediate withdrawal. Recorded here so the decision is
+    auditable rather than implicit.
 - **The WFL to JavaScript transpiler has been sunset.** The `wfl --transpile`
   command and its `--target`, `--no-runtime`, and `--es-modules` options are gone,
   along with the `wfl::transpiler` library module (`JavaScriptTranspiler`,
