@@ -7,7 +7,9 @@
 use std::sync::Arc;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::parser::ast::{Expression, Literal, Operator, Program, Statement, WsHandlerEvent};
+use wfl::parser::ast::{
+    Argument, Expression, Literal, Operator, Program, Statement, WsHandlerEvent,
+};
 use wfl::typechecker::TypeChecker;
 
 fn typecheck(code: &str) -> Result<(), String> {
@@ -30,12 +32,40 @@ fn text_literal(value: &str) -> Expression {
 
 fn stream_binding() -> Statement {
     Statement::StartStreamingResponseStatement {
-        request: text_literal("request"),
+        request: Expression::Variable("req".to_string(), 2, 1),
         status: Some(Expression::Literal(Literal::Integer(200), 2, 1)),
         content_type: None,
         headers: None,
         variable_name: "out".to_string(),
         line: 2,
+        column: 1,
+    }
+}
+
+fn request_binding() -> Statement {
+    Statement::WaitForRequestStatement {
+        server: text_literal("server"),
+        request_name: "req".to_string(),
+        timeout: None,
+        line: 1,
+        column: 1,
+    }
+}
+
+fn dynamic_event_source_binding() -> Statement {
+    Statement::VariableDeclaration {
+        name: "source".to_string(),
+        value: Expression::FunctionCall {
+            function: Box::new(Expression::Variable("parse_json".to_string(), 1, 1)),
+            arguments: vec![Argument {
+                name: None,
+                value: text_literal("{}"),
+            }],
+            line: 1,
+            column: 1,
+        },
+        is_constant: false,
+        line: 1,
         column: 1,
     }
 }
@@ -68,21 +98,23 @@ fn subtract_from_outer_out() -> Statement {
 fn response_stream_bindings_do_not_escape_typechecker_child_scopes() {
     let scoped_blocks = [
         "repeat while false:\n\
-         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
          end repeat\n",
         "try:\n\
-         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
          when error:\n\
          \x20\x20\x20\x20display \"ignored\"\n\
          end try\n",
         "count from 1 to 1:\n\
-         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
          end count\n",
     ];
 
     for scoped_block in scoped_blocks {
         let source = format!(
-            "open file at \"unused.txt\" for writing as out\n\
+            "store srv as \"server\"\n\
+             wait for request comes in on srv as req\n\
+             open file at \"unused.txt\" for writing as out\n\
              {scoped_block}\
              store value as \"wrong stream type\"\n\
              store line value as 10\n\
@@ -102,24 +134,26 @@ fn response_stream_bindings_do_not_escape_typechecker_child_scopes() {
 fn response_stream_bindings_are_local_while_outer_text_remains_visible_afterward() {
     let scoped_blocks = [
         "repeat while false:\n\
-         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
          \x20\x20\x20\x20flush out\n\
          end repeat\n",
         "try:\n\
-         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
          \x20\x20\x20\x20flush out\n\
          when error:\n\
          \x20\x20\x20\x20display \"ignored\"\n\
          end try\n",
         "count from 1 to 1:\n\
-         \x20\x20\x20\x20start streaming response to \"request\" with status 200 as out\n\
+         \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
          \x20\x20\x20\x20flush out\n\
          end count\n",
     ];
 
     for scoped_block in scoped_blocks {
         let source = format!(
-            "store out as \"outer text\"\n\
+            "store srv as \"server\"\n\
+             wait for request comes in on srv as req\n\
+             store out as \"outer text\"\n\
              {scoped_block}\
              store invalid as out minus 1\n"
         );
@@ -156,9 +190,11 @@ fn default_count_binding_does_not_retype_an_outer_count_variable() {
 fn event_handler_body_types_do_not_leak_after_registration() {
     let program = Program {
         statements: vec![
+            request_binding(),
+            dynamic_event_source_binding(),
             outer_number_binding(),
             Statement::EventHandler {
-                event_source: text_literal("source"),
+                event_source: Expression::Variable("source".to_string(), 2, 1),
                 event_name: "changed".to_string(),
                 handler_body: vec![stream_binding()],
                 line: 2,
@@ -180,6 +216,7 @@ fn event_handler_body_types_do_not_leak_after_registration() {
 fn websocket_handler_body_types_do_not_leak_after_registration() {
     let program = Program {
         statements: vec![
+            request_binding(),
             outer_number_binding(),
             Statement::WebSocketHandlerStatement {
                 event: WsHandlerEvent::Connect,

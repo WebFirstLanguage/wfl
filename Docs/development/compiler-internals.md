@@ -75,6 +75,9 @@ Execution / Output
 
 **File:** `src/typechecker/mod.rs`
 
+The complete compatibility and inference contract is documented in
+[Type System Design](type-system-design.md).
+
 **Type inference:**
 - Literal types from values
 - Variable types from assignments
@@ -86,7 +89,9 @@ Execution / Output
 - Function call type matching
 - Assignment type consistency
 
-**Built-in types:** Registered in `src/builtins.rs` with arity checking.
+**Built-in contracts:** Runtime inventory and arities are registered in
+`src/builtins.rs`; parameter and return contracts are defined in
+`src/stdlib/typechecker.rs`.
 
 ## Interpreter
 

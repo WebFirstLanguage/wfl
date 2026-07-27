@@ -1056,6 +1056,9 @@ pub enum Type {
     Boolean,
     Nothing,
     Pattern,
+    Date,
+    Time,
+    DateTime,
     Custom(String),
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
@@ -1068,6 +1071,9 @@ pub enum Type {
     Error,            // Used to mark expressions that have already failed type checking
     Async(Box<Type>), // For asynchronous operations returning a value of Type
     Any,              // Used for generic types like lists of any type
+    /// An inferred value that may be `Nothing` because an action can fall
+    /// through without executing a value-returning `return`.
+    Optional(Box<Type>),
     // Container-related types
     Container(String),
     ContainerInstance(String),

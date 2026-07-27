@@ -1,5 +1,5 @@
 use crate::parser::ast::{Expression, Literal, Parameter, Program, Statement, Type};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +78,9 @@ pub(crate) fn format_param_type(t: &Type) -> String {
         Type::Boolean => "boolean".to_string(),
         Type::Nothing => "nothing".to_string(),
         Type::Pattern => "pattern".to_string(),
+        Type::Date => "date".to_string(),
+        Type::Time => "time".to_string(),
+        Type::DateTime => "datetime".to_string(),
         Type::Any => "any".to_string(),
         Type::Custom(name) => name.clone(),
         other => format!("{other:?}"),
@@ -93,6 +96,7 @@ pub struct ContainerInfo {
     pub methods: HashMap<String, MethodInfo>,
     pub static_properties: HashMap<String, PropertyInfo>,
     pub static_methods: HashMap<String, MethodInfo>,
+    pub events: HashMap<String, EventInfo>,
     pub line: usize,
     pub column: usize,
 }
@@ -116,6 +120,14 @@ pub struct MethodInfo {
     pub column: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct EventInfo {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbol {
     pub name: String,
@@ -125,10 +137,20 @@ pub struct Symbol {
     pub column: usize,
 }
 
+/// Stable identity of one lexical binding while an analyzer/type-checker run
+/// is active. Names alone are insufficient because sibling scopes may reuse a
+/// local name; list alias tracking uses this key to avoid conflating them.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SymbolBindingKey {
+    scope_id: u64,
+    name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub symbols: HashMap<String, Symbol>,
     pub parent: Option<Box<Scope>>,
+    id: u64,
 }
 
 impl Default for Scope {
@@ -142,13 +164,15 @@ impl Scope {
         Scope {
             symbols: HashMap::new(),
             parent: None,
+            id: 0,
         }
     }
 
-    pub fn with_parent(parent: Scope) -> Self {
+    pub fn with_parent(parent: Scope, id: u64) -> Self {
         Scope {
             symbols: HashMap::new(),
             parent: Some(Box::new(parent)),
+            id,
         }
     }
 
@@ -215,6 +239,54 @@ impl Scope {
             None
         }
     }
+
+    fn resolve_binding_key(&self, name: &str) -> Option<SymbolBindingKey> {
+        if self.symbols.contains_key(name) {
+            Some(SymbolBindingKey {
+                scope_id: self.id,
+                name: name.to_string(),
+            })
+        } else {
+            self.parent
+                .as_deref()
+                .and_then(|parent| parent.resolve_binding_key(name))
+        }
+    }
+
+    fn resolve_binding_key_mut(&mut self, key: &SymbolBindingKey) -> Option<&mut Symbol> {
+        if self.id == key.scope_id {
+            self.symbols.get_mut(&key.name)
+        } else {
+            self.parent
+                .as_deref_mut()
+                .and_then(|parent| parent.resolve_binding_key_mut(key))
+        }
+    }
+
+    fn resolve_binding_key_symbol(&self, key: &SymbolBindingKey) -> Option<&Symbol> {
+        if self.id == key.scope_id {
+            self.symbols.get(&key.name)
+        } else {
+            self.parent
+                .as_deref()
+                .and_then(|parent| parent.resolve_binding_key_symbol(key))
+        }
+    }
+
+    fn collect_binding_types(&self, out: &mut Vec<(SymbolBindingKey, Option<Type>)>) {
+        for (name, symbol) in &self.symbols {
+            out.push((
+                SymbolBindingKey {
+                    scope_id: self.id,
+                    name: name.clone(),
+                },
+                symbol.symbol_type.clone(),
+            ));
+        }
+        if let Some(parent) = self.parent.as_deref() {
+            parent.collect_binding_types(out);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -275,6 +347,14 @@ pub fn program_has_load_module(program: &Program) -> bool {
 
 pub struct Analyzer {
     current_scope: Scope,
+    /// Root bindings supplied by the constructor (runtime constants and any
+    /// explicit parent variables). A reused analyzer restores this baseline
+    /// before every independent program so prior declarations and diagnostics
+    /// cannot leak across runs.
+    baseline_symbols: HashMap<String, Symbol>,
+    /// Monotone lexical-scope identity source. Scope IDs remain stable through
+    /// snapshots/clones and are never reused within one analyzer run.
+    next_scope_id: u64,
     errors: Vec<SemanticError>,
     /// Non-fatal semantic warnings. Currently used for undefined-action calls in
     /// programs that use `include from`: the action may be provided by an
@@ -283,7 +363,12 @@ pub struct Analyzer {
     warnings: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
     containers: HashMap<String, ContainerInfo>,
+    events: HashMap<String, EventInfo>,
     current_container: Option<String>,
+    /// Whether the currently analyzed container method is static. `None`
+    /// means analysis is outside a method body and both member categories may
+    /// be queried by general container-introspection helpers.
+    current_method_is_static: Option<bool>,
     /// True when the program contains `include from` statements. Included files
     /// are resolved dynamically at runtime, so the analyzer cannot know which
     /// actions/variables they expose; undefined-action errors are downgraded to
@@ -310,7 +395,7 @@ pub struct Analyzer {
     /// reassigned to anything that is not a bare action reference; degraded to
     /// [`AliasState::Dynamic`] when control flow makes the binding uncertain.
     /// Reset per `analyze` run.
-    action_aliases: HashMap<String, AliasState>,
+    action_aliases: HashMap<SymbolBindingKey, AliasState>,
     /// Overload definitions *visited so far* in the PASS-2 walk, per action
     /// name. PASS 1 registers signatures in lexical order, so an exact count
     /// is a prefix length into the symbol's signature list — the overloads a
@@ -328,12 +413,23 @@ pub struct Analyzer {
     /// intermediate state at runtime. Popping a frame merges it into its
     /// parent (an inner body's mutation is also the outer body's). Reset
     /// per `analyze` run.
-    alias_mutation_frames: Vec<std::collections::HashSet<String>>,
+    alias_mutation_frames: Vec<std::collections::HashSet<SymbolBindingKey>>,
     /// What each alias call site resolved to, keyed by (callee, line, column).
     /// The type checker reads this instead of the final alias map so it
     /// observes the alias state that held *at that statement*, not whatever
     /// the map ended up as. Reset per `analyze` run.
     alias_call_sites: HashMap<(String, usize, usize), AliasState>,
+    /// Captured stored-action bindings that each user action may rebind.
+    /// Calls conservatively degrade those bindings to `Dynamic`; the runtime
+    /// closure may have selected any action on a reachable body path.
+    action_alias_effects: HashMap<String, HashSet<SymbolBindingKey>>,
+    /// User-action calls made from within another action. Dependencies are
+    /// followed transitively when applying alias effects, including forward
+    /// definitions whose direct effects were not known when the caller body
+    /// was first analyzed.
+    action_alias_dependencies: HashMap<String, HashSet<String>>,
+    action_alias_name_stack: Vec<String>,
+    action_alias_effect_stack: Vec<HashSet<SymbolBindingKey>>,
 }
 
 /// Statically known state of a stored-action alias variable.
@@ -346,6 +442,9 @@ pub enum AliasState {
         action: String,
         visible_signatures: usize,
     },
+    /// Bound to a native standard-library function. Its exact overload,
+    /// optional-arity, or variadic contract is resolved by the type checker.
+    Builtin { name: String },
     /// Possibly an action (e.g. reassigned differently across branches):
     /// static validation is skipped and the call defers to runtime dispatch.
     Dynamic,
@@ -378,7 +477,7 @@ impl OverloadCount {
 /// view (the round-4 review finding).
 #[derive(Clone)]
 struct FlowState {
-    aliases: HashMap<String, AliasState>,
+    aliases: HashMap<SymbolBindingKey, AliasState>,
     overloads: HashMap<String, OverloadCount>,
 }
 
@@ -466,38 +565,6 @@ impl Analyzer {
         };
         let _ = global_scope.define(undefined_symbol);
 
-        let push_symbol = Symbol {
-            name: "push".to_string(),
-            kind: SymbolKind::Function {
-                signatures: vec![FunctionSignature {
-                    parameters: vec![
-                        Parameter {
-                            name: "list".to_string(),
-                            param_type: Some(Type::List(Box::new(Type::Unknown))),
-                            default_value: None,
-                            line: 0,
-                            column: 0,
-                        },
-                        Parameter {
-                            name: "value".to_string(),
-                            param_type: Some(Type::Unknown),
-                            default_value: None,
-                            line: 0,
-                            column: 0,
-                        },
-                    ],
-                    return_type: Some(Type::Nothing),
-                }],
-            },
-            symbol_type: Some(Type::Function {
-                parameters: vec![Type::List(Box::new(Type::Unknown)), Type::Unknown],
-                return_type: Box::new(Type::Nothing),
-            }),
-            line: 0,
-            column: 0,
-        };
-        let _ = global_scope.define(push_symbol);
-
         let loop_symbol = Symbol {
             name: "loop".to_string(),
             kind: SymbolKind::Variable { mutable: false },
@@ -574,13 +641,18 @@ impl Analyzer {
         };
         let _ = global_scope.define(script_directory_symbol);
 
+        let baseline_symbols = global_scope.symbols.clone();
         Analyzer {
             current_scope: global_scope,
+            baseline_symbols,
+            next_scope_id: 1,
             errors: Vec::new(),
             warnings: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
+            events: HashMap::new(),
             current_container: None,
+            current_method_is_static: None,
             has_includes: false,
             try_depth: 0,
             active_loop_variables: Vec::new(),
@@ -589,6 +661,10 @@ impl Analyzer {
             defined_overloads: HashMap::new(),
             alias_mutation_frames: Vec::new(),
             alias_call_sites: HashMap::new(),
+            action_alias_effects: HashMap::new(),
+            action_alias_dependencies: HashMap::new(),
+            action_alias_name_stack: Vec::new(),
+            action_alias_effect_stack: Vec::new(),
         }
     }
 
@@ -608,6 +684,7 @@ impl Analyzer {
             };
             let _ = analyzer.current_scope.define(symbol);
         }
+        analyzer.baseline_symbols = analyzer.current_scope.symbols.clone();
 
         analyzer
     }
@@ -629,6 +706,7 @@ impl Analyzer {
             };
             let _ = analyzer.current_scope.define(symbol);
         }
+        analyzer.baseline_symbols = analyzer.current_scope.symbols.clone();
 
         analyzer
     }
@@ -638,6 +716,22 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        self.current_scope = Scope {
+            symbols: self.baseline_symbols.clone(),
+            parent: None,
+            id: 0,
+        };
+        self.next_scope_id = 1;
+        self.errors.clear();
+        self.warnings.clear();
+        self.action_parameters.clear();
+        self.containers.clear();
+        self.events.clear();
+        self.current_container = None;
+        self.current_method_is_static = None;
+        self.try_depth = 0;
+        self.active_loop_variables.clear();
+
         // Reset the per-run budget breach so a reused analyzer never carries a
         // stale one from a previous program (matches the direct assignment of
         // `has_includes` below).
@@ -675,6 +769,10 @@ impl Analyzer {
         self.defined_overloads.clear();
         self.alias_mutation_frames.clear();
         self.alias_call_sites.clear();
+        self.action_alias_effects.clear();
+        self.action_alias_dependencies.clear();
+        self.action_alias_name_stack.clear();
+        self.action_alias_effect_stack.clear();
 
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
@@ -686,6 +784,8 @@ impl Analyzer {
         for statement in &program.statements {
             self.analyze_statement(statement);
         }
+        self.validate_container_inheritance_cycles();
+        self.warn_incompatible_inherited_property_overrides();
 
         if self.errors.is_empty() {
             Ok(())
@@ -722,7 +822,7 @@ impl Analyzer {
     /// and are not swept up.
     fn analyze_loop_body(&mut self, body: &[Statement]) {
         let outer_scope = std::mem::take(&mut self.current_scope);
-        self.current_scope = Scope::with_parent(outer_scope);
+        self.enter_child_scope(outer_scope);
 
         let flow_entry = self.flow_entry();
         self.push_mutation_frame();
@@ -910,8 +1010,36 @@ impl Analyzer {
                 }
             }
             Statement::ActionDefinition { name, .. } => {
-                // Signature was already registered in Pass 1
-                // Now analyze the body in Pass 2
+                // Pass 1 only pre-registers top-level actions. Definitions in
+                // executable/nested blocks become visible as their statement is
+                // reached, so register the next local signature on demand. The
+                // visible-overload counter tells us how many definitions in
+                // this scope have already been encountered; top-level scopes
+                // already contain all signatures and therefore skip this path.
+                let registered_here = self
+                    .current_scope
+                    .symbols
+                    .get(name)
+                    .and_then(|symbol| match &symbol.kind {
+                        SymbolKind::Function { signatures } => Some(signatures.len()),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+                let extends_inherited_overload = !self.current_scope.symbols.contains_key(name)
+                    && self
+                        .current_scope
+                        .parent
+                        .as_ref()
+                        .and_then(|parent| parent.resolve(name))
+                        .is_some_and(|symbol| matches!(&symbol.kind, SymbolKind::Function { .. }));
+                let already_visible = match self.defined_overloads.get(name).copied() {
+                    Some(OverloadCount::Exact(count)) => count,
+                    Some(OverloadCount::Unknown) | None => 0,
+                };
+                if !extends_inherited_overload && registered_here <= already_visible {
+                    self.register_action_signature(statement);
+                }
+
                 let counter = self
                     .defined_overloads
                     .entry(name.clone())
@@ -929,7 +1057,7 @@ impl Analyzer {
                 let flow_entry = self.flow_entry();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope.clone());
+                self.enter_child_scope(outer_scope.clone());
 
                 for stmt in then_block {
                     self.analyze_statement(stmt);
@@ -952,7 +1080,7 @@ impl Analyzer {
                 let mut defined_in_else = Vec::new();
                 if let Some(else_stmts) = else_block {
                     let outer_scope_for_else = std::mem::take(&mut self.current_scope);
-                    self.current_scope = Scope::with_parent(outer_scope_for_else.clone());
+                    self.enter_child_scope(outer_scope_for_else.clone());
 
                     for stmt in else_stmts {
                         self.analyze_statement(stmt);
@@ -976,20 +1104,32 @@ impl Analyzer {
                     self.join_flow_branches(&[flow_then.clone(), flow_entry.clone()]);
                 }
 
-                // Variables defined in both branches are definitely defined
-                for (name, symbol) in &defined_in_then {
-                    if (defined_in_else.iter().any(|(n, _)| n == name) || else_block.is_none())
-                        && let Err(error) = self.current_scope.define(symbol.clone())
-                    {
-                        self.errors.push(error);
-                    }
-                }
-
-                for (name, symbol) in &defined_in_else {
-                    if !defined_in_then.iter().any(|(n, _)| n == name)
-                        && let Err(error) = self.current_scope.define(symbol.clone())
-                    {
-                        self.errors.push(error);
+                // Only an explicit two-way branch can establish a new binding,
+                // and the name must be created on both paths.
+                if else_block.is_some() {
+                    for (name, symbol) in &defined_in_then {
+                        if let Some((_, else_symbol)) = defined_in_else
+                            .iter()
+                            .find(|(else_name, _)| else_name == name)
+                        {
+                            let mut merged = symbol.clone();
+                            if let (
+                                SymbolKind::Variable {
+                                    mutable: then_mutable,
+                                },
+                                SymbolKind::Variable {
+                                    mutable: else_mutable,
+                                },
+                            ) = (&symbol.kind, &else_symbol.kind)
+                            {
+                                merged.kind = SymbolKind::Variable {
+                                    mutable: *then_mutable && *else_mutable,
+                                };
+                            }
+                            if let Err(error) = self.current_scope.define(merged) {
+                                self.errors.push(error);
+                            }
+                        }
                     }
                 }
             }
@@ -1003,30 +1143,70 @@ impl Analyzer {
                 let flow_entry = self.flow_entry();
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope.clone());
 
                 self.analyze_statement(then_stmt);
                 let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
+                let defined_in_then: Vec<_> = then_scope
+                    .symbols
+                    .iter()
+                    .filter(|(name, _)| outer_scope.resolve(name).is_none())
+                    .map(|(name, symbol)| (name.clone(), symbol.clone()))
+                    .collect();
                 if let Some(parent) = then_scope.parent {
                     self.current_scope = *parent;
                 }
 
+                let mut defined_in_else = Vec::new();
                 if let Some(else_stmt) = else_stmt {
-                    let outer_scope = std::mem::take(&mut self.current_scope);
-                    self.current_scope = Scope::with_parent(outer_scope);
+                    let outer_scope_for_else = std::mem::take(&mut self.current_scope);
+                    self.enter_child_scope(outer_scope_for_else.clone());
 
                     self.analyze_statement(else_stmt);
                     let flow_else = self.take_flow_branch(&flow_entry);
                     self.join_flow_branches(&[flow_then, flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
+                    defined_in_else = else_scope
+                        .symbols
+                        .iter()
+                        .filter(|(name, _)| outer_scope_for_else.resolve(name).is_none())
+                        .map(|(name, symbol)| (name.clone(), symbol.clone()))
+                        .collect();
                     if let Some(parent) = else_scope.parent {
                         self.current_scope = *parent;
                     }
                 } else {
                     self.join_flow_branches(&[flow_then, flow_entry]);
+                }
+
+                if else_stmt.is_some() {
+                    for (name, symbol) in defined_in_then {
+                        if let Some((_, else_symbol)) = defined_in_else
+                            .iter()
+                            .find(|(else_name, _)| else_name == &name)
+                        {
+                            let mut merged = symbol;
+                            if let (
+                                SymbolKind::Variable {
+                                    mutable: then_mutable,
+                                },
+                                SymbolKind::Variable {
+                                    mutable: else_mutable,
+                                },
+                            ) = (&merged.kind, &else_symbol.kind)
+                            {
+                                merged.kind = SymbolKind::Variable {
+                                    mutable: *then_mutable && *else_mutable,
+                                };
+                            }
+                            if let Err(error) = self.current_scope.define(merged) {
+                                self.errors.push(error);
+                            }
+                        }
+                    }
                 }
             }
             Statement::ForEachLoop {
@@ -1038,7 +1218,7 @@ impl Analyzer {
                 self.analyze_expression(collection);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
 
                 let item_symbol = Symbol {
                     name: item_name.clone(),
@@ -1095,7 +1275,7 @@ impl Analyzer {
                 }
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
 
                 // Use custom variable name if provided, otherwise default to "count"
                 let loop_var_name = variable_name.as_deref().unwrap_or("count");
@@ -1164,7 +1344,7 @@ impl Analyzer {
                 self.analyze_expression(condition);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
 
                 let flow_entry = self.flow_entry();
                 self.push_mutation_frame();
@@ -1194,14 +1374,11 @@ impl Analyzer {
             // conservative, never wrong.
             Statement::RepeatWhileLoop {
                 condition, body, ..
-            }
-            | Statement::RepeatUntilLoop {
-                condition, body, ..
             } => {
                 self.analyze_expression(condition);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
 
                 let flow_entry = self.flow_entry();
                 self.push_mutation_frame();
@@ -1219,6 +1396,37 @@ impl Analyzer {
                     let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
                     self.warnings.extend(demoted);
                 }
+                let flow_body = self.take_flow_branch(&flow_entry);
+                let mutated = self.pop_mutation_frame();
+                self.join_flow_branches(&[flow_body, flow_entry]);
+                self.degrade_mutated_aliases(&mutated);
+
+                let loop_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = loop_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
+            Statement::RepeatUntilLoop {
+                condition, body, ..
+            } => {
+                // Post-test semantics: the first body execution may establish
+                // bindings consumed by the condition.
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.enter_child_scope(outer_scope);
+
+                let flow_entry = self.flow_entry();
+                self.push_mutation_frame();
+                let errors_before = self.errors.len();
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+                if self.budget_error.is_none() {
+                    let demoted: Vec<_> = self.errors.drain(errors_before..).collect();
+                    self.warnings.extend(demoted);
+                }
+
+                self.analyze_expression(condition);
+
                 let flow_body = self.take_flow_branch(&flow_entry);
                 let mutated = self.pop_mutation_frame();
                 self.join_flow_branches(&[flow_body, flow_entry]);
@@ -1305,7 +1513,7 @@ impl Analyzer {
                 column: _column,
             } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
 
                 // The inner statement's own analysis defines any variables it
                 // introduces (file handles, read content, database handles,
@@ -1338,7 +1546,13 @@ impl Analyzer {
                 ..
             } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
+                let try_scope_entry = self.current_scope.clone();
+                let try_entry_visible_names = self
+                    .snapshot_symbol_types()
+                    .into_iter()
+                    .flat_map(|layer| layer.into_keys())
+                    .collect::<HashSet<_>>();
 
                 // Undefined names inside a try body raise catchable runtime
                 // errors, so they are downgraded to warnings while in here.
@@ -1362,16 +1576,16 @@ impl Analyzer {
                 let mut flow_paths: Vec<FlowState> = vec![flow_try];
 
                 // Runtime keeps this try child environment alive through the
-                // selected handler/otherwise clause and finally. Snapshot the
-                // post-body structure so every statically possible clause is
-                // analyzed independently, then union its ordinary bindings
-                // back into the shared try scope for finally.
+                // selected handler/otherwise clause and finally. Analyze every
+                // clause independently from the structural entry: an error can
+                // transfer before any body-local declaration. A name is safe in
+                // finally only when it exists at every possible endpoint.
                 let clause_entry_scope = self.current_scope.clone();
-                let mut joined_scope_symbols = clause_entry_scope.symbols.clone();
+                let mut endpoint_scope_symbols = vec![clause_entry_scope.symbols.clone()];
 
                 // Analyze each when clause
                 for when_clause in when_clauses {
-                    self.current_scope = clause_entry_scope.clone();
+                    self.current_scope = try_scope_entry.clone();
                     self.restore_flow(&flow_handler_entry);
                     self.push_scope();
 
@@ -1405,28 +1619,20 @@ impl Analyzer {
                     if when_clause.error_name != "error_message" {
                         excluded_aliases.push("error_message".to_string());
                     }
-                    self.pop_scope_promoting_except(&excluded_aliases);
+                    let _ = self.pop_scope_promoting_except(&excluded_aliases);
 
                     flow_paths.push(self.take_flow_branch(&flow_handler_entry));
-                    for (name, symbol) in &self.current_scope.symbols {
-                        joined_scope_symbols
-                            .entry(name.clone())
-                            .or_insert_with(|| symbol.clone());
-                    }
+                    endpoint_scope_symbols.push(self.current_scope.symbols.clone());
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
-                    self.current_scope = clause_entry_scope.clone();
+                    self.current_scope = try_scope_entry.clone();
                     self.restore_flow(&flow_handler_entry);
                     for stmt in otherwise_stmts {
                         self.analyze_statement(stmt);
                     }
                     flow_paths.push(self.take_flow_branch(&flow_handler_entry));
-                    for (name, symbol) in &self.current_scope.symbols {
-                        joined_scope_symbols
-                            .entry(name.clone())
-                            .or_insert_with(|| symbol.clone());
-                    }
+                    endpoint_scope_symbols.push(self.current_scope.symbols.clone());
                 } else if !when_clauses.iter().any(|when_clause| {
                     matches!(
                         &when_clause.error_type,
@@ -1436,12 +1642,24 @@ impl Analyzer {
                     // Without a catch-all or otherwise block, a non-matching
                     // error reaches finally directly from the handler entry.
                     flow_paths.push(flow_handler_entry.clone());
+                    endpoint_scope_symbols.push(try_scope_entry.symbols.clone());
                 }
 
                 self.current_scope = clause_entry_scope;
-                for symbol in joined_scope_symbols.into_values() {
-                    self.define_or_replace_symbol(symbol);
+                for symbols in &endpoint_scope_symbols {
+                    for (name, symbol) in symbols {
+                        self.current_scope
+                            .symbols
+                            .entry(name.clone())
+                            .or_insert_with(|| symbol.clone());
+                    }
                 }
+                self.current_scope.symbols.retain(|name, _| {
+                    try_entry_visible_names.contains(name)
+                        || endpoint_scope_symbols
+                            .iter()
+                            .all(|symbols| symbols.contains_key(name))
+                });
 
                 // Finally can be reached from success, any selected error
                 // clause, or an unmatched error. Join those flow endpoints
@@ -1788,11 +2006,11 @@ impl Analyzer {
                 implements,
                 properties,
                 methods,
+                events,
                 static_properties,
                 static_methods,
                 line,
                 column,
-                ..
             } => {
                 // Create container info
                 let mut container_info = ContainerInfo {
@@ -1803,6 +2021,7 @@ impl Analyzer {
                     methods: HashMap::new(),
                     static_properties: HashMap::new(),
                     static_methods: HashMap::new(),
+                    events: HashMap::new(),
                     line: *line,
                     column: *column,
                 };
@@ -1831,8 +2050,34 @@ impl Analyzer {
                         .insert(prop.name.clone(), prop_info);
                 }
 
+                for event in events {
+                    container_info.events.insert(
+                        event.name.clone(),
+                        EventInfo {
+                            name: event.name.clone(),
+                            parameters: event.parameters.clone(),
+                            line: event.line,
+                            column: event.column,
+                        },
+                    );
+                }
+
                 // Register the container early so properties are available during method analysis
                 self.register_container(container_info.clone());
+                // The container value is also a lexical binding at runtime.
+                // Make that binding visible while method bodies are analyzed so
+                // a static method can call `Counter.other_method()` on its own
+                // container. Keep the historical ignored-duplicate behavior;
+                // this is the same definition that previously happened only
+                // after all method bodies.
+                let container_symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Container(name.clone())),
+                    line: *line,
+                    column: *column,
+                };
+                let _ = self.current_scope.define(container_symbol);
 
                 // Process static properties
                 for prop in static_properties {
@@ -1857,6 +2102,12 @@ impl Analyzer {
                         .static_properties
                         .insert(prop.name.clone(), prop_info);
                 }
+
+                // Make property metadata available while method bodies are
+                // analyzed. Methods are added to the local copy below and the
+                // completed definition replaces this provisional entry at the
+                // end of the arm.
+                self.register_container(container_info.clone());
 
                 // Process instance methods
                 for method in methods {
@@ -1899,7 +2150,9 @@ impl Analyzer {
 
                         // Set current container context
                         let previous_container = self.current_container.clone();
+                        let previous_method_is_static = self.current_method_is_static;
                         self.current_container = Some(name.clone());
+                        self.current_method_is_static = Some(false);
 
                         // Properties will be resolved through container context
                         // Don't add them as variables to avoid conflicts with assignments
@@ -1915,7 +2168,7 @@ impl Analyzer {
                                 line: param.line,
                                 column: param.column,
                             };
-                            let _ = self.current_scope.define(symbol);
+                            self.current_scope.define_or_replace(symbol);
                         }
 
                         // Same isolation as `analyze_action_body`: a method
@@ -1930,6 +2183,7 @@ impl Analyzer {
 
                         // Restore previous container context
                         self.current_container = previous_container;
+                        self.current_method_is_static = previous_method_is_static;
                         self.pop_scope();
                     }
                 }
@@ -1968,24 +2222,15 @@ impl Analyzer {
 
                         // Set current container context
                         let previous_container = self.current_container.clone();
+                        let previous_method_is_static = self.current_method_is_static;
                         self.current_container = Some(name.clone());
+                        self.current_method_is_static = Some(true);
 
-                        // Add static properties as accessible variables (not instance properties)
-                        for prop in static_properties {
-                            let prop_type = prop
-                                .property_type
-                                .as_ref()
-                                .cloned()
-                                .unwrap_or(Type::Unknown);
-                            let symbol = Symbol {
-                                name: prop.name.clone(),
-                                kind: SymbolKind::Variable { mutable: true },
-                                symbol_type: Some(prop_type),
-                                line: prop.line,
-                                column: prop.column,
-                            };
-                            let _ = self.current_scope.define(symbol);
-                        }
+                        // Static properties are resolved through the current
+                        // container context, just like instance properties.
+                        // Keeping them out of the lexical symbol table lets an
+                        // explicit method-local binder shadow a same-named
+                        // property while parameters still outrank both.
 
                         // Add method parameters
                         for param in parameters {
@@ -1998,7 +2243,7 @@ impl Analyzer {
                                 line: param.line,
                                 column: param.column,
                             };
-                            let _ = self.current_scope.define(symbol);
+                            self.current_scope.define_or_replace(symbol);
                         }
 
                         // Same isolation as `analyze_action_body`: a method
@@ -2013,32 +2258,30 @@ impl Analyzer {
 
                         // Restore previous container context
                         self.current_container = previous_container;
+                        self.current_method_is_static = previous_method_is_static;
                         self.pop_scope();
                     }
                 }
 
                 // Re-register the container with all methods now that they've been processed
                 self.register_container(container_info.clone());
-
-                // Also register as a type symbol
-                let container_symbol = Symbol {
-                    name: name.clone(),
-                    kind: SymbolKind::Variable { mutable: false },
-                    symbol_type: Some(Type::Container(name.clone())),
-                    line: *line,
-                    column: *column,
-                };
-                let _ = self.current_scope.define(container_symbol);
             }
 
             Statement::ContainerInstantiation {
                 container_type,
                 instance_name,
-                arguments: _,
-                property_initializers: _,
+                arguments,
+                property_initializers,
                 line,
                 column,
             } => {
+                for argument in arguments {
+                    self.analyze_expression(&argument.value);
+                }
+                for initializer in property_initializers {
+                    self.analyze_expression(&initializer.value);
+                }
+
                 // Register the instance as a variable with ContainerInstance type
                 let instance_symbol = Symbol {
                     name: instance_name.clone(),
@@ -2098,6 +2341,11 @@ impl Analyzer {
                 }
             }
 
+            Statement::PushStatement { list, value, .. } => {
+                self.analyze_expression(list);
+                self.analyze_expression(value);
+            }
+
             Statement::MapCreation {
                 name,
                 entries,
@@ -2122,6 +2370,50 @@ impl Analyzer {
                 }
             }
 
+            Statement::CreateDateStatement {
+                name,
+                value,
+                line,
+                column,
+            } => {
+                if let Some(value) = value {
+                    self.analyze_expression(value);
+                }
+                let symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    // The explicit form is a pass-through binding at runtime;
+                    // only the default form is guaranteed to create a Date.
+                    symbol_type: value.is_none().then_some(Type::Date),
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            Statement::CreateTimeStatement {
+                name,
+                value,
+                line,
+                column,
+            } => {
+                if let Some(value) = value {
+                    self.analyze_expression(value);
+                }
+                let symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: value.is_none().then_some(Type::Time),
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+
             Statement::AddToListStatement {
                 value,
                 list_name,
@@ -2129,7 +2421,7 @@ impl Analyzer {
                 column,
             } => {
                 self.analyze_expression(value);
-                if self.get_symbol(list_name).is_none() {
+                if !self.name_is_defined_for_write(list_name) {
                     self.errors.push(SemanticError::new(
                         format!("Variable '{list_name}' is not defined"),
                         *line,
@@ -2145,7 +2437,7 @@ impl Analyzer {
                 column,
             } => {
                 self.analyze_expression(value);
-                if self.get_symbol(list_name).is_none() {
+                if !self.name_is_defined_for_write(list_name) {
                     self.errors.push(SemanticError::new(
                         format!("Variable '{list_name}' is not defined"),
                         *line,
@@ -2158,7 +2450,7 @@ impl Analyzer {
                 list_name,
                 line,
                 column,
-            } if self.get_symbol(list_name).is_none() => {
+            } if !self.name_is_defined_for_write(list_name) => {
                 self.errors.push(SemanticError::new(
                     format!("Variable '{list_name}' is not defined"),
                     *line,
@@ -2166,6 +2458,90 @@ impl Analyzer {
                 ));
             }
             Statement::ClearListStatement { .. } => {}
+
+            Statement::EventDefinition {
+                name,
+                parameters,
+                line,
+                column,
+            } => {
+                for parameter in parameters {
+                    if let Some(default_value) = &parameter.default_value {
+                        self.analyze_expression(default_value);
+                    }
+                }
+                self.events.insert(
+                    name.clone(),
+                    EventInfo {
+                        name: name.clone(),
+                        parameters: parameters.clone(),
+                        line: *line,
+                        column: *column,
+                    },
+                );
+            }
+
+            Statement::EventTrigger { arguments, .. } => {
+                for argument in arguments {
+                    self.analyze_expression(&argument.value);
+                }
+            }
+
+            Statement::EventHandler {
+                event_name,
+                event_source,
+                handler_body,
+                ..
+            } => {
+                self.analyze_expression(event_source);
+                let event_info = if let Expression::Variable(source_name, _, _) = event_source {
+                    self.current_scope
+                        .resolve(source_name)
+                        .and_then(|symbol| symbol.symbol_type.as_ref())
+                        .and_then(|symbol_type| match symbol_type {
+                            Type::ContainerInstance(container_name) => self
+                                .containers
+                                .get(container_name)
+                                .and_then(|container| container.events.get(event_name)),
+                            _ => None,
+                        })
+                        .cloned()
+                } else {
+                    None
+                };
+
+                if let Some(event_info) = &event_info {
+                    self.events
+                        .entry(event_name.clone())
+                        .or_insert_with(|| event_info.clone());
+                }
+
+                self.push_scope();
+                if let Some(event_info) = event_info {
+                    for parameter in event_info.parameters {
+                        let symbol = Symbol {
+                            name: parameter.name,
+                            kind: SymbolKind::Variable { mutable: false },
+                            symbol_type: parameter.param_type.or(Some(Type::Unknown)),
+                            line: parameter.line,
+                            column: parameter.column,
+                        };
+                        if let Err(error) = self.current_scope.define(symbol) {
+                            self.errors.push(error);
+                        }
+                    }
+                }
+                for statement in handler_body {
+                    self.analyze_statement(statement);
+                }
+                self.pop_scope();
+            }
+
+            Statement::ParentMethodCall { arguments, .. } => {
+                for argument in arguments {
+                    self.analyze_expression(&argument.value);
+                }
+            }
 
             Statement::PatternDefinition {
                 name,
@@ -2233,12 +2609,15 @@ impl Analyzer {
             Statement::WaitForRequestStatement {
                 server,
                 request_name,
-                timeout: _,
+                timeout,
                 line,
                 column,
             } => {
                 // Analyze the server expression
                 self.analyze_expression(server);
+                if let Some(timeout) = timeout {
+                    self.analyze_expression(timeout);
+                }
 
                 // Define the request variable. Waiting for another request may
                 // rebind an existing name (e.g. in a loop), so the binding is
@@ -2264,7 +2643,10 @@ impl Analyzer {
                     ("client_ip", Type::Text),
                     ("body", Type::Text),
                     ("body_bytes", Type::Binary),
-                    ("headers", Type::Custom("Headers".to_string())),
+                    (
+                        "headers",
+                        Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+                    ),
                 ];
 
                 for (prop_name, prop_type) in request_properties.iter() {
@@ -2340,7 +2722,7 @@ impl Analyzer {
                 // scoping so the body can reference it without a false
                 // "undefined variable" error.
                 let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                self.enter_child_scope(outer_scope);
 
                 let binding_symbol = Symbol {
                     name: binding.clone(),
@@ -2553,6 +2935,68 @@ impl Analyzer {
                 }
             }
 
+            Statement::DescribeBlock {
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                // The runtime creates one describe-level environment. Setup
+                // bindings live there and are visible to every test and to
+                // teardown, but disappear when the describe block finishes.
+                self.push_scope();
+                if let Some(setup) = setup {
+                    for statement in setup {
+                        self.analyze_statement(statement);
+                    }
+                }
+                for test in tests {
+                    self.analyze_statement(test);
+                }
+                if let Some(teardown) = teardown {
+                    for statement in teardown {
+                        self.analyze_statement(statement);
+                    }
+                }
+                self.pop_scope();
+            }
+
+            Statement::TestBlock { body, .. } => {
+                // Tests run in isolated children of the describe environment:
+                // declarations and refinements from one test cannot affect a
+                // sibling or teardown.
+                let symbol_types = self.snapshot_symbol_types();
+                let flow = self.flow_entry();
+                self.push_scope();
+                for statement in body {
+                    self.analyze_statement(statement);
+                }
+                self.pop_scope();
+                self.restore_symbol_types(symbol_types);
+                self.restore_flow(&flow);
+            }
+
+            Statement::ExpectStatement {
+                subject, assertion, ..
+            } => {
+                use crate::parser::ast::Assertion;
+
+                self.analyze_expression(subject);
+                match assertion {
+                    Assertion::Equal(expected)
+                    | Assertion::Be(expected)
+                    | Assertion::GreaterThan(expected)
+                    | Assertion::LessThan(expected)
+                    | Assertion::Contain(expected)
+                    | Assertion::HaveLength(expected) => self.analyze_expression(expected),
+                    Assertion::BeYes
+                    | Assertion::BeNo
+                    | Assertion::Exist
+                    | Assertion::BeEmpty
+                    | Assertion::BeOfType(_) => {}
+                }
+            }
+
             _ => {}
         }
     }
@@ -2675,12 +3119,15 @@ impl Analyzer {
 
     fn analyze_action_body(&mut self, statement: &Statement) {
         if let Statement::ActionDefinition {
-            parameters, body, ..
+            name,
+            parameters,
+            body,
+            ..
         } = statement
         {
             // Create new scope for action body
             let outer_scope = std::mem::take(&mut self.current_scope);
-            self.current_scope = Scope::with_parent(outer_scope);
+            self.enter_child_scope(outer_scope);
 
             // Collect parameter names to remove them later
             let mut param_names_to_remove = Vec::new();
@@ -2701,9 +3148,7 @@ impl Analyzer {
                     column: param.column,
                 };
 
-                if let Err(error) = self.current_scope.define(param_symbol) {
-                    self.errors.push(error);
-                }
+                self.current_scope.define_or_replace(param_symbol);
             }
 
             // Analyze body statements. The body has not *executed* at the
@@ -2714,9 +3159,18 @@ impl Analyzer {
             // inflate the outer visible-overload counters.
             let alias_entry = self.action_aliases.clone();
             let overloads_entry = self.defined_overloads.clone();
+            self.action_alias_name_stack.push(name.clone());
+            self.action_alias_effect_stack.push(HashSet::new());
             for stmt in body {
                 self.analyze_statement(stmt);
             }
+            let action_effects = self.action_alias_effect_stack.pop().unwrap_or_default();
+            let popped_name = self.action_alias_name_stack.pop();
+            debug_assert_eq!(popped_name.as_deref(), Some(name.as_str()));
+            self.action_alias_effects
+                .entry(name.clone())
+                .or_default()
+                .extend(action_effects);
             self.action_aliases = alias_entry;
             self.defined_overloads = overloads_entry;
 
@@ -2737,6 +3191,13 @@ impl Analyzer {
         self.current_scope.resolve(name)
     }
 
+    /// Resolve only a symbol owned by the active lexical scope. Export
+    /// statements use this because the runtime deliberately refuses to export
+    /// definitions inherited from a parent environment.
+    pub fn get_local_symbol(&self, name: &str) -> Option<&Symbol> {
+        self.current_scope.symbols.get(name)
+    }
+
     pub fn get_symbol_mut(&mut self, name: &str) -> Option<&mut Symbol> {
         // Walk parent scopes so type refinements (e.g. widening away from
         // Nothing on reassignment inside a loop) update the real binding and
@@ -2744,6 +3205,31 @@ impl Analyzer {
         // scope was mutable, so outer-variable updates from loop/try bodies
         // were silently dropped.
         self.current_scope.resolve_mut(name)
+    }
+
+    pub(crate) fn get_symbol_binding_key(&self, name: &str) -> Option<SymbolBindingKey> {
+        self.current_scope.resolve_binding_key(name)
+    }
+
+    pub(crate) fn get_symbol_by_binding_key_mut(
+        &mut self,
+        key: &SymbolBindingKey,
+    ) -> Option<&mut Symbol> {
+        self.current_scope.resolve_binding_key_mut(key)
+    }
+
+    pub(crate) fn get_symbol_by_binding_key(&self, key: &SymbolBindingKey) -> Option<&Symbol> {
+        self.current_scope.resolve_binding_key_symbol(key)
+    }
+
+    pub(crate) fn binding_key_is_live(&self, key: &SymbolBindingKey) -> bool {
+        self.current_scope.resolve_binding_key_symbol(key).is_some()
+    }
+
+    pub(crate) fn live_binding_types(&self) -> Vec<(SymbolBindingKey, Option<Type>)> {
+        let mut bindings = Vec::new();
+        self.current_scope.collect_binding_types(&mut bindings);
+        bindings
     }
 
     pub fn define_symbol(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
@@ -2867,24 +3353,130 @@ impl Analyzer {
         self.containers.insert(container.name.clone(), container);
     }
 
+    pub fn get_event(&self, name: &str) -> Option<&EventInfo> {
+        self.events.get(name)
+    }
+
     fn is_container_property(&self, container_name: &str, property_name: &str) -> bool {
-        if let Some(container_info) = self.containers.get(container_name) {
-            // Check direct instance properties
-            if container_info.properties.contains_key(property_name) {
+        let mut current = Some(container_name);
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name) {
+                return false;
+            }
+            let Some(container_info) = self.containers.get(name) else {
+                return false;
+            };
+            let found = match self.current_method_is_static {
+                Some(true) => container_info.static_properties.contains_key(property_name),
+                Some(false) => container_info.properties.contains_key(property_name),
+                None => {
+                    container_info.properties.contains_key(property_name)
+                        || container_info.static_properties.contains_key(property_name)
+                }
+            };
+            if found {
                 return true;
             }
-
-            // Check direct static properties
-            if container_info.static_properties.contains_key(property_name) {
-                return true;
-            }
-
-            // Check inherited properties (both instance and static)
-            if let Some(parent_name) = &container_info.extends {
-                return self.is_container_property(parent_name, property_name);
-            }
+            current = container_info.extends.as_deref();
         }
         false
+    }
+
+    fn container_instance_property_type(
+        &self,
+        container_name: &str,
+        property_name: &str,
+    ) -> Option<&Type> {
+        let mut current = Some(container_name);
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name) {
+                // Inheritance validation reports the cycle separately. Do not
+                // let this compatibility warning walk recurse forever.
+                return None;
+            }
+            let container = self.containers.get(name)?;
+            if let Some(property) = container.properties.get(property_name) {
+                return Some(&property.property_type);
+            }
+            current = container.extends.as_deref();
+        }
+        None
+    }
+
+    /// Report the inherited-slot hazard without rejecting currently supported
+    /// programs. Instance properties are flattened into one mutable runtime
+    /// slot, so parent methods and child code can otherwise assume conflicting
+    /// concrete contracts. Making overrides invariant is a language-level
+    /// compatibility change and must follow the governance deprecation path.
+    fn warn_incompatible_inherited_property_overrides(&mut self) {
+        let mut warnings = Vec::new();
+        for container in self.containers.values() {
+            let Some(parent) = container.extends.as_deref() else {
+                continue;
+            };
+            for property in container.properties.values() {
+                if property.property_type == Type::Unknown {
+                    continue;
+                }
+                let Some(parent_type) = self
+                    .container_instance_property_type(parent, &property.name)
+                    .cloned()
+                else {
+                    continue;
+                };
+                if parent_type == Type::Unknown {
+                    continue;
+                }
+                if parent_type != property.property_type {
+                    warnings.push(SemanticError::new(
+                        format!(
+                            "Property '{}' in container '{}' declares type {} but inherited \
+                             property from '{}' declares {}; mutable inherited property \
+                             overrides should keep the same contract",
+                            property.name,
+                            container.name,
+                            property.property_type,
+                            parent,
+                            parent_type
+                        ),
+                        property.line,
+                        property.column,
+                    ));
+                }
+            }
+        }
+        self.warnings.extend(warnings);
+    }
+
+    fn validate_container_inheritance_cycles(&mut self) {
+        let mut errors = Vec::new();
+        for container in self.containers.values() {
+            let mut current = Some(container.name.as_str());
+            let mut visited = HashSet::new();
+            let mut path = Vec::new();
+            while let Some(name) = current {
+                if !visited.insert(name) {
+                    path.push(name);
+                    errors.push(SemanticError::new(
+                        format!(
+                            "Cyclic container inheritance detected: {}",
+                            path.join(" -> ")
+                        ),
+                        container.line,
+                        container.column,
+                    ));
+                    break;
+                }
+                path.push(name);
+                current = self
+                    .containers
+                    .get(name)
+                    .and_then(|info| info.extends.as_deref());
+            }
+        }
+        self.errors.extend(errors);
     }
 
     pub fn get_container(&self, name: &str) -> Option<&ContainerInfo> {
@@ -2902,9 +3494,14 @@ impl Analyzer {
         &self.containers
     }
 
+    fn enter_child_scope(&mut self, parent: Scope) {
+        let scope_id = self.next_scope_id;
+        self.next_scope_id = self.next_scope_id.saturating_add(1);
+        self.current_scope = Scope::with_parent(parent, scope_id);
+    }
+
     pub fn push_scope(&mut self) {
-        let new_scope = Scope::with_parent(self.current_scope.clone());
-        self.current_scope = new_scope;
+        self.enter_child_scope(self.current_scope.clone());
     }
 
     pub fn pop_scope(&mut self) {
@@ -2915,15 +3512,52 @@ impl Analyzer {
 
     /// Pop the current scope while promoting every binding except the listed
     /// temporary aliases into its parent.
-    pub fn pop_scope_promoting_except(&mut self, excluded: &[String]) {
+    pub(crate) fn pop_scope_promoting_except(
+        &mut self,
+        excluded: &[String],
+    ) -> Vec<(SymbolBindingKey, SymbolBindingKey)> {
+        let mut promoted_bindings = Vec::new();
+        let child_scope_id = self.current_scope.id;
         if let Some(mut parent) = self.current_scope.parent.take() {
+            let parent_scope_id = parent.id;
             for (name, symbol) in std::mem::take(&mut self.current_scope.symbols) {
                 if !excluded.iter().any(|excluded_name| excluded_name == &name) {
+                    promoted_bindings.push((
+                        SymbolBindingKey {
+                            scope_id: child_scope_id,
+                            name: name.clone(),
+                        },
+                        SymbolBindingKey {
+                            scope_id: parent_scope_id,
+                            name: name.clone(),
+                        },
+                    ));
                     parent.define_or_replace(symbol);
                 }
             }
             self.current_scope = *parent;
         }
+        for (old_binding, new_binding) in &promoted_bindings {
+            if let Some(state) = self.action_aliases.remove(old_binding) {
+                self.action_aliases.insert(new_binding.clone(), state);
+            }
+            for frame in &mut self.alias_mutation_frames {
+                if frame.remove(old_binding) {
+                    frame.insert(new_binding.clone());
+                }
+            }
+            for frame in &mut self.action_alias_effect_stack {
+                if frame.remove(old_binding) {
+                    frame.insert(new_binding.clone());
+                }
+            }
+            for effects in self.action_alias_effects.values_mut() {
+                if effects.remove(old_binding) {
+                    effects.insert(new_binding.clone());
+                }
+            }
+        }
+        promoted_bindings
     }
 
     /// Validates a call against every registered signature of `name`:
@@ -3256,6 +3890,13 @@ impl Analyzer {
 
             (inner, Type::Async(async_type)) => self.is_type_compatible(async_type, inner),
 
+            // Preserve compatibility with historical named annotations while
+            // keeping real temporal runtime values distinct from same-named
+            // user containers.
+            (Type::Custom(name), Type::Date) if name.eq_ignore_ascii_case("date") => true,
+            (Type::Custom(name), Type::Time) if name.eq_ignore_ascii_case("time") => true,
+            (Type::Custom(name), Type::DateTime) if name.eq_ignore_ascii_case("datetime") => true,
+
             (Type::List(expected_inner), Type::List(actual_inner)) => {
                 self.is_type_compatible(actual_inner, expected_inner)
             }
@@ -3334,6 +3975,9 @@ impl Analyzer {
     /// another alias) makes `name` callable with that action's overload set;
     /// any other value clears a previous alias.
     fn update_action_alias(&mut self, name: &str, value: &Expression) {
+        let Some(target_binding) = self.current_scope.resolve_binding_key(name) else {
+            return;
+        };
         let target = if let Expression::Variable(source, _, _) = value {
             match self.current_scope.resolve(source) {
                 Some(symbol) if matches!(symbol.kind, SymbolKind::Function { .. }) => {
@@ -3356,19 +4000,44 @@ impl Analyzer {
                 }
                 // Aliasing an alias copies its state — including the original
                 // snapshot, not a re-read of the current definition count.
-                _ => self.action_aliases.get(source).cloned(),
+                Some(symbol)
+                    if symbol.line == 0
+                        && symbol.column == 0
+                        && crate::builtins::is_implemented_builtin_function(source) =>
+                {
+                    Some(AliasState::Builtin {
+                        name: source.clone(),
+                    })
+                }
+                Some(_) => self
+                    .current_scope
+                    .resolve_binding_key(source)
+                    .and_then(|binding| self.action_aliases.get(&binding).cloned()),
+                None if crate::builtins::is_implemented_builtin_function(source) => {
+                    Some(AliasState::Builtin {
+                        name: source.clone(),
+                    })
+                }
+                None => None,
             }
         } else {
             None
         };
         match target {
             Some(state) => {
-                self.action_aliases.insert(name.to_string(), state);
-                self.record_alias_mutation(name);
+                self.action_aliases.insert(target_binding.clone(), state);
+                self.record_alias_mutation(target_binding);
             }
             None => {
-                if self.action_aliases.remove(name).is_some() {
-                    self.record_alias_mutation(name);
+                let removed_existing_alias = self.action_aliases.remove(&target_binding).is_some();
+                // A closure can be defined before this captured binding later
+                // acquires an action value. Record every non-action write made
+                // inside an action body so a subsequent call invalidates that
+                // later alias instead of trusting its stale snapshot. Local
+                // non-alias writes remain harmless: call-site application only
+                // degrades binding keys that currently hold an alias.
+                if removed_existing_alias || !self.action_alias_effect_stack.is_empty() {
+                    self.record_alias_mutation(target_binding);
                 }
             }
         }
@@ -3376,9 +4045,12 @@ impl Analyzer {
 
     /// Records that `name`'s alias state was written while a loop/`try`
     /// body frame is active (no-op at unframed depth).
-    fn record_alias_mutation(&mut self, name: &str) {
+    fn record_alias_mutation(&mut self, binding: SymbolBindingKey) {
         if let Some(top) = self.alias_mutation_frames.last_mut() {
-            top.insert(name.to_string());
+            top.insert(binding.clone());
+        }
+        if let Some(top) = self.action_alias_effect_stack.last_mut() {
+            top.insert(binding);
         }
     }
 
@@ -3388,7 +4060,7 @@ impl Analyzer {
 
     /// Pops the current mutation frame, merging it into the parent frame —
     /// an inner body's mutation is also a mutation within the outer body.
-    fn pop_mutation_frame(&mut self) -> std::collections::HashSet<String> {
+    fn pop_mutation_frame(&mut self) -> std::collections::HashSet<SymbolBindingKey> {
         let frame = self.alias_mutation_frames.pop().unwrap_or_default();
         if let Some(parent) = self.alias_mutation_frames.last_mut() {
             parent.extend(frame.iter().cloned());
@@ -3399,10 +4071,10 @@ impl Analyzer {
     /// Degrades every mutated alias to [`AliasState::Dynamic`]: an abrupt
     /// exit may expose an intermediate binding endpoint states cannot see,
     /// so calls through these names defer to runtime dispatch.
-    fn degrade_mutated_aliases(&mut self, mutated: &std::collections::HashSet<String>) {
-        for name in mutated {
+    fn degrade_mutated_aliases(&mut self, mutated: &std::collections::HashSet<SymbolBindingKey>) {
+        for binding in mutated {
             self.action_aliases
-                .insert(name.clone(), AliasState::Dynamic);
+                .insert(binding.clone(), AliasState::Dynamic);
         }
     }
 
@@ -3448,7 +4120,8 @@ impl Analyzer {
     /// definition executed on one path but not another — degrades to
     /// [`OverloadCount::Unknown`], which makes later alias bindings Dynamic.
     fn join_flow_branches(&mut self, paths: &[FlowState]) {
-        let mut keys: std::collections::HashSet<&String> = std::collections::HashSet::new();
+        let mut keys: std::collections::HashSet<&SymbolBindingKey> =
+            std::collections::HashSet::new();
         for path in paths {
             keys.extend(path.aliases.keys());
         }
@@ -3461,7 +4134,7 @@ impl Analyzer {
                 Some(AliasState::Dynamic)
             };
             if let Some(state) = state {
-                joined.insert(key.clone(), state);
+                joined.insert((*key).clone(), state);
             }
         }
         self.action_aliases = joined;
@@ -3504,8 +4177,10 @@ impl Analyzer {
         &self,
         name: &str,
     ) -> Option<(AliasState, Option<Vec<FunctionSignature>>)> {
-        match self.action_aliases.get(name)? {
+        let binding = self.current_scope.resolve_binding_key(name)?;
+        match self.action_aliases.get(&binding)? {
             AliasState::Dynamic => Some((AliasState::Dynamic, None)),
+            state @ AliasState::Builtin { .. } => Some((state.clone(), None)),
             state @ AliasState::Bound {
                 action,
                 visible_signatures,
@@ -3528,6 +4203,48 @@ impl Analyzer {
                 } else {
                     None
                 }
+            }
+        }
+    }
+
+    fn collect_action_alias_effects(
+        &self,
+        action: &str,
+        visited: &mut HashSet<String>,
+        out: &mut HashSet<SymbolBindingKey>,
+    ) {
+        if !visited.insert(action.to_string()) {
+            return;
+        }
+        if let Some(effects) = self.action_alias_effects.get(action) {
+            out.extend(effects.iter().cloned());
+        }
+        if let Some(dependencies) = self.action_alias_dependencies.get(action) {
+            for dependency in dependencies {
+                self.collect_action_alias_effects(dependency, visited, out);
+            }
+        }
+    }
+
+    /// Apply the alias-binding side effects of calling a user action. The
+    /// selected runtime value of every captured alias written by the closure is
+    /// path-dependent, so subsequent static calls through it must defer to
+    /// runtime dispatch.
+    fn apply_action_alias_effects(&mut self, action: &str) {
+        if let Some(caller) = self.action_alias_name_stack.last().cloned() {
+            self.action_alias_dependencies
+                .entry(caller)
+                .or_default()
+                .insert(action.to_string());
+        }
+
+        let mut affected = HashSet::new();
+        self.collect_action_alias_effects(action, &mut HashSet::new(), &mut affected);
+        for binding in affected {
+            if self.action_aliases.contains_key(&binding) {
+                self.action_aliases
+                    .insert(binding.clone(), AliasState::Dynamic);
+                self.record_alias_mutation(binding);
             }
         }
     }
@@ -3926,6 +4643,44 @@ impl Analyzer {
                     return;
                 }
 
+                // Reading a zero-argument user action as a bare value invokes
+                // it at runtime. Record the same per-site alias resolution as
+                // the explicit call forms so the type checker can apply exact
+                // summaries without confusing a same-named inner binding.
+                if let Some((state, signatures)) = self.alias_call_target(name) {
+                    let auto_calls = signatures.as_ref().is_some_and(|signatures| {
+                        signatures
+                            .iter()
+                            .any(|signature| signature.parameters.is_empty())
+                    });
+                    if auto_calls {
+                        let called_action = match &state {
+                            AliasState::Bound { action, .. } => Some(action.clone()),
+                            _ => None,
+                        };
+                        self.alias_call_sites
+                            .insert((name.clone(), *line, *column), state);
+                        if let Some(action) = called_action {
+                            self.apply_action_alias_effects(&action);
+                        }
+                    }
+                } else {
+                    let auto_called_action = self.current_scope.resolve(name).and_then(|symbol| {
+                        if let SymbolKind::Function { signatures } = &symbol.kind
+                            && signatures
+                                .iter()
+                                .any(|signature| signature.parameters.is_empty())
+                        {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(action) = auto_called_action {
+                        self.apply_action_alias_effects(&action);
+                    }
+                }
+
                 if self.current_scope.resolve(name).is_none() {
                     // Check if it's a container property (including inherited)
                     let is_container_property =
@@ -3999,7 +4754,7 @@ impl Analyzer {
                                     self.analyze_expression(&arg.value);
                                 }
 
-                                if Self::is_builtin_function(name) {
+                                if crate::builtins::is_implemented_builtin_function(name) {
                                     // Builtins keep the historical arity-only
                                     // check; their full validation lives in the
                                     // stdlib layer.
@@ -4029,6 +4784,7 @@ impl Analyzer {
                                         *line,
                                         *column,
                                     );
+                                    self.apply_action_alias_effects(name);
                                 }
                             }
                             None => {
@@ -4056,6 +4812,10 @@ impl Analyzer {
                                 // overload set.
                                 let alias_target = self.alias_call_target(name);
                                 if let Some((state, signatures)) = alias_target {
+                                    let called_action = match &state {
+                                        AliasState::Bound { action, .. } => Some(action.clone()),
+                                        _ => None,
+                                    };
                                     self.alias_call_sites
                                         .insert((name.clone(), *line, *column), state);
                                     for arg in arguments {
@@ -4072,6 +4832,9 @@ impl Analyzer {
                                             *line,
                                             *column,
                                         );
+                                    }
+                                    if let Some(action) = called_action {
+                                        self.apply_action_alias_effects(&action);
                                     }
                                 } else if is_injected_builtin
                                     || self.action_parameters.contains(name)
@@ -4207,8 +4970,13 @@ impl Analyzer {
                     self.analyze_expression(&arg.value);
                 }
 
-                // Skip validation for builtin functions - they have their own validation
-                if Self::is_builtin_function(name) {
+                // Implemented natives validate in the type checker. Reserved
+                // future names also defer there only when no real user symbol
+                // shadows the reservation.
+                if crate::builtins::is_implemented_builtin_function(name)
+                    || (Self::is_builtin_function(name)
+                        && self.current_scope.resolve(name).is_none())
+                {
                     return;
                 }
 
@@ -4235,11 +5003,16 @@ impl Analyzer {
                                 *line,
                                 *column,
                             );
+                            self.apply_action_alias_effects(name);
                         }
                         None => {
                             // A stored action reference (`store h as f`) is
                             // callable with the aliased action's snapshot.
                             if let Some((state, signatures)) = self.alias_call_target(name) {
+                                let called_action = match &state {
+                                    AliasState::Bound { action, .. } => Some(action.clone()),
+                                    _ => None,
+                                };
                                 self.alias_call_sites
                                     .insert((name.clone(), *line, *column), state);
                                 if let Some(signatures) = signatures {
@@ -4251,6 +5024,9 @@ impl Analyzer {
                                         *line,
                                         *column,
                                     );
+                                }
+                                if let Some(action) = called_action {
+                                    self.apply_action_alias_effects(&action);
                                 }
                             } else {
                                 // Symbol exists but is not a function/action
@@ -4272,6 +5048,11 @@ impl Analyzer {
                         *line,
                         *column,
                     ));
+                }
+            }
+            Expression::Literal(Literal::List(elements), _, _) => {
+                for element in elements {
+                    self.analyze_expression(element);
                 }
             }
             Expression::Literal(_, _, _) => {}
@@ -4689,6 +5470,7 @@ mod tests {
             static_properties,
             methods: HashMap::new(),
             static_methods: HashMap::new(),
+            events: HashMap::new(),
             extends: None,
             implements: Vec::new(),
             line: 1,
@@ -4730,6 +5512,7 @@ mod tests {
             static_properties: base_static_properties,
             methods: HashMap::new(),
             static_methods: HashMap::new(),
+            events: HashMap::new(),
             extends: None,
             implements: Vec::new(),
             line: 1,
@@ -4757,6 +5540,7 @@ mod tests {
             static_properties: derived_static_properties,
             methods: HashMap::new(),
             static_methods: HashMap::new(),
+            events: HashMap::new(),
             extends: Some("BaseContainer".to_string()),
             implements: Vec::new(),
             line: 1,

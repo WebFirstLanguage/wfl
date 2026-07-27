@@ -4,6 +4,7 @@ use super::super::{
     Argument, EventDefinition, ParseError, Parser, PropertyDefinition, PropertyInitializer,
     Statement, Type, Visibility,
 };
+use super::actions::colon_type_from_token;
 use super::{ActionParser, StmtParser};
 use crate::lexer::token::Token;
 use crate::parser::expr::ExprParser;
@@ -47,6 +48,50 @@ pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
     fn parse_instantiation_body(
         &mut self,
     ) -> Result<(Vec<PropertyInitializer>, Vec<Argument>), ParseError>;
+}
+
+impl<'a> Parser<'a> {
+    /// Parse the active colon-style property type grammar. `List` without an
+    /// element annotation is explicitly dynamic; `List of T` retains `T`, and
+    /// nesting is recursive. Other spellings keep the historical colon-style
+    /// case rules in `colon_type_from_token`.
+    fn parse_property_type_annotation(
+        &mut self,
+        property_token: &crate::lexer::token::TokenWithPosition,
+    ) -> Result<Type, ParseError> {
+        let Some(type_token) = self.cursor.peek().cloned() else {
+            return Err(ParseError::from_token(
+                "Expected type name after ':'".to_string(),
+                property_token,
+            ));
+        };
+
+        let is_list = matches!(type_token.token, Token::KeywordList)
+            || matches!(&type_token.token, Token::Identifier(name) if name == "List");
+        if is_list {
+            self.bump_sync();
+            if self
+                .cursor
+                .peek()
+                .is_some_and(|token| token.token == Token::KeywordOf)
+            {
+                self.bump_sync();
+                let element_type = self.parse_property_type_annotation(&type_token)?;
+                return Ok(Type::List(Box::new(element_type)));
+            }
+            return Ok(Type::List(Box::new(Type::Any)));
+        }
+
+        if let Some(property_type) = colon_type_from_token(&type_token.token) {
+            self.bump_sync();
+            Ok(property_type)
+        } else {
+            Err(ParseError::from_token(
+                "Expected type name after ':'".to_string(),
+                &type_token,
+            ))
+        }
+    }
 }
 
 impl<'a> ContainerParser<'a> for Parser<'a> {
@@ -548,29 +593,7 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
             if token.token == Token::Colon {
                 self.bump_sync(); // Consume ':'
 
-                if let Some(type_token) = self.cursor.peek() {
-                    if let Token::Identifier(type_name) = &type_token.token {
-                        self.bump_sync(); // Consume type name
-                        Some(match type_name.as_str() {
-                            "Text" => Type::Text,
-                            "Number" => Type::Number,
-                            "Boolean" => Type::Boolean,
-                            "Nothing" => Type::Nothing,
-                            "Pattern" => Type::Pattern,
-                            _ => Type::Custom(type_name.clone()),
-                        })
-                    } else {
-                        return Err(ParseError::from_token(
-                            "Expected type name after ':'".to_string(),
-                            type_token,
-                        ));
-                    }
-                } else {
-                    return Err(ParseError::from_token(
-                        "Expected type name after ':'".to_string(),
-                        start_token,
-                    ));
-                }
+                Some(self.parse_property_type_annotation(start_token)?)
             } else {
                 None
             }

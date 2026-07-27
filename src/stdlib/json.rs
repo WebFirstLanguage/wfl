@@ -168,6 +168,24 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_json_null_preserves_legacy_nothing_identity() {
+        let result = native_parse_json(vec![Value::Text(Arc::from("null"))])
+            .expect("JSON null should parse");
+        assert!(
+            matches!(result, Value::Nothing),
+            "JSON null must preserve the legacy Nothing variant for typeof"
+        );
+        assert_eq!(
+            crate::stdlib::core::native_typeof(vec![result.clone()]).unwrap(),
+            Value::Text(Arc::from("Nothing"))
+        );
+        assert_eq!(
+            crate::stdlib::core::native_isnothing(vec![result]).unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn test_stringify_json() {
         let mut obj = HashMap::new();
         obj.insert("name".to_string(), Value::Text(Arc::from("Bob")));

@@ -261,4 +261,21 @@ mod tests {
 
         assert_eq!(result1, result2, "Same seed should produce same values");
     }
+
+    #[test]
+    fn test_random_seed_preserves_legacy_nothing_identity() {
+        let result = native_random_seed(vec![Value::Number(42.0)]).unwrap();
+        assert!(
+            matches!(result, Value::Nothing),
+            "random_seed must preserve its legacy Nothing variant for typeof"
+        );
+        assert_eq!(
+            crate::stdlib::core::native_typeof(vec![result.clone()]).unwrap(),
+            Value::Text(Arc::from("Nothing"))
+        );
+        assert_eq!(
+            crate::stdlib::core::native_isnothing(vec![result]).unwrap(),
+            Value::Bool(true)
+        );
+    }
 }

@@ -101,6 +101,27 @@ impl Environment {
         name: &str,
         func: Rc<super::value::FunctionValue>,
     ) -> Result<Value, String> {
+        self.define_or_merge_action_impl(name, func, false)
+    }
+
+    /// Defines a method-body action in the current call scope. This has the
+    /// same overload behavior as [`Self::define_or_merge_action`], but permits
+    /// the declaration to shadow a container property held in an outer method
+    /// environment, matching the analyzer's lexical binding model.
+    pub fn define_or_merge_action_direct(
+        &mut self,
+        name: &str,
+        func: Rc<super::value::FunctionValue>,
+    ) -> Result<Value, String> {
+        self.define_or_merge_action_impl(name, func, true)
+    }
+
+    fn define_or_merge_action_impl(
+        &mut self,
+        name: &str,
+        func: Rc<super::value::FunctionValue>,
+        define_directly: bool,
+    ) -> Result<Value, String> {
         use super::value::OverloadedFunction;
 
         let merged = match self.values.get(name) {
@@ -140,7 +161,11 @@ impl Environment {
         }
 
         let value = Value::Function(func);
-        self.define(name, value.clone())?;
+        if define_directly {
+            self.define_direct(name, value.clone())?;
+        } else {
+            self.define(name, value.clone())?;
+        }
         Ok(value)
     }
 
@@ -228,6 +253,30 @@ impl Environment {
 
         self.values.insert(name.to_string(), value);
         Ok(())
+    }
+
+    /// Returns the nearest parent scope that owns `name` directly.
+    ///
+    /// Method bodies use this to distinguish a container property's synthetic
+    /// runtime binding from an ordinary outer lexical binding. The former may
+    /// be shadowed by an explicit method-local binder; the latter retains WFL's
+    /// historical no-shadowing rule.
+    pub fn parent_scope_defining(&self, name: &str) -> Option<Rc<RefCell<Environment>>> {
+        let mut candidate = self.parent.as_ref().and_then(Weak::upgrade);
+        while let Some(scope) = candidate {
+            let (defines_name, next) = {
+                let borrowed = scope.borrow();
+                (
+                    borrowed.values.contains_key(name),
+                    borrowed.parent.as_ref().and_then(Weak::upgrade),
+                )
+            };
+            if defines_name {
+                return Some(scope);
+            }
+            candidate = next;
+        }
+        None
     }
 
     /// Handles variable declarations and re-assignments in a single scope chain traversal.
@@ -408,6 +457,28 @@ impl Environment {
     /// Get a value from the local scope only (does not check parent scopes)
     pub fn get_local(&self, name: &str) -> Option<Value> {
         self.values.get(name).cloned()
+    }
+
+    /// Remove and return a binding from this scope only. Used for temporary
+    /// clause-local aliases that must reveal any outer/local binding again
+    /// after a handler finishes.
+    pub fn take_local_binding(&mut self, name: &str) -> Option<(Value, bool)> {
+        let value = self.values.remove(name)?;
+        let was_constant = self.constants.remove(name);
+        Some((value, was_constant))
+    }
+
+    /// Replace the current local binding with a previously saved one, or remove
+    /// it when no binding existed before the temporary override.
+    pub fn restore_local_binding(&mut self, name: &str, saved: Option<(Value, bool)>) {
+        self.values.remove(name);
+        self.constants.remove(name);
+        if let Some((value, was_constant)) = saved {
+            self.values.insert(name.to_string(), value);
+            if was_constant {
+                self.constants.insert(name.to_string());
+            }
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {

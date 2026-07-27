@@ -17,6 +17,7 @@ Development work still follows the [WFL foundation](../wfl-foundation.md): clear
 
 ## Design notes
 
+- **[Type system design](type-system-design.md)** — Gradual typing, collection inference, control-flow joins, built-in contracts, and runtime parity
 - **[Route construct design](route-construct-design.md)** — HTTP routing design history
 - **[Stdlib higher-order functions](stdlib-higher-order-functions.md)** — Design notes for list transforms
 - **[Concurrency phase plan](concurrency-phase-plan.md)** — Phased TODOs for cooperative concurrency (`main loop concurrently:`, crypto off-thread, nursery)

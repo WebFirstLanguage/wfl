@@ -40,6 +40,17 @@ pub enum Value {
 
 pub type NativeFunction = fn(Vec<Value>) -> Result<Value, RuntimeError>;
 
+/// Durable state needed by a first-class reference to a static container method.
+///
+/// Static properties are copied into the method environment for ordinary WFL
+/// name lookup. The owners map lets each call refresh those copies from the
+/// live container definitions and persist successful mutations afterward.
+#[derive(Clone)]
+pub struct StaticMethodContext {
+    pub env: Rc<RefCell<Environment>>,
+    pub property_owners: HashMap<String, Rc<ContainerDefinitionValue>>,
+}
+
 #[derive(Clone)]
 pub struct FunctionValue {
     pub name: Option<String>,
@@ -60,6 +71,10 @@ pub struct FunctionValue {
     /// hints, not runtime guards. A `Cell` so merging can flip existing
     /// members already shared behind `Rc` (including captured snapshots).
     pub enforce_param_types: std::cell::Cell<bool>,
+    /// Present only for a first-class static-method reference. Besides keeping
+    /// its otherwise-ephemeral closure alive, this synchronizes copied static
+    /// properties with their shared container state at call boundaries.
+    pub static_method_context: Option<Rc<StaticMethodContext>>,
 }
 
 /// The runtime value of an action name defined more than once in a scope:
@@ -92,7 +107,9 @@ pub struct ContainerDefinitionValue {
     /// arity/type-aware inheritance and interface-conformance matching.
     pub methods: HashMap<String, ContainerMethodValue>,
     pub events: HashMap<String, ContainerEventValue>,
-    pub static_properties: HashMap<String, Value>,
+    /// Static state is shared by every reference to the container definition
+    /// and can be updated by static methods.
+    pub static_properties: Rc<RefCell<HashMap<String, Value>>>,
     pub static_methods: HashMap<String, ContainerMethodValue>,
     pub line: usize,
     pub column: usize,
@@ -582,6 +599,12 @@ impl fmt::Display for Value {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
+        if matches!(
+            (self, other),
+            (Value::Null, Value::Nothing) | (Value::Nothing, Value::Null)
+        ) {
+            return true;
+        }
         // Optimization: Mismatched types are never equal.
         // This avoids allocating the cycle-detection HashSet for mismatched types (e.g. List == Number).
         if std::mem::discriminant(self) != std::mem::discriminant(other) {
@@ -660,6 +683,7 @@ fn eq_with_visited(
         (Value::DateTime(a), Value::DateTime(b)) => a == b,
         (Value::Null, Value::Null) => true,
         (Value::Nothing, Value::Nothing) => true,
+        (Value::Null, Value::Nothing) | (Value::Nothing, Value::Null) => true,
 
         (Value::List(a), Value::List(b)) => {
             if Rc::ptr_eq(a, b) {
