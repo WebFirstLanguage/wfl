@@ -23,8 +23,21 @@ use std::path::PathBuf;
 /// toolchain just as much as a job that types `cargo` directly.
 const CARGO_INVOKING_SCRIPTS: &[&str] = &["bump_version.py"];
 
-/// Markers for a step that installs/selects a Rust toolchain.
-const TOOLCHAIN_MARKERS: &[&str] = &["rust-toolchain", "rustup "];
+/// Markers for a step that *actually* installs or selects a Rust toolchain.
+///
+/// Deliberately specific action paths and rustup subcommands rather than the
+/// loose substrings `rust-toolchain` / `rustup `: those would be satisfied by
+/// `echo rust-toolchain` or `rustup target add …` / `rustup component add …`,
+/// none of which pin a compiler compatible with this crate's MSRV. Matching the
+/// real setup steps keeps the guard from passing on cosmetic mentions.
+const TOOLCHAIN_MARKERS: &[&str] = &[
+    "dtolnay/rust-toolchain",                 // the action this repo uses
+    "actions-rust-lang/setup-rust-toolchain", // common alternative
+    "actions-rs/toolchain",                   // legacy action
+    "rustup toolchain install",               // explicit install
+    "rustup default",                         // select the active toolchain
+    "rustup override set",                    // per-directory pin
+];
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -113,6 +126,20 @@ fn first_cargo_use(body: &str) -> Option<usize> {
     first_match(body, &needles)
 }
 
+/// Does this Python source shell out to Cargo through a subprocess argv literal
+/// whose *program* (first element) is `cargo`?
+///
+/// Collapsing all whitespace before matching makes the check tolerant of argv
+/// formatting: `subprocess.run([ "cargo", … ])`, a `['cargo', …]` single-quoted
+/// list, and an argv split across several lines all normalize to the same
+/// `["cargo"` / `['cargo'` token. A bare `"cargo"` in prose, a comment, or a
+/// non-leading argv position (e.g. `["python", "cargo_helper.py"]`) does not
+/// match, so this keeps the "program is cargo" meaning of the original check.
+fn script_invokes_cargo(source: &str) -> bool {
+    let collapsed: String = source.split_whitespace().collect();
+    collapsed.contains("[\"cargo\"") || collapsed.contains("['cargo'")
+}
+
 #[test]
 fn cargo_jobs_install_a_rust_toolchain_first() {
     let mut missing = Vec::new();
@@ -162,9 +189,7 @@ fn cargo_invoking_scripts_list_is_complete() {
             continue;
         }
         let source = fs::read_to_string(&path).expect("cannot read script");
-        // Matches a subprocess argv literal whose program is cargo, e.g.
-        // `subprocess.run(["cargo", "update", ...])`.
-        if !source.contains("[\"cargo\"") && !source.contains("['cargo'") {
+        if !script_invokes_cargo(&source) {
             continue;
         }
         let name = path.file_name().unwrap().to_string_lossy().to_string();
@@ -210,4 +235,65 @@ jobs:
         first_cargo_use(&jobs[1].1).is_some(),
         "missed a real cargo run"
     );
+}
+
+/// Pins toolchain-marker semantics: genuine setup/selection steps count, while
+/// cosmetic mentions (`echo`) and unrelated `rustup` subcommands (adding a
+/// target or component) must not, so a job that never pins a compiler can't
+/// sneak past the guard.
+#[test]
+fn toolchain_markers_reject_incidental_mentions() {
+    for real in [
+        "- uses: dtolnay/rust-toolchain@stable",
+        "- uses: actions-rust-lang/setup-rust-toolchain@v1",
+        "- uses: actions-rs/toolchain@v1",
+        "run: rustup toolchain install 1.94.0",
+        "run: rustup default 1.94.0",
+        "run: rustup override set 1.94.0",
+    ] {
+        assert!(
+            first_match(real, TOOLCHAIN_MARKERS).is_some(),
+            "real toolchain setup not recognized: {real:?}"
+        );
+    }
+
+    for incidental in [
+        "run: echo rust-toolchain",
+        "run: rustup target add x86_64-unknown-linux-musl",
+        "run: rustup component add clippy rustfmt",
+    ] {
+        assert!(
+            first_match(incidental, TOOLCHAIN_MARKERS).is_none(),
+            "incidental mention wrongly counted as toolchain setup: {incidental:?}"
+        );
+    }
+}
+
+/// Pins the Cargo-argv detector across whitespace and quoting variants so a
+/// reformatting of a script's `subprocess.run(...)` call can't silently drop it
+/// from the completeness check.
+#[test]
+fn script_cargo_detection_tolerates_whitespace_and_argv_forms() {
+    for invokes in [
+        r#"subprocess.run(["cargo", "update", "--package", "wfl"])"#,
+        r#"subprocess.run(['cargo', 'update'])"#,
+        r#"subprocess.run([ "cargo", "check" ])"#,
+        "subprocess.run([\n    \"cargo\",\n    \"build\",\n])",
+    ] {
+        assert!(
+            script_invokes_cargo(invokes),
+            "argv invoking cargo not detected: {invokes:?}"
+        );
+    }
+
+    for benign in [
+        "# this helper wraps cargo update\nprint(\"cargo\")",
+        r#"subprocess.run(["python", "cargo_helper.py"])"#,
+        r#"LEADS = ("wfl ", "$", "cargo", "npm")"#,
+    ] {
+        assert!(
+            !script_invokes_cargo(benign),
+            "non-invocation wrongly flagged as a cargo argv: {benign:?}"
+        );
+    }
 }

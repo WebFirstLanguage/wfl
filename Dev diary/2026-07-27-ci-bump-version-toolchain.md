@@ -14,7 +14,7 @@ seven build/test jobs went green. Three consecutive runs failed identically:
 
 The job log:
 
-```
+```text
 error: rustc 1.92.0 is not supported by the following packages:
   sqlx@0.9.0 requires rustc 1.94.0
   ...
@@ -71,22 +71,48 @@ cargo is unhappy" would trade a loud failure for a silently stale
 ## Testing (Logbie Testing Policy)
 
 - **Risk class:** R1 — build/release tooling, no runtime behavior change.
-- **Red → Green:** `tests/workflow_rust_toolchain_test.rs` was committed
-  test-only in `2ab115d` and failed there for the intended reason:
 
-  ```
+- **Acceptance criteria → tests** (all in `tests/workflow_rust_toolchain_test.rs`):
+
+  | Acceptance criterion | Test |
+  |---|---|
+  | Every workflow job that runs Cargo — directly or via a `scripts/*.py` indirection — installs/selects a toolchain *before* the first Cargo use | `cargo_jobs_install_a_rust_toolchain_first` |
+  | The Cargo-invoking script inventory (`CARGO_INVOKING_SCRIPTS`) cannot silently go stale as scripts change | `cargo_invoking_scripts_list_is_complete` |
+  | The scanner ignores comment-only `cargo` mentions yet still finds real jobs | `scanner_ignores_comments_and_finds_jobs` |
+  | Only genuine toolchain setup counts; `echo rust-toolchain` and `rustup target/component add` do not | `toolchain_markers_reject_incidental_mentions` |
+  | Cargo-argv detection survives whitespace, quote-style, and multi-line reformatting of `subprocess.run([...])` | `script_cargo_detection_tolerates_whitespace_and_argv_forms` |
+
+- **Red → Green:** `tests/workflow_rust_toolchain_test.rs` was committed test-only
+  in `2ab115d` (an ancestor of the fix commit) and failed there for the intended
+  reason — the two toolchain-less jobs — before any `ci.yml`/`versioning.yml`
+  edit existed:
+
+  ```text
   no toolchain step: ["ci.yml:bump-version", "versioning.yml:bump-version"]
   ```
 
-  It passes on the fix commit. The test scans every job in every workflow,
-  resolves the Python-script indirection through `CARGO_INVOKING_SCRIPTS`, and
-  asserts a toolchain marker appears *before* the first Cargo use. A companion
-  test re-derives the script list from `scripts/*.py` so the indirection list
-  cannot go stale, and a third pins the scanner's own behavior (comments
-  mentioning `cargo` must not count).
+  It passes on the fix commit. The `toolchain_markers_reject_incidental_mentions`
+  and `script_cargo_detection_...` guards were added after review to tighten the
+  scanner so it matches real setup steps and Cargo argv forms rather than loose
+  substrings.
+
+- **Validation evidence** (rustc 1.96.1, satisfies `rust-version = "1.94"`):
+
+  ```text
+  $ cargo fmt --all -- --check
+  # clean, no diff
+
+  $ cargo clippy --all-targets --all-features -- -D warnings
+  Finished `dev` profile [unoptimized + debuginfo] target(s)   # no warnings
+
+  $ cargo test --test workflow_rust_toolchain_test
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  ```
+
 - **Real boundary:** `cargo check --locked --manifest-path fuzz/Cargo.toml` —
-  the exact command that failed in CI — was run locally on rustc 1.94.1 and
-  passes, confirming an MSRV-satisfying toolchain is the whole of the fix.
+  the exact command that failed in CI — was run locally on an MSRV-satisfying
+  toolchain (rustc 1.94.1) and passes, confirming an adequate toolchain is the
+  whole of the fix.
 - **Residual risk:** the guard is a line scanner, not a YAML parse (the repo has
   no YAML dependency), so it assumes job ids are the only two-space-indented
   keys under `jobs:` — true for all current workflows and asserted by the
