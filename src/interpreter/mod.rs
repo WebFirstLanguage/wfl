@@ -15299,7 +15299,7 @@ mod concurrent_handler_classification_tests {
     ) -> Pin<Box<IsolatedHandler<'a, ()>>> {
         Box::pin(IsolatedHandler {
             interp: interpreter,
-            state: RunState::fresh(interpreter.base_call_depth),
+            state: interpreter.fresh_handler_run_state(),
             inner: Some(Box::pin(one_yield_static_scope(interpreter, context))),
         })
     }
@@ -15460,8 +15460,8 @@ mod concurrent_handler_classification_tests {
         let owner = shared_static_owner();
         let context_a = static_context_for(&owner);
         let context_b = static_context_for(&owner);
-        let mut state_a = RunState::fresh(interpreter.base_call_depth);
-        let mut state_b = RunState::fresh(interpreter.base_call_depth);
+        let mut state_a = interpreter.fresh_handler_run_state();
+        let mut state_b = interpreter.fresh_handler_run_state();
         state_a
             .active_static_method_contexts
             .push(Rc::clone(&context_a));
