@@ -81,6 +81,7 @@ cargo is unhappy" would trade a loud failure for a silently stale
   | The scanner ignores comment-only `cargo` mentions yet still finds real jobs | `scanner_ignores_comments_and_finds_jobs` |
   | Only genuine toolchain setup counts; `echo rust-toolchain` and `rustup target/component add` do not | `toolchain_markers_reject_incidental_mentions` |
   | Cargo-argv detection survives whitespace, quote-style, and multi-line reformatting of `subprocess.run([...])` | `script_cargo_detection_tolerates_whitespace_and_argv_forms` |
+  | A toolchain installed *after* the first Cargo step is treated as out of order, not as satisfying the rule | `toolchain_after_cargo_is_out_of_order` |
 
 - **Red → Green:** `tests/workflow_rust_toolchain_test.rs` was committed test-only
   in `2ab115d` (an ancestor of the fix commit) and failed there for the intended
@@ -96,18 +97,32 @@ cargo is unhappy" would trade a loud failure for a silently stale
   scanner so it matches real setup steps and Cargo argv forms rather than loose
   substrings.
 
-- **Validation evidence** (rustc 1.96.1, satisfies `rust-version = "1.94"`):
+  The tightened scanner was then re-checked against the original defect: with the
+  `dtolnay/rust-toolchain@stable` step temporarily removed from `ci.yml`,
+  `cargo_jobs_install_a_rust_toolchain_first` fails again with
+  `no toolchain step: ["ci.yml:bump-version"]`. The hardening did not cost the
+  guard its bite.
+
+- **Validation evidence** (rustc 1.94.1, satisfies `rust-version = "1.94"`):
 
   ```text
   $ cargo fmt --all -- --check
   # clean, no diff
 
   $ cargo clippy --all-targets --all-features -- -D warnings
-  Finished `dev` profile [unoptimized + debuginfo] target(s)   # no warnings
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 41s   # no warnings
 
   $ cargo test --test workflow_rust_toolchain_test
-  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
   ```
+
+  Full workspace suite: CI run 30240210815 on this branch — `Build, Test, Clippy`
+  green, including its `Run Tests` step, alongside the integration, database,
+  fuzz-compile, and WFL-program jobs on both Linux and Windows. (A local
+  `cargo test --all` in the authoring container exhausted its disk allowance
+  mid-link — a `Bus error` from the ~30 GB `target/` tree described in
+  `CLAUDE.md`, not a test failure; CI runners carry the `Free disk space` step
+  that the container lacks.)
 
 - **Real boundary:** `cargo check --locked --manifest-path fuzz/Cargo.toml` —
   the exact command that failed in CI — was run locally on an MSRV-satisfying

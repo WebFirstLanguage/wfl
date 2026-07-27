@@ -237,6 +237,42 @@ jobs:
     );
 }
 
+/// Ordering is half the contract — installing the toolchain *after* the first
+/// Cargo step fails exactly like not installing it at all, but the main guard
+/// only reports that case when a job trips it, so pin the comparison here.
+#[test]
+fn toolchain_after_cargo_is_out_of_order() {
+    let workflow = "\
+name: Example
+jobs:
+  late:
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo build
+      - uses: dtolnay/rust-toolchain@stable
+  early:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build
+";
+    let jobs = jobs_of(workflow);
+
+    let late = &jobs[0].1;
+    assert!(
+        first_match(late, TOOLCHAIN_MARKERS).expect("no toolchain marker")
+            > first_cargo_use(late).expect("no cargo use"),
+        "late fixture should place the toolchain after the first Cargo use"
+    );
+
+    let early = &jobs[1].1;
+    assert!(
+        first_match(early, TOOLCHAIN_MARKERS).expect("no toolchain marker")
+            < first_cargo_use(early).expect("no cargo use"),
+        "early fixture should place the toolchain before the first Cargo use"
+    );
+}
+
 /// Pins toolchain-marker semantics: genuine setup/selection steps count, while
 /// cosmetic mentions (`echo`) and unrelated `rustup` subcommands (adding a
 /// target or component) must not, so a job that never pins a compiler can't
