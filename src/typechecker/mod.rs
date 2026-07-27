@@ -7170,27 +7170,22 @@ impl TypeChecker {
                     WsHandlerEvent::Connect | WsHandlerEvent::Disconnect => Type::Text,
                     WsHandlerEvent::Message => Type::Any,
                 };
-                self.bind_runtime_value(
-                    binding,
-                    Type::Map(Box::new(Type::Text), Box::new(event_value_type)),
-                    false,
-                    *line,
-                    *column,
-                );
-                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
                 // Runtime binds the event object with `define_direct`,
                 // deliberately shadowing an outer same-named variable. Analyzer
                 // body scopes are discarded before this pass, so recreate the
-                // binding here — typed Unknown, keeping event-object access
-                // permissive instead of checking the body against the outer
-                // symbol's concrete type (#642).
+                // binding here — with the event object's own type, so the body
+                // is checked against what the handler actually receives rather
+                // than against the outer symbol's concrete type (#642). The
+                // `Any` value type of message objects keeps field access
+                // permissive without erasing the binding itself.
                 self.analyzer.define_or_replace_symbol(Symbol {
                     name: binding.clone(),
                     kind: SymbolKind::Variable { mutable: true },
-                    symbol_type: Some(Type::Unknown),
+                    symbol_type: Some(Type::Map(Box::new(Type::Text), Box::new(event_value_type))),
                     line: *line,
                     column: *column,
                 });
+                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
                 let outer_alias_snapshot = self.list_alias_groups.clone();
                 let outer_refinement_snapshot = self.optional_refinement_origins.clone();
                 let outer_nonempty_snapshot = self.definitely_nonempty_lists.clone();
