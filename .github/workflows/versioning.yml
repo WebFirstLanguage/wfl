@@ -15,6 +15,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      # `bump_version.py` shells out to Cargo, so this job needs its own
+      # toolchain rather than whatever rustc the runner image preinstalls (which
+      # can be older than our `rust-version = "1.94"` MSRV). Same fix as the
+      # `bump-version` job in ci.yml.
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:

@@ -566,6 +566,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      # `bump_version.py` shells out to Cargo (`cargo update` for both lockfiles
+      # and `cargo check --locked` over the fuzz workspace), so this job needs a
+      # toolchain of its own. Without one it silently used whatever rustc the
+      # runner image preinstalled — fine until the image shipped one older than
+      # our `rust-version = "1.94"` MSRV, which failed the locked fuzz check and
+      # blocked the bump on every push to main.
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Restore the fuzz workspace's target dir so the locked check inside the
+      # bump script reuses the `fuzz-check` job's build instead of compiling the
+      # workspace again. Restore-only: `fuzz-check` owns writing this cache.
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          shared-key: fuzz-check-cache
+          save-if: false
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
