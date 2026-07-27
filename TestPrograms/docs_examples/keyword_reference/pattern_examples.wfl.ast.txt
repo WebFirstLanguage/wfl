@@ -1,0 +1,134 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\keyword_reference\pattern_examples.wfl
+==============================================
+
+Program with 8 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "Pattern matching examples",
+        ),
+        6,
+        9,
+    ),
+    line: 6,
+    column: 1,
+}
+
+Statement #2: VariableDeclaration {
+    name: "text_to_match",
+    value: Literal(
+        String(
+            "test123",
+        ),
+        12,
+        24,
+    ),
+    is_constant: false,
+    line: 12,
+    column: 1,
+}
+
+Statement #3: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Text: ",
+            ),
+            13,
+            9,
+        ),
+        right: Variable(
+            "text_to_match",
+            13,
+            23,
+        ),
+        line: 13,
+        column: 18,
+    },
+    line: 13,
+    column: 1,
+}
+
+Statement #4: VariableDeclaration {
+    name: "pattern",
+    value: Literal(
+        String(
+            "email_pattern",
+        ),
+        16,
+        18,
+    ),
+    is_constant: false,
+    line: 16,
+    column: 1,
+}
+
+Statement #5: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Pattern name: ",
+            ),
+            17,
+            9,
+        ),
+        right: Variable(
+            "pattern",
+            17,
+            31,
+        ),
+        line: 17,
+        column: 26,
+    },
+    line: 17,
+    column: 1,
+}
+
+Statement #6: VariableDeclaration {
+    name: "text",
+    value: Literal(
+        String(
+            "sample text",
+        ),
+        19,
+        15,
+    ),
+    is_constant: false,
+    line: 19,
+    column: 1,
+}
+
+Statement #7: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Text to search: ",
+            ),
+            20,
+            9,
+        ),
+        right: Variable(
+            "text",
+            20,
+            33,
+        ),
+        line: 20,
+        column: 28,
+    },
+    line: 20,
+    column: 1,
+}
+
+Statement #8: DisplayStatement {
+    value: Literal(
+        String(
+            "Pattern examples complete (simplified)",
+        ),
+        22,
+        9,
+    ),
+    line: 22,
+    column: 1,
+}
+

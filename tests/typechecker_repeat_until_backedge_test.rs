@@ -7,6 +7,12 @@
 //! evaluating the condition, and evaluates the condition in the same
 //! environment. Checking the condition first leaves body-introduced bindings
 //! `Unknown` in the condition, silently missing real type errors.
+//!
+//! These programs retype `out` by opening a response stream in the loop body.
+//! The gradual type-checking contract requires a real request object as the
+//! streaming target, so each program first binds `req` via
+//! `wait for request comes in on srv as req` rather than passing a text
+//! literal; the softening behavior under test is unchanged.
 
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -27,9 +33,11 @@ fn repeat_until_condition_sees_body_retyped_binding() {
     // comparison is a guaranteed runtime type error the checker must
     // surface. Checking the condition first sees the stale outer Number and
     // misses it.
-    let code = "store out as 5\n\
+    let code = "store srv as \"server\"\n\
+                wait for request comes in on srv as req\n\
+                store out as 5\n\
                 repeat until out is greater than 3:\n\
-                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
                 end repeat\n";
     assert!(
         typecheck(code).is_err(),
@@ -61,9 +69,11 @@ fn nested_loop_break_does_not_soften_repeat_until_condition() {
     // condition must keep the precise post-body check and flag the retyped
     // binding (PR #643 review: over-broad softening would hide this real
     // runtime type error).
-    let code = "store out as 5\n\
+    let code = "store srv as \"server\"\n\
+                wait for request comes in on srv as req\n\
+                store out as 5\n\
                 repeat until out is greater than 3:\n\
-                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
                 \x20\x20\x20\x20count from 1 to 3:\n\
                 \x20\x20\x20\x20\x20\x20\x20\x20break\n\
                 \x20\x20\x20\x20end count\n\
@@ -81,9 +91,11 @@ fn nested_exit_loop_still_softens_repeat_until_condition() {
     // `exit loop` propagates out of every enclosing loop (unlike `break`),
     // so even from a nested loop it skips the outer condition — the softened
     // joined state applies and the retype-then-exit body stays legal.
-    let code = "store out as 5\n\
+    let code = "store srv as \"server\"\n\
+                wait for request comes in on srv as req\n\
+                store out as 5\n\
                 repeat until out is greater than 3:\n\
-                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
                 \x20\x20\x20\x20count from 1 to 3:\n\
                 \x20\x20\x20\x20\x20\x20\x20\x20exit loop\n\
                 \x20\x20\x20\x20end count\n\
@@ -103,9 +115,11 @@ fn repeat_until_break_path_does_not_force_post_body_condition_types() {
     // the condition would mistype against the retyped binding. The checker
     // must not reject it — type errors are fatal inside `load module`, so a
     // false positive here breaks working modules (PR #643 review).
-    let code = "store out as 5\n\
+    let code = "store srv as \"server\"\n\
+                wait for request comes in on srv as req\n\
+                store out as 5\n\
                 repeat until out is greater than 3:\n\
-                \x20\x20\x20\x20start streaming response to \"req\" with status 200 as out\n\
+                \x20\x20\x20\x20start streaming response to req with status 200 as out\n\
                 \x20\x20\x20\x20break\n\
                 end repeat\n";
     let result = typecheck(code);

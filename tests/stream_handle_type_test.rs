@@ -113,6 +113,25 @@ fn test_outbound_stream_handle_dot_access_typechecks() {
 }
 
 #[test]
+fn test_outbound_stream_known_fields_keep_their_concrete_types() {
+    for expression in [
+        "create directory at upstream.status",
+        "store invalid as upstream.ok minus 1",
+        "store invalid as upstream.headers[\"content-type\"] minus 1",
+    ] {
+        let code = format!(
+            "open url at \"http://example.com\" and stream response as upstream\n\
+             {expression}\n\
+             close upstream"
+        );
+        assert!(
+            typecheck(&code).is_err(),
+            "the fixed HttpStream schema must reject invalid use of {expression}"
+        );
+    }
+}
+
+#[test]
 fn test_stream_handle_numeric_index_is_rejected() {
     // Runtime object indexing requires a text field name; a numeric key must be a
     // static type error (it was, back when the handle was Map<Text, _>).
@@ -152,6 +171,23 @@ fn test_wait_for_next_from_http_stream_is_ok() {
         "reading from an outbound stream handle must type-check: {:?}",
         typecheck(code).err()
     );
+}
+
+#[test]
+fn test_wait_for_next_result_requires_a_nothing_guard() {
+    for (verb, consumer) in [
+        ("line", "store invalid as touppercase of item"),
+        ("chunk", "store invalid as item minus 1"),
+    ] {
+        let code = format!(
+            "open url at \"http://example.com\" and stream response as up\n\
+             wait for next {verb} from up as item\n\
+             {consumer}\n\
+             close up"
+        );
+        typecheck(&code)
+            .expect_err("end-of-stream produces Nothing, so an unguarded definite use is invalid");
+    }
 }
 
 #[test]

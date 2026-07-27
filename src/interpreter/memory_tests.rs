@@ -25,6 +25,7 @@ mod tests {
                 line: 1,
                 column: 1,
                 enforce_param_types: std::cell::Cell::new(false),
+                static_method_context: None,
             };
 
             // Store in environment
@@ -119,6 +120,7 @@ mod tests {
                 line: 1,
                 column: 1,
                 enforce_param_types: std::cell::Cell::new(false),
+                static_method_context: None,
             };
 
             let function_value = Value::Function(Rc::new(function));

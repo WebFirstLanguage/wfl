@@ -23,7 +23,8 @@ use self::environment::Environment;
 use self::error::{ErrorKind, RuntimeError};
 use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
-    EventHandler, FunctionValue, InterfaceDefinitionValue, OverloadedFunction, Value,
+    EventHandler, FunctionValue, InterfaceDefinitionValue, OverloadedFunction, StaticMethodContext,
+    Value,
 };
 use crate::builtins::get_function_arity;
 use crate::config::WflConfig;
@@ -839,6 +840,10 @@ struct RunState {
     in_count_loop: bool,
     call_depth: usize,
     call_stack: Vec<CallFrame>,
+    /// Static-method environments active in this handler. Like `call_stack`,
+    /// these contexts may remain live across an `.await`, so concurrent
+    /// handlers must park them independently between polls.
+    active_static_method_contexts: Vec<Rc<StaticMethodContext>>,
     block_overload_dups: Option<Rc<std::collections::HashSet<String>>>,
     /// Server response streams opened by this handler and not yet explicitly
     /// closed. Closed automatically when the handler ends on any path (see
@@ -885,6 +890,48 @@ struct RunState {
     loading_stack: Vec<PathBuf>,
 }
 
+#[cfg(test)]
+impl RunState {
+    /// Build a fresh run state seeded with the given call depth; every other
+    /// scratch field starts empty/default. Used by the concurrent-handler unit
+    /// tests to stand up an isolated [`RunState`] without a live handler.
+    fn fresh(call_depth: usize) -> Self {
+        RunState {
+            call_depth,
+            ..RunState::default()
+        }
+    }
+}
+
+/// Installs one handler's parked [`RunState`] in the interpreter until drop.
+///
+/// Besides reducing duplicated swap calls, the guard makes restoration
+/// unwind-safe if polling or dropping an inner future panics.
+struct InstalledRunState<'a> {
+    interp: &'a Interpreter,
+    parked: &'a mut RunState,
+}
+
+impl<'a> InstalledRunState<'a> {
+    fn new(interp: &'a Interpreter, parked: &'a mut RunState) -> Self {
+        interp.swap_run_state(parked);
+        interp.refresh_active_static_method_context();
+        Self { interp, parked }
+    }
+}
+
+impl Drop for InstalledRunState<'_> {
+    fn drop(&mut self) {
+        // A static method may suspend after mutating its lexical property
+        // mirror. Publish those changes before another handler is polled, then
+        // refresh from shared state when this handler is installed again. This
+        // prevents two interleaved handlers from later writing back stale,
+        // full-property snapshots over each other.
+        self.interp.persist_active_static_method_context();
+        self.interp.swap_run_state(self.parked);
+    }
+}
+
 /// Wraps a handler future so its [`RunState`] is swapped into the interpreter
 /// for the duration of each `poll` and swapped back out again the instant the
 /// poll returns (ready **or** pending). This makes the interpreter's run-state
@@ -902,9 +949,9 @@ struct RunState {
 struct IsolatedHandler<'a, T> {
     interp: &'a Interpreter,
     state: RunState,
-    /// `Some` until `Drop` takes it: the handler future must be dropped with
-    /// this handler's run state installed (see `Drop`), which plain field
-    /// drop order cannot provide.
+    /// Kept in an `Option` so cancellation can explicitly drop the suspended
+    /// future while this handler's state is installed. Any RAII guards inside
+    /// the future then unwind against their own call/static-context stacks.
     inner: Option<std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>>,
 }
 
@@ -918,14 +965,14 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
         // Every field is `Unpin` (`&`, `RunState`, and `Pin<Box<..>>`), so the
         // wrapper itself is `Unpin` and `get_mut` is sound.
         let this = self.get_mut();
-        this.interp.swap_run_state(&mut this.state);
-        let result = this
-            .inner
-            .as_mut()
-            .expect("IsolatedHandler polled after drop")
-            .as_mut()
-            .poll(cx);
-        this.interp.swap_run_state(&mut this.state);
+        let result = {
+            let _installed = InstalledRunState::new(this.interp, &mut this.state);
+            this.inner
+                .as_mut()
+                .expect("isolated handler must not be polled after its inner future is dropped")
+                .as_mut()
+                .poll(cx)
+        };
         match result {
             std::task::Poll::Ready(value) => {
                 std::task::Poll::Ready((value, this.state.accepted_request))
@@ -938,16 +985,17 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
 impl<'a, T> Drop for IsolatedHandler<'a, T> {
     fn drop(&mut self) {
         // Drop the handler future FIRST, with this handler's run state
-        // installed: a future dropped while suspended still runs the `Drop`
-        // of every live RAII guard inside it (call-depth, capture,
-        // module-load), and those guards must unwind against the handler's
-        // own state — not the ambient context that happens to be installed
-        // at teardown (#642).
+        // installed: a future dropped while suspended still runs the `Drop` of
+        // every live RAII guard inside it (call-depth, capture, module-load,
+        // and `StaticMethodCallScope`), and those guards must unwind against
+        // the handler's own state, not the ambient context installed at
+        // teardown (#642). The `InstalledRunState` guard also persists this
+        // handler's static-method contexts on swap-out.
         if let Some(inner) = self.inner.take() {
-            self.interp.swap_run_state(&mut self.state);
+            let _installed = InstalledRunState::new(self.interp, &mut self.state);
             drop(inner);
-            self.interp.swap_run_state(&mut self.state);
         }
+
         // The handler is finished (normal return, error, panic contained by
         // `catch_unwind`, or cancellation as the loop tears down). After the
         // final swap-out, `state` holds any streams it opened but never
@@ -1403,6 +1451,11 @@ pub struct Interpreter {
     /// dedicated RAII counter means a caught `ResourceLimit` can never leave the
     /// enforcement depth under-counted, so catch-and-recurse stays bounded.
     call_depth: Cell<usize>,
+    /// Static methods execute against lexical environments that mirror shared
+    /// container properties. This stack synchronizes those mirrors at nested
+    /// call boundaries so a re-entrant static call sees mutations made by its
+    /// caller and the caller resumes with mutations made by its callee.
+    active_static_method_contexts: RefCell<Vec<Rc<StaticMethodContext>>>,
     /// The depth `call_depth` resets to at the start of a run. Normally 0, but a
     /// child interpreter spawned by `execute file` inherits the parent's live
     /// depth here, so recursion accounting *spans* the execute-file boundary: a
@@ -1467,6 +1520,54 @@ pub struct Interpreter {
     test_results: RefCell<TestResults>,
     current_describe_stack: RefCell<Vec<String>>,
     current_test_name: RefCell<Option<String>>,
+}
+
+/// Synchronizes one static-method property environment with the shared
+/// container definitions for the full lifetime of its call.
+///
+/// Keeping this as an RAII scope is important: dropping an in-flight
+/// interpretation future must not strand an active context on the stack or
+/// discard mutations that completed before cancellation.
+struct StaticMethodCallScope<'a> {
+    active_contexts: &'a RefCell<Vec<Rc<StaticMethodContext>>>,
+    context: Rc<StaticMethodContext>,
+}
+
+impl<'a> StaticMethodCallScope<'a> {
+    fn enter(interpreter: &'a Interpreter, context: Rc<StaticMethodContext>) -> Self {
+        interpreter.persist_active_static_method_context();
+        Interpreter::refresh_static_method_context(&context);
+        interpreter
+            .active_static_method_contexts
+            .borrow_mut()
+            .push(Rc::clone(&context));
+        Self {
+            active_contexts: &interpreter.active_static_method_contexts,
+            context,
+        }
+    }
+}
+
+impl Drop for StaticMethodCallScope<'_> {
+    fn drop(&mut self) {
+        Interpreter::persist_static_method_context(&self.context);
+
+        let parent_context = {
+            let mut active_contexts = self.active_contexts.borrow_mut();
+            let popped = active_contexts.pop();
+            debug_assert!(
+                popped
+                    .as_ref()
+                    .is_some_and(|context| Rc::ptr_eq(context, &self.context)),
+                "static method contexts must unwind in call order"
+            );
+            active_contexts.last().cloned()
+        };
+
+        if let Some(parent_context) = parent_context {
+            Interpreter::refresh_static_method_context(&parent_context);
+        }
+    }
 }
 
 // Test framework data structures
@@ -4131,6 +4232,7 @@ impl Interpreter {
             current_block_overload_dups: RefCell::new(None),
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
+            active_static_method_contexts: RefCell::new(Vec::new()),
             base_call_depth: 0,
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
@@ -4265,6 +4367,9 @@ impl Interpreter {
                 return_type: Box::new(Type::Unknown),
             },
             Value::Pattern(_) => Type::Pattern,
+            Value::Date(_) => Type::Date,
+            Value::Time(_) => Type::Time,
+            Value::DateTime(_) => Type::DateTime,
             Value::ContainerDefinition(def) => Type::Container(def.name.clone()),
             Value::ContainerInstance(inst) => {
                 Type::ContainerInstance(inst.borrow().container_type.clone())
@@ -4630,6 +4735,10 @@ impl Interpreter {
         let depth = self.call_depth.replace(state.call_depth);
         state.call_depth = depth;
         std::mem::swap(&mut *self.call_stack.borrow_mut(), &mut state.call_stack);
+        std::mem::swap(
+            &mut *self.active_static_method_contexts.borrow_mut(),
+            &mut state.active_static_method_contexts,
+        );
         std::mem::swap(
             &mut *self.current_block_overload_dups.borrow_mut(),
             &mut state.block_overload_dups,
@@ -6138,15 +6247,23 @@ impl Interpreter {
                             .as_ref()
                             .is_some_and(|dups| dups.contains(name)),
                     ),
+                    static_method_context: None,
                 };
 
                 // A same-scope redefinition of an action name merges into an
-                // overload set instead of erroring; every other collision
-                // keeps its existing error.
-                match env
-                    .borrow_mut()
-                    .define_or_merge_action(name, Rc::new(function))
-                {
+                // overload set instead of erroring. An explicit method-local
+                // declaration may shadow a synthetic property binding, while
+                // ordinary outer lexical bindings retain the historical
+                // no-shadowing rule.
+                let shadows_property = self.definition_shadows_container_property(&env, name);
+                let result = if shadows_property {
+                    env.borrow_mut()
+                        .define_or_merge_action_direct(name, Rc::new(function))
+                } else {
+                    env.borrow_mut()
+                        .define_or_merge_action(name, Rc::new(function))
+                };
+                match result {
                     Ok(defined_value) => Ok((defined_value, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -6389,7 +6506,7 @@ impl Interpreter {
                             // OPTIMIZATION: Recycle environment if possible
                             let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
 
-                            match loop_env.borrow_mut().define(item_name, item) {
+                            match loop_env.borrow_mut().define_direct(item_name, item) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
@@ -6437,7 +6554,7 @@ impl Interpreter {
                             // OPTIMIZATION: Recycle environment if possible
                             let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
 
-                            match loop_env.borrow_mut().define(item_name, value) {
+                            match loop_env.borrow_mut().define_direct(item_name, value) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
@@ -6754,7 +6871,7 @@ impl Interpreter {
                     Ok(handle) => {
                         match env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(handle.into()))
+                            .define_direct(variable_name, Value::Text(handle.into()))
                         {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -6785,7 +6902,7 @@ impl Interpreter {
                     Ok(handle) => {
                         let define_result = env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(handle.as_str().into()));
+                            .define_direct(variable_name, Value::Text(handle.as_str().into()));
                         match define_result {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => {
@@ -6820,7 +6937,7 @@ impl Interpreter {
                     )
                     .await?;
 
-                match env.borrow_mut().define(variable_name, result) {
+                match env.borrow_mut().define_direct(variable_name, result) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -6873,7 +6990,7 @@ impl Interpreter {
                                 // borrow before the `close_file` await below.
                                 let define_result = env
                                     .borrow_mut()
-                                    .define(variable_name, Value::Text(content.into()));
+                                    .define_direct(variable_name, Value::Text(content.into()));
                                 match define_result {
                                     Ok(_) => {
                                         let _ = self.io_client.close_file(&handle).await;
@@ -6897,7 +7014,7 @@ impl Interpreter {
                         Ok(content) => {
                             match env
                                 .borrow_mut()
-                                .define(variable_name, Value::Text(content.into()))
+                                .define_direct(variable_name, Value::Text(content.into()))
                             {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -7851,9 +7968,10 @@ impl Interpreter {
                                         Ok(content) => {
                                             // Capture the define result and drop the
                                             // env borrow before the `close_file` await.
-                                            let define_result = env
-                                                .borrow_mut()
-                                                .define(variable_name, Value::Text(content.into()));
+                                            let define_result = env.borrow_mut().define_direct(
+                                                variable_name,
+                                                Value::Text(content.into()),
+                                            );
                                             match define_result {
                                                 Ok(_) => {
                                                     let _ =
@@ -7880,7 +7998,7 @@ impl Interpreter {
                                 Ok(content) => {
                                     match env
                                         .borrow_mut()
-                                        .define(variable_name, Value::Text(content.into()))
+                                        .define_direct(variable_name, Value::Text(content.into()))
                                     {
                                         Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                         Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -7970,22 +8088,46 @@ impl Interpreter {
                             };
 
                             if matches {
-                                // Bind the error under the clause's name and the
-                                // `error_message` alias, which is always available
-                                // in error-handling clauses.
+                                // Bind the error under clause-local aliases.
+                                // Ordinary handler-created bindings remain in
+                                // the shared try environment for `finally`, but
+                                // these aliases must reveal any previous local
+                                // or outer bindings again when the clause ends.
                                 let error_text = Value::Text(err.message.into());
-                                {
+                                let (saved_error_name, saved_error_message) = {
                                     let mut env_mut = child_env.borrow_mut();
+                                    let saved_error_name =
+                                        env_mut.take_local_binding(&when_clause.error_name);
+                                    let saved_error_message =
+                                        if when_clause.error_name == "error_message" {
+                                            None
+                                        } else {
+                                            env_mut.take_local_binding("error_message")
+                                        };
                                     env_mut.define_or_replace(
                                         &when_clause.error_name,
                                         error_text.clone(),
                                     );
                                     env_mut.define_or_replace("error_message", error_text);
-                                }
+                                    (saved_error_name, saved_error_message)
+                                };
 
                                 result = self
                                     .execute_block(&when_clause.body, Rc::clone(&child_env))
                                     .await;
+                                {
+                                    let mut env_mut = child_env.borrow_mut();
+                                    if when_clause.error_name != "error_message" {
+                                        env_mut.restore_local_binding(
+                                            "error_message",
+                                            saved_error_message,
+                                        );
+                                    }
+                                    env_mut.restore_local_binding(
+                                        &when_clause.error_name,
+                                        saved_error_name,
+                                    );
+                                }
                                 executed = true;
                                 break;
                             }
@@ -8007,11 +8149,13 @@ impl Interpreter {
 
                 // A `finally:` block runs on both the success and error paths,
                 // after any matching when/otherwise clause. If it raises its own
-                // error, that error wins; otherwise the primary result (the
-                // success value or the still-unhandled error) propagates.
+                // error, that error wins. Abrupt control flow from finally
+                // (`return`, `break`, `continue`, `exit`) also wins; an ordinary
+                // fallthrough preserves the primary result.
                 if let Some(finally_stmts) = finally_block {
                     match self.execute_block(finally_stmts, child_env).await {
-                        Ok(_) => primary_result,
+                        Ok((_, ControlFlow::None)) => primary_result,
+                        Ok(finally_result) => Ok(finally_result),
                         Err(finally_err) => Err(finally_err),
                     }
                 } else {
@@ -8044,7 +8188,7 @@ impl Interpreter {
                     Ok(body) => {
                         match env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(body.into()))
+                            .define_direct(variable_name, Value::Text(body.into()))
                         {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -8093,7 +8237,7 @@ impl Interpreter {
                     Ok(body) => {
                         match env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(body.into()))
+                            .define_direct(variable_name, Value::Text(body.into()))
                         {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -8240,7 +8384,7 @@ impl Interpreter {
                             Value::Text(response_body.into())
                         };
 
-                        match env.borrow_mut().define(variable_name, value) {
+                        match env.borrow_mut().define_direct(variable_name, value) {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
@@ -8559,7 +8703,7 @@ impl Interpreter {
                     }
                 }
 
-                Ok((Value::Null, ControlFlow::None))
+                Ok((_last_value, ControlFlow::None))
             }
             Statement::PushStatement {
                 list,
@@ -8598,7 +8742,7 @@ impl Interpreter {
                 }
 
                 let list_value = Value::List(Rc::new(RefCell::new(list_items)));
-                match env.borrow_mut().define(name, list_value) {
+                match env.borrow_mut().define_direct(name, list_value) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -8621,7 +8765,7 @@ impl Interpreter {
                 }
 
                 let map_value = Value::Object(Rc::new(RefCell::new(map)));
-                match env.borrow_mut().define(name, map_value) {
+                match env.borrow_mut().define_direct(name, map_value) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -8643,7 +8787,7 @@ impl Interpreter {
                     Value::Date(Rc::new(today))
                 };
 
-                match env.borrow_mut().define(name, date_value) {
+                match env.borrow_mut().define_direct(name, date_value) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -8664,7 +8808,7 @@ impl Interpreter {
                     Value::Time(Rc::new(now))
                 };
 
-                match env.borrow_mut().define(name, time_value) {
+                match env.borrow_mut().define_direct(name, time_value) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -8774,14 +8918,16 @@ impl Interpreter {
                 properties,
                 methods,
                 events,
-                static_properties: _static_properties,
-                static_methods: _static_methods,
+                static_properties,
+                static_methods,
                 line,
                 column,
             } => {
                 // Create a new container definition
                 let mut container_properties = HashMap::new();
                 let mut container_methods = HashMap::new();
+                let mut container_static_properties = HashMap::new();
+                let mut container_static_methods = HashMap::new();
 
                 for prop in properties {
                     let property_type_str = prop
@@ -8840,6 +8986,42 @@ impl Interpreter {
                     }
                 }
 
+                for prop in static_properties {
+                    let value = match &prop.default_value {
+                        Some(expression) => {
+                            self._evaluate_expression(expression, env.clone()).await?
+                        }
+                        None => Value::Null,
+                    };
+                    container_static_properties.insert(prop.name.clone(), value);
+                }
+
+                for method in static_methods {
+                    if let Statement::ActionDefinition {
+                        name,
+                        parameters,
+                        body,
+                        line,
+                        column,
+                        ..
+                    } = method
+                    {
+                        container_static_methods.insert(
+                            name.clone(),
+                            ContainerMethodValue {
+                                name: name.clone(),
+                                params: parameters.iter().map(|p| p.name.clone()).collect(),
+                                body: body.clone(),
+                                is_static: true,
+                                is_public: true,
+                                env: Rc::downgrade(&env),
+                                line: *line,
+                                column: *column,
+                            },
+                        );
+                    }
+                }
+
                 // Process events
                 let mut container_events = HashMap::new();
                 for event in events {
@@ -8860,8 +9042,8 @@ impl Interpreter {
                     properties: container_properties,
                     methods: container_methods,
                     events: container_events,
-                    static_properties: HashMap::new(), // Future feature
-                    static_methods: HashMap::new(),    // Future feature
+                    static_properties: Rc::new(RefCell::new(container_static_properties)),
+                    static_methods: container_static_methods,
                     line: *line,
                     column: *column,
                 };
@@ -8869,8 +9051,16 @@ impl Interpreter {
                 // Create the container definition value
                 let container_value = Value::ContainerDefinition(Rc::new(container_def));
 
-                // Store the container definition in the environment
-                match env.borrow_mut().define(name, container_value.clone()) {
+                // A nested type declaration follows the same method-local
+                // property-shadowing rule as action declarations.
+                let shadows_property = self.definition_shadows_container_property(&env, name);
+                let result = if shadows_property {
+                    env.borrow_mut()
+                        .define_direct(name, container_value.clone())
+                } else {
+                    env.borrow_mut().define(name, container_value.clone())
+                };
+                match result {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -8908,7 +9098,7 @@ impl Interpreter {
                 // Store the instance in the environment
                 match env
                     .borrow_mut()
-                    .define(instance_name, instance_value.clone())
+                    .define_direct(instance_name, instance_value.clone())
                 {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
@@ -8940,6 +9130,7 @@ impl Interpreter {
                             line: init_method.line,
                             column: init_method.column,
                             enforce_param_types: std::cell::Cell::new(false),
+                            static_method_context: None,
                         };
 
                         // Create a new environment for the constructor execution
@@ -9001,8 +9192,16 @@ impl Interpreter {
 
                 let interface_value = Value::InterfaceDefinition(Rc::new(interface_def));
 
-                // Store the interface definition in the environment
-                match env.borrow_mut().define(name, interface_value.clone()) {
+                // Match the analyzer's lexical binding model without relaxing
+                // ordinary outer-scope shadowing.
+                let shadows_property = self.definition_shadows_container_property(&env, name);
+                let result = if shadows_property {
+                    env.borrow_mut()
+                        .define_direct(name, interface_value.clone())
+                } else {
+                    env.borrow_mut().define(name, interface_value.clone())
+                };
+                match result {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *_line, *_column)),
                 }
@@ -9217,6 +9416,7 @@ impl Interpreter {
                                 line: method_val.line,
                                 column: method_val.column,
                                 enforce_param_types: std::cell::Cell::new(false),
+                                static_method_context: None,
                             };
 
                             // Create a new environment for the method execution
@@ -9280,7 +9480,7 @@ impl Interpreter {
                     Ok(compiled_pattern) => {
                         // Store the compiled pattern in the environment
                         let pattern_value = Value::Pattern(Rc::new(compiled_pattern));
-                        match env.borrow_mut().define(name, pattern_value.clone()) {
+                        match env.borrow_mut().define_direct(name, pattern_value.clone()) {
                             Ok(_) => {}
                             Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                         }
@@ -9724,7 +9924,7 @@ impl Interpreter {
                                 target_port
                             );
 
-                            match env.borrow_mut().define(server_name, server_value) {
+                            match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                             }
@@ -9834,7 +10034,7 @@ impl Interpreter {
 
                             println!("Secure server is listening on port {}", addr.port());
 
-                            match env.borrow_mut().define(server_name, server_value) {
+                            match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                             }
@@ -9878,7 +10078,7 @@ impl Interpreter {
 
                             println!("Server is listening on port {}", addr.port());
 
-                            match env.borrow_mut().define(server_name, server_value) {
+                            match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                             }
@@ -11217,7 +11417,7 @@ impl Interpreter {
                         let server_value = Value::Text(Arc::from(key));
                         println!("WebSocket server is listening on port {}", addr.port());
 
-                        match env.borrow_mut().define(server_name, server_value) {
+                        match env.borrow_mut().define_direct(server_name, server_value) {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
@@ -11484,7 +11684,7 @@ impl Interpreter {
                 // Store result if variable name provided
                 if let Some(var_name) = variable_name {
                     env.borrow_mut()
-                        .define(var_name, result_obj)
+                        .define_direct(var_name, result_obj)
                         .map_err(|e| RuntimeError::new(e, *line, *column))?;
                 }
 
@@ -11738,7 +11938,7 @@ impl Interpreter {
                 if let (Some(var_name), Some(buffer)) = (variable_name, capture_buffer) {
                     let output = buffer.borrow();
                     env.borrow_mut()
-                        .define(var_name, Value::Text(Arc::from(output.as_str())))
+                        .define_direct(var_name, Value::Text(Arc::from(output.as_str())))
                         .map_err(|e| RuntimeError::new(e, *line, *column))?;
                 }
 
@@ -11815,7 +12015,7 @@ impl Interpreter {
 
                 // Store process ID in variable
                 env.borrow_mut()
-                    .define(variable_name, Value::Text(Arc::from(process_id.as_str())))
+                    .define_direct(variable_name, Value::Text(Arc::from(process_id.as_str())))
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
@@ -11857,7 +12057,7 @@ impl Interpreter {
 
                 // Store output in variable
                 env.borrow_mut()
-                    .define(variable_name, Value::Text(Arc::from(output.as_str())))
+                    .define_direct(variable_name, Value::Text(Arc::from(output.as_str())))
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
@@ -11932,7 +12132,7 @@ impl Interpreter {
                 // Store exit code in variable if provided
                 if let Some(var_name) = variable_name {
                     env.borrow_mut()
-                        .define(var_name, Value::Number(exit_code as f64))
+                        .define_direct(var_name, Value::Number(exit_code as f64))
                         .map_err(|e| RuntimeError::new(e, *line, *column))?;
                 }
 
@@ -12829,23 +13029,18 @@ impl Interpreter {
                     }
                 };
 
-                // Look up the static member
-                if let Some(value) = container_def.static_properties.get(member) {
-                    Ok(value.clone())
-                } else if let Some(method) = container_def.static_methods.get(member) {
-                    // Create a function value from the method
-                    let function = FunctionValue {
-                        name: Some(method.name.clone()),
-                        params: method.params.clone(),
-                        param_types: vec![None; method.params.len()],
-                        body: method.body.clone(),
-                        env: method.env.clone(),
-                        line: method.line,
-                        column: method.column,
-                        enforce_param_types: std::cell::Cell::new(false),
-                    };
+                self.persist_active_static_method_context();
 
-                    Ok(Value::Function(Rc::new(function)))
+                // Look up the static member, following the same inheritance
+                // chain the static checker accepts.
+                if let Some(value) =
+                    Self::resolve_static_property(&env, Rc::clone(&container_def), member)
+                {
+                    Ok(value)
+                } else if let Some((method_owner, method)) =
+                    Self::resolve_static_method(&env, Rc::clone(&container_def), member)
+                {
+                    Ok(Self::static_method_reference(&env, method_owner, method))
                 } else {
                     Err(RuntimeError::new(
                         format!("Static member '{member}' not found in container '{container}'"),
@@ -12868,8 +13063,40 @@ impl Interpreter {
                 // Clone the object value to avoid borrow issues
                 let object_val_clone = object_val.clone();
 
-                // Check if the object is a container instance
-                if let Value::ContainerInstance(instance_rc) = &object_val_clone {
+                // Static methods are called on the container definition value.
+                if let Value::ContainerDefinition(container_def) = &object_val_clone {
+                    self.persist_active_static_method_context();
+
+                    let (method_owner, method_val) =
+                        Self::resolve_static_method(&env, Rc::clone(container_def), method)
+                            .ok_or_else(|| {
+                                RuntimeError::new(
+                                    format!(
+                                        "Static method '{method}' not found in container '{}'",
+                                        container_def.name
+                                    ),
+                                    line,
+                                    column,
+                                )
+                            })?;
+
+                    let Value::Function(function) =
+                        Self::static_method_reference(&env, method_owner, method_val)
+                    else {
+                        unreachable!("static method references are always functions");
+                    };
+
+                    let mut argument_values = Vec::with_capacity(arguments.len());
+                    for argument in arguments {
+                        argument_values.push(
+                            self.evaluate_expression(&argument.value, Rc::clone(&env))
+                                .await?,
+                        );
+                    }
+
+                    self.call_function(&function, argument_values, line, column)
+                        .await
+                } else if let Value::ContainerInstance(instance_rc) = &object_val_clone {
                     // Clone instance_rc for later property write-back
                     let instance_rc_for_writeback = instance_rc.clone();
 
@@ -12929,6 +13156,7 @@ impl Interpreter {
                             line: method_val.line,
                             column: method_val.column,
                             enforce_param_types: std::cell::Cell::new(false),
+                            static_method_context: None,
                         };
 
                         // Create a new environment for the method execution
@@ -12981,12 +13209,13 @@ impl Interpreter {
                             line: function.line,
                             column: function.column,
                             enforce_param_types: function.enforce_param_types.clone(),
+                            static_method_context: None,
                         };
 
                         // Call the function with the method environment
                         let result = self
                             .call_function(&method_function, arg_values, line, column)
-                            .await?;
+                            .await;
 
                         // WRITE BACK MODIFIED PROPERTIES TO CONTAINER
                         // This fixes the property mutation issue where properties modified
@@ -13000,7 +13229,7 @@ impl Interpreter {
                             }
                         }
 
-                        Ok(result)
+                        result
                     } else {
                         Err(RuntimeError::new(
                             format!("Method '{method}' not found in container '{container_type}'"),
@@ -13639,6 +13868,28 @@ impl Interpreter {
                             ))
                         }
                     }
+                    Value::ContainerDefinition(definition) => {
+                        self.persist_active_static_method_context();
+
+                        if let Some(value) =
+                            Self::resolve_static_property(&env, Rc::clone(&definition), property)
+                        {
+                            Ok(value)
+                        } else if let Some((method_owner, method)) =
+                            Self::resolve_static_method(&env, Rc::clone(&definition), property)
+                        {
+                            Ok(Self::static_method_reference(&env, method_owner, method))
+                        } else {
+                            Err(RuntimeError::new(
+                                format!(
+                                    "Static member '{property}' not found in container '{}'",
+                                    definition.name
+                                ),
+                                *line,
+                                *column,
+                            ))
+                        }
+                    }
                     Value::Object(obj_rc) => {
                         let obj = obj_rc.borrow();
                         if let Some(prop_value) = obj.get(property) {
@@ -14134,8 +14385,10 @@ impl Interpreter {
     /// Picks the overload whose parameter count and declared parameter types
     /// match the actual argument values: filter by count, drop candidates
     /// whose concrete annotations reject an argument, then prefer the
-    /// candidate with the most concretely-matched parameters (ties resolve to
-    /// definition order).
+    /// candidate with the most concretely-matched parameters. When that count
+    /// ties, an exact branded temporal annotation (`date`, `time`, or
+    /// `datetime`) outranks its broader historical custom-name annotation;
+    /// remaining ties resolve to definition order.
     fn select_overload(
         overloaded: &OverloadedFunction,
         args: &[Value],
@@ -14173,9 +14426,10 @@ impl Interpreter {
             ));
         }
 
-        let mut best: Option<(&Rc<FunctionValue>, usize)> = None;
+        let mut best: Option<(&Rc<FunctionValue>, (usize, usize))> = None;
         for func in &arity_matches {
             let mut concrete_matches = 0usize;
+            let mut exact_temporal_matches = 0usize;
             let mut accepts = true;
             for (param_type, arg) in func.param_types.iter().zip(args) {
                 if let Some(expected) = param_type {
@@ -14194,6 +14448,14 @@ impl Interpreter {
                             || matches!(expected, Type::Nothing)
                         {
                             concrete_matches += 1;
+                            if matches!(
+                                (expected, arg),
+                                (Type::Date, Value::Date(_))
+                                    | (Type::Time, Value::Time(_))
+                                    | (Type::DateTime, Value::DateTime(_))
+                            ) {
+                                exact_temporal_matches += 1;
+                            }
                         }
                     } else {
                         accepts = false;
@@ -14201,8 +14463,9 @@ impl Interpreter {
                     }
                 }
             }
-            if accepts && best.is_none_or(|(_, count)| concrete_matches > count) {
-                best = Some((func, concrete_matches));
+            let specificity = (concrete_matches, exact_temporal_matches);
+            if accepts && best.is_none_or(|(_, score)| specificity > score) {
+                best = Some((func, specificity));
             }
         }
 
@@ -14224,6 +14487,151 @@ impl Interpreter {
         }
     }
 
+    fn definition_shadows_container_property(
+        &self,
+        env: &Rc<RefCell<Environment>>,
+        name: &str,
+    ) -> bool {
+        let Some(defining_scope) = env.borrow().parent_scope_defining(name) else {
+            return false;
+        };
+
+        let this_value = defining_scope.borrow().values.get("this").cloned();
+        if let Some(Value::ContainerInstance(instance)) = this_value
+            && instance.borrow().properties.contains_key(name)
+        {
+            return true;
+        }
+
+        self.active_static_method_contexts
+            .borrow()
+            .last()
+            .is_some_and(|context| {
+                Rc::ptr_eq(&context.env, &defining_scope)
+                    && context.property_owners.contains_key(name)
+            })
+    }
+
+    fn resolve_static_property(
+        env: &Rc<RefCell<Environment>>,
+        mut definition: Rc<ContainerDefinitionValue>,
+        member: &str,
+    ) -> Option<Value> {
+        loop {
+            let value = definition.static_properties.borrow().get(member).cloned();
+            if value.is_some() {
+                return value;
+            }
+            let parent_name = definition.extends.as_ref()?.clone();
+            definition = match env.borrow().get(&parent_name) {
+                Some(Value::ContainerDefinition(parent)) => parent,
+                _ => return None,
+            };
+        }
+    }
+
+    fn resolve_static_method(
+        env: &Rc<RefCell<Environment>>,
+        mut definition: Rc<ContainerDefinitionValue>,
+        member: &str,
+    ) -> Option<(Rc<ContainerDefinitionValue>, ContainerMethodValue)> {
+        loop {
+            if let Some(method) = definition.static_methods.get(member).cloned() {
+                return Some((definition, method));
+            }
+            let parent_name = definition.extends.as_ref()?.clone();
+            definition = match env.borrow().get(&parent_name) {
+                Some(Value::ContainerDefinition(parent)) => parent,
+                _ => return None,
+            };
+        }
+    }
+
+    fn static_definition_chain(
+        env: &Rc<RefCell<Environment>>,
+        mut definition: Rc<ContainerDefinitionValue>,
+    ) -> Vec<Rc<ContainerDefinitionValue>> {
+        let mut chain = vec![Rc::clone(&definition)];
+        while let Some(parent_name) = definition.extends.as_ref() {
+            let Some(Value::ContainerDefinition(parent)) = env.borrow().get(parent_name) else {
+                break;
+            };
+            definition = parent;
+            chain.push(Rc::clone(&definition));
+        }
+        chain.reverse();
+        chain
+    }
+
+    fn static_method_reference(
+        env: &Rc<RefCell<Environment>>,
+        method_owner: Rc<ContainerDefinitionValue>,
+        method: ContainerMethodValue,
+    ) -> Value {
+        let static_env = Environment::new_child_env(env);
+        let mut property_owners = HashMap::new();
+        for definition in Self::static_definition_chain(env, method_owner) {
+            for (property_name, property_value) in definition.static_properties.borrow().iter() {
+                static_env
+                    .borrow_mut()
+                    .define_or_replace(property_name, property_value.clone());
+                property_owners.insert(property_name.clone(), Rc::clone(&definition));
+            }
+        }
+        let static_method_context = Rc::new(StaticMethodContext {
+            env: Rc::clone(&static_env),
+            property_owners,
+        });
+        Value::Function(Rc::new(FunctionValue {
+            name: Some(method.name.clone()),
+            params: method.params.clone(),
+            param_types: vec![None; method.params.len()],
+            body: method.body,
+            env: Rc::downgrade(&static_env),
+            line: method.line,
+            column: method.column,
+            enforce_param_types: std::cell::Cell::new(false),
+            static_method_context: Some(static_method_context),
+        }))
+    }
+
+    fn refresh_static_method_context(context: &StaticMethodContext) {
+        for (property_name, owner) in &context.property_owners {
+            let current_value = owner.static_properties.borrow().get(property_name).cloned();
+            if let Some(current_value) = current_value {
+                context
+                    .env
+                    .borrow_mut()
+                    .define_or_replace(property_name, current_value);
+            }
+        }
+    }
+
+    fn persist_static_method_context(context: &StaticMethodContext) {
+        for (property_name, owner) in &context.property_owners {
+            if let Some(updated_value) = context.env.borrow().get_local(property_name) {
+                owner
+                    .static_properties
+                    .borrow_mut()
+                    .insert(property_name.clone(), updated_value);
+            }
+        }
+    }
+
+    fn persist_active_static_method_context(&self) {
+        let active_context = self.active_static_method_contexts.borrow().last().cloned();
+        if let Some(active_context) = active_context {
+            Self::persist_static_method_context(&active_context);
+        }
+    }
+
+    fn refresh_active_static_method_context(&self) {
+        let active_context = self.active_static_method_contexts.borrow().last().cloned();
+        if let Some(active_context) = active_context {
+            Self::refresh_static_method_context(&active_context);
+        }
+    }
+
     /// Whether a runtime value satisfies a declared parameter type. Untyped
     /// and unknown annotations accept everything; `Custom` types match a
     /// container instance of that type or of a descendant (via the parent
@@ -14241,10 +14649,22 @@ impl Interpreter {
             Type::Boolean => matches!(value, Value::Bool(_)),
             Type::Nothing => matches!(value, Value::Null | Value::Nothing),
             Type::Pattern => matches!(value, Value::Pattern(_)),
+            Type::Date => matches!(value, Value::Date(_)),
+            Type::Time => matches!(value, Value::Time(_)),
+            Type::DateTime => matches!(value, Value::DateTime(_)),
             Type::List(_) => matches!(value, Value::List(_)),
             Type::Map(_, _) => matches!(value, Value::Object(_)),
             Type::Custom(name) => {
                 if name.eq_ignore_ascii_case("any") {
+                    return true;
+                }
+                if name.eq_ignore_ascii_case("date") && matches!(value, Value::Date(_)) {
+                    return true;
+                }
+                if name.eq_ignore_ascii_case("time") && matches!(value, Value::Time(_)) {
+                    return true;
+                }
+                if name.eq_ignore_ascii_case("datetime") && matches!(value, Value::DateTime(_)) {
                     return true;
                 }
                 if let Value::ContainerInstance(instance) = value {
@@ -14389,6 +14809,10 @@ impl Interpreter {
             return Err(self.budget_error(exceeded, line, column));
         }
         let _depth_guard = CallDepthGuard::enter(&self.call_depth);
+        let _static_method_scope = func
+            .static_method_context
+            .as_ref()
+            .map(|context| StaticMethodCallScope::enter(self, Rc::clone(context)));
 
         let frame = CallFrame::new(
             func.name
@@ -14854,9 +15278,74 @@ impl Interpreter {
 #[cfg(test)]
 mod concurrent_handler_classification_tests {
     use super::*;
+    use std::future::{Future, poll_fn};
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
 
     fn error(kind: ErrorKind, message: &str) -> RuntimeError {
         RuntimeError::with_kind(message.to_string(), 1, 1, kind)
+    }
+
+    fn one_yield_static_scope<'a>(
+        interpreter: &'a Interpreter,
+        context: Rc<StaticMethodContext>,
+    ) -> impl Future<Output = ()> + 'a {
+        let yielded = Rc::new(Cell::new(false));
+        async move {
+            let _depth = CallDepthGuard::enter(&interpreter.call_depth);
+            let _scope = StaticMethodCallScope::enter(interpreter, context);
+            poll_fn(move |cx| {
+                if yielded.replace(true) {
+                    Poll::Ready(())
+                } else {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            })
+            .await;
+        }
+    }
+
+    fn isolated_static_handler<'a>(
+        interpreter: &'a Interpreter,
+        context: Rc<StaticMethodContext>,
+    ) -> Pin<Box<IsolatedHandler<'a, ()>>> {
+        Box::pin(IsolatedHandler {
+            interp: interpreter,
+            state: RunState::fresh(interpreter.base_call_depth),
+            inner: Some(Box::pin(one_yield_static_scope(interpreter, context))),
+        })
+    }
+
+    fn shared_static_owner() -> Rc<ContainerDefinitionValue> {
+        let mut static_properties = HashMap::new();
+        static_properties.insert("x".to_string(), Value::Number(0.0));
+        static_properties.insert("y".to_string(), Value::Number(0.0));
+        Rc::new(ContainerDefinitionValue {
+            name: "Shared".to_string(),
+            extends: None,
+            implements: Vec::new(),
+            properties: HashMap::new(),
+            methods: HashMap::new(),
+            events: HashMap::new(),
+            static_properties: Rc::new(RefCell::new(static_properties)),
+            static_methods: HashMap::new(),
+            line: 1,
+            column: 1,
+        })
+    }
+
+    fn static_context_for(owner: &Rc<ContainerDefinitionValue>) -> Rc<StaticMethodContext> {
+        let env = Environment::new_global();
+        let mut property_owners = HashMap::new();
+        for (name, value) in owner.static_properties.borrow().iter() {
+            env.borrow_mut().define_or_replace(name, value.clone());
+            property_owners.insert(name.clone(), Rc::clone(owner));
+        }
+        Rc::new(StaticMethodContext {
+            env,
+            property_owners,
+        })
     }
 
     #[test]
@@ -14895,6 +15384,138 @@ mod concurrent_handler_classification_tests {
                 false,
             ),
             ConcurrentHandlerDisposition::RequestLocal
+        );
+    }
+
+    #[test]
+    fn concurrent_handlers_park_and_cancel_static_contexts_independently() {
+        let interpreter = Interpreter::new();
+        let context_a = Rc::new(StaticMethodContext {
+            env: Environment::new_global(),
+            property_owners: HashMap::new(),
+        });
+        let context_b = Rc::new(StaticMethodContext {
+            env: Environment::new_global(),
+            property_owners: HashMap::new(),
+        });
+        let mut handler_a = isolated_static_handler(&interpreter, Rc::clone(&context_a));
+        let mut handler_b = isolated_static_handler(&interpreter, Rc::clone(&context_b));
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+
+        assert!(handler_a.as_mut().poll(&mut cx).is_pending());
+        assert!(
+            interpreter
+                .active_static_method_contexts
+                .borrow()
+                .is_empty()
+        );
+        assert_eq!(interpreter.call_depth.get(), interpreter.base_call_depth);
+        assert!(
+            handler_a
+                .as_ref()
+                .get_ref()
+                .state
+                .active_static_method_contexts
+                .first()
+                .is_some_and(|context| Rc::ptr_eq(context, &context_a))
+        );
+
+        assert!(handler_b.as_mut().poll(&mut cx).is_pending());
+        assert!(
+            interpreter
+                .active_static_method_contexts
+                .borrow()
+                .is_empty()
+        );
+        assert_eq!(interpreter.call_depth.get(), interpreter.base_call_depth);
+        assert!(
+            handler_b
+                .as_ref()
+                .get_ref()
+                .state
+                .active_static_method_contexts
+                .first()
+                .is_some_and(|context| Rc::ptr_eq(context, &context_b))
+        );
+
+        assert!(handler_a.as_mut().poll(&mut cx).is_ready());
+        assert!(
+            handler_a
+                .as_ref()
+                .get_ref()
+                .state
+                .active_static_method_contexts
+                .is_empty()
+        );
+        assert!(
+            interpreter
+                .active_static_method_contexts
+                .borrow()
+                .is_empty()
+        );
+
+        // Handler B is still suspended with its own scope. Cancellation must
+        // unwind B against B's parked state without leaking into interpreter
+        // scratch state or reviving A's completed context.
+        drop(handler_b);
+        assert!(
+            interpreter
+                .active_static_method_contexts
+                .borrow()
+                .is_empty()
+        );
+        assert_eq!(interpreter.call_depth.get(), interpreter.base_call_depth);
+    }
+
+    #[test]
+    fn poll_boundaries_merge_interleaved_static_property_updates() {
+        let interpreter = Interpreter::new();
+        let owner = shared_static_owner();
+        let context_a = static_context_for(&owner);
+        let context_b = static_context_for(&owner);
+        let mut state_a = RunState::fresh(interpreter.base_call_depth);
+        let mut state_b = RunState::fresh(interpreter.base_call_depth);
+        state_a
+            .active_static_method_contexts
+            .push(Rc::clone(&context_a));
+        state_b
+            .active_static_method_contexts
+            .push(Rc::clone(&context_b));
+
+        {
+            let _installed = InstalledRunState::new(&interpreter, &mut state_a);
+            context_a
+                .env
+                .borrow_mut()
+                .define_or_replace("x", Value::Number(1.0));
+        }
+        {
+            let _installed = InstalledRunState::new(&interpreter, &mut state_b);
+            assert!(matches!(
+                context_b.env.borrow().get_local("x"),
+                Some(Value::Number(1.0))
+            ));
+            context_b
+                .env
+                .borrow_mut()
+                .define_or_replace("y", Value::Number(2.0));
+        }
+        {
+            let _installed = InstalledRunState::new(&interpreter, &mut state_a);
+            assert!(matches!(
+                context_a.env.borrow().get_local("y"),
+                Some(Value::Number(2.0))
+            ));
+        }
+
+        let properties = owner.static_properties.borrow();
+        assert!(matches!(properties.get("x"), Some(Value::Number(1.0))));
+        assert!(matches!(properties.get("y"), Some(Value::Number(2.0))));
+        assert!(
+            interpreter
+                .active_static_method_contexts
+                .borrow()
+                .is_empty()
         );
     }
 

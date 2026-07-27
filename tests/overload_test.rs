@@ -468,6 +468,50 @@ mod typechecker {
     }
 
     #[test]
+    fn branded_date_overload_wins_static_inference_in_both_definition_orders() {
+        for (order, definitions) in [
+            (
+                "historical annotation first",
+                r#"
+    define action called classify with parameters value as Date:
+        return 1
+    end action
+
+    define action called classify with parameters value as date:
+        return "temporal"
+    end action
+    "#,
+            ),
+            (
+                "branded annotation first",
+                r#"
+    define action called classify with parameters value as date:
+        return "temporal"
+    end action
+
+    define action called classify with parameters value as Date:
+        return 1
+    end action
+    "#,
+            ),
+        ] {
+            let code = format!(
+                "{definitions}
+    store result as classify of today
+    store invalid as result times 2
+    display invalid
+    "
+            );
+            let errors = typecheck_errors(&code);
+            assert!(
+                errors.iter().any(|error| error.contains("Cannot perform")),
+                "{order}: the known Date argument must infer the branded overload's Text return; \
+                 got {errors:?}"
+            );
+        }
+    }
+
+    #[test]
     fn forward_reference_to_later_overload() {
         // PASS 1 registers all top-level signatures before checking, so a call
         // that statically resolves to a later-defined overload is clean.
@@ -1051,6 +1095,186 @@ mod full_pipeline {
             Some(Value::Bool(b)) => b,
             other => panic!("expected Bool in '{name}', got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn temporal_values_match_temporal_overload_annotations() {
+        let interpreter = run_pipeline(
+            r#"
+define action called classify_date with parameters value as Date:
+    return "date"
+end action
+define action called classify_date with parameters value as Text:
+    return "text"
+end action
+
+define action called classify_time with parameters value as Time:
+    return "time"
+end action
+define action called classify_time with parameters value as Text:
+    return "text"
+end action
+
+define action called classify_datetime with parameters value as DateTime:
+    return "datetime"
+end action
+define action called classify_datetime with parameters value as Text:
+    return "text"
+end action
+
+store date_result as classify_date of today
+store time_result as classify_time of now
+store datetime_result as classify_datetime of datetime_now
+"#,
+        )
+        .await
+        .expect("temporal runtime values should select temporal overloads");
+
+        assert_eq!(global_text(&interpreter, "date_result"), "date");
+        assert_eq!(global_text(&interpreter, "time_result"), "time");
+        assert_eq!(global_text(&interpreter, "datetime_result"), "datetime");
+    }
+
+    #[tokio::test]
+    async fn same_named_date_container_still_matches_user_annotation() {
+        let interpreter = run_pipeline(
+            r#"
+create container Date:
+end
+
+define action called classify with parameters value as Date:
+    return "date annotation"
+end action
+define action called classify with parameters value as Text:
+    return "text"
+end action
+
+create new Date as date_container:
+end
+store result as classify of date_container
+"#,
+        )
+        .await
+        .expect("a historical Date container annotation must keep working");
+        assert_eq!(global_text(&interpreter, "result"), "date annotation");
+    }
+
+    #[tokio::test]
+    async fn lowercase_datetime_container_annotation_remains_container_compatible() {
+        let interpreter = run_pipeline(
+            r#"
+create container datetime:
+end
+
+define action called classify with parameters value as datetime:
+    return "datetime container"
+end action
+define action called classify with parameters value as Text:
+    return "text"
+end action
+
+create new datetime as datetime_container:
+end
+store result as classify of datetime_container
+"#,
+        )
+        .await
+        .expect("the historical lowercase datetime container annotation must keep working");
+        assert_eq!(global_text(&interpreter, "result"), "datetime container");
+    }
+
+    #[tokio::test]
+    async fn historical_temporal_annotations_can_feed_temporal_builtins_when_unambiguous() {
+        let interpreter = run_pipeline(
+            r#"
+create container DATE:
+end
+
+define action called render with parameters value as Date:
+    return format_date of value and "%Y-%m-%d"
+end action
+
+store result as render of today
+"#,
+        )
+        .await
+        .expect(
+            "a Date annotation without a same-named container is an unambiguous temporal value",
+        );
+        assert_eq!(global_text(&interpreter, "result").len(), 10);
+    }
+
+    #[test]
+    fn unrelated_include_keeps_historical_temporal_contract_gradual() {
+        let code = r#"
+include from "unrelated.wfl"
+
+define action called render with parameters value as Date:
+    return format_date of value and "%Y-%m-%d"
+end action
+"#;
+        let tokens = lex_wfl_with_positions(code);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().expect("parse");
+
+        let mut analyzer = Analyzer::new();
+        analyzer
+            .analyze(&program)
+            .expect("an unrelated include must not make Date internally incompatible");
+        TypeChecker::with_analyzer(analyzer)
+            .check_types(&program)
+            .expect("an unknown include should defer temporal ambiguity to runtime");
+    }
+
+    #[tokio::test]
+    async fn branded_date_overloads_outrank_historical_annotations_in_both_definition_orders() {
+        let interpreter = run_pipeline(
+            r#"
+create container Date:
+end
+
+define action called historical_first with parameters value as Date:
+    return "container"
+end action
+define action called historical_first with parameters value as date:
+    return "temporal"
+end action
+
+define action called branded_first with parameters value as date:
+    return "temporal"
+end action
+define action called branded_first with parameters value as Date:
+    return "container"
+end action
+
+create new Date as date_container:
+end
+
+store historical_first_temporal as historical_first of today
+store branded_first_temporal as branded_first of today
+store historical_first_container as historical_first of date_container
+store branded_first_container as branded_first of date_container
+"#,
+        )
+        .await
+        .expect("temporal and same-named container overload calls should both resolve");
+
+        assert_eq!(
+            global_text(&interpreter, "historical_first_temporal"),
+            "temporal"
+        );
+        assert_eq!(
+            global_text(&interpreter, "branded_first_temporal"),
+            "temporal"
+        );
+        assert_eq!(
+            global_text(&interpreter, "historical_first_container"),
+            "container"
+        );
+        assert_eq!(
+            global_text(&interpreter, "branded_first_container"),
+            "container"
+        );
     }
 
     #[tokio::test]
@@ -1650,11 +1874,12 @@ end action
         );
     }
 
-    // Round 4, finding 2: temporal dispatch enforcement must reach tests
-    // nested under `describe`. An interleaved wrong-type call between two
-    // same-block definitions must be rejected, not run the wrong body.
-    #[tokio::test]
-    async fn describe_nested_interleaved_call_rejected() {
+    // Round 4, finding 2: action visibility and type enforcement must reach
+    // tests nested under `describe`. The first definition is visible at the
+    // interleaved call, so the analyzer can reject the wrong argument before
+    // the test runner ever executes the wrong body.
+    #[test]
+    fn describe_nested_interleaved_call_rejected() {
         let code = r#"
 describe "temporal":
     test "interleaved call":
@@ -1672,27 +1897,16 @@ end describe
         let mut parser = Parser::new(&tokens);
         let program = parser.parse().expect("parse");
 
-        let mut analyzer = Analyzer::new();
-        analyzer.analyze(&program).expect("analyze");
-        let mut checker = TypeChecker::new();
-        checker.check_types(&program).expect("typecheck");
-
-        let mut interpreter = Interpreter::new();
-        interpreter.set_test_mode(true);
-        interpreter.interpret(&program).await.expect("interpret");
-
-        let results = interpreter.get_test_results();
-        assert_eq!(
-            results.failed_tests, 1,
-            "the interleaved call inside a describe-nested test must fail"
-        );
+        let errors = Analyzer::new()
+            .analyze(&program)
+            .expect_err("the visible number overload must reject a text argument");
         assert!(
-            results
-                .failures
-                .first()
-                .is_some_and(|f| f.assertion_message.contains("expects")),
-            "the failure must be the temporal dispatch rejection: {:?}",
-            results.failures
+            errors.iter().any(|error| {
+                error.message.contains("choose")
+                    && error.message.contains("expects Number")
+                    && error.message.contains("got Text")
+            }),
+            "the nested call should receive the normal action contract diagnostic: {errors:?}"
         );
     }
 

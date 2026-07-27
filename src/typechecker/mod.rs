@@ -1,10 +1,10 @@
-use crate::analyzer::{Analyzer, Symbol, SymbolKind};
+use crate::analyzer::{Analyzer, Symbol, SymbolBindingKey, SymbolKind};
 use crate::builtins;
 use crate::parser::ast::{
     Expression, Literal, Operator, Parameter, PatternExpression, Program, Statement, Type,
-    UnaryOperator,
+    UnaryOperator, WsHandlerEvent,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -102,6 +102,9 @@ impl fmt::Display for Type {
             Type::Boolean => write!(f, "Boolean"),
             Type::Nothing => write!(f, "Nothing"),
             Type::Pattern => write!(f, "Pattern"),
+            Type::Date => write!(f, "Date"),
+            Type::Time => write!(f, "Time"),
+            Type::DateTime => write!(f, "DateTime"),
             Type::Binary => write!(f, "Binary"),
             Type::Custom(name) => write!(f, "{name}"),
             Type::List(item_type) => write!(f, "List of {item_type}"),
@@ -123,6 +126,7 @@ impl fmt::Display for Type {
             Type::Error => write!(f, "Error"),
             Type::Async(t) => write!(f, "Async<{t}>"),
             Type::Any => write!(f, "Any"),
+            Type::Optional(inner) => write!(f, "{inner} or Nothing"),
             Type::Container(name) => write!(f, "Container<{name}>"),
             Type::ContainerInstance(name) => write!(f, "Instance<{name}>"),
             Type::Interface(name) => write!(f, "Interface<{name}>"),
@@ -130,11 +134,64 @@ impl fmt::Display for Type {
     }
 }
 
+#[derive(Clone)]
+enum ListMutationEffect {
+    Join(Type),
+    Replace(Type),
+    Escape,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ListAliasPath {
+    binding: SymbolBindingKey,
+    index_depth: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RecordedReturn {
+    return_type: Type,
+    line: usize,
+    column: usize,
+    has_value: bool,
+    list_sources: Vec<(usize, HashSet<ListAliasPath>)>,
+}
+
+#[derive(Clone)]
+struct DeferredSummarySnapshot {
+    list_effects: Option<HashSet<ListAliasPath>>,
+    binding_effects: Option<HashMap<SymbolBindingKey, Type>>,
+    returns: Option<Vec<RecordedReturn>>,
+    dependencies: Option<HashSet<ActionSummaryKey>>,
+}
+
+type ActionSummaryKey = (String, usize);
+type SharedListReturnProvenance = HashMap<usize, HashSet<ListAliasPath>>;
+type SymbolTypeSnapshot = Vec<HashMap<String, Option<Type>>>;
+type BindingTypeSnapshot = HashMap<SymbolBindingKey, Option<Type>>;
+type ListAliasSnapshot = HashMap<ListAliasPath, HashSet<ListAliasPath>>;
+type BlockFlowResult = (bool, Type);
+
+#[derive(Clone, Default)]
+struct TryFlowAccumulator {
+    binding_types: BindingTypeSnapshot,
+    list_aliases: ListAliasSnapshot,
+}
+
 pub struct TypeChecker {
     analyzer: Analyzer,
+    /// Canonical stdlib signatures are kept separate from program symbols so
+    /// constructor choice (`new` versus production's `with_analyzer`) and user
+    /// declarations cannot silently remove or overwrite builtin contracts.
+    builtin_contracts: Analyzer,
     errors: Vec<TypeError>,
     analyzer_already_run: bool,
     current_container: Option<String>,
+    current_method_is_static: Option<bool>,
+    /// For each property visible to the active method, records the lexical
+    /// binding (if any) that existed outside the method. Comparing the live
+    /// binding key with this baseline distinguishes a method parameter/local
+    /// from a same-named true outer binding even inside nested try/loop scopes.
+    current_method_outer_property_bindings: Option<HashMap<String, Option<SymbolBindingKey>>>,
     /// True when the program contains `include from` statements. Included files
     /// expose their actions dynamically at runtime, so undefined-action errors
     /// are suppressed to match the analyzer (see issue #548).
@@ -153,6 +210,49 @@ pub struct TypeChecker {
     /// definition checked), so overloaded call sites resolve their return
     /// type through this table instead.
     overload_returns: HashMap<(String, usize), Type>,
+    /// True only while checking a runtime-reachable later iteration of a loop
+    /// whose environment persists across iterations. A constant declaration
+    /// succeeds on the first iteration but would be a runtime redeclaration on
+    /// every reachable backedge.
+    checking_persistent_loop_backedge: bool,
+    /// Flow-sensitive may-alias groups for runtime list allocations. Bindings
+    /// are keyed by lexical identity rather than name so sibling/local scopes
+    /// can safely reuse names. Reassignment detaches a binding, while
+    /// control-flow joins union every alias relation reachable at that point.
+    list_alias_groups: HashMap<ListAliasPath, HashSet<ListAliasPath>>,
+    /// List paths a user action may mutate or expose from its captured
+    /// environment. Definition-time checking records these effects, then
+    /// restores the outer state; call sites apply the summary.
+    user_action_list_effects: HashMap<ActionSummaryKey, HashSet<ListAliasPath>>,
+    /// Scalar bindings that a user action may reassign. The value is the join
+    /// of every assigned type on a runtime-reachable path. Call sites join this
+    /// with the current flow type, preserving soundness when a closure mutates
+    /// an outer Optional value inside a narrowed branch.
+    user_action_binding_effects: HashMap<ActionSummaryKey, HashMap<SymbolBindingKey, Type>>,
+    user_action_shared_list_returns: HashMap<ActionSummaryKey, SharedListReturnProvenance>,
+    user_action_dependencies: HashMap<ActionSummaryKey, HashSet<ActionSummaryKey>>,
+    deferred_action_key_stack: Vec<ActionSummaryKey>,
+    deferred_list_effect_stack: Vec<HashSet<ListAliasPath>>,
+    deferred_binding_effect_stack: Vec<HashMap<SymbolBindingKey, Type>>,
+    deferred_return_type_stack: Vec<Vec<RecordedReturn>>,
+    /// Streaming joins of every reachable intermediate state in each active
+    /// try body. Retaining one accumulator per nesting level avoids keeping a
+    /// full symbol/alias snapshot for every statement prefix.
+    try_flow_states: Vec<TryFlowAccumulator>,
+    try_flow_capture_suspended: usize,
+    /// The runtime value produced by the statement currently being checked.
+    /// Most statements produce Nothing; expression and control-flow statements
+    /// replace this slot. The wrapper saves/restores it across recursion.
+    current_statement_completion: Type,
+    /// Original Optional types for bindings narrowed by active guards. Opaque
+    /// user-code calls restore these instead of silently retaining a stale
+    /// present-value refinement.
+    optional_refinement_origins: HashMap<SymbolBindingKey, Type>,
+    has_websocket_handlers: bool,
+    /// Bindings whose current list value is statically known to contain at
+    /// least one element. This small cardinality fact lets a for-each over a
+    /// non-empty literal retain its guaranteed first-iteration effects.
+    definitely_nonempty_lists: HashSet<SymbolBindingKey>,
 }
 
 impl Default for TypeChecker {
@@ -162,19 +262,40 @@ impl Default for TypeChecker {
 }
 
 impl TypeChecker {
-    pub fn new() -> Self {
+    fn builtin_contract_analyzer() -> Analyzer {
         let mut analyzer = Analyzer::new();
-
         crate::stdlib::typechecker::register_stdlib_types(&mut analyzer);
+        analyzer
+    }
 
+    pub fn new() -> Self {
         TypeChecker {
-            analyzer,
+            analyzer: Analyzer::new(),
+            builtin_contracts: Self::builtin_contract_analyzer(),
             errors: Vec::new(),
             analyzer_already_run: false,
             current_container: None,
+            current_method_is_static: None,
+            current_method_outer_property_bindings: None,
             has_includes: false,
             budget_error: None,
             overload_returns: HashMap::new(),
+            checking_persistent_loop_backedge: false,
+            list_alias_groups: HashMap::new(),
+            user_action_list_effects: HashMap::new(),
+            user_action_binding_effects: HashMap::new(),
+            user_action_shared_list_returns: HashMap::new(),
+            user_action_dependencies: HashMap::new(),
+            deferred_action_key_stack: Vec::new(),
+            deferred_list_effect_stack: Vec::new(),
+            deferred_binding_effect_stack: Vec::new(),
+            deferred_return_type_stack: Vec::new(),
+            try_flow_states: Vec::new(),
+            try_flow_capture_suspended: 0,
+            current_statement_completion: Type::Nothing,
+            optional_refinement_origins: HashMap::new(),
+            has_websocket_handlers: false,
+            definitely_nonempty_lists: HashSet::new(),
         }
     }
 
@@ -183,12 +304,31 @@ impl TypeChecker {
     pub fn with_analyzer(analyzer: Analyzer) -> Self {
         TypeChecker {
             analyzer,
+            builtin_contracts: Self::builtin_contract_analyzer(),
             errors: Vec::new(),
             analyzer_already_run: true, // Analyzer has already been run when passed in
             current_container: None,
+            current_method_is_static: None,
+            current_method_outer_property_bindings: None,
             has_includes: false,
             budget_error: None,
             overload_returns: HashMap::new(),
+            checking_persistent_loop_backedge: false,
+            list_alias_groups: HashMap::new(),
+            user_action_list_effects: HashMap::new(),
+            user_action_binding_effects: HashMap::new(),
+            user_action_shared_list_returns: HashMap::new(),
+            user_action_dependencies: HashMap::new(),
+            deferred_action_key_stack: Vec::new(),
+            deferred_list_effect_stack: Vec::new(),
+            deferred_binding_effect_stack: Vec::new(),
+            deferred_return_type_stack: Vec::new(),
+            try_flow_states: Vec::new(),
+            try_flow_capture_suspended: 0,
+            current_statement_completion: Type::Nothing,
+            optional_refinement_origins: HashMap::new(),
+            has_websocket_handlers: false,
+            definitely_nonempty_lists: HashSet::new(),
         }
     }
 
@@ -235,13 +375,13 @@ impl TypeChecker {
                 let first_value = values.first().cloned().unwrap_or(None);
                 let merged = if values.iter().all(|value| value == &first_value) {
                     first_value
-                } else if values
-                    .iter()
-                    .any(|value| value.is_none() || matches!(value.as_ref(), Some(Type::Unknown)))
-                {
+                } else if values.iter().any(Option::is_none) {
                     Some(Type::Unknown)
                 } else {
-                    Some(Type::Any)
+                    values
+                        .into_iter()
+                        .flatten()
+                        .reduce(Self::join_inferred_types)
                 };
                 joined_layer.insert(name, merged);
             }
@@ -250,37 +390,2057 @@ impl TypeChecker {
         joined
     }
 
-    /// Check a loop body under the conservative type state seen at the top of
-    /// every iteration. Exploratory passes contribute only their backedge
-    /// state; diagnostics are emitted once after the header stabilizes.
-    fn check_loop_body_fixed_point(&mut self, body: &[Statement]) {
-        let entry = self.analyzer.snapshot_symbol_types();
-        let mut header = entry.clone();
+    /// Join values stored in a heterogeneous collection. `Any` is a real
+    /// known-dynamic type and therefore dominates; `Unknown` means inference
+    /// is incomplete and must never be narrowed merely by visiting a later
+    /// concrete value.
+    fn join_collection_value_type(current: Option<Type>, next: Type) -> Type {
+        let Some(current) = current else {
+            return next;
+        };
+        Self::join_inferred_types(current, next)
+    }
 
-        loop {
-            self.analyzer.restore_symbol_types(header.clone());
-            let error_count = self.errors.len();
-            for statement in body {
-                self.check_statement_types(statement);
+    fn optionalize(ty: Type) -> Type {
+        match ty {
+            Type::Optional(_) | Type::Nothing => ty,
+            other => Type::Optional(Box::new(other)),
+        }
+    }
+
+    /// Join two runtime-reachable types without discarding structure they are
+    /// guaranteed to share. A list remains a list when only its element types
+    /// differ; likewise for maps and async values. `Unknown` remains the
+    /// conservative "insufficient evidence" state, while `Any` represents a
+    /// genuine union at the exact position where types diverge.
+    fn join_inferred_types(left: Type, right: Type) -> Type {
+        if left == right {
+            return left;
+        }
+        match (left, right) {
+            (Type::Error, _) | (_, Type::Error) => Type::Error,
+            (Type::Optional(left), Type::Optional(right)) => {
+                Self::optionalize(Self::join_inferred_types(*left, *right))
+            }
+            (Type::Optional(inner), Type::Nothing) | (Type::Nothing, Type::Optional(inner)) => {
+                Type::Optional(inner)
+            }
+            (Type::Optional(inner), other) | (other, Type::Optional(inner)) => {
+                Self::optionalize(Self::join_inferred_types(*inner, other))
+            }
+            (Type::Unknown, _) | (_, Type::Unknown) => Type::Unknown,
+            (Type::Any, _) | (_, Type::Any) => Type::Any,
+            (Type::Nothing, other) | (other, Type::Nothing) => Self::optionalize(other),
+            (Type::List(left), Type::List(right)) => {
+                Type::List(Box::new(Self::join_inferred_types(*left, *right)))
+            }
+            (Type::Map(left_key, left_value), Type::Map(right_key, right_value)) => Type::Map(
+                Box::new(Self::join_inferred_types(*left_key, *right_key)),
+                Box::new(Self::join_inferred_types(*left_value, *right_value)),
+            ),
+            (Type::Async(left), Type::Async(right)) => {
+                Type::Async(Box::new(Self::join_inferred_types(*left, *right)))
+            }
+            _ => Type::Any,
+        }
+    }
+
+    fn union_list_alias_bindings_in(
+        groups: &mut HashMap<ListAliasPath, HashSet<ListAliasPath>>,
+        left: ListAliasPath,
+        right: ListAliasPath,
+    ) {
+        let left_neighbors = groups
+            .get(&left)
+            .cloned()
+            .unwrap_or_else(|| HashSet::from([left.clone()]));
+        let right_neighbors = groups
+            .get(&right)
+            .cloned()
+            .unwrap_or_else(|| HashSet::from([right.clone()]));
+
+        for member in &left_neighbors {
+            groups
+                .entry(member.clone())
+                .or_insert_with(|| HashSet::from([member.clone()]))
+                .insert(right.clone());
+        }
+        for member in &right_neighbors {
+            groups
+                .entry(member.clone())
+                .or_insert_with(|| HashSet::from([member.clone()]))
+                .insert(left.clone());
+        }
+        groups.entry(left).or_default().extend(right_neighbors);
+        groups.entry(right).or_default().extend(left_neighbors);
+    }
+
+    fn union_list_alias_bindings(&mut self, left: ListAliasPath, right: ListAliasPath) {
+        Self::union_list_alias_bindings_in(&mut self.list_alias_groups, left, right);
+    }
+
+    fn add_list_may_alias_edge(&mut self, left: ListAliasPath, right: ListAliasPath) {
+        self.list_alias_groups
+            .entry(left.clone())
+            .or_insert_with(|| HashSet::from([left.clone()]))
+            .insert(right.clone());
+        self.list_alias_groups
+            .entry(right.clone())
+            .or_insert_with(|| HashSet::from([right.clone()]))
+            .insert(left);
+    }
+
+    /// Record an alias reached through an aggregate path and materialize any
+    /// already-known descendants at the translated target depth. The alias
+    /// graph deliberately is not transitively closed because a branch join can
+    /// mean “A aliases B or C” without B ever aliasing C. Materializing only
+    /// structural descendants gives deep aggregate paths their real Rc
+    /// provenance without inventing that disjunctive B/C edge.
+    fn add_structural_list_alias(&mut self, source: ListAliasPath, target: ListAliasPath) {
+        let mut edges = vec![(source.clone(), target.clone())];
+        for alias in self.list_alias_members_for_path(&source) {
+            if alias != source {
+                edges.push((alias, target.clone()));
+            }
+        }
+
+        let descendants = self
+            .list_alias_groups
+            .keys()
+            .filter(|path| path.binding == source.binding && path.index_depth > source.index_depth)
+            .cloned()
+            .collect::<Vec<_>>();
+        for descendant in descendants {
+            let translated = ListAliasPath {
+                binding: target.binding.clone(),
+                index_depth: target.index_depth + descendant.index_depth - source.index_depth,
+            };
+            for alias in self.list_alias_members_for_path(&descendant) {
+                if alias != descendant {
+                    edges.push((alias, translated.clone()));
+                }
+            }
+        }
+
+        for (left, right) in edges {
+            self.add_list_may_alias_edge(left, right);
+        }
+    }
+
+    fn join_list_alias_snapshots(
+        states: &[HashMap<ListAliasPath, HashSet<ListAliasPath>>],
+    ) -> HashMap<ListAliasPath, HashSet<ListAliasPath>> {
+        let mut joined = HashMap::new();
+        for state in states {
+            Self::merge_list_alias_snapshot_into(&mut joined, state);
+        }
+        joined
+    }
+
+    fn merge_list_alias_snapshot_into(joined: &mut ListAliasSnapshot, state: &ListAliasSnapshot) {
+        for (left, members) in state {
+            for right in members {
+                joined
+                    .entry(left.clone())
+                    .or_insert_with(|| HashSet::from([left.clone()]))
+                    .insert(right.clone());
+                joined
+                    .entry(right.clone())
+                    .or_insert_with(|| HashSet::from([right.clone()]))
+                    .insert(left.clone());
+            }
+        }
+    }
+
+    fn detach_list_alias_binding(&mut self, name: &str) {
+        let Some(binding) = self.analyzer.get_symbol_binding_key(name) else {
+            return;
+        };
+        let detached = self
+            .list_alias_groups
+            .keys()
+            .filter(|path| path.binding == binding)
+            .cloned()
+            .collect::<HashSet<_>>();
+        if detached.is_empty() {
+            return;
+        }
+        for path in &detached {
+            self.list_alias_groups.remove(path);
+        }
+        for group in self.list_alias_groups.values_mut() {
+            group.retain(|member| !detached.contains(member));
+        }
+        self.list_alias_groups
+            .retain(|_, members| members.len() > 1);
+    }
+
+    fn expression_is_definitely_nonempty_list(&self, expression: &Expression) -> bool {
+        match expression {
+            Expression::Literal(Literal::List(elements), ..) => !elements.is_empty(),
+            Expression::Variable(name, ..) => self
+                .analyzer
+                .get_symbol_binding_key(name)
+                .is_some_and(|binding| self.definitely_nonempty_lists.contains(&binding)),
+            _ => false,
+        }
+    }
+
+    fn update_binding_nonempty_fact(&mut self, name: &str, is_nonempty: bool) {
+        let Some(binding) = self.analyzer.get_symbol_binding_key(name) else {
+            return;
+        };
+        if is_nonempty {
+            self.definitely_nonempty_lists.insert(binding);
+        } else {
+            self.definitely_nonempty_lists.remove(&binding);
+        }
+    }
+
+    fn mark_list_target_nonempty(&mut self, target: &Expression) {
+        let Some(path) = self.list_target_binding_path(target) else {
+            return;
+        };
+        for member in self.list_alias_members_for_path(&path) {
+            if member.index_depth == 0 {
+                self.definitely_nonempty_lists.insert(member.binding);
+            }
+        }
+    }
+
+    fn snapshot_deferred_summary(&self) -> DeferredSummarySnapshot {
+        DeferredSummarySnapshot {
+            list_effects: self.deferred_list_effect_stack.last().cloned(),
+            binding_effects: self.deferred_binding_effect_stack.last().cloned(),
+            returns: self.deferred_return_type_stack.last().cloned(),
+            dependencies: self.deferred_action_key_stack.last().map(|key| {
+                self.user_action_dependencies
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_default()
+            }),
+        }
+    }
+
+    fn join_binding_effect(
+        effects: &mut HashMap<SymbolBindingKey, Type>,
+        binding: SymbolBindingKey,
+        effect_type: Type,
+    ) {
+        effects
+            .entry(binding)
+            .and_modify(|current| {
+                *current = Self::join_inferred_types(current.clone(), effect_type.clone());
+            })
+            .or_insert(effect_type);
+    }
+
+    fn restore_deferred_summary(&mut self, snapshot: DeferredSummarySnapshot) {
+        if let (Some(current), Some(saved)) = (
+            self.deferred_list_effect_stack.last_mut(),
+            snapshot.list_effects,
+        ) {
+            *current = saved;
+        }
+        if let (Some(current), Some(saved)) = (
+            self.deferred_binding_effect_stack.last_mut(),
+            snapshot.binding_effects,
+        ) {
+            *current = saved;
+        }
+        if let (Some(current), Some(saved)) =
+            (self.deferred_return_type_stack.last_mut(), snapshot.returns)
+        {
+            *current = saved;
+        }
+        if let (Some(key), Some(saved)) = (
+            self.deferred_action_key_stack.last().cloned(),
+            snapshot.dependencies,
+        ) {
+            self.user_action_dependencies.insert(key, saved);
+        }
+    }
+
+    fn join_deferred_summaries(
+        &mut self,
+        entry: &DeferredSummarySnapshot,
+        endpoints: &[DeferredSummarySnapshot],
+    ) {
+        if let Some(current) = self.deferred_list_effect_stack.last_mut() {
+            *current = entry.list_effects.clone().unwrap_or_default();
+            for endpoint in endpoints {
+                if let Some(effects) = &endpoint.list_effects {
+                    current.extend(effects.iter().cloned());
+                }
+            }
+        }
+
+        if let Some(current) = self.deferred_binding_effect_stack.last_mut() {
+            *current = entry.binding_effects.clone().unwrap_or_default();
+            for endpoint in endpoints {
+                if let Some(effects) = &endpoint.binding_effects {
+                    for (binding, effect_type) in effects {
+                        Self::join_binding_effect(current, binding.clone(), effect_type.clone());
+                    }
+                }
+            }
+        }
+
+        if let Some(current) = self.deferred_return_type_stack.last_mut() {
+            *current = entry.returns.clone().unwrap_or_default();
+            let entry_len = current.len();
+            for endpoint in endpoints {
+                if let Some(returns) = &endpoint.returns {
+                    current.extend(returns.iter().skip(entry_len).cloned());
+                }
+            }
+        }
+        if let Some(key) = self.deferred_action_key_stack.last().cloned() {
+            let mut joined = entry.dependencies.clone().unwrap_or_default();
+            for endpoint in endpoints {
+                if let Some(dependencies) = &endpoint.dependencies {
+                    joined.extend(dependencies.iter().cloned());
+                }
+            }
+            self.user_action_dependencies.insert(key, joined);
+        }
+    }
+
+    /// Check every statement for diagnostics while retaining state only from
+    /// the runtime-reachable prefix.
+    fn check_statement_block_impl(&mut self, statements: &[Statement]) -> BlockFlowResult {
+        let mut can_continue = true;
+        let mut completion_type = Type::Nothing;
+        let mut terminal_state = None;
+
+        for (index, statement) in statements.iter().enumerate() {
+            let was_reachable = can_continue;
+            if !was_reachable {
+                self.try_flow_capture_suspended += 1;
+            }
+            let statement_completion = self.check_statement_types(statement);
+            if !was_reachable {
+                self.try_flow_capture_suspended -= 1;
             }
             if self.budget_error.is_some() {
-                return;
+                return (false, Type::Error);
             }
-            self.errors.truncate(error_count);
 
-            let backedge = self.analyzer.snapshot_symbol_types();
-            let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
-            if next == header {
+            if was_reachable {
+                completion_type = statement_completion;
+            }
+            if was_reachable && Self::statement_definitely_stops_current_block(statement) {
+                can_continue = false;
+                if index + 1 < statements.len() {
+                    terminal_state = Some((
+                        self.analyzer.snapshot_current_scope_symbols(),
+                        self.analyzer.snapshot_symbol_types(),
+                        self.list_alias_groups.clone(),
+                        self.snapshot_deferred_summary(),
+                        self.user_action_list_effects.clone(),
+                        self.user_action_binding_effects.clone(),
+                        self.user_action_shared_list_returns.clone(),
+                        self.user_action_dependencies.clone(),
+                        self.overload_returns.clone(),
+                        self.optional_refinement_origins.clone(),
+                        self.definitely_nonempty_lists.clone(),
+                    ));
+                }
+            }
+        }
+
+        if let Some((
+            scope_symbols,
+            symbol_types,
+            aliases,
+            deferred,
+            action_effects,
+            action_binding_effects,
+            shared_returns,
+            dependencies,
+            overload_returns,
+            refinement_origins,
+            nonempty_lists,
+        )) = terminal_state
+        {
+            self.analyzer.restore_current_scope_symbols(scope_symbols);
+            self.analyzer.restore_symbol_types(symbol_types);
+            self.list_alias_groups = aliases;
+            self.restore_deferred_summary(deferred);
+            self.user_action_list_effects = action_effects;
+            self.user_action_binding_effects = action_binding_effects;
+            self.user_action_shared_list_returns = shared_returns;
+            self.user_action_dependencies = dependencies;
+            self.overload_returns = overload_returns;
+            self.optional_refinement_origins = refinement_origins;
+            self.definitely_nonempty_lists = nonempty_lists;
+        }
+
+        (can_continue, completion_type)
+    }
+
+    fn check_statement_block(&mut self, statements: &[Statement]) -> bool {
+        self.check_statement_block_impl(statements).0
+    }
+
+    fn check_statement_block_with_completion(&mut self, statements: &[Statement]) -> (bool, Type) {
+        self.check_statement_block_impl(statements)
+    }
+
+    fn capture_active_try_flow_state(&mut self) {
+        if self.try_flow_states.is_empty() || self.try_flow_capture_suspended > 0 {
+            return;
+        }
+        let types = self
+            .analyzer
+            .live_binding_types()
+            .into_iter()
+            .collect::<BindingTypeSnapshot>();
+        let live_bindings = types.keys().cloned().collect::<HashSet<_>>();
+        let alias_edges = self
+            .list_alias_groups
+            .values()
+            .fold(0usize, |count, members| count.saturating_add(members.len()));
+        let work_per_accumulator = types.len().saturating_add(alias_edges).max(1);
+        let work_units = work_per_accumulator.saturating_mul(self.try_flow_states.len());
+        if !self.charge_try_flow_work(work_units) {
+            return;
+        }
+
+        for state in &mut self.try_flow_states {
+            for (binding, accumulated_type) in &mut state.binding_types {
+                let current_type = types.get(binding).cloned().unwrap_or(None);
+                *accumulated_type = match (accumulated_type.take(), current_type) {
+                    (Some(left), Some(right)) => Some(Self::join_inferred_types(left, right)),
+                    _ => Some(Type::Unknown),
+                };
+            }
+            Self::merge_list_alias_snapshot_into(&mut state.list_aliases, &self.list_alias_groups);
+            state.list_aliases.retain(|path, members| {
+                if !live_bindings.contains(&path.binding) {
+                    return false;
+                }
+                members.retain(|member| live_bindings.contains(&member.binding));
+                !members.is_empty()
+            });
+        }
+    }
+
+    fn charge_try_flow_work(&mut self, work_units: usize) -> bool {
+        let Some(budget) = crate::exec::budget::ExecutionBudget::current() else {
+            return true;
+        };
+        for _ in 0..work_units {
+            if let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt()) {
+                self.errors
+                    .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+                self.budget_error = Some(exceeded);
+                return false;
+            }
+        }
+        true
+    }
+
+    fn apply_try_binding_accumulator(
+        &mut self,
+        entry: SymbolTypeSnapshot,
+        state: &BindingTypeSnapshot,
+    ) -> SymbolTypeSnapshot {
+        self.analyzer.restore_symbol_types(entry);
+        for (binding, merged) in state {
+            if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(binding) {
+                symbol.symbol_type = merged.clone();
+            }
+        }
+        self.analyzer.snapshot_symbol_types()
+    }
+
+    fn retain_live_alias_paths(&self, snapshot: &mut ListAliasSnapshot) {
+        snapshot.retain(|path, members| {
+            if !self.analyzer.binding_key_is_live(&path.binding) {
+                return false;
+            }
+            members.retain(|member| self.analyzer.binding_key_is_live(&member.binding));
+            !members.is_empty()
+        });
+    }
+
+    fn prune_dead_list_alias_paths(&mut self) {
+        let dead = self
+            .list_alias_groups
+            .keys()
+            .filter(|path| !self.analyzer.binding_key_is_live(&path.binding))
+            .cloned()
+            .collect::<HashSet<_>>();
+        if dead.is_empty() {
+            return;
+        }
+        for path in &dead {
+            self.list_alias_groups.remove(path);
+        }
+        for members in self.list_alias_groups.values_mut() {
+            members.retain(|member| !dead.contains(member));
+        }
+        self.list_alias_groups
+            .retain(|_, members| members.len() > 1);
+    }
+
+    fn record_direct_list_alias(
+        &mut self,
+        target_name: &str,
+        value: &Expression,
+        value_type: &Type,
+    ) {
+        if !Self::type_may_be_list(value_type) {
+            return;
+        }
+        let target_is_list = self
+            .analyzer
+            .get_symbol(target_name)
+            .and_then(|symbol| symbol.symbol_type.as_ref())
+            .is_some_and(|ty| {
+                matches!(
+                    ty,
+                    Type::List(_) | Type::Unknown | Type::Any | Type::Error
+                ) || matches!(ty, Type::Optional(inner) if matches!(inner.as_ref(), Type::List(_)))
+            });
+        if !target_is_list {
+            return;
+        }
+
+        if let Some(source) = self.list_target_binding_path(value)
+            && self.alias_path_may_be_list(&source)
+        {
+            if let Some(target) = self.analyzer.get_symbol_binding_key(target_name) {
+                self.union_list_alias_bindings(
+                    source,
+                    ListAliasPath {
+                        binding: target,
+                        index_depth: 0,
+                    },
+                );
+            }
+        } else if matches!(
+            value,
+            Expression::MemberAccess { .. }
+                | Expression::PropertyAccess { .. }
+                | Expression::MethodCall { .. }
+        ) {
+            // The target now holds a shared list reached through a structural
+            // opaque path that the current AST/type model cannot name.
+            self.apply_list_mutation_effect(value, ListMutationEffect::Escape);
+            if let Some(target) = self.analyzer.get_symbol_mut(target_name)
+                && let Some(current_type) = target.symbol_type.clone()
+                && let Some(updated_type) =
+                    Self::apply_effect_at_list_path(&current_type, 0, &ListMutationEffect::Escape)
+            {
+                target.symbol_type = Some(updated_type);
+            }
+        }
+    }
+
+    fn type_may_be_list(ty: &Type) -> bool {
+        matches!(ty, Type::List(_) | Type::Unknown | Type::Any | Type::Error)
+            || matches!(ty, Type::Optional(inner) if Self::type_may_be_list(inner))
+    }
+
+    fn type_at_alias_path(ty: &Type, index_depth: usize) -> Option<Type> {
+        if index_depth == 0 {
+            return Some(ty.clone());
+        }
+        match ty {
+            Type::List(element) => Self::type_at_alias_path(element, index_depth - 1),
+            Type::Map(_, value) => Self::type_at_alias_path(value, index_depth - 1),
+            Type::Optional(inner) => Self::type_at_alias_path(inner, index_depth),
+            Type::Unknown | Type::Any | Type::Error => Some(ty.clone()),
+            _ => None,
+        }
+    }
+
+    fn alias_path_may_be_list(&self, path: &ListAliasPath) -> bool {
+        self.analyzer
+            .get_symbol_by_binding_key(&path.binding)
+            .and_then(|symbol| symbol.symbol_type.as_ref())
+            .and_then(|ty| Self::type_at_alias_path(ty, path.index_depth))
+            .is_some_and(|ty| Self::type_may_be_list(&ty))
+    }
+
+    fn alias_path_may_contain_list(&self, path: &ListAliasPath) -> bool {
+        self.analyzer
+            .get_symbol_by_binding_key(&path.binding)
+            .and_then(|symbol| symbol.symbol_type.as_ref())
+            .and_then(|ty| Self::type_at_alias_path(ty, path.index_depth))
+            .is_some_and(|ty| Self::type_may_contain_list(&ty))
+    }
+
+    fn record_nested_list_alias_expression(
+        &mut self,
+        target_binding: &SymbolBindingKey,
+        target_depth: usize,
+        value: &Expression,
+    ) {
+        let mut captured = Vec::new();
+        self.capture_nested_list_alias_sources(value, target_depth, &mut captured);
+        for (captured_depth, sources) in captured {
+            let target = ListAliasPath {
+                binding: target_binding.clone(),
+                index_depth: captured_depth,
+            };
+            for source in sources {
+                self.add_structural_list_alias(source, target.clone());
+            }
+        }
+    }
+
+    fn record_nested_list_aliases(&mut self, target_name: &str, value: &Expression) {
+        let Some(target_binding) = self.analyzer.get_symbol_binding_key(target_name) else {
+            return;
+        };
+        self.record_nested_list_alias_expression(&target_binding, 0, value);
+    }
+
+    fn detach_list_alias_descendants(&mut self, target: &Expression) {
+        let Some(target_path) = self.list_target_binding_path(target) else {
+            return;
+        };
+        let roots = self.list_alias_members_for_path(&target_path);
+        // Alias groups are may-alias sets after a control-flow join. Clearing
+        // or filling through one member only replaces the descendants of the
+        // allocation selected at runtime; deleting every member's descendants
+        // would lose provenance for every unselected allocation. Without a
+        // separate must-alias relation, retain those edges as a sound weak
+        // update and strong-update only an unaliased root.
+        if roots.len() > 1 {
+            return;
+        }
+        let detached = self
+            .list_alias_groups
+            .keys()
+            .filter(|path| {
+                roots
+                    .iter()
+                    .any(|root| path.binding == root.binding && path.index_depth > root.index_depth)
+            })
+            .cloned()
+            .collect::<HashSet<_>>();
+        for path in &detached {
+            self.list_alias_groups.remove(path);
+        }
+        for members in self.list_alias_groups.values_mut() {
+            members.retain(|member| !detached.contains(member));
+        }
+        self.list_alias_groups
+            .retain(|_, members| members.len() > 1);
+    }
+
+    fn record_list_insertion_aliases(&mut self, target: &Expression, value: &Expression) {
+        let Some(target_path) = self.list_target_binding_path(target) else {
+            return;
+        };
+        for root in self.list_alias_members_for_path(&target_path) {
+            self.record_nested_list_alias_expression(&root.binding, root.index_depth + 1, value);
+        }
+    }
+
+    fn capture_nested_list_alias_sources(
+        &self,
+        value: &Expression,
+        target_depth: usize,
+        out: &mut Vec<(usize, HashSet<ListAliasPath>)>,
+    ) {
+        if let Some(source_path) = self.list_target_binding_path(value)
+            && self.alias_path_may_contain_list(&source_path)
+        {
+            self.capture_alias_path_and_descendants(&source_path, target_depth, out);
+            return;
+        }
+        match value {
+            Expression::Literal(Literal::List(values), ..) => {
+                for item in values {
+                    self.capture_nested_list_alias_sources(item, target_depth + 1, out);
+                }
+            }
+            Expression::FunctionCall {
+                function,
+                arguments,
+                line,
+                column,
+            } => {
+                let Expression::Variable(name, ..) = function.as_ref() else {
+                    return;
+                };
+                let action_keys = self.action_summary_keys_for_call(name, *line, *column);
+                if !action_keys.is_empty() {
+                    out.extend(
+                        self.shared_list_return_sources_for_action_keys(&action_keys)
+                            .into_iter()
+                            .map(|(depth, sources)| (target_depth + depth, sources)),
+                    );
+                    return;
+                }
+                let builtin_name = self
+                    .builtin_name_for_call(name, *line, *column)
+                    .unwrap_or_default();
+                let shape_result = matches!(builtin_name.as_str(), "slice" | "unique" | "concat");
+                let element_result = matches!(
+                    builtin_name.as_str(),
+                    "find" | "random_from" | "pop" | "shift" | "remove_at" | "removeat"
+                );
+                if !shape_result && !element_result {
+                    return;
+                }
+                for argument in arguments
+                    .iter()
+                    .take(if builtin_name == "concat" { 2 } else { 1 })
+                {
+                    if let Some(mut source_path) = self.list_target_binding_path(&argument.value) {
+                        source_path.index_depth += 1;
+                        self.capture_alias_path_and_descendants(
+                            &source_path,
+                            target_depth + usize::from(shape_result),
+                            out,
+                        );
+                    }
+                }
+            }
+            Expression::ActionCall {
+                name, line, column, ..
+            } => {
+                let action_keys = self.action_summary_keys_for_call(name, *line, *column);
+                out.extend(
+                    self.shared_list_return_sources_for_action_keys(&action_keys)
+                        .into_iter()
+                        .map(|(depth, sources)| (target_depth + depth, sources)),
+                );
+            }
+            Expression::Variable(name, line, column) => {
+                let action_keys = self.action_summary_keys_for_call(name, *line, *column);
+                let auto_calls = action_keys.iter().any(|(action, index)| {
+                    self.action_signatures(action)
+                        .and_then(|signatures| signatures.get(*index).cloned())
+                        .is_some_and(|signature| signature.parameters.is_empty())
+                });
+                if auto_calls {
+                    out.extend(
+                        self.shared_list_return_sources_for_action_keys(&action_keys)
+                            .into_iter()
+                            .map(|(depth, sources)| (target_depth + depth, sources)),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn capture_alias_path_and_descendants(
+        &self,
+        source_path: &ListAliasPath,
+        target_depth: usize,
+        out: &mut Vec<(usize, HashSet<ListAliasPath>)>,
+    ) {
+        let mut relative_depths = HashSet::new();
+        if let Some(source_type) = self
+            .analyzer
+            .get_symbol_by_binding_key(&source_path.binding)
+            .and_then(|symbol| symbol.symbol_type.as_ref())
+            .and_then(|ty| Self::type_at_alias_path(ty, source_path.index_depth))
+        {
+            Self::collect_list_depths(&source_type, 0, &mut relative_depths);
+        }
+        relative_depths.extend(
+            self.list_alias_groups
+                .keys()
+                .filter(|path| {
+                    path.binding == source_path.binding
+                        && path.index_depth >= source_path.index_depth
+                })
+                .map(|path| path.index_depth - source_path.index_depth),
+        );
+
+        let mut relative_depths = relative_depths.into_iter().collect::<Vec<_>>();
+        relative_depths.sort_unstable();
+        for relative_depth in relative_depths {
+            let candidate = ListAliasPath {
+                binding: source_path.binding.clone(),
+                index_depth: source_path.index_depth + relative_depth,
+            };
+            if self.alias_path_may_be_list(&candidate) {
+                out.push((
+                    target_depth + relative_depth,
+                    self.list_alias_members_for_path(&candidate),
+                ));
+            }
+        }
+    }
+
+    fn action_summary_keys_for_call(
+        &self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> Vec<ActionSummaryKey> {
+        if let Some(resolution) = self.analyzer.alias_call_resolution(name, line, column) {
+            return match resolution {
+                crate::analyzer::AliasState::Bound {
+                    action,
+                    visible_signatures,
+                } => (0..*visible_signatures)
+                    .map(|index| (action.clone(), index))
+                    .collect(),
+                crate::analyzer::AliasState::Builtin { .. }
+                | crate::analyzer::AliasState::Dynamic => Vec::new(),
+            };
+        }
+        self.action_signatures(name)
+            .map(|signatures| {
+                (0..signatures.len())
+                    .map(|index| (name.to_string(), index))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn builtin_name_for_call(&self, name: &str, line: usize, column: usize) -> Option<String> {
+        match self.analyzer.alias_call_resolution(name, line, column) {
+            Some(crate::analyzer::AliasState::Builtin { name }) => Some(name.clone()),
+            Some(
+                crate::analyzer::AliasState::Bound { .. } | crate::analyzer::AliasState::Dynamic,
+            ) => None,
+            None if builtins::is_implemented_builtin_function(name) => Some(name.to_string()),
+            None => None,
+        }
+    }
+
+    fn shared_list_return_sources_for_action_keys(
+        &self,
+        action_keys: &[ActionSummaryKey],
+    ) -> Vec<(usize, HashSet<ListAliasPath>)> {
+        let mut merged = SharedListReturnProvenance::new();
+        for provenance in action_keys
+            .iter()
+            .filter_map(|key| self.user_action_shared_list_returns.get(key))
+        {
+            for (depth, sources) in provenance {
+                merged
+                    .entry(*depth)
+                    .or_default()
+                    .extend(sources.iter().cloned());
+            }
+        }
+        merged.into_iter().collect()
+    }
+
+    fn capture_block_completion_list_sources(
+        &self,
+        statements: &[Statement],
+        target_depth: usize,
+        out: &mut Vec<(usize, HashSet<ListAliasPath>)>,
+    ) {
+        let Some(last) = statements.last() else {
+            return;
+        };
+        self.capture_statement_completion_list_sources(last, target_depth, out);
+    }
+
+    fn capture_statement_completion_list_sources(
+        &self,
+        statement: &Statement,
+        target_depth: usize,
+        out: &mut Vec<(usize, HashSet<ListAliasPath>)>,
+    ) {
+        match statement {
+            Statement::ExpressionStatement { expression, .. } => {
+                self.capture_nested_list_alias_sources(expression, target_depth, out);
+            }
+            Statement::IfStatement {
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.capture_block_completion_list_sources(then_block, target_depth, out);
+                if let Some(else_block) = else_block {
+                    self.capture_block_completion_list_sources(else_block, target_depth, out);
+                }
+            }
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.capture_statement_completion_list_sources(then_stmt, target_depth, out);
+                if let Some(else_stmt) = else_stmt {
+                    self.capture_statement_completion_list_sources(else_stmt, target_depth, out);
+                }
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                ..
+            } => {
+                self.capture_block_completion_list_sources(body, target_depth, out);
+                for clause in when_clauses {
+                    self.capture_block_completion_list_sources(&clause.body, target_depth, out);
+                }
+                if let Some(otherwise_block) = otherwise_block {
+                    self.capture_block_completion_list_sources(otherwise_block, target_depth, out);
+                }
+            }
+            Statement::WaitForStatement { inner, .. } => {
+                self.capture_statement_completion_list_sources(inner, target_depth, out);
+            }
+            // These loops return the final body value at runtime. A
+            // repeat-until body executes at least once; the others may not,
+            // but retaining a may-alias edge is conservative for every
+            // continuation where a body value is produced.
+            Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. } => {
+                self.capture_block_completion_list_sources(body, target_depth, out);
+            }
+            _ => {}
+        }
+    }
+
+    fn restore_captured_list_alias_sources(
+        &mut self,
+        target_name: &str,
+        captured: Vec<(usize, HashSet<ListAliasPath>)>,
+    ) {
+        let Some(target_binding) = self.analyzer.get_symbol_binding_key(target_name) else {
+            return;
+        };
+        for (target_depth, sources) in captured {
+            let target = ListAliasPath {
+                binding: target_binding.clone(),
+                index_depth: target_depth,
+            };
+            for source in sources {
+                // When the RHS mentions the assigned binding, that path names
+                // the pre-assignment allocation. It has no independent live
+                // binding after the strong update; any other captured alias
+                // still links the retained allocation to the new target path.
+                if source.binding != target_binding {
+                    self.add_structural_list_alias(source, target.clone());
+                }
+            }
+        }
+    }
+
+    fn list_target_binding_path(&self, expression: &Expression) -> Option<ListAliasPath> {
+        match expression {
+            Expression::Variable(name, ..) => {
+                self.analyzer
+                    .get_symbol_binding_key(name)
+                    .map(|binding| ListAliasPath {
+                        binding,
+                        index_depth: 0,
+                    })
+            }
+            Expression::IndexAccess { collection, .. } => {
+                let mut path = self.list_target_binding_path(collection)?;
+                path.index_depth += 1;
+                Some(path)
+            }
+            _ => None,
+        }
+    }
+
+    fn expression_root_binding_key(&self, expression: &Expression) -> Option<SymbolBindingKey> {
+        match expression {
+            Expression::Variable(name, ..) => self.analyzer.get_symbol_binding_key(name),
+            Expression::IndexAccess { collection, .. } => {
+                self.expression_root_binding_key(collection)
+            }
+            Expression::MemberAccess { object, .. }
+            | Expression::PropertyAccess { object, .. }
+            | Expression::MethodCall { object, .. } => self.expression_root_binding_key(object),
+            _ => None,
+        }
+    }
+
+    fn apply_effect_at_list_path(
+        ty: &Type,
+        index_depth: usize,
+        effect: &ListMutationEffect,
+    ) -> Option<Type> {
+        if index_depth == 0 {
+            return match ty {
+                Type::List(element_type) => {
+                    let next_element = match effect {
+                        ListMutationEffect::Join(value_type) => Self::join_collection_value_type(
+                            Some((**element_type).clone()),
+                            value_type.clone(),
+                        ),
+                        ListMutationEffect::Replace(value_type) => value_type.clone(),
+                        ListMutationEffect::Escape => Type::Any,
+                    };
+                    Some(Type::List(Box::new(next_element)))
+                }
+                Type::Optional(inner) => {
+                    Self::apply_effect_at_list_path(inner, index_depth, effect)
+                        .map(|updated| Type::Optional(Box::new(updated)))
+                }
+                Type::Unknown | Type::Any | Type::Error => Some(ty.clone()),
+                _ => None,
+            };
+        }
+
+        match ty {
+            Type::List(element_type) => {
+                Self::apply_effect_at_list_path(element_type, index_depth - 1, effect)
+                    .map(|updated| Type::List(Box::new(updated)))
+            }
+            Type::Map(key_type, value_type) => {
+                Self::apply_effect_at_list_path(value_type, index_depth - 1, effect)
+                    .map(|updated| Type::Map(Box::new((**key_type).clone()), Box::new(updated)))
+            }
+            Type::Optional(inner) => Self::apply_effect_at_list_path(inner, index_depth, effect)
+                .map(|updated| Type::Optional(Box::new(updated))),
+            Type::Unknown | Type::Any | Type::Error => Some(ty.clone()),
+            _ => None,
+        }
+    }
+
+    fn list_alias_members_for_path(&self, path: &ListAliasPath) -> HashSet<ListAliasPath> {
+        let mut members = self
+            .list_alias_groups
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| HashSet::from([path.clone()]));
+
+        // A relation can connect paths at different depths
+        // (`inner@0 <-> nested@1`). A mutation below either endpoint keeps the
+        // same relative offset, so `inner@1` corresponds to `nested@2`.
+        for (ancestor, aliases) in &self.list_alias_groups {
+            if ancestor.binding == path.binding && ancestor.index_depth <= path.index_depth {
+                let offset = path.index_depth - ancestor.index_depth;
+                for alias in aliases {
+                    members.insert(ListAliasPath {
+                        binding: alias.binding.clone(),
+                        index_depth: alias.index_depth + offset,
+                    });
+                }
+            }
+        }
+        members
+    }
+
+    fn apply_list_mutation_effect_at_path(
+        &mut self,
+        path: &ListAliasPath,
+        effect: &ListMutationEffect,
+    ) {
+        let members = self.list_alias_members_for_path(path);
+        if let Some(active_effects) = self.deferred_list_effect_stack.last_mut() {
+            active_effects.extend(members.iter().cloned());
+        }
+        for member in members {
+            if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&member.binding)
+                && let Some(current_type) = symbol.symbol_type.clone()
+                && let Some(updated_type) =
+                    Self::apply_effect_at_list_path(&current_type, member.index_depth, effect)
+            {
+                symbol.symbol_type = Some(updated_type);
+            }
+        }
+    }
+
+    fn apply_list_mutation_effect(&mut self, target: &Expression, effect: ListMutationEffect) {
+        if let Some(path) = self.list_target_binding_path(target) {
+            self.apply_list_mutation_effect_at_path(&path, &effect);
+            return;
+        }
+
+        // Property/method-derived list values can still share mutable runtime
+        // storage, but the current Type model does not retain a property path.
+        // Widen only that expression's root rather than every list in scope.
+        if let Some(root) = self.expression_root_binding_key(target) {
+            let root = ListAliasPath {
+                binding: root,
+                index_depth: 0,
+            };
+            let members = self
+                .list_alias_groups
+                .get(&root)
+                .cloned()
+                .unwrap_or_else(|| HashSet::from([root]));
+            if let Some(active_effects) = self.deferred_list_effect_stack.last_mut() {
+                active_effects.extend(members.iter().cloned());
+            }
+            for member in members {
+                if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&member.binding) {
+                    symbol.symbol_type = Some(Type::Any);
+                }
+            }
+        }
+    }
+
+    fn apply_user_action_list_effects(&mut self, action_keys: &[ActionSummaryKey]) {
+        self.definitely_nonempty_lists.clear();
+        if let Some(caller) = self.deferred_action_key_stack.last().cloned() {
+            self.user_action_dependencies
+                .entry(caller)
+                .or_default()
+                .extend(action_keys.iter().cloned());
+        }
+
+        let effects = action_keys
+            .iter()
+            .flat_map(|key| {
+                self.user_action_list_effects
+                    .get(key)
+                    .into_iter()
+                    .flat_map(|effects| effects.iter().cloned())
+            })
+            .collect::<HashSet<_>>();
+        for path in effects {
+            if self.analyzer.binding_key_is_live(&path.binding) {
+                self.apply_list_mutation_effect_at_path(&path, &ListMutationEffect::Escape);
+            }
+        }
+
+        let mut binding_effects = HashMap::new();
+        for key in action_keys {
+            if let Some(effects) = self.user_action_binding_effects.get(key) {
+                for (binding, effect_type) in effects {
+                    Self::join_binding_effect(
+                        &mut binding_effects,
+                        binding.clone(),
+                        effect_type.clone(),
+                    );
+                }
+            }
+        }
+        for (binding, effect_type) in binding_effects {
+            if !self.analyzer.binding_key_is_live(&binding) {
+                continue;
+            }
+            let current_type = self
+                .analyzer
+                .get_symbol_by_binding_key(&binding)
+                .and_then(|symbol| symbol.symbol_type.clone());
+            let updated_type = current_type
+                .map(|current| Self::join_inferred_types(current, effect_type.clone()))
+                .unwrap_or(effect_type);
+            if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&binding) {
+                symbol.symbol_type = Some(updated_type);
+            }
+        }
+    }
+
+    fn escape_shared_list_return_type(&self, action_keys: &[ActionSummaryKey], ty: Type) -> Type {
+        let mut shared_depths = action_keys
+            .iter()
+            .filter_map(|key| self.user_action_shared_list_returns.get(key))
+            .flat_map(|provenance| provenance.keys().copied())
+            .collect::<Vec<_>>();
+        shared_depths.sort_unstable();
+        shared_depths.dedup();
+        shared_depths.reverse();
+
+        let mut escaped = ty;
+        for depth in shared_depths {
+            if let Some(updated) =
+                Self::apply_effect_at_list_path(&escaped, depth, &ListMutationEffect::Escape)
+            {
+                escaped = updated;
+            }
+        }
+        escaped
+    }
+
+    fn propagate_user_action_summaries(&mut self) {
+        loop {
+            let mut changed = false;
+            let dependencies = self.user_action_dependencies.clone();
+            for (caller, callees) in dependencies {
+                let inherited_effects = callees
+                    .iter()
+                    .flat_map(|callee| {
+                        self.user_action_list_effects
+                            .get(callee)
+                            .into_iter()
+                            .flat_map(|effects| effects.iter().cloned())
+                    })
+                    .collect::<HashSet<_>>();
+                let effects = self
+                    .user_action_list_effects
+                    .entry(caller.clone())
+                    .or_default();
+                let previous_len = effects.len();
+                effects.extend(inherited_effects);
+                changed |= effects.len() != previous_len;
+
+                let inherited_binding_effects = callees
+                    .iter()
+                    .filter_map(|callee| self.user_action_binding_effects.get(callee))
+                    .flat_map(|effects| effects.iter())
+                    .map(|(binding, effect_type)| (binding.clone(), effect_type.clone()))
+                    .collect::<Vec<_>>();
+                let binding_effects = self
+                    .user_action_binding_effects
+                    .entry(caller.clone())
+                    .or_default();
+                let previous_binding_effects = binding_effects.clone();
+                for (binding, effect_type) in inherited_binding_effects {
+                    Self::join_binding_effect(binding_effects, binding, effect_type);
+                }
+                changed |= *binding_effects != previous_binding_effects;
+            }
+            if !changed {
                 break;
             }
-            header = next;
+        }
+    }
+
+    fn escape_possible_shared_list_return_type(ty: Type) -> Type {
+        match ty {
+            Type::List(_) => Type::List(Box::new(Type::Any)),
+            Type::Map(key, value) => Type::Map(
+                Box::new(Self::escape_possible_shared_list_return_type(*key)),
+                Box::new(Self::escape_possible_shared_list_return_type(*value)),
+            ),
+            Type::Optional(inner) => Type::Optional(Box::new(
+                Self::escape_possible_shared_list_return_type(*inner),
+            )),
+            Type::Async(inner) => Type::Async(Box::new(
+                Self::escape_possible_shared_list_return_type(*inner),
+            )),
+            other => other,
+        }
+    }
+
+    fn type_may_contain_list(ty: &Type) -> bool {
+        match ty {
+            Type::List(_) | Type::Unknown | Type::Any | Type::Error => true,
+            // Runtime maps index values; keys are text and are never mutable
+            // list paths. Alias depth therefore follows only the value side.
+            Type::Map(_, value) => Self::type_may_contain_list(value),
+            Type::Optional(inner) | Type::Async(inner) => Self::type_may_contain_list(inner),
+            _ => false,
+        }
+    }
+
+    fn collect_list_depths(ty: &Type, depth: usize, out: &mut HashSet<usize>) {
+        match ty {
+            Type::List(element) => {
+                out.insert(depth);
+                Self::collect_list_depths(element, depth + 1, out);
+            }
+            Type::Map(_, value) => {
+                Self::collect_list_depths(value, depth + 1, out);
+            }
+            Type::Optional(inner) | Type::Async(inner) => {
+                Self::collect_list_depths(inner, depth, out);
+            }
+            Type::Unknown | Type::Any | Type::Error => {
+                out.insert(depth);
+            }
+            _ => {}
+        }
+    }
+
+    fn escape_lists_in_type(ty: Type) -> Type {
+        match ty {
+            Type::List(_) => Type::List(Box::new(Type::Any)),
+            Type::Map(key, value) => Type::Map(
+                Box::new(Self::escape_lists_in_type(*key)),
+                Box::new(Self::escape_lists_in_type(*value)),
+            ),
+            Type::Optional(inner) => Type::Optional(Box::new(Self::escape_lists_in_type(*inner))),
+            Type::Async(inner) => Type::Async(Box::new(Self::escape_lists_in_type(*inner))),
+            other => other,
+        }
+    }
+
+    fn escape_all_visible_mutable_state(&mut self) {
+        // A live Optional refinement retains a sound upper bound even when an
+        // opaque closure may rebind the value. Preserve that original type
+        // instead of erasing it to Any; the closure can select either the
+        // present or Nothing branch, but cannot justify values outside the
+        // statically checked Optional contract.
+        let optional_origins = self.optional_refinement_origins.clone();
+        self.invalidate_optional_refinements();
+        self.definitely_nonempty_lists.clear();
+        let bindings = self
+            .analyzer
+            .live_binding_types()
+            .into_iter()
+            .collect::<Vec<_>>();
+        for (binding, ty) in bindings {
+            let Some(ty) = ty else {
+                continue;
+            };
+            let is_mutable = self
+                .analyzer
+                .get_symbol_by_binding_key(&binding)
+                .is_some_and(|symbol| {
+                    matches!(symbol.kind, SymbolKind::Variable { mutable: true })
+                });
+            if is_mutable {
+                let escaped_type = optional_origins.get(&binding).cloned().unwrap_or(Type::Any);
+                if let Some(active_effects) = self.deferred_binding_effect_stack.last_mut() {
+                    Self::join_binding_effect(
+                        active_effects,
+                        binding.clone(),
+                        escaped_type.clone(),
+                    );
+                }
+                if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&binding) {
+                    // An opaque closure can rebind any mutable captured value,
+                    // not merely mutate storage reachable through a list. Keep
+                    // a known Optional origin when one bounds the possibilities.
+                    symbol.symbol_type = Some(escaped_type);
+                }
+                continue;
+            }
+            if !Self::type_may_contain_list(&ty) {
+                continue;
+            }
+            let mut depths = HashSet::new();
+            Self::collect_list_depths(&ty, 0, &mut depths);
+            if let Some(active_effects) = self.deferred_list_effect_stack.last_mut() {
+                active_effects.extend(depths.iter().map(|index_depth| ListAliasPath {
+                    binding: binding.clone(),
+                    index_depth: *index_depth,
+                }));
+            }
+            if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&binding) {
+                symbol.symbol_type = Some(Self::escape_lists_in_type(ty));
+            }
+        }
+    }
+
+    fn invalidate_optional_refinements(&mut self) {
+        let origins = self
+            .optional_refinement_origins
+            .iter()
+            .map(|(binding, origin)| (binding.clone(), origin.clone()))
+            .collect::<Vec<_>>();
+        for (binding, origin) in origins {
+            if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&binding) {
+                symbol.symbol_type = Some(origin);
+            }
+        }
+    }
+
+    fn escape_user_action_list_arguments(
+        &mut self,
+        arguments: &[crate::parser::ast::Argument],
+        argument_types: &[Type],
+    ) {
+        for (argument, argument_type) in arguments.iter().zip(argument_types) {
+            if !Self::type_may_contain_list(argument_type) {
+                continue;
+            }
+            if let Some(root) = self.list_target_binding_path(&argument.value) {
+                let mut depths = HashSet::new();
+                Self::collect_list_depths(argument_type, 0, &mut depths);
+                let mut depths = depths.into_iter().collect::<Vec<_>>();
+                depths.sort_unstable_by(|left, right| right.cmp(left));
+                for depth in depths {
+                    self.apply_list_mutation_effect_at_path(
+                        &ListAliasPath {
+                            binding: root.binding.clone(),
+                            index_depth: root.index_depth + depth,
+                        },
+                        &ListMutationEffect::Escape,
+                    );
+                }
+            } else {
+                self.apply_list_mutation_effect(&argument.value, ListMutationEffect::Escape);
+            }
+        }
+    }
+
+    fn record_deferred_list_rebind(
+        &mut self,
+        target_name: &str,
+        value: &Expression,
+        value_type: &Type,
+    ) {
+        if self.deferred_list_effect_stack.is_empty() || !Self::type_may_be_list(value_type) {
+            return;
+        }
+        let mut affected = HashSet::new();
+        if let Some(binding) = self.analyzer.get_symbol_binding_key(target_name) {
+            affected.extend(self.list_alias_members_for_path(&ListAliasPath {
+                binding,
+                index_depth: 0,
+            }));
+        }
+        if let Some(source) = self.list_target_binding_path(value) {
+            affected.extend(self.list_alias_members_for_path(&source));
+        }
+        if let Some(active_effects) = self.deferred_list_effect_stack.last_mut() {
+            active_effects.extend(affected);
+        }
+    }
+
+    fn record_deferred_binding_assignment(&mut self, name: &str) {
+        let Some(binding) = self.analyzer.get_symbol_binding_key(name) else {
+            return;
+        };
+        let Some(effect_type) = self
+            .analyzer
+            .get_symbol_by_binding_key(&binding)
+            .and_then(|symbol| symbol.symbol_type.clone())
+        else {
+            return;
+        };
+        if let Some(active_effects) = self.deferred_binding_effect_stack.last_mut() {
+            Self::join_binding_effect(active_effects, binding, effect_type);
+        }
+    }
+
+    fn merge_promoted_list_alias_bindings(
+        &mut self,
+        promoted: Vec<(SymbolBindingKey, SymbolBindingKey)>,
+    ) {
+        for (old_binding, new_binding) in promoted {
+            let old_paths = self
+                .list_alias_groups
+                .keys()
+                .filter(|path| path.binding == old_binding)
+                .cloned()
+                .collect::<Vec<_>>();
+            if old_paths.is_empty() {
+                self.union_list_alias_bindings(
+                    ListAliasPath {
+                        binding: old_binding,
+                        index_depth: 0,
+                    },
+                    ListAliasPath {
+                        binding: new_binding,
+                        index_depth: 0,
+                    },
+                );
+            } else {
+                for old_path in old_paths {
+                    self.union_list_alias_bindings(
+                        old_path.clone(),
+                        ListAliasPath {
+                            binding: new_binding.clone(),
+                            index_depth: old_path.index_depth,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    fn same_type_error(left: &TypeError, right: &TypeError) -> bool {
+        left.message == right.message
+            && left.expected == right.expected
+            && left.found == right.found
+            && left.line == right.line
+            && left.column == right.column
+    }
+
+    fn deduplicate_errors_from(&mut self, start: usize) {
+        let mut index = start;
+        while index < self.errors.len() {
+            if self.errors[..index]
+                .iter()
+                .any(|earlier| Self::same_type_error(earlier, &self.errors[index]))
+            {
+                self.errors.remove(index);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    /// Recognize the direct variable forms users write to guard a value that
+    /// may be Nothing. The boolean says whether the condition's true branch is
+    /// the Nothing branch.
+    fn nothing_tested_variable(condition: &Expression) -> Option<(&str, bool)> {
+        match condition {
+            Expression::BinaryOperation {
+                left,
+                operator: operator @ (Operator::Equals | Operator::NotEquals),
+                right,
+                ..
+            } => {
+                let name = match (left.as_ref(), right.as_ref()) {
+                    (Expression::Variable(name, ..), Expression::Literal(Literal::Nothing, ..))
+                    | (Expression::Literal(Literal::Nothing, ..), Expression::Variable(name, ..)) => {
+                        name.as_str()
+                    }
+                    _ => return None,
+                };
+                Some((name, matches!(operator, Operator::Equals)))
+            }
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } if arguments.len() == 1
+                && matches!(
+                    function.as_ref(),
+                    Expression::Variable(name, ..)
+                        if name == "isnothing" || name == "is_nothing"
+                ) =>
+            {
+                match &arguments[0].value {
+                    Expression::Variable(name, ..) => Some((name, true)),
+                    _ => None,
+                }
+            }
+            Expression::ActionCall {
+                name, arguments, ..
+            } if (name == "isnothing" || name == "is_nothing") && arguments.len() == 1 => {
+                match &arguments[0].value {
+                    Expression::Variable(name, ..) => Some((name, true)),
+                    _ => None,
+                }
+            }
+            Expression::UnaryOperation {
+                operator: UnaryOperator::Not,
+                expression,
+                ..
+            } => Self::nothing_tested_variable(expression)
+                .map(|(name, true_is_nothing)| (name, !true_is_nothing)),
+            _ => None,
+        }
+    }
+
+    fn optional_condition_refinement(
+        &self,
+        condition: &Expression,
+    ) -> Option<(String, Type, Type)> {
+        let (name, true_is_nothing) = Self::nothing_tested_variable(condition)?;
+        let Type::Optional(inner) = self
+            .analyzer
+            .get_symbol(name)
+            .and_then(|symbol| symbol.symbol_type.clone())?
+        else {
+            return None;
+        };
+        let present_type = *inner;
+        let (then_type, else_type) = if true_is_nothing {
+            (Type::Nothing, present_type)
+        } else {
+            (present_type, Type::Nothing)
+        };
+        Some((name.to_string(), then_type, else_type))
+    }
+
+    fn refine_symbol_type(&mut self, name: &str, ty: &Type) {
+        if let Some(binding) = self.analyzer.get_symbol_binding_key(name)
+            && let Some(origin @ Type::Optional(_)) = self
+                .analyzer
+                .get_symbol_by_binding_key(&binding)
+                .and_then(|symbol| symbol.symbol_type.clone())
+        {
+            self.optional_refinement_origins
+                .entry(binding)
+                .or_insert(origin);
+        }
+        if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+            symbol.symbol_type = Some(ty.clone());
+        }
+    }
+
+    /// Whether execution can reach the current loop's next iteration. A
+    /// definitely terminating statement suppresses the backedge; nested loops
+    /// do not, because their `break` applies to the nested loop.
+    fn loop_body_can_reach_backedge(statements: &[Statement]) -> bool {
+        !statements
+            .iter()
+            .any(Self::statement_definitely_stops_current_loop)
+    }
+
+    fn statement_definitely_stops_current_loop(statement: &Statement) -> bool {
+        match statement {
+            Statement::BreakStatement { .. }
+            | Statement::ExitStatement { .. }
+            | Statement::ReturnStatement { .. } => true,
+            Statement::IfStatement {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                then_block,
+                else_block: None,
+                ..
+            } => !Self::loop_body_can_reach_backedge(then_block),
+            Statement::IfStatement {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                else_block: Some(else_block),
+                ..
+            } => !Self::loop_body_can_reach_backedge(else_block),
+            Statement::IfStatement {
+                then_block,
+                else_block: Some(else_block),
+                ..
+            } => {
+                !Self::loop_body_can_reach_backedge(then_block)
+                    && !Self::loop_body_can_reach_backedge(else_block)
+            }
+            Statement::SingleLineIf {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                then_stmt,
+                ..
+            } => Self::statement_definitely_stops_current_loop(then_stmt),
+            Statement::SingleLineIf {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                else_stmt,
+                ..
+            } => else_stmt
+                .as_ref()
+                .is_some_and(|statement| Self::statement_definitely_stops_current_loop(statement)),
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt: Some(else_stmt),
+                ..
+            } => {
+                Self::statement_definitely_stops_current_loop(then_stmt)
+                    && Self::statement_definitely_stops_current_loop(else_stmt)
+            }
+            Statement::WaitForStatement { inner, .. } => {
+                Self::statement_definitely_stops_current_loop(inner)
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                finally_block
+                    .as_ref()
+                    .is_some_and(|block| !Self::loop_body_can_reach_backedge(block))
+                    || (!Self::loop_body_can_reach_backedge(body)
+                        && when_clauses
+                            .iter()
+                            .all(|clause| !Self::loop_body_can_reach_backedge(&clause.body))
+                        && otherwise_block
+                            .as_ref()
+                            .is_none_or(|block| !Self::loop_body_can_reach_backedge(block)))
+            }
+            _ => false,
+        }
+    }
+
+    fn block_can_continue(statements: &[Statement]) -> bool {
+        !statements
+            .iter()
+            .any(Self::statement_definitely_stops_current_block)
+    }
+
+    fn statement_definitely_stops_current_block(statement: &Statement) -> bool {
+        match statement {
+            Statement::BreakStatement { .. }
+            | Statement::ContinueStatement { .. }
+            | Statement::ExitStatement { .. }
+            | Statement::ReturnStatement { .. } => true,
+            Statement::IfStatement {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                then_block,
+                else_block: None,
+                ..
+            } => !Self::block_can_continue(then_block),
+            Statement::IfStatement {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                else_block: Some(else_block),
+                ..
+            } => !Self::block_can_continue(else_block),
+            Statement::IfStatement {
+                then_block,
+                else_block: Some(else_block),
+                ..
+            } => !Self::block_can_continue(then_block) && !Self::block_can_continue(else_block),
+            Statement::SingleLineIf {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                then_stmt,
+                ..
+            } => Self::statement_definitely_stops_current_block(then_stmt),
+            Statement::SingleLineIf {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                else_stmt,
+                ..
+            } => else_stmt
+                .as_ref()
+                .is_some_and(|statement| Self::statement_definitely_stops_current_block(statement)),
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt: Some(else_stmt),
+                ..
+            } => {
+                Self::statement_definitely_stops_current_block(then_stmt)
+                    && Self::statement_definitely_stops_current_block(else_stmt)
+            }
+            Statement::WaitForStatement { inner, .. } => {
+                Self::statement_definitely_stops_current_block(inner)
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                finally_block
+                    .as_ref()
+                    .is_some_and(|block| !Self::block_can_continue(block))
+                    || (!Self::block_can_continue(body)
+                        && when_clauses
+                            .iter()
+                            .all(|clause| !Self::block_can_continue(&clause.body))
+                        && otherwise_block
+                            .as_ref()
+                            .is_none_or(|block| !Self::block_can_continue(block)))
+            }
+            Statement::WhileLoop {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                body,
+                ..
+            }
+            | Statement::RepeatWhileLoop {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                body,
+                ..
+            }
+            | Statement::RepeatUntilLoop {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                body,
+                ..
+            }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. } => !Self::block_may_break_current_loop(body),
+            _ => false,
+        }
+    }
+
+    /// Check a loop whose body executes in one persistent environment (`while`,
+    /// `repeat until`, and the child environment of `repeat while`). The first
+    /// iteration and the stable later-iteration header are both real runtime
+    /// states, so diagnostics from either must survive.
+    fn check_persistent_loop_body_fixed_point(
+        &mut self,
+        body: &[Statement],
+        condition_can_repeat: bool,
+    ) {
+        let previous_backedge_mode = self.checking_persistent_loop_backedge;
+        // A literal-false pre-test condition makes the body unreachable. We
+        // still validate its statements, but none of its type or alias effects
+        // may flow to the post-loop state.
+        let unreachable_alias_state =
+            (!condition_can_repeat).then(|| self.list_alias_groups.clone());
+        let entry = self.analyzer.snapshot_symbol_types();
+        let entry_aliases = self.list_alias_groups.clone();
+        let summary_entry = self.snapshot_deferred_summary();
+        self.checking_persistent_loop_backedge = previous_backedge_mode;
+        self.analyzer.restore_symbol_types(entry.clone());
+        self.list_alias_groups = entry_aliases.clone();
+        self.check_statement_block(body);
+        if self.budget_error.is_some() {
+            if let Some(alias_state) = unreachable_alias_state {
+                self.list_alias_groups = alias_state;
+            }
+            self.checking_persistent_loop_backedge = previous_backedge_mode;
+            return;
         }
 
-        self.analyzer.restore_symbol_types(header.clone());
-        for statement in body {
-            self.check_statement_types(statement);
+        self.prune_dead_list_alias_paths();
+        let first_backedge = self.analyzer.snapshot_symbol_types();
+        let first_backedge_aliases = self.list_alias_groups.clone();
+        let first_error_end = self.errors.len();
+        if !condition_can_repeat {
+            self.restore_deferred_summary(summary_entry.clone());
         }
+        let first_summary = self.snapshot_deferred_summary();
+        let mut header = if condition_can_repeat {
+            Self::join_type_snapshots(&[entry.clone(), first_backedge])
+        } else {
+            entry.clone()
+        };
+        let mut header_aliases = if condition_can_repeat {
+            Self::join_list_alias_snapshots(&[
+                entry_aliases.clone(),
+                first_backedge_aliases.clone(),
+            ])
+        } else {
+            entry_aliases.clone()
+        };
+
+        if condition_can_repeat && Self::loop_body_can_reach_backedge(body) {
+            loop {
+                self.analyzer.restore_symbol_types(header.clone());
+                self.list_alias_groups = header_aliases.clone();
+                let error_count = self.errors.len();
+                self.checking_persistent_loop_backedge = true;
+                self.restore_deferred_summary(first_summary.clone());
+                self.check_statement_block(body);
+                if self.budget_error.is_some() {
+                    self.checking_persistent_loop_backedge = previous_backedge_mode;
+                    return;
+                }
+                self.restore_deferred_summary(first_summary.clone());
+                self.errors.truncate(error_count);
+
+                self.prune_dead_list_alias_paths();
+                let backedge = self.analyzer.snapshot_symbol_types();
+                let backedge_aliases = self.list_alias_groups.clone();
+                let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
+                let next_aliases = Self::join_list_alias_snapshots(&[
+                    entry_aliases.clone(),
+                    header_aliases.clone(),
+                    backedge_aliases,
+                ]);
+                if next == header && next_aliases == header_aliases {
+                    break;
+                }
+                header = next;
+                header_aliases = next_aliases;
+            }
+
+            self.analyzer.restore_symbol_types(header.clone());
+            self.list_alias_groups = header_aliases.clone();
+            self.checking_persistent_loop_backedge = true;
+            self.restore_deferred_summary(first_summary);
+            self.check_statement_block(body);
+            self.prune_dead_list_alias_paths();
+            header_aliases =
+                Self::join_list_alias_snapshots(&[header_aliases, self.list_alias_groups.clone()]);
+            self.deduplicate_errors_from(first_error_end);
+        }
+
         self.analyzer.restore_symbol_types(header);
+        self.list_alias_groups = header_aliases;
+        if let Some(alias_state) = unreachable_alias_state {
+            self.list_alias_groups = alias_state;
+        }
+        self.checking_persistent_loop_backedge = previous_backedge_mode;
+    }
+
+    fn restore_fresh_iteration_state(
+        &mut self,
+        local_symbols: &HashMap<String, Symbol>,
+        parent_types: &[HashMap<String, Option<Type>>],
+    ) {
+        self.analyzer
+            .restore_current_scope_symbols(local_symbols.clone());
+        let local_types = local_symbols
+            .iter()
+            .map(|(name, symbol)| (name.clone(), symbol.symbol_type.clone()))
+            .collect();
+        let mut state = Vec::with_capacity(parent_types.len() + 1);
+        state.push(local_types);
+        state.extend_from_slice(parent_types);
+        self.analyzer.restore_symbol_types(state);
+    }
+
+    /// Check a loop whose runtime creates or clears a child environment before
+    /// every iteration (`for each`, `count`, `forever`, and `main loop`).
+    /// Iteration-local declarations reset; only mutations resolved into parent
+    /// scopes contribute to the next header.
+    fn check_fresh_iteration_loop_body(&mut self, body: &[Statement], guaranteed_iteration: bool) {
+        let previous_backedge_mode = self.checking_persistent_loop_backedge;
+        let local_symbols = self.analyzer.snapshot_current_scope_symbols();
+        let entry = self.analyzer.snapshot_symbol_types();
+        let entry_aliases = self.list_alias_groups.clone();
+        let parent_entry = entry.get(1..).unwrap_or_default().to_vec();
+        let summary_entry = self.snapshot_deferred_summary();
+
+        self.checking_persistent_loop_backedge = false;
+        self.restore_fresh_iteration_state(&local_symbols, &parent_entry);
+        self.list_alias_groups = entry_aliases.clone();
+        self.check_statement_block(body);
+        if self.budget_error.is_some() {
+            self.checking_persistent_loop_backedge = previous_backedge_mode;
+            return;
+        }
+
+        self.prune_dead_list_alias_paths();
+        let first_snapshot = self.analyzer.snapshot_symbol_types();
+        let first_backedge_aliases = self.list_alias_groups.clone();
+        let first_backedge = first_snapshot.get(1..).unwrap_or_default().to_vec();
+        let first_error_end = self.errors.len();
+        let first_summary = self.snapshot_deferred_summary();
+        let mut parent_header = if guaranteed_iteration {
+            first_backedge
+        } else {
+            Self::join_type_snapshots(&[parent_entry.clone(), first_backedge])
+        };
+        let mut header_aliases = if guaranteed_iteration {
+            first_backedge_aliases
+        } else {
+            Self::join_list_alias_snapshots(&[entry_aliases.clone(), first_backedge_aliases])
+        };
+
+        if Self::loop_body_can_reach_backedge(body) {
+            loop {
+                self.restore_fresh_iteration_state(&local_symbols, &parent_header);
+                self.list_alias_groups = header_aliases.clone();
+                let error_count = self.errors.len();
+                self.checking_persistent_loop_backedge = false;
+                self.restore_deferred_summary(first_summary.clone());
+                self.check_statement_block(body);
+                if self.budget_error.is_some() {
+                    self.checking_persistent_loop_backedge = previous_backedge_mode;
+                    return;
+                }
+                self.restore_deferred_summary(first_summary.clone());
+                self.errors.truncate(error_count);
+
+                self.prune_dead_list_alias_paths();
+                let snapshot = self.analyzer.snapshot_symbol_types();
+                let backedge_aliases = self.list_alias_groups.clone();
+                let backedge = snapshot.get(1..).unwrap_or_default().to_vec();
+                let next = if guaranteed_iteration {
+                    Self::join_type_snapshots(&[parent_header.clone(), backedge])
+                } else {
+                    Self::join_type_snapshots(&[
+                        parent_entry.clone(),
+                        parent_header.clone(),
+                        backedge,
+                    ])
+                };
+                let next_aliases = if guaranteed_iteration {
+                    Self::join_list_alias_snapshots(&[header_aliases.clone(), backedge_aliases])
+                } else {
+                    Self::join_list_alias_snapshots(&[
+                        entry_aliases.clone(),
+                        header_aliases.clone(),
+                        backedge_aliases,
+                    ])
+                };
+                if next == parent_header && next_aliases == header_aliases {
+                    break;
+                }
+                parent_header = next;
+                header_aliases = next_aliases;
+            }
+
+            self.restore_fresh_iteration_state(&local_symbols, &parent_header);
+            self.list_alias_groups = header_aliases.clone();
+            self.checking_persistent_loop_backedge = false;
+            self.restore_deferred_summary(first_summary);
+            self.check_statement_block(body);
+            self.prune_dead_list_alias_paths();
+            header_aliases =
+                Self::join_list_alias_snapshots(&[header_aliases, self.list_alias_groups.clone()]);
+            self.deduplicate_errors_from(first_error_end);
+        }
+
+        self.restore_fresh_iteration_state(&local_symbols, &parent_header);
+        self.list_alias_groups = header_aliases;
+        let _ = summary_entry;
+        self.checking_persistent_loop_backedge = previous_backedge_mode;
+    }
+
+    /// Type-check a post-test loop. The body runs before the condition on the
+    /// first iteration, and later iterations re-enter under the joined
+    /// entry/backedge state.
+    fn check_repeat_until_fixed_point(
+        &mut self,
+        condition: &Expression,
+        body: &[Statement],
+        line: usize,
+        column: usize,
+    ) {
+        let previous_backedge_mode = self.checking_persistent_loop_backedge;
+        let entry = self.analyzer.snapshot_symbol_types();
+        let entry_aliases = self.list_alias_groups.clone();
+        let summary_entry = self.snapshot_deferred_summary();
+
+        self.checking_persistent_loop_backedge = previous_backedge_mode;
+        self.analyzer.restore_symbol_types(entry.clone());
+        self.list_alias_groups = entry_aliases;
+        self.check_statement_block(body);
+        let condition_type = self.infer_expression_type(condition);
+        if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
+            self.type_error(
+                "Condition in repeat-until loop must be a boolean expression".to_string(),
+                Some(Type::Boolean),
+                Some(condition_type),
+                line,
+                column,
+            );
+        }
+        if self.budget_error.is_some() {
+            self.checking_persistent_loop_backedge = previous_backedge_mode;
+            return;
+        }
+
+        self.prune_dead_list_alias_paths();
+        let first_backedge = self.analyzer.snapshot_symbol_types();
+        let first_backedge_aliases = self.list_alias_groups.clone();
+        let first_error_end = self.errors.len();
+        let first_summary = self.snapshot_deferred_summary();
+        let mut header = Self::join_type_snapshots(&[entry.clone(), first_backedge]);
+        let mut header_aliases = first_backedge_aliases.clone();
+
+        let condition_can_repeat =
+            !matches!(condition, Expression::Literal(Literal::Boolean(true), ..));
+        if condition_can_repeat && Self::loop_body_can_reach_backedge(body) {
+            loop {
+                self.analyzer.restore_symbol_types(header.clone());
+                self.list_alias_groups = header_aliases.clone();
+                let error_count = self.errors.len();
+                self.checking_persistent_loop_backedge = true;
+                self.restore_deferred_summary(first_summary.clone());
+                self.check_statement_block(body);
+                let condition_type = self.infer_expression_type(condition);
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
+                    self.type_error(
+                        "Condition in repeat-until loop must be a boolean expression".to_string(),
+                        Some(Type::Boolean),
+                        Some(condition_type),
+                        line,
+                        column,
+                    );
+                }
+                if self.budget_error.is_some() {
+                    self.checking_persistent_loop_backedge = previous_backedge_mode;
+                    return;
+                }
+                self.restore_deferred_summary(first_summary.clone());
+                self.errors.truncate(error_count);
+
+                self.prune_dead_list_alias_paths();
+                let backedge = self.analyzer.snapshot_symbol_types();
+                let backedge_aliases = self.list_alias_groups.clone();
+                let next = Self::join_type_snapshots(&[entry.clone(), header.clone(), backedge]);
+                let next_aliases = Self::join_list_alias_snapshots(&[
+                    first_backedge_aliases.clone(),
+                    header_aliases.clone(),
+                    backedge_aliases,
+                ]);
+                if next == header && next_aliases == header_aliases {
+                    break;
+                }
+                header = next;
+                header_aliases = next_aliases;
+            }
+
+            self.analyzer.restore_symbol_types(header.clone());
+            self.list_alias_groups = header_aliases.clone();
+            self.checking_persistent_loop_backedge = true;
+            self.restore_deferred_summary(first_summary);
+            self.check_statement_block(body);
+            let condition_type = self.infer_expression_type(condition);
+            if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
+                self.type_error(
+                    "Condition in repeat-until loop must be a boolean expression".to_string(),
+                    Some(Type::Boolean),
+                    Some(condition_type),
+                    line,
+                    column,
+                );
+            }
+            self.prune_dead_list_alias_paths();
+            header_aliases =
+                Self::join_list_alias_snapshots(&[header_aliases, self.list_alias_groups.clone()]);
+            self.deduplicate_errors_from(first_error_end);
+        }
+
+        self.analyzer.restore_symbol_types(header);
+        self.list_alias_groups = header_aliases;
+        let _ = summary_entry;
+        self.checking_persistent_loop_backedge = previous_backedge_mode;
     }
 
     /// Like [`check_loop_body_fixed_point`], but leaves the POST-BODY type
@@ -482,23 +2642,37 @@ impl TypeChecker {
             "join" => Type::Text,
 
             // List functions
-            "push" | "pop" | "shift" | "unshift" | "removeat" | "remove_at" | "insertat"
-            | "insert_at" | "slice" | "concat" | "unique" | "sort" | "reverse_list" | "clear"
-            | "filter" | "map" => Type::List(Box::new(Type::Any)),
-            "find" | "reduce" => Type::Any,
+            "push" | "sort" | "reverse_list" | "clear" | "unshift" | "insertat" | "insert_at"
+            | "fill" => Type::Nothing,
+            "slice" | "concat" | "unique" | "filter" | "map" => Type::List(Box::new(Type::Any)),
+            "find" => Type::Optional(Box::new(Type::Any)),
+            "pop" | "shift" | "removeat" | "remove_at" | "reduce" => Type::Any,
             "count" | "size" | "find_index" => Type::Number,
             "includes" | "every" | "some" => Type::Boolean,
 
-            // Time functions
-            "now" | "today" | "time" | "date" | "year" | "month" | "day" | "hour" | "minute"
-            | "second" | "dayofweek" | "day_of_week" | "adddays" | "add_days" | "addmonths"
-            | "add_months" | "addyears" | "add_years" | "addhours" | "add_hours" | "addminutes"
-            | "add_minutes" | "addseconds" | "add_seconds" => Type::Number,
+            // Time functions. Date/Time/DateTime are runtime value types, so
+            // preserve them as named static types rather than erasing them to
+            // Any (or, historically, misclassifying them as Number).
+            "today" | "date" | "parsedate" | "parse_date" | "create_date" | "date_part"
+            | "adddays" | "add_days" | "subtract_days" | "addmonths" | "add_months"
+            | "addyears" | "add_years" => Type::Date,
+            "now" | "time" | "parse_time" | "create_time" | "time_part" => Type::Time,
+            "datetime_now"
+            | "create_datetime"
+            | "utc_now"
+            | "datetime_from_timestamp"
+            | "addhours"
+            | "add_hours"
+            | "addminutes"
+            | "add_minutes"
+            | "addseconds"
+            | "add_seconds" => Type::DateTime,
+            "year" | "month" | "day" | "hour" | "minute" | "second" | "dayofweek"
+            | "day_of_week" | "dayofyear" | "day_of_year" | "days_in_month" | "week_of_year"
+            | "timestamp" | "time_diff" => Type::Number,
             "formatdate" | "format_date" | "formattime" | "format_time" | "format_datetime"
             | "current_date" => Type::Text,
-            "parsedate" | "parse_date" | "isleapyear" | "is_leap_year" => Type::Number,
-            // DateTime-valued functions: no static type exists for DateTime
-            "datetime_now" | "create_time" | "create_date" | "parse_time" => Type::Any,
+            "isleapyear" | "is_leap_year" => Type::Boolean,
             "daysbetween" | "days_between" | "monthsbetween" | "months_between"
             | "yearsbetween" | "years_between" => Type::Number,
 
@@ -506,8 +2680,14 @@ impl TypeChecker {
             "pattern" | "match" | "test" | "replace_pattern" | "extract" => Type::Text,
             "ismatch" | "is_match" | "pattern_matches" => Type::Boolean,
             "findall" | "find_all" => Type::List(Box::new(Type::Text)),
-            "pattern_find" => Type::Any, // Match object or nothing
-            "pattern_find_all" => Type::List(Box::new(Type::Any)),
+            "pattern_find" => Type::Optional(Box::new(Type::Map(
+                Box::new(Type::Text),
+                Box::new(Type::Any),
+            ))),
+            "pattern_find_all" => Type::List(Box::new(Type::Map(
+                Box::new(Type::Text),
+                Box::new(Type::Any),
+            ))),
 
             // Crypto functions
             "wflhash256"
@@ -536,13 +2716,22 @@ impl TypeChecker {
             "stringify_json" | "stringify_json_pretty" => Type::Text,
 
             // Query and form parsing (objects with string values)
-            "parse_query_string" | "parse_cookies" | "parse_form_urlencoded" => Type::Any,
+            "parse_query_string" | "parse_cookies" | "parse_form_urlencoded" => {
+                Type::Map(Box::new(Type::Text), Box::new(Type::Text))
+            }
 
             // Web routing helpers
-            "path_params" => Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            // A capture map on success, Nothing when the route does not match.
+            "path_params" => Type::Optional(Box::new(Type::Map(
+                Box::new(Type::Text),
+                Box::new(Type::Text),
+            ))),
             "path_matches" => Type::Boolean,
             "mime_type" => Type::Text,
-            "parse_multipart" => Type::List(Box::new(Type::Any)),
+            "parse_multipart" => Type::List(Box::new(Type::Map(
+                Box::new(Type::Text),
+                Box::new(Type::Any),
+            ))),
 
             // Text functions registered under stdlib-specific names
             "string_split" => Type::List(Box::new(Type::Text)),
@@ -562,6 +2751,473 @@ impl TypeChecker {
             // keeps variables bound to their results inferable instead of
             // raising spurious "Could not infer type" errors (issue #551).
             _ => Type::Any,
+        }
+    }
+
+    /// Runtime variable lookup auto-invokes native builtins whose canonical
+    /// arity is zero. Mirror that here; nonzero-arity builtins remain callable
+    /// function values.
+    fn get_bare_builtin_type(&self, name: &str) -> Type {
+        let parameter_count = builtins::get_function_arity(name);
+        let return_type = self.get_builtin_function_type(name, parameter_count);
+        if parameter_count == 0 {
+            return_type
+        } else {
+            let fixed_signatures = self.builtin_signatures(name).map(|signatures| {
+                signatures
+                    .into_iter()
+                    .filter(|signature| signature.parameters.len() == parameter_count)
+                    .collect::<Vec<_>>()
+            });
+            if crate::stdlib::typechecker::variadic_builtin_parameter_type(name).is_none()
+                && let Some(signatures) = fixed_signatures
+                && signatures.len() == 1
+            {
+                let signature = &signatures[0];
+                return Type::Function {
+                    parameters: signature
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            parameter
+                                .param_type
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or(Type::Unknown)
+                        })
+                        .collect(),
+                    return_type: Box::new(
+                        signature
+                            .return_type
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or(return_type),
+                    ),
+                };
+            }
+            Type::Function {
+                parameters: vec![Type::Any; parameter_count],
+                return_type: Box::new(return_type),
+            }
+        }
+    }
+
+    /// Infer and validate a builtin call through one path for both
+    /// `function of ...` and `call function with ...` syntax.
+    fn infer_builtin_call_type(
+        &mut self,
+        name: &str,
+        arguments: &[crate::parser::ast::Argument],
+        line: usize,
+        column: usize,
+    ) -> Type {
+        // Always visit arguments, even when the call has the wrong arity. A
+        // nested type error must not disappear merely because the callee is a
+        // native function.
+        let mut declared_property_target = None;
+        let mut arg_types = Vec::with_capacity(arguments.len());
+        for (index, argument) in arguments.iter().enumerate() {
+            if index == 0
+                && matches!(
+                    name,
+                    "push" | "unshift" | "insert_at" | "insertat" | "fill" | "clear"
+                )
+            {
+                let (target_type, property_contract) =
+                    self.infer_list_mutation_target(&argument.value);
+                arg_types.push(target_type);
+                declared_property_target = property_contract;
+            } else {
+                arg_types.push(self.infer_expression_type(&argument.value));
+            }
+        }
+
+        if !builtins::is_implemented_builtin_function(name) {
+            self.type_error(
+                format!("Builtin '{name}' is recognized but not implemented by the runtime"),
+                None,
+                None,
+                line,
+                column,
+            );
+            return Type::Error;
+        }
+
+        let (minimum, maximum) = builtins::get_function_arity_range(name);
+        let arity_is_valid =
+            arguments.len() >= minimum && maximum.is_none_or(|maximum| arguments.len() <= maximum);
+        if !arity_is_valid {
+            let expected = match maximum {
+                None => format!("at least {minimum}"),
+                Some(maximum) if minimum == maximum => minimum.to_string(),
+                Some(maximum) => format!("{minimum} to {maximum}"),
+            };
+            self.type_error(
+                format!(
+                    "Builtin '{name}' expects {expected} arguments, but {} were provided",
+                    arguments.len()
+                ),
+                None,
+                None,
+                line,
+                column,
+            );
+            return Type::Error;
+        }
+
+        if arg_types.contains(&Type::Error) {
+            return Type::Error;
+        }
+
+        // Variadic builtins have one repeated runtime parameter contract that
+        // cannot be represented by the fixed-vector FunctionSignature type.
+        let variadic_parameter = crate::stdlib::typechecker::variadic_builtin_parameter_type(name);
+        if let Some(parameter_type) = &variadic_parameter
+            && let Some((index, arg_type)) = arg_types
+                .iter()
+                .enumerate()
+                .find(|(_, arg_type)| !self.are_builtin_types_compatible(parameter_type, arg_type))
+        {
+            self.type_error(
+                format!(
+                    "Argument {} of builtin '{}' expected {}, but found {}",
+                    index + 1,
+                    name,
+                    parameter_type,
+                    arg_type
+                ),
+                Some(parameter_type.clone()),
+                Some(arg_type.clone()),
+                line,
+                column,
+            );
+            return Type::Error;
+        }
+
+        // Every implemented native has at least one registered static
+        // signature. Resolve fixed-arity overloads here and return the result
+        // from the contract itself, avoiding a second source of truth.
+        if let Some(signatures) = self.builtin_signatures(name) {
+            let arity_matches: Vec<_> = signatures
+                .iter()
+                .filter(|signature| signature.parameters.len() == arguments.len())
+                .collect();
+            if let Some(signature) =
+                arity_matches.iter().find(|signature| {
+                    signature.parameters.iter().zip(arg_types.iter()).all(
+                        |(parameter, arg_type)| {
+                            let parameter_type = parameter
+                                .param_type
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or(Type::Unknown);
+                            self.are_builtin_types_compatible(&parameter_type, arg_type)
+                        },
+                    )
+                })
+            {
+                let declared_return = signature
+                    .return_type
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or(Type::Error);
+                if let Some((property_name, Type::List(element_type))) = &declared_property_target {
+                    let value_index = match name {
+                        "push" | "unshift" | "fill" => Some(1),
+                        "insert_at" | "insertat" => Some(2),
+                        _ => None,
+                    };
+                    if let Some(value_index) = value_index
+                        && let Some(value_type) = arg_types.get(value_index)
+                        && !self.are_declared_property_values_compatible(
+                            element_type,
+                            value_type,
+                            &arguments[value_index].value,
+                        )
+                    {
+                        self.type_error(
+                            format!(
+                                "Builtin '{name}' cannot put {value_type} into property \
+                                 '{property_name}' because its declared element type is \
+                                 {element_type}"
+                            ),
+                            Some((**element_type).clone()),
+                            Some(value_type.clone()),
+                            line,
+                            column,
+                        );
+                        return Type::Error;
+                    }
+                }
+                self.apply_builtin_type_effects(
+                    name,
+                    arguments,
+                    &arg_types,
+                    declared_property_target.is_some(),
+                );
+                return Self::specialize_builtin_return_type(name, &arg_types, declared_return);
+            }
+
+            if !arity_matches.is_empty() {
+                let signature = arity_matches[0];
+                if let Some((index, (parameter, arg_type))) = signature
+                    .parameters
+                    .iter()
+                    .zip(arg_types.iter())
+                    .enumerate()
+                    .find(|(_, (parameter, arg_type))| {
+                        let parameter_type = parameter
+                            .param_type
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or(Type::Unknown);
+                        !self.are_builtin_types_compatible(&parameter_type, arg_type)
+                    })
+                {
+                    let parameter_type = parameter
+                        .param_type
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+                    let temporal_hint = match (&parameter_type, arg_type) {
+                        (Type::Date, Type::Custom(custom_name))
+                            if custom_name.eq_ignore_ascii_case("date")
+                                && self.analyzer.get_containers().contains_key(custom_name) =>
+                        {
+                            Some(format!(
+                                "'{custom_name}' is a custom/container annotation in this \
+                                 program; use lowercase 'date' for the temporal type"
+                            ))
+                        }
+                        (Type::Time, Type::Custom(custom_name))
+                            if custom_name.eq_ignore_ascii_case("time")
+                                && self.analyzer.get_containers().contains_key(custom_name) =>
+                        {
+                            Some(format!(
+                                "'{custom_name}' is a custom/container annotation in this \
+                                 program; use lowercase 'time' for the temporal type"
+                            ))
+                        }
+                        (Type::DateTime, Type::Custom(custom_name))
+                            if custom_name.eq_ignore_ascii_case("datetime")
+                                && self.analyzer.get_containers().contains_key(custom_name) =>
+                        {
+                            Some(format!(
+                                "'{custom_name}' is a custom/container annotation in this \
+                                 program, and WFL has no unambiguous DateTime spelling while \
+                                 that container exists; rename the container or leave the \
+                                 parameter gradual"
+                            ))
+                        }
+                        _ => None,
+                    };
+                    if let Some(hint) = temporal_hint {
+                        self.type_error(
+                            format!(
+                                "Argument {} of builtin '{}' requires a runtime temporal value, \
+                                 but {}",
+                                index + 1,
+                                name,
+                                hint
+                            ),
+                            None,
+                            None,
+                            line,
+                            column,
+                        );
+                    } else {
+                        self.type_error(
+                            format!(
+                                "Argument {} of builtin '{}' expected {}, but found {}",
+                                index + 1,
+                                name,
+                                parameter_type,
+                                arg_type
+                            ),
+                            Some(parameter_type),
+                            Some(arg_type.clone()),
+                            line,
+                            column,
+                        );
+                    }
+                } else {
+                    self.type_error(
+                        format!("No signature of builtin '{name}' matches this call"),
+                        None,
+                        None,
+                        line,
+                        column,
+                    );
+                }
+                return Type::Error;
+            }
+
+            // A variadic call beyond its single registered seed signature was
+            // validated by the repeated parameter contract above.
+            if variadic_parameter.is_some() {
+                return self.get_builtin_function_type(name, arguments.len());
+            }
+        } else {
+            self.type_error(
+                format!("Builtin '{name}' has no registered static contract"),
+                None,
+                None,
+                line,
+                column,
+            );
+            return Type::Error;
+        }
+
+        // A fixed-arity native with no matching signature indicates a broken
+        // checker/runtime contract table rather than a dynamic call.
+        self.type_error(
+            format!(
+                "Builtin '{name}' has no static signature for {} arguments",
+                arguments.len()
+            ),
+            None,
+            None,
+            line,
+            column,
+        );
+        Type::Error
+    }
+
+    fn specialize_builtin_return_type(
+        name: &str,
+        argument_types: &[Type],
+        declared_return: Type,
+    ) -> Type {
+        let first_element = || match argument_types.first() {
+            Some(Type::List(element)) => Some((**element).clone()),
+            _ => None,
+        };
+        match name {
+            "random_from" | "pop" | "shift" | "remove_at" | "removeat" => {
+                first_element().unwrap_or(declared_return)
+            }
+            "find" => first_element()
+                .map(Self::optionalize)
+                .unwrap_or(declared_return),
+            "slice" | "unique" => match argument_types.first() {
+                Some(list_type @ Type::List(_)) => list_type.clone(),
+                _ => declared_return,
+            },
+            "concat" => match (argument_types.first(), argument_types.get(1)) {
+                (Some(Type::List(left)), Some(Type::List(right))) => Type::List(Box::new(
+                    Self::join_collection_value_type(Some((**left).clone()), (**right).clone()),
+                )),
+                _ => declared_return,
+            },
+            _ => declared_return,
+        }
+    }
+
+    fn apply_builtin_type_effects(
+        &mut self,
+        name: &str,
+        arguments: &[crate::parser::ast::Argument],
+        argument_types: &[Type],
+        target_is_declared_property: bool,
+    ) {
+        if matches!(name, "clear" | "pop" | "shift" | "remove_at" | "removeat") {
+            self.definitely_nonempty_lists.clear();
+        }
+        if name == "clear" {
+            if !target_is_declared_property
+                && let Some(target) = arguments.first().map(|argument| &argument.value)
+            {
+                self.detach_list_alias_descendants(target);
+            }
+            return;
+        }
+        let value_index = match name {
+            "push" | "unshift" | "fill" => Some(1),
+            "insert_at" | "insertat" => Some(2),
+            _ => None,
+        };
+        let Some(value_index) = value_index else {
+            return;
+        };
+        let Some(target) = arguments.first().map(|argument| &argument.value) else {
+            return;
+        };
+        if target_is_declared_property {
+            // Container properties are not analyzer bindings. Applying the
+            // lexical alias effect here would instead widen an unrelated
+            // same-named outer variable (for a bare property) or the instance
+            // binding itself (for `box.items`).
+            return;
+        }
+        let (Some(target_type), Some(value_type)) =
+            (argument_types.first(), argument_types.get(value_index))
+        else {
+            return;
+        };
+        if !matches!(
+            target_type,
+            Type::List(_) | Type::Unknown | Type::Any | Type::Error
+        ) {
+            return;
+        }
+        let effect = if name == "fill" {
+            self.detach_list_alias_descendants(target);
+            ListMutationEffect::Replace(value_type.clone())
+        } else {
+            ListMutationEffect::Join(value_type.clone())
+        };
+        self.apply_list_mutation_effect(target, effect);
+        self.record_list_insertion_aliases(target, &arguments[value_index].value);
+        if name != "fill" {
+            self.mark_list_target_nonempty(target);
+        }
+    }
+
+    /// Infer a list mutation target once while retaining whether its type came
+    /// from a declared container property. The ordinary `Type::List<T>` alone
+    /// is insufficient: lexical lists may widen under gradual typing, whereas
+    /// a property annotation is a persistent contract.
+    fn infer_list_mutation_target(
+        &mut self,
+        target: &Expression,
+    ) -> (Type, Option<(String, Type)>) {
+        match target {
+            Expression::Variable(name, ..) => {
+                let target_type = self.infer_expression_type(target);
+                let (declared_type, is_property) = self.resolve_bare_mutation_target_type(name);
+                (
+                    target_type,
+                    is_property
+                        .then_some(declared_type)
+                        .flatten()
+                        .map(|declared| (name.clone(), declared)),
+                )
+            }
+            Expression::PropertyAccess {
+                object,
+                property,
+                line,
+                column,
+            } => {
+                let object_type = self.infer_expression_type(object);
+                let (target_type, is_declared_property) =
+                    self.infer_property_access_type(object_type, property, *line, *column);
+                (
+                    target_type.clone(),
+                    is_declared_property.then_some((property.clone(), target_type)),
+                )
+            }
+            Expression::StaticMemberAccess {
+                container, member, ..
+            } => {
+                let target_type = self.infer_expression_type(target);
+                let declared_type = self.container_static_property_type(container, member);
+                (
+                    target_type,
+                    declared_type.map(|declared| (member.clone(), declared)),
+                )
+            }
+            _ => (self.infer_expression_type(target), None),
         }
     }
 
@@ -646,6 +3302,39 @@ impl TypeChecker {
                 })
                 .collect();
 
+        let specificity_of = |index: usize| -> (usize, usize) {
+            signatures[index].parameters.iter().zip(&arg_types).fold(
+                (0, 0),
+                |(concrete, exact_temporal), (param, arg)| {
+                    let Some(param_type) = param.param_type.as_ref() else {
+                        return (concrete, exact_temporal);
+                    };
+                    if matches!(param_type, Type::Any | Type::Unknown)
+                        || matches!(arg, Type::Any | Type::Unknown | Type::Error)
+                        || (matches!(arg, Type::Nothing) && !matches!(param_type, Type::Nothing))
+                    {
+                        return (concrete, exact_temporal);
+                    }
+                    let exact_temporal_match = matches!(
+                        (param_type, arg),
+                        (Type::Date, Type::Date)
+                            | (Type::Time, Type::Time)
+                            | (Type::DateTime, Type::DateTime)
+                    );
+                    (
+                        concrete + 1,
+                        exact_temporal + usize::from(exact_temporal_match),
+                    )
+                },
+            )
+        };
+        let best_specificity = compatible.iter().map(|&index| specificity_of(index)).max();
+        let most_specific: Vec<usize> = compatible
+            .iter()
+            .copied()
+            .filter(|&index| Some(specificity_of(index)) == best_specificity)
+            .collect();
+
         let return_type_of = |checker: &Self, index: usize| -> Type {
             checker
                 .overload_returns
@@ -655,7 +3344,7 @@ impl TypeChecker {
                 .unwrap_or(Type::Unknown)
         };
 
-        match compatible.len() {
+        let result = match most_specific.len() {
             0 => {
                 let provided: Vec<String> = arg_types.iter().map(|t| t.to_string()).collect();
                 let mut message = format!(
@@ -671,24 +3360,172 @@ impl TypeChecker {
                 self.type_error(message, None, None, line, column);
                 Type::Error
             }
-            1 => return_type_of(self, compatible[0]),
+            1 => return_type_of(self, most_specific[0]),
             _ => {
                 // Statically ambiguous — dynamic argument types, `nothing`
-                // arguments, or container-inheritance overlap: the runtime
-                // dispatches on the actual values. If every surviving overload
-                // agrees on the return type, the call still has that type.
-                let mut returns = compatible.iter().map(|&i| return_type_of(self, i));
-                let first = returns.next().unwrap_or(Type::Unknown);
-                if returns.all(|t| t == first) {
-                    first
-                } else {
-                    Type::Unknown
-                }
+                // arguments, or equally-specific container-inheritance overlap:
+                // the runtime dispatches on the actual values. Join all
+                // reachable results so common structure and a known Nothing
+                // path are preserved.
+                most_specific
+                    .iter()
+                    .map(|&i| return_type_of(self, i))
+                    .reduce(Self::join_inferred_types)
+                    .unwrap_or(Type::Unknown)
             }
+        };
+        let selected_keys = most_specific
+            .iter()
+            .map(|index| (name.to_string(), *index))
+            .collect::<Vec<_>>();
+        if result != Type::Error {
+            self.escape_user_action_list_arguments(arguments, &arg_types);
+            self.apply_user_action_list_effects(&selected_keys);
         }
+        self.escape_shared_list_return_type(&selected_keys, result)
+    }
+
+    fn infer_bare_action_statement(
+        &mut self,
+        name: &str,
+        signatures: &[crate::analyzer::FunctionSignature],
+        line: usize,
+        column: usize,
+    ) -> Type {
+        self.infer_overloaded_call_type(name, signatures, &[], line, column)
+    }
+
+    fn infer_bare_variable_statement(
+        &mut self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<Type> {
+        if let Some(resolution) = self
+            .analyzer
+            .alias_call_resolution(name, line, column)
+            .cloned()
+        {
+            return match resolution {
+                crate::analyzer::AliasState::Bound {
+                    action,
+                    visible_signatures,
+                } => self.action_signatures(&action).map(|signatures| {
+                    let visible = visible_signatures.min(signatures.len());
+                    self.infer_bare_action_statement(&action, &signatures[..visible], line, column)
+                }),
+                crate::analyzer::AliasState::Builtin { .. } => None,
+                crate::analyzer::AliasState::Dynamic => {
+                    self.escape_all_visible_mutable_state();
+                    Some(Type::Unknown)
+                }
+            };
+        }
+
+        self.action_signatures(name).and_then(|signatures| {
+            (signatures.len() == 1
+                || signatures
+                    .iter()
+                    .any(|signature| signature.parameters.is_empty()))
+            .then(|| self.infer_bare_action_statement(name, &signatures, line, column))
+        })
+    }
+
+    fn infer_zero_arg_variable_expression(
+        &mut self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> Option<Type> {
+        if let Some(resolution) = self
+            .analyzer
+            .alias_call_resolution(name, line, column)
+            .cloned()
+        {
+            return match resolution {
+                crate::analyzer::AliasState::Bound {
+                    action,
+                    visible_signatures,
+                } => self.action_signatures(&action).and_then(|signatures| {
+                    let visible = visible_signatures.min(signatures.len());
+                    signatures[..visible]
+                        .iter()
+                        .any(|signature| signature.parameters.is_empty())
+                        .then(|| {
+                            self.infer_overloaded_call_type(
+                                &action,
+                                &signatures[..visible],
+                                &[],
+                                line,
+                                column,
+                            )
+                        })
+                }),
+                crate::analyzer::AliasState::Builtin { .. } => None,
+                crate::analyzer::AliasState::Dynamic => {
+                    self.escape_all_visible_mutable_state();
+                    Some(Type::Unknown)
+                }
+            };
+        }
+
+        if let Some(signatures) = self.action_signatures(name)
+            && signatures
+                .iter()
+                .any(|signature| signature.parameters.is_empty())
+        {
+            return Some(self.infer_overloaded_call_type(name, &signatures, &[], line, column));
+        }
+
+        let symbol_type = self
+            .analyzer
+            .get_symbol(name)
+            .and_then(|symbol| symbol.symbol_type.clone());
+        if let Some(Type::Function {
+            parameters,
+            return_type,
+        }) = symbol_type
+            && parameters.is_empty()
+        {
+            // A stored method/native reference is auto-called by the runtime
+            // when read as a variable. Its closure may touch captured state,
+            // but unlike a named WFL action it has no keyed effect summary.
+            self.escape_all_visible_mutable_state();
+            return Some(*return_type);
+        }
+        None
     }
 
     pub fn check_types(&mut self, program: &Program) -> Result<(), TypeCheckError> {
+        // A checker may be reused by an editor or other long-lived caller.
+        // Diagnostics and program symbols belong to one run only.
+        self.errors.clear();
+        self.current_container = None;
+        self.current_method_is_static = None;
+        self.current_method_outer_property_bindings = None;
+        self.checking_persistent_loop_backedge = false;
+        self.list_alias_groups.clear();
+        self.user_action_list_effects.clear();
+        self.user_action_binding_effects.clear();
+        self.user_action_shared_list_returns.clear();
+        self.user_action_dependencies.clear();
+        self.deferred_action_key_stack.clear();
+        self.deferred_list_effect_stack.clear();
+        self.deferred_binding_effect_stack.clear();
+        self.deferred_return_type_stack.clear();
+        self.try_flow_states.clear();
+        self.try_flow_capture_suspended = 0;
+        self.current_statement_completion = Type::Nothing;
+        self.optional_refinement_origins.clear();
+        self.has_websocket_handlers = false;
+        self.definitely_nonempty_lists.clear();
+        // A supplied, already-run analyzer is valid only for this first call.
+        // Reuse must create and run a fresh analyzer for the next Program.
+        let analyzer_was_pre_run = std::mem::take(&mut self.analyzer_already_run);
+        if !analyzer_was_pre_run {
+            self.analyzer = Analyzer::new();
+        }
+
         // Reset the per-run budget breach so a reused TypeChecker (e.g. an editor
         // session) neither carries a stale breach nor lets the recursive
         // `check_statement_types` short-circuit fire against a previous run's
@@ -710,9 +3547,7 @@ impl TypeChecker {
         // Only run the analyzer if it hasn't been run already
         // When created with with_analyzer(), the analyzer has already been run,
         // so we don't need to analyze again. This prevents duplicate symbol registration.
-        if !self.analyzer_already_run
-            && let Err(semantic_errors) = self.analyzer.analyze(program)
-        {
+        if !analyzer_was_pre_run && let Err(semantic_errors) = self.analyzer.analyze(program) {
             // Propagate the analyzer's *typed* breach so an analysis-phase
             // deadline/cancellation/resource failure stays fatal and is never
             // mistaken for an ordinary semantic diagnostic.
@@ -761,35 +3596,80 @@ impl TypeChecker {
         line: usize,
         column: usize,
     ) {
+        let mut captures = std::collections::HashSet::new();
+        self.check_pattern_expression_types_with_captures(pattern, line, column, &mut captures);
+    }
+
+    fn check_pattern_expression_types_with_captures(
+        &mut self,
+        pattern: &PatternExpression,
+        line: usize,
+        column: usize,
+        captures: &mut std::collections::HashSet<String>,
+    ) {
         match pattern {
             PatternExpression::Literal(_)
             | PatternExpression::CharacterClass(_)
-            | PatternExpression::Anchor(_)
-            | PatternExpression::Backreference(_) => {
+            | PatternExpression::Anchor(_) => {
                 // Leaf nodes are always valid
+            }
+            PatternExpression::Backreference(name) => {
+                if !captures.contains(name) {
+                    self.type_error(
+                        format!("Backreference to undefined capture group: '{name}'"),
+                        None,
+                        None,
+                        line,
+                        column,
+                    );
+                }
             }
             PatternExpression::Quantified {
                 pattern: inner_pattern,
                 ..
             } => {
-                self.check_pattern_expression_types(inner_pattern, line, column);
+                self.check_pattern_expression_types_with_captures(
+                    inner_pattern,
+                    line,
+                    column,
+                    captures,
+                );
             }
             PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
                 for inner_pattern in patterns {
-                    self.check_pattern_expression_types(inner_pattern, line, column);
+                    self.check_pattern_expression_types_with_captures(
+                        inner_pattern,
+                        line,
+                        column,
+                        captures,
+                    );
                 }
             }
             PatternExpression::Capture {
+                name,
                 pattern: inner_pattern,
-                ..
             } => {
-                self.check_pattern_expression_types(inner_pattern, line, column);
+                // The compiler registers a capture before compiling its inner
+                // expression, so a recursive/self backreference follows the
+                // same name-resolution order here.
+                captures.insert(name.clone());
+                self.check_pattern_expression_types_with_captures(
+                    inner_pattern,
+                    line,
+                    column,
+                    captures,
+                );
             }
             PatternExpression::Lookahead(inner_pattern)
             | PatternExpression::NegativeLookahead(inner_pattern)
             | PatternExpression::Lookbehind(inner_pattern)
             | PatternExpression::NegativeLookbehind(inner_pattern) => {
-                self.check_pattern_expression_types(inner_pattern, line, column);
+                self.check_pattern_expression_types_with_captures(
+                    inner_pattern,
+                    line,
+                    column,
+                    captures,
+                );
             }
             PatternExpression::ListReference(name) => {
                 // TypeChecker delegates undefined variable checks to Analyzer.
@@ -798,7 +3678,7 @@ impl TypeChecker {
                     self.infer_expression_type(&Expression::Variable(name.clone(), line, column));
                 match var_type {
                     Type::List(ref item_type) => {
-                        if **item_type != Type::Text {
+                        if **item_type != Type::Text && !self.is_gradual_type(item_type) {
                             self.type_error(
                                 format!("Pattern list reference '{name}' must contain Text, got List of {item_type}"),
                                 Some(Type::List(Box::new(Type::Text))),
@@ -808,6 +3688,7 @@ impl TypeChecker {
                             );
                         }
                     }
+                    Type::Unknown | Type::Any | Type::Error => {}
                     _ => {
                         self.type_error(
                             format!(
@@ -831,7 +3712,7 @@ impl TypeChecker {
         column: usize,
     ) {
         let server_type = self.infer_expression_type(server_expr);
-        if server_type != Type::Text {
+        if server_type != Type::Text && !self.is_gradual_type(&server_type) {
             self.type_error(
                 "Server must be a text string".to_string(),
                 Some(Type::Text),
@@ -842,7 +3723,19 @@ impl TypeChecker {
         }
     }
 
-    fn check_statement_types(&mut self, statement: &Statement) {
+    fn check_statement_types(&mut self, statement: &Statement) -> Type {
+        let previous_completion =
+            std::mem::replace(&mut self.current_statement_completion, Type::Nothing);
+        self.check_statement_types_inner(statement);
+        let completion =
+            std::mem::replace(&mut self.current_statement_completion, previous_completion);
+        if self.budget_error.is_none() {
+            self.capture_active_try_flow_state();
+        }
+        completion
+    }
+
+    fn check_statement_types_inner(&mut self, statement: &Statement) {
         // Recursive front-end checkpoint. This method recurses into `if`/loop/
         // `try`/action/container-method bodies, so polling the run budget here
         // (mirroring the parser's per-`parse_statement` placement) keeps deeply
@@ -871,9 +3764,48 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                let list_type = self.infer_expression_type(list);
-                match list_type {
-                    Type::List(_) | Type::Unknown => {}
+                let (list_type, declared_property) = self.infer_list_mutation_target(list);
+                let value_type = self.infer_expression_type(value);
+                let declared_property_element = match declared_property.as_ref() {
+                    Some((name, Type::List(element))) => Some((name.as_str(), (**element).clone())),
+                    _ => None,
+                };
+                match &list_type {
+                    Type::List(_) => {
+                        let property_violation =
+                            declared_property_element.as_ref().filter(|(_, expected)| {
+                                !self.are_declared_property_values_compatible(
+                                    expected,
+                                    &value_type,
+                                    value,
+                                )
+                            });
+                        if let Some((name, expected)) = property_violation {
+                            self.type_error(
+                                format!(
+                                    "Cannot push {value_type} into property '{name}' because its \
+                                     declared element type is {expected}"
+                                ),
+                                Some(expected.clone()),
+                                Some(value_type),
+                                *_line,
+                                *_column,
+                            );
+                        } else if declared_property_element.is_none() {
+                            self.apply_list_mutation_effect(
+                                list,
+                                ListMutationEffect::Join(value_type),
+                            );
+                            self.record_list_insertion_aliases(list, value);
+                        }
+                    }
+                    Type::Unknown | Type::Any | Type::Error => {
+                        // A control-flow join may make the promoted alias
+                        // itself gradual while its may-alias group still
+                        // contains a precisely typed outer list.
+                        self.apply_list_mutation_effect(list, ListMutationEffect::Join(value_type));
+                        self.record_list_insertion_aliases(list, value);
+                    }
                     _ => {
                         self.errors.push(TypeError::new(
                             format!("Expected list type for push operation, got {list_type:?}"),
@@ -884,7 +3816,13 @@ impl TypeChecker {
                         ));
                     }
                 }
-                self.infer_expression_type(value);
+                if matches!(
+                    list_type,
+                    Type::List(_) | Type::Unknown | Type::Any | Type::Error
+                ) && declared_property.is_none()
+                {
+                    self.mark_list_target_nonempty(list);
+                }
             }
             Statement::RepeatWhileLoop {
                 condition,
@@ -896,14 +3834,30 @@ impl TypeChecker {
                 // iteration, so bindings from a backedge are visible at the
                 // next header but remain local after the loop.
                 self.analyzer.push_scope();
-                self.check_loop_body_fixed_point(body);
+                let condition_type = self.infer_expression_type(condition);
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
+                    self.errors.push(TypeError::new(
+                        format!(
+                            "Expected boolean condition in repeat-while loop, got {condition_type:?}"
+                        ),
+                        Some(Type::Boolean),
+                        Some(condition_type),
+                        *_line,
+                        *_column,
+                    ));
+                }
+                let first_condition_error_end = self.errors.len();
+                self.check_persistent_loop_body_fixed_point(
+                    body,
+                    !matches!(condition, Expression::Literal(Literal::Boolean(false), ..)),
+                );
                 if self.budget_error.is_some() {
                     self.analyzer.pop_scope();
                     return;
                 }
 
                 let condition_type = self.infer_expression_type(condition);
-                if condition_type != Type::Boolean && condition_type != Type::Unknown {
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
                     self.errors.push(TypeError::new(
                         format!(
                             "Expected boolean condition in repeat-while loop, got {condition_type:?}"
@@ -914,7 +3868,14 @@ impl TypeChecker {
                         *_column,
                     ));
                 }
+                self.deduplicate_errors_from(first_condition_error_end);
                 self.analyzer.pop_scope();
+                self.current_statement_completion =
+                    if matches!(condition, Expression::Literal(Literal::Boolean(false), ..)) {
+                        Type::Nothing
+                    } else {
+                        Type::Any
+                    };
             }
             Statement::ExitStatement { line: _, column: _ } => {}
             Statement::WaitForStatement {
@@ -922,7 +3883,7 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                self.check_statement_types(inner);
+                self.current_statement_completion = self.check_statement_types(inner);
             }
             Statement::WaitForDurationStatement {
                 duration,
@@ -931,10 +3892,7 @@ impl TypeChecker {
                 ..
             } => {
                 let duration_type = self.infer_expression_type(duration);
-                if duration_type != Type::Number
-                    && duration_type != Type::Unknown
-                    && duration_type != Type::Error
-                {
+                if duration_type != Type::Number && !self.is_gradual_type(&duration_type) {
                     self.type_error(
                         "Expected a number for wait duration".to_string(),
                         Some(Type::Number),
@@ -942,6 +3900,13 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
+                }
+                if self.has_websocket_handlers {
+                    // Runtime pumps registered WebSocket handlers throughout
+                    // this wait. Their deferred bodies are an opaque captured-
+                    // environment boundary until handler-specific summaries
+                    // become part of the public type model.
+                    self.escape_all_visible_mutable_state();
                 }
             }
             Statement::TryStatement {
@@ -952,30 +3917,51 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.definitely_nonempty_lists.clear();
                 // Runtime evaluates the try body, handlers, otherwise, and
                 // finally block inside one shared child environment.
                 self.analyzer.push_scope();
+                let try_scope_entry_symbols = self.analyzer.snapshot_current_scope_symbols();
                 let entry_types = self.analyzer.snapshot_symbol_types();
-                for stmt in body {
-                    self.check_statement_types(stmt);
-                }
+                let try_entry_visible_names = entry_types
+                    .iter()
+                    .flat_map(|layer| layer.keys().cloned())
+                    .collect::<HashSet<_>>();
+                let entry_aliases = self.list_alias_groups.clone();
+                let summary_entry = self.snapshot_deferred_summary();
+                self.try_flow_states.push(TryFlowAccumulator {
+                    binding_types: self.analyzer.live_binding_types().into_iter().collect(),
+                    list_aliases: entry_aliases.clone(),
+                });
+                let (success_can_continue, success_completion) =
+                    self.check_statement_block_with_completion(body);
+                let mut body_flow = self.try_flow_states.pop().unwrap_or_default();
                 if self.budget_error.is_some() {
                     self.analyzer.pop_scope();
                     return;
                 }
                 let success_endpoint = self.analyzer.snapshot_symbol_types();
+                let success_aliases = self.list_alias_groups.clone();
 
-                // An error can leave the body from any statement, so handlers
-                // start from the conservative entry/success join. Keep the
-                // success scope's symbol set as the structural baseline:
-                // success-only bindings remain resolvable as gradual types,
-                // while exact restoration prevents one handler's new symbols
-                // from contaminating the next handler.
-                let handler_entry =
-                    Self::join_type_snapshots(&[entry_types, success_endpoint.clone()]);
-                let handler_scope_symbols = self.analyzer.snapshot_current_scope_symbols();
-                let mut joined_scope_symbols = handler_scope_symbols.clone();
+                // An error can leave the body after any reachable nested
+                // statement. The streaming accumulator joins every such state
+                // without retaining one full snapshot per prefix.
+                let handler_entry = self
+                    .apply_try_binding_accumulator(entry_types.clone(), &body_flow.binding_types);
+                self.retain_live_alias_paths(&mut body_flow.list_aliases);
+                let handler_entry_aliases = body_flow.list_aliases;
+                let success_scope_symbols = self.analyzer.snapshot_current_scope_symbols();
+                let mut endpoint_scope_symbols = vec![success_scope_symbols.clone()];
                 let mut endpoints = vec![success_endpoint];
+                let mut endpoint_aliases = vec![success_aliases];
+                let mut continuation_endpoints = Vec::new();
+                let mut continuation_aliases = Vec::new();
+                let mut continuation_completion_types = Vec::new();
+                if success_can_continue {
+                    continuation_endpoints.push(endpoints[0].clone());
+                    continuation_aliases.push(endpoint_aliases[0].clone());
+                    continuation_completion_types.push(success_completion);
+                }
 
                 // Type check each when clause in its own scope so the bound
                 // error name cannot clobber an outer variable of the same
@@ -985,8 +3971,9 @@ impl TypeChecker {
                 // same via Environment::define_or_replace).
                 for when_clause in when_clauses {
                     self.analyzer
-                        .restore_current_scope_symbols(handler_scope_symbols.clone());
+                        .restore_current_scope_symbols(try_scope_entry_symbols.clone());
                     self.analyzer.restore_symbol_types(handler_entry.clone());
+                    self.list_alias_groups = handler_entry_aliases.clone();
                     self.analyzer.push_scope();
                     self.analyzer.define_or_replace_symbol(Symbol {
                         name: when_clause.error_name.clone(),
@@ -1007,42 +3994,54 @@ impl TypeChecker {
                         });
                     }
 
-                    for stmt in &when_clause.body {
-                        self.check_statement_types(stmt);
-                    }
+                    let (handler_can_continue, handler_completion) =
+                        self.check_statement_block_with_completion(&when_clause.body);
                     let mut excluded_aliases = vec![when_clause.error_name.clone()];
                     if when_clause.error_name != "error_message" {
                         excluded_aliases.push("error_message".to_string());
                     }
-                    self.analyzer.pop_scope_promoting_except(&excluded_aliases);
+                    let promoted = self.analyzer.pop_scope_promoting_except(&excluded_aliases);
+                    self.merge_promoted_list_alias_bindings(promoted);
 
                     if self.budget_error.is_some() {
                         self.analyzer.pop_scope();
                         return;
                     }
 
-                    endpoints.push(self.analyzer.snapshot_symbol_types());
-                    for (name, symbol) in self.analyzer.snapshot_current_scope_symbols() {
-                        joined_scope_symbols.entry(name).or_insert(symbol);
+                    let endpoint = self.analyzer.snapshot_symbol_types();
+                    let aliases = self.list_alias_groups.clone();
+                    endpoints.push(endpoint.clone());
+                    endpoint_aliases.push(aliases.clone());
+                    if handler_can_continue {
+                        continuation_endpoints.push(endpoint);
+                        continuation_aliases.push(aliases);
+                        continuation_completion_types.push(handler_completion);
                     }
+                    endpoint_scope_symbols.push(self.analyzer.snapshot_current_scope_symbols());
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
                     self.analyzer
-                        .restore_current_scope_symbols(handler_scope_symbols.clone());
+                        .restore_current_scope_symbols(try_scope_entry_symbols.clone());
                     self.analyzer.restore_symbol_types(handler_entry.clone());
-                    for stmt in otherwise_stmts {
-                        self.check_statement_types(stmt);
-                    }
+                    self.list_alias_groups = handler_entry_aliases.clone();
+                    let (otherwise_can_continue, otherwise_completion) =
+                        self.check_statement_block_with_completion(otherwise_stmts);
                     if self.budget_error.is_some() {
                         self.analyzer.pop_scope();
                         return;
                     }
 
-                    endpoints.push(self.analyzer.snapshot_symbol_types());
-                    for (name, symbol) in self.analyzer.snapshot_current_scope_symbols() {
-                        joined_scope_symbols.entry(name).or_insert(symbol);
+                    let endpoint = self.analyzer.snapshot_symbol_types();
+                    let aliases = self.list_alias_groups.clone();
+                    endpoints.push(endpoint.clone());
+                    endpoint_aliases.push(aliases.clone());
+                    if otherwise_can_continue {
+                        continuation_endpoints.push(endpoint);
+                        continuation_aliases.push(aliases);
+                        continuation_completion_types.push(otherwise_completion);
                     }
+                    endpoint_scope_symbols.push(self.analyzer.snapshot_current_scope_symbols());
                 } else if !when_clauses.iter().any(|when_clause| {
                     matches!(
                         &when_clause.error_type,
@@ -1052,21 +4051,88 @@ impl TypeChecker {
                     // A non-matching error reaches finally without running a
                     // handler when there is no catch-all or otherwise block.
                     endpoints.push(handler_entry.clone());
+                    endpoint_aliases.push(handler_entry_aliases.clone());
+                    endpoint_scope_symbols.push(try_scope_entry_symbols.clone());
                 }
 
-                self.analyzer
-                    .restore_current_scope_symbols(handler_scope_symbols);
-                for symbol in joined_scope_symbols.into_values() {
-                    self.analyzer.define_or_replace_symbol(symbol);
-                }
-                let joined_endpoint = Self::join_type_snapshots(&endpoints);
-                self.analyzer.restore_symbol_types(joined_endpoint);
-
-                if let Some(finally_stmts) = finally_block {
-                    for stmt in finally_stmts {
-                        self.check_statement_types(stmt);
+                let mut definite_scope_symbols = success_scope_symbols;
+                for symbols in &endpoint_scope_symbols {
+                    for (name, symbol) in symbols {
+                        definite_scope_symbols
+                            .entry(name.clone())
+                            .or_insert_with(|| symbol.clone());
                     }
                 }
+                definite_scope_symbols.retain(|name, _| {
+                    try_entry_visible_names.contains(name)
+                        || endpoint_scope_symbols
+                            .iter()
+                            .all(|symbols| symbols.contains_key(name))
+                });
+                self.analyzer
+                    .restore_current_scope_symbols(definite_scope_symbols);
+                let joined_endpoint = Self::join_type_snapshots(&endpoints);
+                self.analyzer.restore_symbol_types(joined_endpoint);
+                self.list_alias_groups = Self::join_list_alias_snapshots(&endpoint_aliases);
+
+                if let Some(finally_stmts) = finally_block {
+                    let pre_finally_scope_symbols = self.analyzer.snapshot_current_scope_symbols();
+                    let primary_summary = self.snapshot_deferred_summary();
+                    let primary_return_len = primary_summary.returns.as_ref().map_or(0, Vec::len);
+                    let finally_error_start = self.errors.len();
+                    let finally_can_continue = self.check_statement_block(finally_stmts);
+                    let mut final_summary = self.snapshot_deferred_summary();
+
+                    if !finally_can_continue {
+                        // A return/exit/break/continue from finally overrides
+                        // the primary control flow. Preserve effects that
+                        // happened before finally, but discard primary return
+                        // values in favor of the returns produced by finally.
+                        if let Some(all_returns) = &final_summary.returns {
+                            let mut selected = summary_entry.returns.clone().unwrap_or_default();
+                            selected.extend(all_returns.iter().skip(primary_return_len).cloned());
+                            if let Some(active) = self.deferred_return_type_stack.last_mut() {
+                                *active = selected.clone();
+                            }
+                            final_summary.returns = Some(selected);
+                        }
+                    }
+
+                    if finally_can_continue && !continuation_endpoints.is_empty() {
+                        // Ordinary finally preserves the primary endpoint's
+                        // control flow. Re-apply its state transform to only
+                        // the endpoints that can actually reach the statement
+                        // after this try; abrupt Return/Exit/error endpoints
+                        // must still be considered while validating finally,
+                        // but cannot pollute the post-try state.
+                        self.analyzer
+                            .restore_current_scope_symbols(pre_finally_scope_symbols);
+                        self.analyzer
+                            .restore_symbol_types(Self::join_type_snapshots(
+                                &continuation_endpoints,
+                            ));
+                        self.list_alias_groups =
+                            Self::join_list_alias_snapshots(&continuation_aliases);
+                        self.restore_deferred_summary(primary_summary);
+                        self.check_statement_block(finally_stmts);
+                        self.restore_deferred_summary(final_summary);
+                        self.deduplicate_errors_from(finally_error_start);
+                    } else if finally_can_continue {
+                        self.analyzer.restore_symbol_types(entry_types);
+                        self.list_alias_groups = entry_aliases;
+                    }
+                } else if !continuation_endpoints.is_empty() {
+                    self.analyzer
+                        .restore_symbol_types(Self::join_type_snapshots(&continuation_endpoints));
+                    self.list_alias_groups = Self::join_list_alias_snapshots(&continuation_aliases);
+                } else {
+                    self.analyzer.restore_symbol_types(entry_types);
+                    self.list_alias_groups = entry_aliases;
+                }
+                self.current_statement_completion = continuation_completion_types
+                    .into_iter()
+                    .reduce(Self::join_inferred_types)
+                    .unwrap_or(Type::Nothing);
                 self.analyzer.pop_scope();
             }
             Statement::HttpGetStatement {
@@ -1076,7 +4142,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let url_type = self.infer_expression_type(url);
-                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                if url_type != Type::Text && !self.is_gradual_type(&url_type) {
                     self.type_error(
                         "URL must be a text string".to_string(),
                         Some(Type::Text),
@@ -1086,11 +4152,7 @@ impl TypeChecker {
                     );
                 }
 
-                if !variable_name.is_empty()
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
-                {
-                    symbol.symbol_type = Some(Type::Text);
-                }
+                self.bind_runtime_value(variable_name, Type::Text, true, *_line, *_column);
             }
             Statement::HttpPostStatement {
                 url,
@@ -1100,7 +4162,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let url_type = self.infer_expression_type(url);
-                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                if url_type != Type::Text && !self.is_gradual_type(&url_type) {
                     self.type_error(
                         "URL must be a text string".to_string(),
                         Some(Type::Text),
@@ -1110,13 +4172,18 @@ impl TypeChecker {
                     );
                 }
 
-                self.infer_expression_type(data);
-
-                if !variable_name.is_empty()
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
-                {
-                    symbol.symbol_type = Some(Type::Text);
+                let data_type = self.infer_expression_type(data);
+                if data_type != Type::Text && !self.is_gradual_type(&data_type) {
+                    self.type_error(
+                        "HTTP POST data must be text".to_string(),
+                        Some(Type::Text),
+                        Some(data_type),
+                        *_line,
+                        *_column,
+                    );
                 }
+
+                self.bind_runtime_value(variable_name, Type::Text, true, *_line, *_column);
             }
             Statement::HttpRequestStatement {
                 url,
@@ -1129,7 +4196,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let url_type = self.infer_expression_type(url);
-                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                if url_type != Type::Text && !self.is_gradual_type(&url_type) {
                     self.type_error(
                         "URL must be a text string".to_string(),
                         Some(Type::Text),
@@ -1141,10 +4208,7 @@ impl TypeChecker {
 
                 if let Some(method) = method {
                     let method_type = self.infer_expression_type(method);
-                    if method_type != Type::Text
-                        && method_type != Type::Unknown
-                        && method_type != Type::Error
-                    {
+                    if method_type != Type::Text && !self.is_gradual_type(&method_type) {
                         self.type_error(
                             "HTTP method must be a text string".to_string(),
                             Some(Type::Text),
@@ -1192,15 +4256,17 @@ impl TypeChecker {
                     }
                 }
 
-                if !variable_name.is_empty()
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
-                {
-                    symbol.symbol_type = Some(if *full_response {
-                        Type::Map(Box::new(Type::Text), Box::new(Type::Unknown))
+                self.bind_runtime_value(
+                    variable_name,
+                    if *full_response {
+                        Type::Map(Box::new(Type::Text), Box::new(Type::Any))
                     } else {
                         Type::Text
-                    });
-                }
+                    },
+                    true,
+                    *_line,
+                    *_column,
+                );
             }
             Statement::HttpStreamStatement {
                 url,
@@ -1212,7 +4278,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let url_type = self.infer_expression_type(url);
-                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                if url_type != Type::Text && !self.is_gradual_type(&url_type) {
                     self.type_error(
                         "URL must be a text string".to_string(),
                         Some(Type::Text),
@@ -1223,10 +4289,7 @@ impl TypeChecker {
                 }
                 if let Some(method) = method {
                     let method_type = self.infer_expression_type(method);
-                    if method_type != Type::Text
-                        && method_type != Type::Unknown
-                        && method_type != Type::Error
-                    {
+                    if method_type != Type::Text && !self.is_gradual_type(&method_type) {
                         self.type_error(
                             "HTTP method must be a text string".to_string(),
                             Some(Type::Text),
@@ -1276,11 +4339,13 @@ impl TypeChecker {
                 // status/ok/headers via index/member access, and is closeable).
                 // A distinct handle type — not a bare `Map` — so `close` accepts
                 // it without also accepting an ordinary user map.
-                if !variable_name.is_empty()
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
-                {
-                    symbol.symbol_type = Some(Type::Custom("HttpStream".to_string()));
-                }
+                self.bind_runtime_value(
+                    variable_name,
+                    Type::Custom("HttpStream".to_string()),
+                    true,
+                    *_line,
+                    *_column,
+                );
             }
             Statement::WaitForNextChunkStatement {
                 source,
@@ -1309,14 +4374,19 @@ impl TypeChecker {
                         *column,
                     );
                 }
-                // The binding may be a chunk/line value or `nothing` at end of
-                // stream, so leave the bound variable's type open (Any) to avoid
-                // false errors on the `check if <name> is nothing` termination.
-                if !variable_name.is_empty()
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                let value_type = if matches!(statement, Statement::WaitForNextChunkStatement { .. })
                 {
-                    symbol.symbol_type = Some(Type::Any);
-                }
+                    Type::Binary
+                } else {
+                    Type::Text
+                };
+                self.bind_runtime_value(
+                    variable_name,
+                    Type::Optional(Box::new(value_type)),
+                    true,
+                    *line,
+                    *column,
+                );
             }
             Statement::StartStreamingResponseStatement {
                 request,
@@ -1327,7 +4397,16 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                let _ = self.infer_expression_type(request);
+                let request_type = self.infer_expression_type(request);
+                if !self.is_pending_request_type(&request_type) {
+                    self.type_error(
+                        "Streaming response target must be a request object".to_string(),
+                        Some(Type::Custom("Request".to_string())),
+                        Some(request_type.clone()),
+                        *_line,
+                        *_column,
+                    );
+                }
                 // Enforce the clause types (like RespondStatement) so obvious
                 // mistakes fail at typecheck rather than at runtime.
                 if let Some(status) = status {
@@ -1497,10 +4576,11 @@ impl TypeChecker {
             Statement::VariableDeclaration {
                 name,
                 value,
-                is_constant: _,
+                is_constant,
                 line: _line,
                 column: _column,
             } => {
+                let is_definitely_nonempty = self.expression_is_definitely_nonempty_list(value);
                 let inferred_type = self.infer_expression_type(value);
 
                 // Special case for loopcounter variable
@@ -1518,13 +4598,17 @@ impl TypeChecker {
                 // references. The type-compatibility and symbol-recording paths
                 // below still record the more specific type when one is available.
 
-                let symbol_type_option = if let Some(symbol) = self.analyzer.get_symbol(name) {
-                    symbol.symbol_type.clone()
-                } else {
-                    None
-                };
+                let (resolved_type, is_property) = self.resolve_bare_mutation_target_type(name);
+                let declared_property_type = is_property.then_some(resolved_type.clone()).flatten();
+                let symbol_type_option = (!is_property).then_some(resolved_type).flatten();
 
-                let need_type_error = if let Some(declared_type) = &symbol_type_option {
+                let need_type_error = if let Some(declared_type) = &declared_property_type {
+                    !self.are_declared_property_values_compatible(
+                        declared_type,
+                        &inferred_type,
+                        value,
+                    )
+                } else if let Some(declared_type) = &symbol_type_option {
                     !self.are_types_compatible(declared_type, &inferred_type)
                 } else {
                     false
@@ -1532,20 +4616,39 @@ impl TypeChecker {
 
                 if need_type_error {
                     self.type_error(
-                        format!("Cannot initialize variable '{name}' with incompatible type"),
-                        symbol_type_option.clone(),
+                        if let Some(expected) = &declared_property_type {
+                            format!(
+                                "Cannot initialize property '{name}' with {inferred_type} because \
+                                 its declared type is {expected}"
+                            )
+                        } else {
+                            format!("Cannot initialize variable '{name}' with incompatible type")
+                        },
+                        declared_property_type
+                            .clone()
+                            .or(symbol_type_option.clone()),
                         Some(inferred_type.clone()),
                         *_line,
                         *_column,
                     );
                 }
-
-                if inferred_type != Type::Error
-                    && inferred_type != Type::Unknown
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(name)
-                    && symbol.symbol_type.is_none()
-                {
-                    symbol.symbol_type = Some(inferred_type.clone());
+                if declared_property_type.is_some() {
+                    // Runtime container properties live in the method
+                    // environment and shadow outer lexical bindings. Their
+                    // declared registry type remains the source of truth.
+                    if *is_constant {
+                        self.type_error(
+                            format!(
+                                "Cannot redeclare container property '{name}' as a constant; \
+                                 the property binding already exists"
+                            ),
+                            declared_property_type,
+                            Some(inferred_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                    return;
                 }
 
                 // Locals declared inside an action body have no symbol left
@@ -1557,20 +4660,48 @@ impl TypeChecker {
                 // outer variable's name is a fatal semantic error ("Use
                 // 'change x to <value>'"), so a resolved outer symbol can
                 // only mean the store refers to that same variable.
-                if self.analyzer.get_symbol(name).is_none() {
-                    let recorded_type = if inferred_type == Type::Error {
-                        Type::Unknown
-                    } else {
-                        inferred_type
-                    };
+                let recorded_type = if inferred_type == Type::Error {
+                    Type::Unknown
+                } else {
+                    inferred_type
+                };
+                let alias_value_type = recorded_type.clone();
+                if self.analyzer.get_local_symbol(name).is_some() {
+                    if *is_constant && self.checking_persistent_loop_backedge {
+                        self.type_error(
+                            format!(
+                                "Constant '{name}' is redeclared when the persistent loop \
+                                 reaches another iteration"
+                            ),
+                            None,
+                            None,
+                            *_line,
+                            *_column,
+                        );
+                    }
+                    // Fixed-point loop checking revisits the same declaration
+                    // under a widened header. The declaration executes before
+                    // its later uses on every iteration, so it replaces that
+                    // header type with the freshly inferred value just as the
+                    // runtime replaces the binding.
+                    if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+                        symbol.symbol_type = Some(recorded_type);
+                    }
+                } else {
                     let _ = self.analyzer.define_symbol(Symbol {
                         name: name.clone(),
-                        kind: SymbolKind::Variable { mutable: true },
+                        kind: SymbolKind::Variable {
+                            mutable: !is_constant,
+                        },
                         symbol_type: Some(recorded_type),
                         line: *_line,
                         column: *_column,
                     });
                 }
+                self.detach_list_alias_binding(name);
+                self.record_direct_list_alias(name, value, &alias_value_type);
+                self.record_nested_list_aliases(name, value);
+                self.update_binding_nonempty_fact(name, is_definitely_nonempty);
             }
             Statement::Assignment {
                 name,
@@ -1578,14 +4709,18 @@ impl TypeChecker {
                 line,
                 column,
             } => {
+                let is_definitely_nonempty = self.expression_is_definitely_nonempty_list(value);
                 let inferred_type = self.infer_expression_type(value);
+                let alias_value_type = inferred_type.clone();
+                let mut captured_alias_sources = Vec::new();
+                self.capture_nested_list_alias_sources(value, 0, &mut captured_alias_sources);
 
                 // Clone the existing type first so we can re-borrow mutably below
                 // when widening away from Nothing (issue #605).
-                let existing_type = self
-                    .analyzer
-                    .get_symbol(name)
-                    .and_then(|s| s.symbol_type.clone());
+                let (resolved_type, is_property) = self.resolve_bare_mutation_target_type(name);
+                let declared_property_type = is_property.then_some(resolved_type.clone()).flatten();
+                let symbol_type = (!is_property).then_some(resolved_type).flatten();
+                let existing_type = symbol_type.or_else(|| declared_property_type.clone());
 
                 match existing_type {
                     // `store x as nothing` is the idiomatic "uninitialized"
@@ -1593,7 +4728,7 @@ impl TypeChecker {
                     // new value's type; otherwise later indexing/use stays
                     // pinned to Nothing and raises false
                     // "Cannot index into Nothing" diagnostics (issue #605).
-                    Some(Type::Nothing) => {
+                    Some(Type::Nothing) if declared_property_type.is_none() => {
                         if inferred_type != Type::Nothing
                             && inferred_type != Type::Error
                             && let Some(symbol) = self.analyzer.get_symbol_mut(name)
@@ -1602,16 +4737,41 @@ impl TypeChecker {
                         }
                     }
                     Some(variable_type) => {
-                        if !self.are_types_compatible(&variable_type, &inferred_type) {
+                        let is_compatible = if declared_property_type.is_some() {
+                            self.are_declared_property_values_compatible(
+                                &variable_type,
+                                &inferred_type,
+                                value,
+                            )
+                        } else {
+                            self.are_types_compatible(&variable_type, &inferred_type)
+                        };
+                        if !is_compatible {
                             self.type_error(
-                                format!(
-                                    "Cannot assign value of incompatible type to variable '{name}'"
-                                ),
+                                if declared_property_type.is_some() {
+                                    format!(
+                                        "Cannot assign {inferred_type} to property '{name}' because \
+                                         its declared type is {variable_type}"
+                                    )
+                                } else {
+                                    format!(
+                                        "Cannot assign value of incompatible type to variable \
+                                         '{name}'"
+                                    )
+                                },
                                 Some(variable_type),
                                 Some(inferred_type),
                                 *line,
                                 *column,
                             );
+                        } else if inferred_type != Type::Error
+                            && let Some(symbol) = self.analyzer.get_symbol_mut(name)
+                        {
+                            // `change` replaces the current runtime value.
+                            // Flow-sensitive state must therefore record the
+                            // assigned value itself, including Nothing, rather
+                            // than retaining a stale pre-assignment type.
+                            symbol.symbol_type = Some(inferred_type);
                         }
                     }
                     None => {
@@ -1627,6 +4787,25 @@ impl TypeChecker {
                         }
                     }
                 }
+                if declared_property_type.is_some() {
+                    // Runtime container properties shadow outer lexical
+                    // bindings. Do not accidentally detach aliases or record
+                    // deferred effects against a same-named outer variable.
+                    return;
+                }
+                self.record_deferred_binding_assignment(name);
+                self.record_deferred_list_rebind(name, value, &alias_value_type);
+                self.detach_list_alias_binding(name);
+                self.restore_captured_list_alias_sources(name, captured_alias_sources);
+                if matches!(
+                    value,
+                    Expression::MemberAccess { .. }
+                        | Expression::PropertyAccess { .. }
+                        | Expression::MethodCall { .. }
+                ) {
+                    self.record_direct_list_alias(name, value, &alias_value_type);
+                }
+                self.update_binding_nonempty_fact(name, is_definitely_nonempty);
             }
             Statement::ActionDefinition {
                 name,
@@ -1659,6 +4838,27 @@ impl TypeChecker {
                 // in builtin positions (e.g. `respond to req with ...`, #569).
                 let return_type_value = return_type.as_ref().cloned().unwrap_or(Type::Unknown);
 
+                // Nested action symbols lived only in the analyzer's discarded
+                // body scope. Re-create their ownership in the active scope so
+                // calls and local-only exports observe runtime scope rules.
+                if self.analyzer.get_local_symbol(name).is_none() {
+                    let _ = self.analyzer.define_symbol(Symbol {
+                        name: name.clone(),
+                        kind: SymbolKind::Function {
+                            signatures: vec![crate::analyzer::FunctionSignature {
+                                parameters: parameters.clone(),
+                                return_type: return_type.clone(),
+                            }],
+                        },
+                        symbol_type: Some(Type::Function {
+                            parameters: param_types.clone(),
+                            return_type: Box::new(return_type_value.clone()),
+                        }),
+                        line: *_line,
+                        column: *_column,
+                    });
+                }
+
                 if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
                     symbol.symbol_type = Some(Type::Function {
                         parameters: param_types.clone(),
@@ -1684,7 +4884,7 @@ impl TypeChecker {
                         line: param.line,
                         column: param.column,
                     };
-                    let _ = self.analyzer.define_symbol(param_symbol);
+                    self.analyzer.define_or_replace_symbol(param_symbol);
                 }
 
                 // Snapshot before the body so Nothing-widening (and other
@@ -1692,25 +4892,92 @@ impl TypeChecker {
                 // do not permanently stick after the action is defined but
                 // never called (PR #606 Codex review).
                 let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+                let outer_alias_snapshot = self.list_alias_groups.clone();
+                let outer_refinement_snapshot = self.optional_refinement_origins.clone();
+                let outer_nonempty_snapshot = self.definitely_nonempty_lists.clone();
+                let signature_index = self.signature_index_for(name, parameters).unwrap_or(0);
+                let summary_key = (name.clone(), signature_index);
+                self.deferred_action_key_stack.push(summary_key.clone());
+                self.deferred_list_effect_stack.push(HashSet::new());
+                self.deferred_binding_effect_stack.push(HashMap::new());
+                self.deferred_return_type_stack.push(Vec::new());
 
-                for stmt in body {
-                    self.check_statement_types(stmt);
+                self.try_flow_capture_suspended += 1;
+                let (body_can_continue, implicit_completion) =
+                    self.check_statement_block_with_completion(body);
+                self.try_flow_capture_suspended -= 1;
+
+                let recorded_returns = self.deferred_return_type_stack.pop().unwrap_or_default();
+                let mut implicit_list_sources = Vec::new();
+                if body_can_continue && Self::type_may_contain_list(&implicit_completion) {
+                    self.capture_block_completion_list_sources(body, 0, &mut implicit_list_sources);
                 }
-
-                // Infer the return type while body-locals and parameters are
-                // still in scope (and still see any in-body widenings).
                 let inferred_return = if return_type.is_none() {
-                    Some(self.infer_action_return_type(body))
+                    Some(Self::infer_recorded_action_return_type(
+                        &recorded_returns,
+                        body_can_continue.then_some(&implicit_completion),
+                    ))
                 } else {
                     None
                 };
 
                 if let Some(ret_type) = return_type {
-                    self.check_return_statements(body, ret_type, *_line, *_column);
+                    self.check_recorded_return_types(&recorded_returns, ret_type);
+                    if body_can_continue {
+                        self.check_implicit_action_result(
+                            &implicit_completion,
+                            ret_type,
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
 
+                let deferred_effects = self.deferred_list_effect_stack.pop().unwrap_or_default();
+                let deferred_binding_effects =
+                    self.deferred_binding_effect_stack.pop().unwrap_or_default();
+                let popped_summary_key = self.deferred_action_key_stack.pop();
+                debug_assert_eq!(popped_summary_key.as_ref(), Some(&summary_key));
+                let returned_list_sources = recorded_returns
+                    .iter()
+                    .flat_map(|record| record.list_sources.iter().cloned())
+                    .chain(implicit_list_sources);
                 self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.list_alias_groups = outer_alias_snapshot;
+                self.optional_refinement_origins = outer_refinement_snapshot;
+                self.definitely_nonempty_lists = outer_nonempty_snapshot;
                 self.analyzer.pop_scope();
+                let mut shared_return_provenance = SharedListReturnProvenance::new();
+                for (depth, sources) in returned_list_sources {
+                    let live_sources = sources
+                        .into_iter()
+                        .filter(|source| self.analyzer.binding_key_is_live(&source.binding))
+                        .collect::<HashSet<_>>();
+                    if !live_sources.is_empty() {
+                        shared_return_provenance
+                            .entry(depth)
+                            .or_default()
+                            .extend(live_sources);
+                    }
+                }
+                self.user_action_list_effects
+                    .entry(summary_key.clone())
+                    .or_default()
+                    .extend(deferred_effects);
+                let binding_effects = self
+                    .user_action_binding_effects
+                    .entry(summary_key.clone())
+                    .or_default();
+                for (binding, effect_type) in deferred_binding_effects {
+                    Self::join_binding_effect(binding_effects, binding, effect_type);
+                }
+                if shared_return_provenance.is_empty() {
+                    self.user_action_shared_list_returns.remove(&summary_key);
+                } else {
+                    self.user_action_shared_list_returns
+                        .insert(summary_key.clone(), shared_return_provenance);
+                }
+                self.propagate_user_action_summaries();
 
                 // Update the action's symbol so call sites see the real result
                 // type instead of the provisional `Unknown` seed. Pure `Nothing`
@@ -1735,10 +5002,12 @@ impl TypeChecker {
                     .cloned()
                     .or(inferred_return)
                     .unwrap_or(Type::Unknown);
-                if let Some(index) = self.signature_index_for(name, parameters) {
-                    self.overload_returns
-                        .insert((name.clone(), index), overload_return);
-                }
+                self.overload_returns.insert(summary_key, overload_return);
+                self.current_statement_completion = self
+                    .analyzer
+                    .get_symbol(name)
+                    .and_then(|symbol| symbol.symbol_type.clone())
+                    .unwrap_or(Type::Unknown);
             }
             Statement::IfStatement {
                 condition,
@@ -1747,11 +5016,9 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.definitely_nonempty_lists.clear();
                 let condition_type = self.infer_expression_type(condition);
-                if condition_type != Type::Boolean
-                    && condition_type != Type::Unknown
-                    && condition_type != Type::Error
-                {
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
                     self.type_error(
                         "Condition must be a boolean expression".to_string(),
                         Some(Type::Boolean),
@@ -1761,23 +5028,119 @@ impl TypeChecker {
                     );
                 }
 
+                let refinement = self.optional_condition_refinement(condition);
+                let literal_condition = match condition {
+                    Expression::Literal(Literal::Boolean(value), ..) => Some(*value),
+                    _ => None,
+                };
+                let summary_entry = self.snapshot_deferred_summary();
+                let refinement_origins_entry = self.optional_refinement_origins.clone();
+                let refinement_origin = refinement.as_ref().and_then(|(name, _, _)| {
+                    let binding = self.analyzer.get_symbol_binding_key(name)?;
+                    let origin = self
+                        .analyzer
+                        .get_symbol_by_binding_key(&binding)?
+                        .symbol_type
+                        .clone()?;
+                    Some((binding, origin))
+                });
+                let entry_aliases = self.list_alias_groups.clone();
                 let entry_types = self.analyzer.snapshot_symbol_types();
-                for stmt in then_block {
-                    self.check_statement_types(stmt);
+                if let Some((name, then_type, _)) = &refinement {
+                    self.refine_symbol_type(name, then_type);
+                }
+                if literal_condition == Some(false) {
+                    self.try_flow_capture_suspended += 1;
+                }
+                let (then_can_continue, then_completion) =
+                    self.check_statement_block_with_completion(then_block);
+                if literal_condition == Some(false) {
+                    self.try_flow_capture_suspended -= 1;
                 }
                 let then_types = self.analyzer.snapshot_symbol_types();
+                let then_aliases = self.list_alias_groups.clone();
+                let then_summary = self.snapshot_deferred_summary();
                 self.analyzer.restore_symbol_types(entry_types.clone());
+                self.list_alias_groups = entry_aliases.clone();
+                self.restore_deferred_summary(summary_entry.clone());
+                self.optional_refinement_origins = refinement_origins_entry.clone();
 
-                let else_types = if let Some(else_stmts) = else_block {
-                    for stmt in else_stmts {
-                        self.check_statement_types(stmt);
-                    }
-                    self.analyzer.snapshot_symbol_types()
-                } else {
-                    entry_types
+                if let Some((name, _, else_type)) = &refinement {
+                    self.refine_symbol_type(name, else_type);
+                }
+                let (else_types, else_aliases, else_can_continue, else_completion) =
+                    if let Some(else_stmts) = else_block {
+                        if literal_condition == Some(true) {
+                            self.try_flow_capture_suspended += 1;
+                        }
+                        let (can_continue, completion) =
+                            self.check_statement_block_with_completion(else_stmts);
+                        if literal_condition == Some(true) {
+                            self.try_flow_capture_suspended -= 1;
+                        }
+                        (
+                            self.analyzer.snapshot_symbol_types(),
+                            self.list_alias_groups.clone(),
+                            can_continue,
+                            completion,
+                        )
+                    } else {
+                        (
+                            self.analyzer.snapshot_symbol_types(),
+                            self.list_alias_groups.clone(),
+                            true,
+                            Type::Nothing,
+                        )
+                    };
+                let else_summary = self.snapshot_deferred_summary();
+                let reachable_summaries = match literal_condition {
+                    Some(true) => vec![then_summary],
+                    Some(false) => vec![else_summary],
+                    None => vec![then_summary, else_summary],
                 };
-                let joined = Self::join_type_snapshots(&[then_types, else_types]);
+                self.join_deferred_summaries(&summary_entry, &reachable_summaries);
+                let mut continuation_types = Vec::with_capacity(2);
+                let mut continuation_aliases = Vec::with_capacity(2);
+                let mut continuation_completions = Vec::with_capacity(2);
+                if literal_condition != Some(false) && then_can_continue {
+                    continuation_types.push(then_types);
+                    continuation_aliases.push(then_aliases);
+                    continuation_completions.push(then_completion);
+                }
+                if literal_condition != Some(true) && else_can_continue {
+                    continuation_types.push(else_types);
+                    continuation_aliases.push(else_aliases);
+                    continuation_completions.push(else_completion);
+                }
+                let joined = if continuation_types.is_empty() {
+                    entry_types.clone()
+                } else {
+                    Self::join_type_snapshots(&continuation_types)
+                };
                 self.analyzer.restore_symbol_types(joined);
+                self.list_alias_groups = if continuation_aliases.is_empty() {
+                    entry_aliases
+                } else {
+                    Self::join_list_alias_snapshots(&continuation_aliases)
+                };
+                self.current_statement_completion = continuation_completions
+                    .into_iter()
+                    .reduce(Self::join_inferred_types)
+                    .unwrap_or(Type::Nothing);
+                self.optional_refinement_origins = refinement_origins_entry;
+                if let Some((binding, origin @ Type::Optional(_))) = refinement_origin
+                    && let Some(current) = self
+                        .analyzer
+                        .get_symbol_by_binding_key(&binding)
+                        .and_then(|symbol| symbol.symbol_type.as_ref())
+                    && refinement
+                        .as_ref()
+                        .is_some_and(|(_, then_type, else_type)| {
+                            current == then_type || current == else_type
+                        })
+                {
+                    self.optional_refinement_origins.insert(binding, origin);
+                }
             }
             Statement::SingleLineIf {
                 condition,
@@ -1786,11 +5149,9 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                self.definitely_nonempty_lists.clear();
                 let condition_type = self.infer_expression_type(condition);
-                if condition_type != Type::Boolean
-                    && condition_type != Type::Unknown
-                    && condition_type != Type::Error
-                {
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
                     self.type_error(
                         "Condition must be a boolean expression".to_string(),
                         Some(Type::Boolean),
@@ -1800,19 +5161,118 @@ impl TypeChecker {
                     );
                 }
 
-                let entry_types = self.analyzer.snapshot_symbol_types();
-                self.check_statement_types(then_stmt);
-                let then_types = self.analyzer.snapshot_symbol_types();
-                self.analyzer.restore_symbol_types(entry_types.clone());
-
-                let else_types = if let Some(else_stmt) = else_stmt {
-                    self.check_statement_types(else_stmt);
-                    self.analyzer.snapshot_symbol_types()
-                } else {
-                    entry_types
+                let refinement = self.optional_condition_refinement(condition);
+                let literal_condition = match condition {
+                    Expression::Literal(Literal::Boolean(value), ..) => Some(*value),
+                    _ => None,
                 };
-                let joined = Self::join_type_snapshots(&[then_types, else_types]);
+                let summary_entry = self.snapshot_deferred_summary();
+                let refinement_origins_entry = self.optional_refinement_origins.clone();
+                let refinement_origin = refinement.as_ref().and_then(|(name, _, _)| {
+                    let binding = self.analyzer.get_symbol_binding_key(name)?;
+                    let origin = self
+                        .analyzer
+                        .get_symbol_by_binding_key(&binding)?
+                        .symbol_type
+                        .clone()?;
+                    Some((binding, origin))
+                });
+                let entry_aliases = self.list_alias_groups.clone();
+                let entry_types = self.analyzer.snapshot_symbol_types();
+                if let Some((name, then_type, _)) = &refinement {
+                    self.refine_symbol_type(name, then_type);
+                }
+                if literal_condition == Some(false) {
+                    self.try_flow_capture_suspended += 1;
+                }
+                let then_completion = self.check_statement_types(then_stmt);
+                if literal_condition == Some(false) {
+                    self.try_flow_capture_suspended -= 1;
+                }
+                let then_types = self.analyzer.snapshot_symbol_types();
+                let then_can_continue = !Self::statement_definitely_stops_current_block(then_stmt);
+                let then_aliases = self.list_alias_groups.clone();
+                let then_summary = self.snapshot_deferred_summary();
+                self.analyzer.restore_symbol_types(entry_types.clone());
+                self.list_alias_groups = entry_aliases.clone();
+                self.restore_deferred_summary(summary_entry.clone());
+                self.optional_refinement_origins = refinement_origins_entry.clone();
+
+                if let Some((name, _, else_type)) = &refinement {
+                    self.refine_symbol_type(name, else_type);
+                }
+                let (else_types, else_aliases, else_can_continue, else_completion) =
+                    if let Some(else_stmt) = else_stmt {
+                        if literal_condition == Some(true) {
+                            self.try_flow_capture_suspended += 1;
+                        }
+                        let completion = self.check_statement_types(else_stmt);
+                        if literal_condition == Some(true) {
+                            self.try_flow_capture_suspended -= 1;
+                        }
+                        (
+                            self.analyzer.snapshot_symbol_types(),
+                            self.list_alias_groups.clone(),
+                            !Self::statement_definitely_stops_current_block(else_stmt),
+                            completion,
+                        )
+                    } else {
+                        (
+                            self.analyzer.snapshot_symbol_types(),
+                            self.list_alias_groups.clone(),
+                            true,
+                            Type::Nothing,
+                        )
+                    };
+                let else_summary = self.snapshot_deferred_summary();
+                let reachable_summaries = match literal_condition {
+                    Some(true) => vec![then_summary],
+                    Some(false) => vec![else_summary],
+                    None => vec![then_summary, else_summary],
+                };
+                self.join_deferred_summaries(&summary_entry, &reachable_summaries);
+                let mut continuation_types = Vec::with_capacity(2);
+                let mut continuation_aliases = Vec::with_capacity(2);
+                let mut continuation_completions = Vec::with_capacity(2);
+                if literal_condition != Some(false) && then_can_continue {
+                    continuation_types.push(then_types);
+                    continuation_aliases.push(then_aliases);
+                    continuation_completions.push(then_completion);
+                }
+                if literal_condition != Some(true) && else_can_continue {
+                    continuation_types.push(else_types);
+                    continuation_aliases.push(else_aliases);
+                    continuation_completions.push(else_completion);
+                }
+                let joined = if continuation_types.is_empty() {
+                    entry_types.clone()
+                } else {
+                    Self::join_type_snapshots(&continuation_types)
+                };
                 self.analyzer.restore_symbol_types(joined);
+                self.list_alias_groups = if continuation_aliases.is_empty() {
+                    entry_aliases
+                } else {
+                    Self::join_list_alias_snapshots(&continuation_aliases)
+                };
+                self.current_statement_completion = continuation_completions
+                    .into_iter()
+                    .reduce(Self::join_inferred_types)
+                    .unwrap_or(Type::Nothing);
+                self.optional_refinement_origins = refinement_origins_entry;
+                if let Some((binding, origin @ Type::Optional(_))) = refinement_origin
+                    && let Some(current) = self
+                        .analyzer
+                        .get_symbol_by_binding_key(&binding)
+                        .and_then(|symbol| symbol.symbol_type.as_ref())
+                    && refinement
+                        .as_ref()
+                        .is_some_and(|(_, then_type, else_type)| {
+                            current == then_type || current == else_type
+                        })
+                {
+                    self.optional_refinement_origins.insert(binding, origin);
+                }
             }
             Statement::ForEachLoop {
                 item_name,
@@ -1822,6 +5282,7 @@ impl TypeChecker {
                 column: _column,
                 ..
             } => {
+                let guaranteed_iteration = self.expression_is_definitely_nonempty_list(collection);
                 let collection_type = self.infer_expression_type(collection);
                 let mut item_type_inferred = Type::Unknown;
 
@@ -1832,7 +5293,7 @@ impl TypeChecker {
                     Type::Map(_, value_type) => {
                         item_type_inferred = *value_type;
                     }
-                    Type::Unknown | Type::Error => {}
+                    Type::Unknown | Type::Any | Type::Error => {}
                     _ => {
                         self.type_error(
                             "Collection in for-each loop must be a list or map".to_string(),
@@ -1848,6 +5309,7 @@ impl TypeChecker {
                 self.analyzer.push_scope();
 
                 // Define the loop variable in the new scope
+                let item_may_be_list = Self::type_may_be_list(&item_type_inferred);
                 let symbol = Symbol {
                     name: item_name.clone(),
                     kind: SymbolKind::Variable { mutable: false },
@@ -1858,13 +5320,29 @@ impl TypeChecker {
 
                 // Ignore errors (e.g., if already defined, though in a new scope it shouldn't be)
                 let _ = self.analyzer.define_symbol(symbol);
-
-                for stmt in body {
-                    self.check_statement_types(stmt);
+                if item_may_be_list
+                    && let Some(mut source_path) = self.list_target_binding_path(collection)
+                    && let Some(item_binding) = self.analyzer.get_symbol_binding_key(item_name)
+                {
+                    source_path.index_depth += 1;
+                    self.add_structural_list_alias(
+                        source_path,
+                        ListAliasPath {
+                            binding: item_binding,
+                            index_depth: 0,
+                        },
+                    );
                 }
+
+                self.check_fresh_iteration_loop_body(body, guaranteed_iteration);
 
                 // Pop the scope
                 self.analyzer.pop_scope();
+                self.prune_dead_list_alias_paths();
+                // Loop-body mutations can invalidate cardinality facts. The
+                // guaranteed-iteration flag above is intentionally consumed
+                // only for this loop's control-flow join.
+                self.definitely_nonempty_lists.clear();
             }
             Statement::CountLoop {
                 start,
@@ -1877,10 +5355,7 @@ impl TypeChecker {
                 ..
             } => {
                 let start_type = self.infer_expression_type(start);
-                if start_type != Type::Number
-                    && start_type != Type::Unknown
-                    && start_type != Type::Error
-                {
+                if start_type != Type::Number && !self.is_gradual_type(&start_type) {
                     self.type_error(
                         "Start value in count loop must be a number".to_string(),
                         Some(Type::Number),
@@ -1891,8 +5366,7 @@ impl TypeChecker {
                 }
 
                 let end_type = self.infer_expression_type(end);
-                if end_type != Type::Number && end_type != Type::Unknown && end_type != Type::Error
-                {
+                if end_type != Type::Number && !self.is_gradual_type(&end_type) {
                     self.type_error(
                         "End value in count loop must be a number".to_string(),
                         Some(Type::Number),
@@ -1904,10 +5378,7 @@ impl TypeChecker {
 
                 if let Some(step_expr) = step {
                     let step_type = self.infer_expression_type(step_expr);
-                    if step_type != Type::Number
-                        && step_type != Type::Unknown
-                        && step_type != Type::Error
-                    {
+                    if step_type != Type::Number && !self.is_gradual_type(&step_type) {
                         self.type_error(
                             "Step value in count loop must be a number".to_string(),
                             Some(Type::Number),
@@ -1930,10 +5401,9 @@ impl TypeChecker {
                     column: *_column,
                 });
 
-                for stmt in body {
-                    self.check_statement_types(stmt);
-                }
+                self.check_fresh_iteration_loop_body(body, false);
                 self.analyzer.pop_scope();
+                self.definitely_nonempty_lists.clear();
             }
             Statement::WhileLoop {
                 condition,
@@ -1941,16 +5411,8 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                self.check_loop_body_fixed_point(body);
-                if self.budget_error.is_some() {
-                    return;
-                }
-
                 let condition_type = self.infer_expression_type(condition);
-                if condition_type != Type::Boolean
-                    && condition_type != Type::Unknown
-                    && condition_type != Type::Error
-                {
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
                     self.type_error(
                         "Condition in while loop must be a boolean expression".to_string(),
                         Some(Type::Boolean),
@@ -1959,6 +5421,32 @@ impl TypeChecker {
                         *_column,
                     );
                 }
+                let first_condition_error_end = self.errors.len();
+                self.check_persistent_loop_body_fixed_point(
+                    body,
+                    !matches!(condition, Expression::Literal(Literal::Boolean(false), ..)),
+                );
+                if self.budget_error.is_some() {
+                    return;
+                }
+
+                let condition_type = self.infer_expression_type(condition);
+                if condition_type != Type::Boolean && !self.is_gradual_type(&condition_type) {
+                    self.type_error(
+                        "Condition in while loop must be a boolean expression".to_string(),
+                        Some(Type::Boolean),
+                        Some(condition_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                self.deduplicate_errors_from(first_condition_error_end);
+                self.current_statement_completion =
+                    if matches!(condition, Expression::Literal(Literal::Boolean(false), ..)) {
+                        Type::Nothing
+                    } else {
+                        Type::Any
+                    };
             }
             Statement::RepeatUntilLoop {
                 condition,
@@ -1967,39 +5455,48 @@ impl TypeChecker {
                 column: _column,
             } => {
                 // Runtime order: the body ALWAYS runs before the condition is
-                // evaluated, in the same scope. Check in that order (with the
-                // same backedge fixed point as `while`/`repeat while`, but
-                // keeping the post-body state) so body retypings are visible
-                // to the condition (#642).
-                let header = self.check_loop_body_fixed_point_post_body(body);
-                if self.budget_error.is_some() {
-                    return;
-                }
-                // A body that can `break`/`exit`/`return` skips the condition
-                // on that path at runtime, so the strict post-body state would
-                // falsely reject retype-then-break bodies (fatal inside
-                // `load module`). Soften to the join of header and post-body
-                // for the condition — and for code after the loop, which such
-                // a path also reaches with pre-break state.
+                // evaluated, in the same scope. Both the #642 fixed point and
+                // the gradual-contract fixed point check in that order so body
+                // retypings are visible to the condition.
                 if Self::body_may_exit_loop_early(body) {
+                    // A body that can `break`/`exit`/`return` skips the
+                    // condition on that path at runtime, so the strict
+                    // post-body state would falsely reject retype-then-break
+                    // bodies (fatal inside `load module`). Walk the body with
+                    // the post-body fixed point, then soften to the join of
+                    // header and post-body for the condition — and for code
+                    // after the loop, which such a path also reaches with
+                    // pre-break state (#642).
+                    let header = self.check_loop_body_fixed_point_post_body(body);
+                    if self.budget_error.is_some() {
+                        return;
+                    }
                     let post_body = self.analyzer.snapshot_symbol_types();
                     self.analyzer
                         .restore_symbol_types(Self::join_type_snapshots(&[header, post_body]));
-                }
 
-                let condition_type = self.infer_expression_type(condition);
-                if condition_type != Type::Boolean
-                    && condition_type != Type::Unknown
-                    && condition_type != Type::Error
-                {
-                    self.type_error(
-                        "Condition in repeat-until loop must be a boolean expression".to_string(),
-                        Some(Type::Boolean),
-                        Some(condition_type),
-                        *_line,
-                        *_column,
-                    );
+                    let condition_type = self.infer_expression_type(condition);
+                    if condition_type != Type::Boolean
+                        && condition_type != Type::Unknown
+                        && condition_type != Type::Error
+                    {
+                        self.type_error(
+                            "Condition in repeat-until loop must be a boolean expression"
+                                .to_string(),
+                            Some(Type::Boolean),
+                            Some(condition_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                } else {
+                    // No early exit: the condition and all code after the loop
+                    // are always reached from the body's final state, so use
+                    // the gradual-contract fixed point directly (post-body
+                    // condition check, alias/deferred-summary tracking).
+                    self.check_repeat_until_fixed_point(condition, body, *_line, *_column);
                 }
+                self.current_statement_completion = Type::Any;
             }
             Statement::ForeverLoop { body, .. } => {
                 // Push a scope so bindings introduced in the body (e.g.
@@ -2007,32 +5504,58 @@ impl TypeChecker {
                 // statements in the same body for type checking. Analyzer loop
                 // scopes are discarded after analysis.
                 self.analyzer.push_scope();
-                for stmt in body {
-                    self.check_statement_types(stmt);
-                }
+                self.check_fresh_iteration_loop_body(body, true);
                 self.analyzer.pop_scope();
+                self.definitely_nonempty_lists.clear();
+                self.current_statement_completion = Type::Any;
             }
             Statement::MainLoop { body, .. } => {
                 self.analyzer.push_scope();
-                for stmt in body {
-                    self.check_statement_types(stmt);
-                }
+                self.check_fresh_iteration_loop_body(body, true);
                 self.analyzer.pop_scope();
+                self.definitely_nonempty_lists.clear();
+                self.current_statement_completion = Type::Any;
             }
             Statement::DisplayStatement { value, .. } => {
                 self.infer_expression_type(value);
             }
             Statement::ReturnStatement {
                 value,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
-                if let Some(expr) = value {
-                    self.infer_expression_type(expr);
+                let (value_type, list_sources) = if let Some(expr) = value {
+                    let value_type = self.infer_expression_type(expr);
+                    let mut captured = Vec::new();
+                    if Self::type_may_contain_list(&value_type) {
+                        self.capture_nested_list_alias_sources(expr, 0, &mut captured);
+                    }
+                    (value_type, captured)
+                } else {
+                    (Type::Nothing, Vec::new())
+                };
+                if let Some(active_returns) = self.deferred_return_type_stack.last_mut() {
+                    active_returns.push(RecordedReturn {
+                        return_type: value_type,
+                        line: *line,
+                        column: *column,
+                        has_value: value.is_some(),
+                        list_sources,
+                    });
                 }
             }
-            Statement::ExpressionStatement { expression, .. } => {
-                self.infer_expression_type(expression);
+            Statement::ExpressionStatement {
+                expression,
+                line,
+                column,
+            } => {
+                let completion = match expression {
+                    Expression::Variable(name, ..) => self
+                        .infer_bare_variable_statement(name, *line, *column)
+                        .unwrap_or_else(|| self.infer_expression_type(expression)),
+                    _ => self.infer_expression_type(expression),
+                };
+                self.current_statement_completion = completion;
             }
             Statement::BreakStatement { .. } | Statement::ContinueStatement { .. } => {}
             Statement::OpenFileStatement {
@@ -2043,8 +5566,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "File path must be a text string".to_string(),
                         Some(Type::Text),
@@ -2074,21 +5596,19 @@ impl TypeChecker {
             } => {
                 let file_type = self.infer_expression_type(path);
                 if file_type != Type::Custom("File".to_string())
-                    && file_type != Type::Unknown
-                    && file_type != Type::Error
+                    && file_type != Type::Text
+                    && !self.is_gradual_type(&file_type)
                 {
                     self.type_error(
-                        "Expected a File object".to_string(),
-                        Some(Type::Custom("File".to_string())),
+                        "Expected a file path or File handle".to_string(),
+                        None,
                         Some(file_type),
                         *_line,
                         *_column,
                     );
                 }
 
-                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                    symbol.symbol_type = Some(Type::Text);
-                }
+                self.bind_runtime_value(variable_name, Type::Text, true, *_line, *_column);
             }
             Statement::WriteFileStatement {
                 file,
@@ -2099,12 +5619,12 @@ impl TypeChecker {
             } => {
                 let file_type = self.infer_expression_type(file);
                 if file_type != Type::Custom("File".to_string())
-                    && file_type != Type::Unknown
-                    && file_type != Type::Error
+                    && file_type != Type::Text
+                    && !self.is_gradual_type(&file_type)
                 {
                     self.type_error(
-                        "Expected a File object".to_string(),
-                        Some(Type::Custom("File".to_string())),
+                        "Expected a file path or File handle".to_string(),
+                        None,
                         Some(file_type),
                         *_line,
                         *_column,
@@ -2112,10 +5632,7 @@ impl TypeChecker {
                 }
 
                 let content_type = self.infer_expression_type(content);
-                if content_type != Type::Text
-                    && content_type != Type::Unknown
-                    && content_type != Type::Error
-                {
+                if content_type != Type::Text && !self.is_gradual_type(&content_type) {
                     self.type_error(
                         "File content must be a text string".to_string(),
                         Some(Type::Text),
@@ -2151,7 +5668,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let url_type = self.infer_expression_type(url);
-                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                if url_type != Type::Text && !self.is_gradual_type(&url_type) {
                     self.type_error(
                         "Database URL must be a text string".to_string(),
                         Some(Type::Text),
@@ -2161,9 +5678,13 @@ impl TypeChecker {
                     );
                 }
 
-                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                    symbol.symbol_type = Some(Type::Custom("Database".to_string()));
-                }
+                self.bind_runtime_value(
+                    variable_name,
+                    Type::Custom("Database".to_string()),
+                    true,
+                    *_line,
+                    *_column,
+                );
             }
             Statement::DatabaseQueryStatement {
                 db,
@@ -2176,9 +5697,13 @@ impl TypeChecker {
             } => {
                 self.check_database_query_operands(db, sql, parameters.as_ref(), *line, *column);
 
-                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                    symbol.symbol_type = Some(Self::database_result_type(*kind));
-                }
+                self.bind_runtime_value(
+                    variable_name,
+                    Self::database_result_type(*kind),
+                    true,
+                    *line,
+                    *column,
+                );
             }
             Statement::CloseDatabaseStatement {
                 db,
@@ -2187,8 +5712,7 @@ impl TypeChecker {
             } => {
                 let db_type = self.infer_expression_type(db);
                 if db_type != Type::Custom("Database".to_string())
-                    && db_type != Type::Unknown
-                    && db_type != Type::Error
+                    && !self.is_gradual_type(&db_type)
                 {
                     self.type_error(
                         "Expected a Database connection".to_string(),
@@ -2205,8 +5729,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for directory path".to_string(),
                         Some(Type::Text),
@@ -2223,8 +5746,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for file path".to_string(),
                         Some(Type::Text),
@@ -2241,8 +5763,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for file path".to_string(),
                         Some(Type::Text),
@@ -2258,8 +5779,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for directory path".to_string(),
                         Some(Type::Text),
@@ -2276,8 +5796,7 @@ impl TypeChecker {
                 ..
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for module path".to_string(),
                         Some(Type::Text),
@@ -2290,13 +5809,13 @@ impl TypeChecker {
             Statement::ExecuteCommandStatement {
                 command,
                 arguments,
-                variable_name: _,
+                variable_name,
                 use_shell: _,
                 line: _line,
                 column: _column,
             } => {
                 let cmd_type = self.infer_expression_type(command);
-                if cmd_type != Type::Text && cmd_type != Type::Unknown && cmd_type != Type::Error {
+                if cmd_type != Type::Text && !self.is_gradual_type(&cmd_type) {
                     self.type_error(
                         "Expected string for command".to_string(),
                         Some(Type::Text),
@@ -2306,8 +5825,25 @@ impl TypeChecker {
                     );
                 }
                 if let Some(args) = arguments {
-                    let _args_type = self.infer_expression_type(args);
-                    // Arguments can be a list or a single string
+                    let args_type = self.infer_expression_type(args);
+                    if !self.is_process_arguments_type(&args_type) {
+                        self.type_error(
+                            "Command arguments must be text or a list".to_string(),
+                            None,
+                            Some(args_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(var_name) = variable_name {
+                    self.bind_runtime_value(
+                        var_name,
+                        Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
+                        true,
+                        *_line,
+                        *_column,
+                    );
                 }
             }
             Statement::ExecuteFileStatement {
@@ -2318,8 +5854,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for execute file path".to_string(),
                         Some(Type::Text),
@@ -2329,26 +5864,32 @@ impl TypeChecker {
                     );
                 }
                 if let Some(request_expr) = request {
-                    // Request context is a request object; no constraint beyond inference
-                    let _request_type = self.infer_expression_type(request_expr);
+                    let request_type = self.infer_expression_type(request_expr);
+                    if !self.is_execute_file_request_type(&request_type) {
+                        self.type_error(
+                            "Execute-file request must be a request object".to_string(),
+                            Some(Type::Custom("Request".to_string())),
+                            Some(request_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
                 // Captured display output of the executed file is text
-                if let Some(var_name) = variable_name
-                    && let Some(symbol) = self.analyzer.get_symbol_mut(var_name)
-                {
-                    symbol.symbol_type = Some(Type::Text);
+                if let Some(var_name) = variable_name {
+                    self.bind_runtime_value(var_name, Type::Text, true, *_line, *_column);
                 }
             }
             Statement::SpawnProcessStatement {
                 command,
                 arguments,
-                variable_name: _,
+                variable_name,
                 use_shell: _,
                 line: _line,
                 column: _column,
             } => {
                 let cmd_type = self.infer_expression_type(command);
-                if cmd_type != Type::Text && cmd_type != Type::Unknown && cmd_type != Type::Error {
+                if cmd_type != Type::Text && !self.is_gradual_type(&cmd_type) {
                     self.type_error(
                         "Expected string for command".to_string(),
                         Some(Type::Text),
@@ -2358,18 +5899,27 @@ impl TypeChecker {
                     );
                 }
                 if let Some(args) = arguments {
-                    let _args_type = self.infer_expression_type(args);
+                    let args_type = self.infer_expression_type(args);
+                    if !self.is_process_arguments_type(&args_type) {
+                        self.type_error(
+                            "Process arguments must be text or a list".to_string(),
+                            None,
+                            Some(args_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
+                self.bind_runtime_value(variable_name, Type::Text, true, *_line, *_column);
             }
             Statement::ReadProcessOutputStatement {
                 process_id,
-                variable_name: _,
+                variable_name,
                 line: _line,
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
-                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error
-                {
+                if proc_type != Type::Text && !self.is_gradual_type(&proc_type) {
                     self.type_error(
                         "Expected string for process ID".to_string(),
                         Some(Type::Text),
@@ -2378,6 +5928,7 @@ impl TypeChecker {
                         *_column,
                     );
                 }
+                self.bind_runtime_value(variable_name, Type::Text, true, *_line, *_column);
             }
             Statement::KillProcessStatement {
                 process_id,
@@ -2385,8 +5936,7 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
-                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error
-                {
+                if proc_type != Type::Text && !self.is_gradual_type(&proc_type) {
                     self.type_error(
                         "Expected string for process ID".to_string(),
                         Some(Type::Text),
@@ -2398,13 +5948,12 @@ impl TypeChecker {
             }
             Statement::WaitForProcessStatement {
                 process_id,
-                variable_name: _,
+                variable_name,
                 line: _line,
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
-                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error
-                {
+                if proc_type != Type::Text && !self.is_gradual_type(&proc_type) {
                     self.type_error(
                         "Expected string for process ID".to_string(),
                         Some(Type::Text),
@@ -2412,6 +5961,9 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
+                }
+                if let Some(var_name) = variable_name {
+                    self.bind_runtime_value(var_name, Type::Number, true, *_line, *_column);
                 }
             }
             Statement::WriteToStatement {
@@ -2424,8 +5976,7 @@ impl TypeChecker {
                 let file_type = self.infer_expression_type(file);
                 if file_type != Type::Custom("File".to_string())
                     && file_type != Type::Text  // Allow string file handles
-                    && file_type != Type::Unknown
-                    && file_type != Type::Error
+                    && !self.is_gradual_type(&file_type)
                 {
                     self.type_error(
                         "Expected a file handle or string".to_string(),
@@ -2446,8 +5997,7 @@ impl TypeChecker {
                 let target_type = self.infer_expression_type(target);
                 if target_type != Type::Custom("File".to_string())
                     && target_type != Type::Text  // Allow string file handles
-                    && target_type != Type::Unknown
-                    && target_type != Type::Error
+                    && !self.is_gradual_type(&target_type)
                 {
                     self.type_error(
                         "Expected a file handle or string".to_string(),
@@ -2469,9 +6019,7 @@ impl TypeChecker {
                     && content_type != Type::List(Box::new(Type::Number))
                     && content_type != Type::List(Box::new(Type::Any))
                     && content_type != Type::List(Box::new(Type::Unknown))
-                    && content_type != Type::Unknown
-                    && content_type != Type::Error
-                    && content_type != Type::Any
+                    && !self.is_gradual_type(&content_type)
                 {
                     self.type_error(
                         "Expected Binary or List of Number for write binary content".to_string(),
@@ -2483,12 +6031,10 @@ impl TypeChecker {
                 }
                 let target_type = self.infer_expression_type(target);
                 if target_type != Type::Custom("File".to_string())
-                    && target_type != Type::Text
-                    && target_type != Type::Unknown
-                    && target_type != Type::Error
+                    && !self.is_gradual_type(&target_type)
                 {
                     self.type_error(
-                        "Expected a file handle or string".to_string(),
+                        "Expected an open File handle for binary output".to_string(),
                         Some(Type::Custom("File".to_string())),
                         Some(target_type),
                         *_line,
@@ -2503,27 +6049,21 @@ impl TypeChecker {
                 column,
             } => {
                 // Infer the element type from initial values
-                let mut element_type = Type::Unknown;
+                let mut element_type = None;
                 for value in initial_values {
                     let value_type = self.infer_expression_type(value);
-                    if element_type == Type::Unknown {
-                        element_type = value_type;
-                    } else if element_type != value_type && value_type != Type::Unknown {
-                        self.type_error(
-                            format!("Mixed types in list initialization. Expected {element_type:?}, got {value_type:?}"),
-                            Some(element_type.clone()),
-                            Some(value_type),
-                            *line,
-                            *column,
-                        );
-                    }
+                    element_type = Some(Self::join_collection_value_type(element_type, value_type));
                 }
 
                 // If empty list, element type remains Unknown
-                let list_type = Type::List(Box::new(element_type));
-                if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
-                    symbol.symbol_type = Some(list_type);
+                let list_type = Type::List(Box::new(element_type.unwrap_or(Type::Unknown)));
+                self.bind_runtime_value(name, list_type, true, *line, *column);
+                if let Some(target_binding) = self.analyzer.get_symbol_binding_key(name) {
+                    for value in initial_values {
+                        self.record_nested_list_alias_expression(&target_binding, 1, value);
+                    }
                 }
+                self.update_binding_nonempty_fact(name, !initial_values.is_empty());
             }
             Statement::AddToListStatement {
                 value,
@@ -2533,60 +6073,90 @@ impl TypeChecker {
             } => {
                 let value_type = self.infer_expression_type(value);
 
-                if let Some(symbol) = self.analyzer.get_symbol(list_name) {
-                    match &symbol.symbol_type {
-                        Some(Type::List(element_type)) => {
-                            // A `List(Any)`/`List(Unknown)` is a list of statically
-                            // unknown element type (e.g. a `[1, 2]` literal or an
-                            // untyped-parameter list), so adding any concrete value
-                            // is valid — only flag a concrete element type that is
-                            // provably incompatible (gradual typing, issue #567).
-                            if **element_type != Type::Unknown
-                                && **element_type != Type::Any
-                                && **element_type != value_type
-                                && value_type != Type::Unknown
-                                && value_type != Type::Any
-                            {
-                                self.type_error(
-                                    format!(
-                                        "Cannot add {value_type:?} to list of {element_type:?}"
-                                    ),
-                                    Some((**element_type).clone()),
-                                    Some(value_type),
-                                    *line,
-                                    *column,
-                                );
-                            }
+                let (target_type, is_container_property) =
+                    self.resolve_bare_mutation_target_type(list_name);
+                match &target_type {
+                    Some(Type::List(element_type)) => {
+                        // A `List(Any)`/`List(Unknown)` is a list of statically
+                        // unknown element type (e.g. a `[1, 2]` literal or an
+                        // untyped-parameter list), so adding any concrete value
+                        // is valid — only flag a concrete element type that is
+                        // provably incompatible (gradual typing, issue #567).
+                        if is_container_property
+                            && !self.are_declared_property_values_compatible(
+                                element_type,
+                                &value_type,
+                                value,
+                            )
+                        {
+                            self.type_error(
+                                format!(
+                                    "Cannot add {value_type} to property '{list_name}' because its \
+                                     declared element type is {element_type}"
+                                ),
+                                Some((**element_type).clone()),
+                                Some(value_type),
+                                *line,
+                                *column,
+                            );
+                        } else if !is_container_property {
+                            // Bare properties live in the container environment,
+                            // not in the lexical analyzer scope. Applying alias
+                            // effects to their bare name would mutate a
+                            // same-named outer binding.
+                            self.apply_list_mutation_effect(
+                                &Expression::Variable(list_name.clone(), *line, *column),
+                                ListMutationEffect::Join(value_type.clone()),
+                            );
+                            self.record_list_insertion_aliases(
+                                &Expression::Variable(list_name.clone(), *line, *column),
+                                value,
+                            );
+                            self.mark_list_target_nonempty(&Expression::Variable(
+                                list_name.clone(),
+                                *line,
+                                *column,
+                            ));
                         }
-                        Some(Type::Number) => {
-                            // This is arithmetic add. Accept Unknown/Any operands
-                            // (statically unknown, verified at runtime) rather than
-                            // emitting a false ERROR — gradual typing, issue #567.
-                            if value_type != Type::Number
-                                && value_type != Type::Unknown
-                                && value_type != Type::Any
-                            {
-                                self.type_error(
-                                    "Cannot add non-numeric value to number".to_string(),
-                                    Some(Type::Number),
-                                    Some(value_type),
-                                    *line,
-                                    *column,
-                                );
-                            }
+                    }
+                    Some(Type::Number) => {
+                        // This is arithmetic add. Accept Unknown/Any operands
+                        // (statically unknown, verified at runtime) rather than
+                        // emitting a false ERROR — gradual typing, issue #567.
+                        if value_type != Type::Number && !self.is_gradual_type(&value_type) {
+                            self.type_error(
+                                "Cannot add non-numeric value to number".to_string(),
+                                Some(Type::Number),
+                                Some(value_type),
+                                *line,
+                                *column,
+                            );
                         }
-                        _ => {
-                            // Variable might not be a list
-                            if symbol.symbol_type != Some(Type::Unknown) {
-                                self.type_error(
-                                    format!("Cannot add to non-list variable '{list_name}'"),
-                                    Some(Type::List(Box::new(Type::Any))),
-                                    symbol.symbol_type.clone(),
-                                    *line,
-                                    *column,
-                                );
-                            }
-                        }
+                    }
+                    Some(Type::Unknown | Type::Any | Type::Error) => {
+                        self.apply_list_mutation_effect(
+                            &Expression::Variable(list_name.clone(), *line, *column),
+                            ListMutationEffect::Join(value_type.clone()),
+                        );
+                        self.record_list_insertion_aliases(
+                            &Expression::Variable(list_name.clone(), *line, *column),
+                            value,
+                        );
+                        self.mark_list_target_nonempty(&Expression::Variable(
+                            list_name.clone(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    _ => {
+                        // Variable might not be a list
+                        self.type_error(
+                            format!("Cannot add to non-list variable '{list_name}'"),
+                            Some(Type::List(Box::new(Type::Any))),
+                            target_type.clone(),
+                            *line,
+                            *column,
+                        );
                     }
                 }
             }
@@ -2597,17 +6167,20 @@ impl TypeChecker {
                 column,
             } => {
                 let _value_type = self.infer_expression_type(value);
+                self.definitely_nonempty_lists.clear();
 
-                if let Some(symbol) = self.analyzer.get_symbol(list_name)
+                let (target_type, _is_container_property) =
+                    self.resolve_bare_mutation_target_type(list_name);
+                if let Some(target_type) = target_type
                     && !matches!(
-                        symbol.symbol_type,
-                        Some(Type::List(_)) | Some(Type::Unknown)
+                        target_type,
+                        Type::List(_) | Type::Unknown | Type::Any | Type::Error
                     )
                 {
                     self.type_error(
                         format!("Cannot remove from non-list variable '{list_name}'"),
                         Some(Type::List(Box::new(Type::Any))),
-                        symbol.symbol_type.clone(),
+                        Some(target_type),
                         *line,
                         *column,
                     );
@@ -2618,16 +6191,26 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                if let Some(symbol) = self.analyzer.get_symbol(list_name)
+                self.definitely_nonempty_lists.clear();
+                let (target_type, is_container_property) =
+                    self.resolve_bare_mutation_target_type(list_name);
+                if !is_container_property {
+                    self.detach_list_alias_descendants(&Expression::Variable(
+                        list_name.clone(),
+                        *line,
+                        *column,
+                    ));
+                }
+                if let Some(target_type) = target_type
                     && !matches!(
-                        symbol.symbol_type,
-                        Some(Type::List(_)) | Some(Type::Unknown)
+                        target_type,
+                        Type::List(_) | Type::Unknown | Type::Any | Type::Error
                     )
                 {
                     self.type_error(
                         format!("Cannot clear non-list variable '{list_name}'"),
                         Some(Type::List(Box::new(Type::Any))),
-                        symbol.symbol_type.clone(),
+                        Some(target_type),
                         *line,
                         *column,
                     );
@@ -2641,11 +6224,21 @@ impl TypeChecker {
                 properties,
                 methods,
                 events: _events,
-                static_properties: _static_properties,
+                static_properties,
                 static_methods,
                 line,
                 column,
             } => {
+                if self.analyzer.get_local_symbol(_name).is_none() {
+                    let _ = self.analyzer.define_symbol(Symbol {
+                        name: _name.clone(),
+                        kind: SymbolKind::Variable { mutable: false },
+                        symbol_type: Some(Type::Container(_name.clone())),
+                        line: *line,
+                        column: *column,
+                    });
+                }
+
                 if let Some(parent_name) = extends {
                     if let Some(parent_symbol) = self.analyzer.get_symbol(parent_name) {
                         if parent_symbol.symbol_type != Some(Type::Container(parent_name.clone())) {
@@ -2692,11 +6285,15 @@ impl TypeChecker {
                     }
                 }
 
-                for property in properties {
+                for property in properties.iter().chain(static_properties.iter()) {
                     if let Some(default_expr) = &property.default_value {
                         let default_type = self.infer_expression_type(default_expr);
                         if let Some(declared_type) = &property.property_type
-                            && !self.are_types_compatible(&default_type, declared_type)
+                            && !self.are_declared_property_values_compatible(
+                                declared_type,
+                                &default_type,
+                                default_expr,
+                            )
                         {
                             self.type_error(
                                     format!(
@@ -2735,13 +6332,19 @@ impl TypeChecker {
                         parameters,
                         body,
                         return_type,
-                        line: method_line,
-                        column: method_column,
+                        line: _method_line,
+                        column: _method_column,
                     } = method
                     {
                         // Set container context for method body analysis
                         let previous_container = self.current_container.clone();
+                        let previous_method_is_static = self.current_method_is_static;
+                        let previous_outer_property_bindings =
+                            self.current_method_outer_property_bindings.take();
                         self.current_container = Some(_name.clone());
+                        self.current_method_is_static = Some(is_static);
+                        self.current_method_outer_property_bindings =
+                            Some(self.snapshot_current_method_outer_property_bindings());
 
                         // Parameters must be resolvable while checking the body
                         // and inferring return expressions, mirroring the
@@ -2755,27 +6358,40 @@ impl TypeChecker {
                                 line: param.line,
                                 column: param.column,
                             };
-                            let _ = self.analyzer.define_symbol(param_symbol);
+                            self.analyzer.define_or_replace_symbol(param_symbol);
                         }
 
                         // Same as top-level actions: do not permanently refine
                         // outer bindings while checking an uncalled method body
                         // (PR #606 review).
                         let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+                        let outer_alias_snapshot = self.list_alias_groups.clone();
+                        let outer_refinement_snapshot = self.optional_refinement_origins.clone();
+                        let outer_nonempty_snapshot = self.definitely_nonempty_lists.clone();
+                        self.deferred_return_type_stack.push(Vec::new());
 
-                        for stmt in body {
-                            self.check_statement_types(stmt);
-                        }
+                        self.try_flow_capture_suspended += 1;
+                        let (body_can_continue, implicit_completion) =
+                            self.check_statement_block_with_completion(body);
+                        self.try_flow_capture_suspended -= 1;
+                        let recorded_returns =
+                            self.deferred_return_type_stack.pop().unwrap_or_default();
 
                         if let Some(ret_type) = return_type {
-                            self.check_return_statements(
-                                body,
-                                ret_type,
-                                *method_line,
-                                *method_column,
-                            );
+                            self.check_recorded_return_types(&recorded_returns, ret_type);
+                            if body_can_continue {
+                                self.check_implicit_action_result(
+                                    &implicit_completion,
+                                    ret_type,
+                                    *_method_line,
+                                    *_method_column,
+                                );
+                            }
                         } else {
-                            let inferred = self.infer_action_return_type(body);
+                            let inferred = Self::infer_recorded_action_return_type(
+                                &recorded_returns,
+                                body_can_continue.then_some(&implicit_completion),
+                            );
                             if is_static {
                                 inferred_static_method_returns
                                     .push((method_name.clone(), inferred));
@@ -2785,10 +6401,16 @@ impl TypeChecker {
                         }
 
                         self.analyzer.restore_symbol_types(outer_type_snapshot);
+                        self.list_alias_groups = outer_alias_snapshot;
+                        self.optional_refinement_origins = outer_refinement_snapshot;
+                        self.definitely_nonempty_lists = outer_nonempty_snapshot;
                         self.analyzer.pop_scope();
 
                         // Restore previous container context
                         self.current_container = previous_container;
+                        self.current_method_is_static = previous_method_is_static;
+                        self.current_method_outer_property_bindings =
+                            previous_outer_property_bindings;
                     }
                 }
 
@@ -2807,16 +6429,18 @@ impl TypeChecker {
                     }
                 }
 
-                // Container type registration would be handled by analyzer
+                // Runtime returns the newly registered container definition.
+                self.current_statement_completion = Type::Container(_name.clone());
             }
             Statement::ContainerInstantiation {
                 container_type,
-                instance_name: _instance_name,
-                arguments: _arguments,
+                instance_name,
+                arguments,
                 property_initializers,
                 line,
                 column,
             } => {
+                let mut valid_container = false;
                 if let Some(container_symbol) = self.analyzer.get_symbol(container_type) {
                     if container_symbol.symbol_type != Some(Type::Container(container_type.clone()))
                     {
@@ -2827,6 +6451,8 @@ impl TypeChecker {
                             *line,
                             *column,
                         );
+                    } else {
+                        valid_container = true;
                     }
                 } else {
                     self.type_error(
@@ -2838,8 +6464,123 @@ impl TypeChecker {
                     );
                 }
 
+                let argument_types: Vec<Type> = arguments
+                    .iter()
+                    .map(|argument| self.infer_expression_type(&argument.value))
+                    .collect();
+
+                if valid_container && !arguments.is_empty() {
+                    let initialize_parameters = self
+                        .analyzer
+                        .get_container(container_type)
+                        .and_then(|container| container.methods.get("initialize"))
+                        .map(|method| method.parameters.clone());
+
+                    if let Some(parameters) = initialize_parameters {
+                        if parameters.len() != argument_types.len() {
+                            self.type_error(
+                                format!(
+                                    "Container '{}' initialize method expects {} arguments, but {} were provided",
+                                    container_type,
+                                    parameters.len(),
+                                    argument_types.len()
+                                ),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            );
+                        }
+
+                        for (index, (parameter, argument_type)) in
+                            parameters.iter().zip(&argument_types).enumerate()
+                        {
+                            let expected = parameter
+                                .param_type
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or(Type::Unknown);
+                            if !self.are_types_compatible(&expected, argument_type) {
+                                self.type_error(
+                                    format!(
+                                        "Argument {} of container '{}' initialize method expects {}, but found {}",
+                                        index + 1,
+                                        container_type,
+                                        expected,
+                                        argument_type
+                                    ),
+                                    Some(expected),
+                                    Some(argument_type.clone()),
+                                    *line,
+                                    *column,
+                                );
+                            }
+                        }
+                    } else {
+                        self.type_error(
+                            format!(
+                                "Container '{container_type}' has no direct initialize method for constructor arguments"
+                            ),
+                            None,
+                            None,
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+
                 for initializer in property_initializers {
-                    let _init_type = self.infer_expression_type(&initializer.value);
+                    let initializer_type = self.infer_expression_type(&initializer.value);
+                    if let Some(property_type) =
+                        self.container_property_type(container_type, &initializer.name)
+                    {
+                        if !self.are_declared_property_values_compatible(
+                            &property_type,
+                            &initializer_type,
+                            &initializer.value,
+                        ) {
+                            self.type_error(
+                                format!(
+                                    "Property '{}' of container '{}' expects {}, but found {}",
+                                    initializer.name,
+                                    container_type,
+                                    property_type,
+                                    initializer_type
+                                ),
+                                Some(property_type),
+                                Some(initializer_type),
+                                initializer.line,
+                                initializer.column,
+                            );
+                        }
+                    } else if valid_container {
+                        self.type_error(
+                            format!(
+                                "Property '{}' not found in container '{}'",
+                                initializer.name, container_type
+                            ),
+                            None,
+                            Some(initializer_type),
+                            initializer.line,
+                            initializer.column,
+                        );
+                    }
+                }
+
+                if valid_container {
+                    self.escape_user_action_list_arguments(arguments, &argument_types);
+                    self.escape_all_visible_mutable_state();
+                    self.bind_runtime_value(
+                        instance_name,
+                        Type::ContainerInstance(container_type.clone()),
+                        true,
+                        *line,
+                        *column,
+                    );
+                    // Runtime returns the newly constructed instance as this
+                    // statement's value.
+                    self.current_statement_completion =
+                        Type::ContainerInstance(container_type.clone());
                 }
             }
             Statement::InterfaceDefinition {
@@ -2850,97 +6591,358 @@ impl TypeChecker {
                 column: _column,
             } => {
                 // Interface type registration would be handled by analyzer
+                self.current_statement_completion = Type::Interface(_name.clone());
             }
             Statement::EventDefinition {
-                name: _name,
-                parameters: _parameters,
-                line: _line,
-                column: _column,
-            } => {}
-            Statement::EventTrigger {
-                name: _name,
-                arguments: _arguments,
-                line: _line,
-                column: _column,
-            } => {}
-            Statement::EventHandler {
-                event_name: _event_name,
-                event_source: _event_source,
-                handler_body,
-                line: _line,
-                column: _column,
+                parameters,
+                line,
+                column,
+                ..
             } => {
+                for parameter in parameters {
+                    if let Some(default_value) = &parameter.default_value {
+                        let actual = self.infer_expression_type(default_value);
+                        if let Some(expected) = &parameter.param_type
+                            && !self.are_types_compatible(expected, &actual)
+                        {
+                            self.type_error(
+                                format!(
+                                    "Default value for event parameter '{}' expects {}, but found {}",
+                                    parameter.name, expected, actual
+                                ),
+                                Some(expected.clone()),
+                                Some(actual),
+                                *line,
+                                *column,
+                            );
+                        }
+                    }
+                }
+                // Events have runtime values, but the static model has no
+                // dedicated event type.
+                self.current_statement_completion = Type::Any;
+            }
+            Statement::EventTrigger {
+                name,
+                arguments,
+                line,
+                column,
+            } => {
+                let argument_types: Vec<Type> = arguments
+                    .iter()
+                    .map(|argument| self.infer_expression_type(&argument.value))
+                    .collect();
+                let event_parameters = self
+                    .current_container
+                    .as_deref()
+                    .and_then(|container_name| self.analyzer.get_container(container_name))
+                    .and_then(|container| container.events.get(name))
+                    .map(|event| event.parameters.clone())
+                    .or_else(|| {
+                        self.analyzer
+                            .get_event(name)
+                            .map(|event| event.parameters.clone())
+                    });
+
+                if let Some(parameters) = event_parameters {
+                    // Runtime fills missing parameters with Nothing and ignores
+                    // extra values after evaluating them. Only overlapping
+                    // positions therefore have a static parameter contract.
+                    for (index, (parameter, argument_type)) in
+                        parameters.iter().zip(&argument_types).enumerate()
+                    {
+                        let expected = parameter
+                            .param_type
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or(Type::Unknown);
+                        if !self.are_types_compatible(&expected, argument_type) {
+                            self.type_error(
+                                format!(
+                                    "Argument {} of event '{}' expects {}, but found {}",
+                                    index + 1,
+                                    name,
+                                    expected,
+                                    argument_type
+                                ),
+                                Some(expected),
+                                Some(argument_type.clone()),
+                                *line,
+                                *column,
+                            );
+                        }
+                    }
+                } else if !self.has_includes {
+                    self.type_error(
+                        format!("Event '{name}' not found"),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    );
+                }
+                self.escape_user_action_list_arguments(arguments, &argument_types);
+                self.escape_all_visible_mutable_state();
+            }
+            Statement::EventHandler {
+                event_name,
+                event_source,
+                handler_body,
+                line,
+                column,
+            } => {
+                let source_type = self.infer_expression_type(event_source);
+                let event_parameters = match &source_type {
+                    Type::ContainerInstance(container_name) => {
+                        let event = self
+                            .analyzer
+                            .get_container(container_name)
+                            .and_then(|container| container.events.get(event_name))
+                            .cloned();
+                        if event.is_none() {
+                            self.type_error(
+                                format!(
+                                    "Event '{event_name}' not found in container '{container_name}'"
+                                ),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            );
+                        }
+                        event.map(|event| event.parameters)
+                    }
+                    Type::Unknown | Type::Any => self
+                        .analyzer
+                        .get_event(event_name)
+                        .map(|event| event.parameters.clone()),
+                    Type::Error => None,
+                    _ => {
+                        self.type_error(
+                            "Cannot add event handler to non-container value".to_string(),
+                            Some(Type::ContainerInstance("Unknown".to_string())),
+                            Some(source_type.clone()),
+                            *line,
+                            *column,
+                        );
+                        None
+                    }
+                };
+
                 self.analyzer.push_scope();
+                if let Some(parameters) = event_parameters {
+                    for parameter in parameters {
+                        self.bind_runtime_value(
+                            &parameter.name,
+                            parameter.param_type.unwrap_or(Type::Unknown),
+                            false,
+                            parameter.line,
+                            parameter.column,
+                        );
+                    }
+                }
                 let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+                let outer_alias_snapshot = self.list_alias_groups.clone();
+                let outer_refinement_snapshot = self.optional_refinement_origins.clone();
+                let outer_nonempty_snapshot = self.definitely_nonempty_lists.clone();
+                self.try_flow_capture_suspended += 1;
                 for stmt in handler_body {
                     self.check_statement_types(stmt);
                 }
+                self.try_flow_capture_suspended -= 1;
                 self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.list_alias_groups = outer_alias_snapshot;
+                self.optional_refinement_origins = outer_refinement_snapshot;
+                self.definitely_nonempty_lists = outer_nonempty_snapshot;
                 self.analyzer.pop_scope();
             }
             Statement::ParentMethodCall {
-                method_name: _method_name,
-                arguments: _arguments,
-                line: _line,
-                column: _column,
-            } => {}
-            Statement::PatternDefinition {
-                name: _name,
-                pattern,
-                line: _line,
-                column: _column,
+                method_name,
+                arguments,
+                line,
+                column,
             } => {
-                self.check_pattern_expression_types(pattern, *_line, *_column);
+                let argument_types: Vec<Type> = arguments
+                    .iter()
+                    .map(|argument| self.infer_expression_type(&argument.value))
+                    .collect();
+
+                let Some(container_name) = self.current_container.clone() else {
+                    self.type_error(
+                        "A parent method call is only valid inside a container instance method"
+                            .to_string(),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    );
+                    return;
+                };
+
+                if self.current_method_is_static == Some(true) {
+                    self.type_error(
+                        "A parent method call cannot be used inside a static method".to_string(),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    );
+                    return;
+                }
+
+                let Some(parent_name) = self
+                    .analyzer
+                    .get_container(&container_name)
+                    .and_then(|container| container.extends.clone())
+                else {
+                    self.type_error(
+                        format!("Container '{container_name}' has no parent container"),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    );
+                    return;
+                };
+
+                let method_contract = self
+                    .analyzer
+                    .get_container(&parent_name)
+                    .and_then(|parent| parent.methods.get(method_name))
+                    .map(|method| (method.parameters.clone(), method.return_type.clone()));
+                let Some((parameters, return_type)) = method_contract else {
+                    self.type_error(
+                        format!(
+                            "Method '{method_name}' not found in direct parent container '{parent_name}'"
+                        ),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    );
+                    return;
+                };
+
+                if parameters.len() != argument_types.len() {
+                    self.type_error(
+                        format!(
+                            "Parent method '{}' expects {} arguments, but {} were provided",
+                            method_name,
+                            parameters.len(),
+                            argument_types.len()
+                        ),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    );
+                }
+
+                for (index, (parameter, argument_type)) in
+                    parameters.iter().zip(&argument_types).enumerate()
+                {
+                    let expected = parameter
+                        .param_type
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+                    if !self.are_types_compatible(&expected, argument_type) {
+                        self.type_error(
+                            format!(
+                                "Argument {} of parent method '{}' expects {}, but found {}",
+                                index + 1,
+                                method_name,
+                                expected,
+                                argument_type
+                            ),
+                            Some(expected),
+                            Some(argument_type.clone()),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+                self.escape_user_action_list_arguments(arguments, &argument_types);
+                self.escape_all_visible_mutable_state();
+                self.current_statement_completion = return_type;
+            }
+            Statement::PatternDefinition {
+                name,
+                pattern,
+                line,
+                column,
+            } => {
+                self.check_pattern_expression_types(pattern, *line, *column);
+                self.analyzer.define_or_replace_symbol(Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Pattern,
+                    symbol_type: Some(Type::Pattern),
+                    line: *line,
+                    column: *column,
+                });
+                self.current_statement_completion = Type::Pattern;
             }
             Statement::MapCreation {
-                name: _name,
+                name,
                 entries,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                // Check each entry value type
+                let mut value_type = None;
                 for (_key, value) in entries {
-                    self.infer_expression_type(value);
+                    let inferred = self.infer_expression_type(value);
+                    value_type = Some(Self::join_collection_value_type(value_type, inferred));
                 }
-                // The map will be added to the environment at runtime
+                self.bind_runtime_value(
+                    name,
+                    Type::Map(
+                        Box::new(Type::Text),
+                        Box::new(value_type.unwrap_or(Type::Unknown)),
+                    ),
+                    true,
+                    *line,
+                    *column,
+                );
+                if let Some(target_binding) = self.analyzer.get_symbol_binding_key(name) {
+                    for (_, value) in entries {
+                        self.record_nested_list_alias_expression(&target_binding, 1, value);
+                    }
+                }
             }
             Statement::CreateDateStatement {
-                name: _name,
+                name,
                 value,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                // Check the value expression if provided
-                if let Some(expr) = value {
-                    self.infer_expression_type(expr);
-                }
-                // The date will be added to the environment at runtime
+                let value_type = value
+                    .as_ref()
+                    .map(|expr| self.infer_expression_type(expr))
+                    .unwrap_or(Type::Date);
+                self.bind_runtime_value(name, value_type, true, *line, *column);
             }
             Statement::CreateTimeStatement {
-                name: _name,
+                name,
                 value,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                // Check the value expression if provided
-                if let Some(expr) = value {
-                    self.infer_expression_type(expr);
-                }
-                // The time will be added to the environment at runtime
+                let value_type = value
+                    .as_ref()
+                    .map(|expr| self.infer_expression_type(expr))
+                    .unwrap_or(Type::Time);
+                self.bind_runtime_value(name, value_type, true, *line, *column);
             }
             Statement::ListenStatement {
                 port,
-                server_name: _server_name,
+                server_name,
                 tls,
                 redirect_to_port,
                 line: _line,
                 column: _column,
             } => {
                 let port_type = self.infer_expression_type(port);
-                if port_type != Type::Number
-                    && port_type != Type::Unknown
-                    && port_type != Type::Error
-                {
+                if port_type != Type::Number && !self.is_gradual_type(&port_type) {
                     self.type_error(
                         "Port must be a number".to_string(),
                         Some(Type::Number),
@@ -2958,10 +6960,7 @@ impl TypeChecker {
                     ] {
                         if let Some(expr) = path_expr {
                             let path_type = self.infer_expression_type(expr);
-                            if path_type != Type::Text
-                                && path_type != Type::Unknown
-                                && path_type != Type::Error
-                            {
+                            if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                                 self.type_error(
                                     format!("{what} must be text"),
                                     Some(Type::Text),
@@ -2977,10 +6976,7 @@ impl TypeChecker {
                 // Redirect target must be a number
                 if let Some(target_port) = redirect_to_port {
                     let target_type = self.infer_expression_type(target_port);
-                    if target_type != Type::Number
-                        && target_type != Type::Unknown
-                        && target_type != Type::Error
-                    {
+                    if target_type != Type::Number && !self.is_gradual_type(&target_type) {
                         self.type_error(
                             "Redirect target port must be a number".to_string(),
                             Some(Type::Number),
@@ -2990,10 +6986,11 @@ impl TypeChecker {
                         );
                     }
                 }
+                self.bind_runtime_value(server_name, Type::Text, false, *_line, *_column);
             }
             Statement::WaitForRequestStatement {
                 server,
-                request_name: _request_name,
+                request_name,
                 timeout,
                 line,
                 column,
@@ -3002,7 +6999,7 @@ impl TypeChecker {
 
                 if let Some(timeout_expr) = timeout {
                     let timeout_type = self.infer_expression_type(timeout_expr);
-                    if timeout_type != Type::Number {
+                    if timeout_type != Type::Number && !self.is_gradual_type(&timeout_type) {
                         self.type_error(
                             "Timeout must be a number".to_string(),
                             Some(Type::Number),
@@ -3012,9 +7009,30 @@ impl TypeChecker {
                         );
                     }
                 }
+                self.bind_runtime_value(
+                    request_name,
+                    Type::Custom("Request".to_string()),
+                    false,
+                    *line,
+                    *column,
+                );
+                for (name, value_type) in [
+                    ("method", Type::Text),
+                    ("path", Type::Text),
+                    ("query", Type::Text),
+                    ("client_ip", Type::Text),
+                    ("body", Type::Text),
+                    ("body_bytes", Type::Binary),
+                    (
+                        "headers",
+                        Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+                    ),
+                ] {
+                    self.bind_runtime_value(name, value_type, false, *line, *column);
+                }
             }
             Statement::RespondStatement {
-                request: _request,
+                request,
                 content,
                 status,
                 content_type,
@@ -3022,19 +7040,24 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                // Check content type (text or binary). Binary content is served
-                // losslessly as raw bytes (e.g. fonts, images); text content keeps
-                // its UTF-8 encoding.
-                let content_type_result = self.infer_expression_type(content);
-                if content_type_result != Type::Text
-                    && content_type_result != Type::Binary
-                    && content_type_result != Type::Unknown
-                    && content_type_result != Type::Error
-                {
+                let request_type = self.infer_expression_type(request);
+                if !self.is_pending_request_type(&request_type) {
                     self.type_error(
-                        "Response content must be text or binary".to_string(),
-                        // No single expected type: both Text and Binary are
-                        // accepted, so `None` avoids a misleading "expected Text".
+                        "Response target must be a request object".to_string(),
+                        Some(Type::Custom("Request".to_string())),
+                        Some(request_type.clone()),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                // Runtime serves text/binary losslessly and stringifies scalar
+                // number/boolean/nothing values. Composite values are rejected.
+                let content_type_result = self.infer_expression_type(content);
+                if !Self::is_response_content_type(&content_type_result) {
+                    self.type_error(
+                        "Response content must be text, binary, a number, a boolean, or nothing"
+                            .to_string(),
                         None,
                         Some(content_type_result),
                         *_line,
@@ -3045,10 +7068,7 @@ impl TypeChecker {
                 // Check status if provided (should be number)
                 if let Some(status_expr) = status {
                     let status_type = self.infer_expression_type(status_expr);
-                    if status_type != Type::Number
-                        && status_type != Type::Unknown
-                        && status_type != Type::Error
-                    {
+                    if status_type != Type::Number && !self.is_gradual_type(&status_type) {
                         self.type_error(
                             "HTTP status must be a number".to_string(),
                             Some(Type::Number),
@@ -3062,7 +7082,7 @@ impl TypeChecker {
                 // Check content_type if provided (should be text)
                 if let Some(ct_expr) = content_type {
                     let ct_type = self.infer_expression_type(ct_expr);
-                    if ct_type != Type::Text && ct_type != Type::Unknown && ct_type != Type::Error {
+                    if ct_type != Type::Text && !self.is_gradual_type(&ct_type) {
                         self.type_error(
                             "Content type must be text".to_string(),
                             Some(Type::Text),
@@ -3113,13 +7133,13 @@ impl TypeChecker {
             }
             // WebSocket statements
             Statement::ListenWebSocketStatement {
-                port, line, column, ..
+                port,
+                server_name,
+                line,
+                column,
             } => {
                 let port_type = self.infer_expression_type(port);
-                if port_type != Type::Number
-                    && port_type != Type::Unknown
-                    && port_type != Type::Error
-                {
+                if port_type != Type::Number && !self.is_gradual_type(&port_type) {
                     self.type_error(
                         "WebSocket port must be a number".to_string(),
                         Some(Type::Number),
@@ -3128,45 +7148,75 @@ impl TypeChecker {
                         *column,
                     );
                 }
+                self.bind_runtime_value(server_name, Type::Text, false, *line, *column);
             }
             Statement::WebSocketHandlerStatement {
+                event,
                 server,
                 binding,
                 body,
                 line,
                 column,
-                ..
             } => {
                 // The server operand and handler body are checked; the handler's
-                // bound variable resolves as an object at runtime (gradual typing
-                // keeps member access like `body of msg` permissive).
+                // bound variable resolves as an object at runtime. Connection
+                // lifecycle objects contain only text fields; message objects
+                // additionally contain a nested sender object and therefore
+                // retain a heterogeneous value type.
                 self.check_server_expression_type(server, *line, *column);
+                self.has_websocket_handlers = true;
                 self.analyzer.push_scope();
+                let event_value_type = match event {
+                    WsHandlerEvent::Connect | WsHandlerEvent::Disconnect => Type::Text,
+                    WsHandlerEvent::Message => Type::Any,
+                };
+                self.bind_runtime_value(
+                    binding,
+                    Type::Map(Box::new(Type::Text), Box::new(event_value_type)),
+                    false,
+                    *line,
+                    *column,
+                );
+                // `bind_runtime_value` above already recreated the binding in
+                // this handler scope with its concrete runtime map type,
+                // deliberately shadowing any outer same-named variable so the
+                // body is not checked against the outer symbol's type (#642).
+                // Keeping that map type (rather than downgrading to Unknown)
+                // leaves field/index access on the event object permissive while
+                // still rejecting misuse such as arithmetic on it.
                 let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
-                // Runtime binds the event object with `define_direct`,
-                // deliberately shadowing an outer same-named variable. Analyzer
-                // body scopes are discarded before this pass, so recreate the
-                // binding here — typed Unknown, keeping event-object access
-                // permissive instead of checking the body against the outer
-                // symbol's concrete type (#642).
-                self.analyzer.define_or_replace_symbol(Symbol {
-                    name: binding.clone(),
-                    kind: SymbolKind::Variable { mutable: true },
-                    symbol_type: Some(Type::Unknown),
-                    line: *line,
-                    column: *column,
-                });
+                let outer_alias_snapshot = self.list_alias_groups.clone();
+                let outer_refinement_snapshot = self.optional_refinement_origins.clone();
+                let outer_nonempty_snapshot = self.definitely_nonempty_lists.clone();
+                self.try_flow_capture_suspended += 1;
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.try_flow_capture_suspended -= 1;
                 self.analyzer.restore_symbol_types(outer_type_snapshot);
+                self.list_alias_groups = outer_alias_snapshot;
+                self.optional_refinement_origins = outer_refinement_snapshot;
+                self.definitely_nonempty_lists = outer_nonempty_snapshot;
                 self.analyzer.pop_scope();
             }
             Statement::SendWebSocketMessageStatement {
-                message, target, ..
+                message,
+                target,
+                line,
+                column,
             } => {
-                self.infer_expression_type(message);
-                self.infer_expression_type(target);
+                let message_type = self.infer_expression_type(message);
+                self.check_websocket_message_type(message_type, *line, *column);
+                let target_type = self.infer_expression_type(target);
+                if !self.is_websocket_connection_target_type(&target_type) {
+                    self.type_error(
+                        "WebSocket connection target must be an object".to_string(),
+                        Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                        Some(target_type),
+                        *line,
+                        *column,
+                    );
+                }
             }
             Statement::BroadcastWebSocketMessageStatement {
                 message,
@@ -3174,7 +7224,8 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                self.infer_expression_type(message);
+                let message_type = self.infer_expression_type(message);
+                self.check_websocket_message_type(message_type, *line, *column);
                 self.check_server_expression_type(server, *line, *column);
             }
             // Test framework statements
@@ -3186,6 +7237,10 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // Runtime creates one describe-level child environment shared
+                // by setup, every isolated test child, and teardown.
+                self.analyzer.push_scope();
+
                 // Type check setup block if present
                 if let Some(setup_stmts) = setup {
                     for stmt in setup_stmts {
@@ -3204,6 +7259,8 @@ impl TypeChecker {
                         self.check_statement_types(stmt);
                     }
                 }
+
+                self.analyzer.pop_scope();
             }
             Statement::TestBlock {
                 description: _description,
@@ -3211,10 +7268,18 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                // Type check test body
+                // Each test runs in an isolated child of the describe
+                // environment. Its declarations and type refinements cannot
+                // leak to sibling tests or teardown.
+                self.analyzer.push_scope();
+                let describe_type_snapshot = self.analyzer.snapshot_symbol_types();
+                let describe_alias_snapshot = self.list_alias_groups.clone();
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+                self.analyzer.restore_symbol_types(describe_type_snapshot);
+                self.list_alias_groups = describe_alias_snapshot;
+                self.analyzer.pop_scope();
             }
             Statement::ExpectStatement {
                 subject,
@@ -3234,10 +7299,7 @@ impl TypeChecker {
                     }
                     Assertion::GreaterThan(expr) | Assertion::LessThan(expr) => {
                         // Check that subject is a number
-                        if subject_type != Type::Number
-                            && subject_type != Type::Unknown
-                            && subject_type != Type::Error
-                        {
+                        if subject_type != Type::Number && !self.is_gradual_type(&subject_type) {
                             self.type_error(
                                 "Comparison assertions require numeric types".to_string(),
                                 Some(Type::Number),
@@ -3248,10 +7310,7 @@ impl TypeChecker {
                         }
                         // Type check the comparison value
                         let expr_type = self.infer_expression_type(expr);
-                        if expr_type != Type::Number
-                            && expr_type != Type::Unknown
-                            && expr_type != Type::Error
-                        {
+                        if expr_type != Type::Number && !self.is_gradual_type(&expr_type) {
                             self.type_error(
                                 "Comparison value must be numeric".to_string(),
                                 Some(Type::Number),
@@ -3271,7 +7330,7 @@ impl TypeChecker {
                         // Check that subject is a list or text
                         if !matches!(
                             subject_type,
-                            Type::List(_) | Type::Text | Type::Unknown | Type::Error
+                            Type::List(_) | Type::Text | Type::Unknown | Type::Any | Type::Error
                         ) {
                             self.type_error(
                                 "contain assertion requires List or Text type".to_string(),
@@ -3288,7 +7347,7 @@ impl TypeChecker {
                         // Check that subject is a list or text
                         if !matches!(
                             subject_type,
-                            Type::List(_) | Type::Text | Type::Unknown | Type::Error
+                            Type::List(_) | Type::Text | Type::Unknown | Type::Any | Type::Error
                         ) {
                             self.type_error(
                                 "be empty assertion requires List or Text type".to_string(),
@@ -3303,7 +7362,7 @@ impl TypeChecker {
                         // Check that subject is a list or text
                         if !matches!(
                             subject_type,
-                            Type::List(_) | Type::Text | Type::Unknown | Type::Error
+                            Type::List(_) | Type::Text | Type::Unknown | Type::Any | Type::Error
                         ) {
                             self.type_error(
                                 "have length assertion requires List or Text type".to_string(),
@@ -3315,10 +7374,7 @@ impl TypeChecker {
                         }
                         // Type check the length value (should be number)
                         let length_type = self.infer_expression_type(expr);
-                        if length_type != Type::Number
-                            && length_type != Type::Unknown
-                            && length_type != Type::Error
-                        {
+                        if length_type != Type::Number && !self.is_gradual_type(&length_type) {
                             self.type_error(
                                 "Length value must be numeric".to_string(),
                                 Some(Type::Number),
@@ -3339,8 +7395,7 @@ impl TypeChecker {
             } => {
                 // Type check the path expression - must be a string
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
-                {
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
                     self.type_error(
                         "Expected string for include path".to_string(),
                         Some(Type::Text),
@@ -3354,6 +7409,8 @@ impl TypeChecker {
                 // which can result in false "not found" errors for symbols defined in included files.
                 // Future improvement: Parse and analyze included files during type checking
                 // to register their symbols in the current scope for more accurate diagnostics.
+                // An included file may propagate an arbitrary `return` value.
+                self.current_statement_completion = Type::Any;
             }
 
             Statement::ExportStatement {
@@ -3363,13 +7420,15 @@ impl TypeChecker {
                 column,
                 ..
             } => {
-                // Basic type checking for export statements
-                // Check if the exported item exists in the current scope
+                // Runtime exports are explicitly local-only: a definition
+                // inherited from a parent environment cannot be re-exported.
+                let local_symbol = self.analyzer.get_local_symbol(name);
                 match export_type {
                     crate::parser::ast::ExportType::Container => {
-                        if let Some(_container) = self.analyzer.get_container(name) {
-                            // Container exists - export is valid
-                        } else {
+                        if !matches!(
+                            local_symbol.and_then(|symbol| symbol.symbol_type.as_ref()),
+                            Some(Type::Container(container_name)) if container_name == name
+                        ) {
                             self.type_error(
                                 format!("Container '{}' not found for export", name),
                                 None,
@@ -3380,12 +7439,9 @@ impl TypeChecker {
                         }
                     }
                     crate::parser::ast::ExportType::Action => {
-                        // Check if action exists as a symbol in the current scope
-                        if let Some(symbol) = self.analyzer.get_symbol(name) {
+                        if let Some(symbol) = local_symbol {
                             match &symbol.kind {
-                                crate::analyzer::SymbolKind::Function { .. } => {
-                                    // Action exists - export is valid
-                                }
+                                crate::analyzer::SymbolKind::Function { .. } => {}
                                 _ => {
                                     self.type_error(
                                         format!(
@@ -3410,11 +7466,9 @@ impl TypeChecker {
                         }
                     }
                     crate::parser::ast::ExportType::Constant => {
-                        // Check if variable exists as a symbol in the current scope
-                        if let Some(symbol) = self.analyzer.get_symbol(name) {
+                        if let Some(symbol) = local_symbol {
                             match &symbol.kind {
                                 crate::analyzer::SymbolKind::Variable { mutable } => {
-                                    // Only immutable variables can be exported as constants
                                     if *mutable {
                                         self.type_error(
                                             format!(
@@ -3427,7 +7481,6 @@ impl TypeChecker {
                                             *column,
                                         );
                                     }
-                                    // Otherwise, immutable variable is valid for constant export
                                 }
                                 _ => {
                                     self.type_error(
@@ -3466,6 +7519,23 @@ impl TypeChecker {
             || name == "nested_function"
     }
 
+    /// Whether this call site resolves to the standard-library native rather
+    /// than a stored callable or a user action using a future-reserved name.
+    fn should_use_builtin_contract(&self, name: &str, line: usize, column: usize) -> bool {
+        if !Analyzer::is_builtin_function(name)
+            || self
+                .analyzer
+                .alias_call_resolution(name, line, column)
+                .is_some()
+        {
+            return false;
+        }
+        if builtins::is_implemented_builtin_function(name) {
+            return true;
+        }
+        self.analyzer.get_symbol(name).is_none() && !self.has_includes
+    }
+
     fn infer_expression_type(&mut self, expression: &Expression) -> Type {
         // Recursive front-end checkpoint for expressions (mirrors the analyzer's
         // `analyze_expression`): `check_statement_types` polls per statement, but
@@ -3492,9 +7562,27 @@ impl TypeChecker {
                 Literal::Boolean(_) => Type::Boolean,
                 Literal::Nothing => Type::Nothing,
                 Literal::Pattern(_) => Type::Pattern,
-                Literal::List(_) => Type::List(Box::new(Type::Any)),
+                Literal::List(elements) => {
+                    let mut element_type = None;
+                    for element in elements {
+                        let inferred = self.infer_expression_type(element);
+                        element_type =
+                            Some(Self::join_collection_value_type(element_type, inferred));
+                    }
+                    // Preserve useful precision for homogeneous literals while
+                    // widening genuinely heterogeneous values to Any.
+                    Type::List(Box::new(element_type.unwrap_or(Type::Unknown)))
+                }
             },
-            Expression::Variable(name, _line, _column) => {
+            Expression::Variable(name, line, column) => {
+                let (resolved_type, is_property) = self.resolve_bare_mutation_target_type(name);
+                if is_property && let Some(property_type) = resolved_type {
+                    return property_type;
+                }
+                if let Some(result) = self.infer_zero_arg_variable_expression(name, *line, *column)
+                {
+                    return result;
+                }
                 if let Some(symbol) = self.analyzer.get_symbol(name) {
                     // Builtin stdlib functions get injected into an included
                     // file's scope as parent-scope variable bindings (defined
@@ -3510,13 +7598,22 @@ impl TypeChecker {
                     if is_injected_builtin
                         && matches!(symbol.symbol_type, None | Some(Type::Unknown))
                     {
-                        let param_count = builtins::get_function_arity(name);
-                        return Type::Function {
-                            parameters: vec![Type::Any; param_count],
-                            return_type: Box::new(
-                                self.get_builtin_function_type(name, param_count),
+                        if builtins::is_implemented_builtin_function(name) {
+                            return self.get_bare_builtin_type(name);
+                        }
+                        if self.has_includes {
+                            return Type::Unknown;
+                        }
+                        self.type_error(
+                            format!(
+                                "Builtin '{name}' is recognized but not implemented by the runtime"
                             ),
-                        };
+                            None,
+                            None,
+                            *line,
+                            *column,
+                        );
+                        return Type::Error;
                     }
                     if let Some(var_type) = &symbol.symbol_type {
                         var_type.clone()
@@ -3529,8 +7626,6 @@ impl TypeChecker {
                         // where a concrete type is required at runtime.
                         Type::Unknown
                     }
-                } else if let Some(property_type) = self.current_container_property_type(name) {
-                    property_type
                 } else {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
@@ -3546,13 +7641,22 @@ impl TypeChecker {
 
                         // For builtin functions, return their proper type
                         if Analyzer::is_builtin_function(name) {
-                            let param_count = builtins::get_function_arity(name);
-                            return Type::Function {
-                                parameters: vec![Type::Any; param_count],
-                                return_type: Box::new(
-                                    self.get_builtin_function_type(name, param_count),
+                            if builtins::is_implemented_builtin_function(name) {
+                                return self.get_bare_builtin_type(name);
+                            }
+                            if self.has_includes {
+                                return Type::Unknown;
+                            }
+                            self.type_error(
+                                format!(
+                                    "Builtin '{name}' is recognized but not implemented by the runtime"
                                 ),
-                            };
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            );
+                            return Type::Error;
                         }
 
                         Type::Unknown
@@ -3672,20 +7776,10 @@ impl TypeChecker {
                         }
                     }
                     Operator::Equals | Operator::NotEquals => {
-                        if !self.are_types_compatible(&left_type, &right_type)
-                            && !self.are_types_compatible(&right_type, &left_type)
-                        {
-                            self.type_error(
-                                format!("Cannot compare {left_type} and {right_type} for equality"),
-                                Some(left_type.clone()),
-                                Some(right_type),
-                                *line,
-                                *column,
-                            );
-                            Type::Error
-                        } else {
-                            Type::Boolean
-                        }
+                        // Runtime equality is total: unlike types simply compare
+                        // unequal. Rejecting unlike concrete types here would be
+                        // stricter than the language's actual semantics.
+                        Type::Boolean
                     }
                     Operator::GreaterThan
                     | Operator::LessThan
@@ -3693,6 +7787,7 @@ impl TypeChecker {
                     | Operator::LessThanOrEqual => {
                         if (left_type == Type::Number && right_type == Type::Number)
                             || (left_type == Type::Text && right_type == Type::Text)
+                            || self.are_same_temporal_type(&left_type, &right_type)
                         {
                             Type::Boolean
                         } else {
@@ -3700,11 +7795,16 @@ impl TypeChecker {
                                 format!(
                                     "Cannot compare {left_type} and {right_type} with {operator:?}"
                                 ),
-                                Some(if left_type == Type::Number || left_type == Type::Text {
-                                    left_type.clone()
-                                } else {
-                                    Type::Number
-                                }),
+                                Some(
+                                    if left_type == Type::Number
+                                        || left_type == Type::Text
+                                        || Self::temporal_kind(&left_type).is_some()
+                                    {
+                                        left_type.clone()
+                                    } else {
+                                        Type::Number
+                                    },
+                                ),
                                 Some(right_type),
                                 *line,
                                 *column,
@@ -3733,22 +7833,9 @@ impl TypeChecker {
                         }
                     }
                     Operator::Contains => match &left_type {
-                        Type::List(item_type) => {
-                            if !self.are_types_compatible(item_type, &right_type) {
-                                self.type_error(
-                                    format!(
-                                        "Cannot check if {left_type} contains {right_type}, list items are {item_type}"
-                                    ),
-                                    Some(*item_type.clone()),
-                                    Some(right_type),
-                                    *line,
-                                    *column,
-                                );
-                                Type::Error
-                            } else {
-                                Type::Boolean
-                            }
-                        }
+                        // Runtime list membership uses total equality and
+                        // therefore accepts a needle of any type.
+                        Type::List(_) => Type::Boolean,
                         Type::Map(key_type, _) => {
                             if !self.are_types_compatible(key_type, &right_type) {
                                 self.type_error(
@@ -3766,7 +7853,7 @@ impl TypeChecker {
                             }
                         }
                         Type::Text => {
-                            if right_type != Type::Text {
+                            if right_type != Type::Text && !self.is_gradual_type(&right_type) {
                                 self.type_error(
                                     format!("Cannot check if {left_type} contains {right_type}"),
                                     Some(Type::Text),
@@ -3806,7 +7893,7 @@ impl TypeChecker {
 
                 match operator {
                     UnaryOperator::Not => {
-                        if expr_type == Type::Boolean {
+                        if expr_type == Type::Boolean || self.is_gradual_type(&expr_type) {
                             Type::Boolean
                         } else {
                             self.type_error(
@@ -3822,6 +7909,8 @@ impl TypeChecker {
                     UnaryOperator::Minus => {
                         if expr_type == Type::Number {
                             Type::Number
+                        } else if self.is_gradual_type(&expr_type) {
+                            expr_type
                         } else {
                             self.type_error(
                                 format!("Cannot negate {expr_type}"),
@@ -3841,6 +7930,12 @@ impl TypeChecker {
                 line,
                 column,
             } => {
+                if let Expression::Variable(callee, _, _) = &**function
+                    && self.should_use_builtin_contract(callee, *line, *column)
+                {
+                    return self.infer_builtin_call_type(callee, arguments, *line, *column);
+                }
+
                 // The idiomatic `of` call form (`greet of "bob"`) parses as a
                 // FunctionCall whose callee is a bare Variable. When that callee
                 // is not resolvable statically but the program uses `include
@@ -3853,9 +7948,12 @@ impl TypeChecker {
                     let is_known = self.analyzer.get_symbol(callee).is_some()
                         || self.is_callable_without_symbol(callee);
                     if !is_known && self.has_includes {
-                        for arg in arguments {
-                            let _ = self.infer_expression_type(&arg.value);
-                        }
+                        let argument_types: Vec<_> = arguments
+                            .iter()
+                            .map(|arg| self.infer_expression_type(&arg.value))
+                            .collect();
+                        self.escape_user_action_list_arguments(arguments, &argument_types);
+                        self.escape_all_visible_mutable_state();
                         return Type::Any;
                     }
 
@@ -3871,10 +7969,17 @@ impl TypeChecker {
                     {
                         match resolution {
                             crate::analyzer::AliasState::Dynamic => {
-                                for arg in arguments {
-                                    let _ = self.infer_expression_type(&arg.value);
-                                }
+                                let argument_types: Vec<_> = arguments
+                                    .iter()
+                                    .map(|arg| self.infer_expression_type(&arg.value))
+                                    .collect();
+                                self.escape_user_action_list_arguments(arguments, &argument_types);
+                                self.escape_all_visible_mutable_state();
                                 return Type::Unknown;
+                            }
+                            crate::analyzer::AliasState::Builtin { name } => {
+                                return self
+                                    .infer_builtin_call_type(&name, arguments, *line, *column);
                             }
                             crate::analyzer::AliasState::Bound {
                                 action,
@@ -3894,12 +7999,12 @@ impl TypeChecker {
                         }
                     }
 
-                    // Overloaded user actions called in the `of` form resolve
-                    // through the signature list (the single Type::Function
-                    // below can only describe one definition).
-                    if !Analyzer::is_builtin_function(callee)
+                    // Direct user actions called in the `of` form resolve
+                    // through the signature list. This also gives a
+                    // forward-referenced single action its provisional
+                    // Unknown return without inventing a missing-type error.
+                    if !builtins::is_implemented_builtin_function(callee)
                         && let Some(signatures) = self.action_signatures(callee)
-                        && signatures.len() > 1
                     {
                         return self.infer_overloaded_call_type(
                             callee,
@@ -3912,6 +8017,14 @@ impl TypeChecker {
                 }
 
                 let function_type = self.infer_expression_type(function);
+                let user_callee = match function.as_ref() {
+                    Expression::Variable(name, ..) => Some(name.as_str()),
+                    _ => None,
+                };
+                let argument_types: Vec<Type> = arguments
+                    .iter()
+                    .map(|argument| self.infer_expression_type(&argument.value))
+                    .collect();
 
                 match function_type {
                     Type::Function {
@@ -3934,11 +8047,10 @@ impl TypeChecker {
                         }
 
                         let mut has_type_error = false;
-                        for (i, (arg, param_type)) in
-                            arguments.iter().zip(parameters.iter()).enumerate()
+                        for (i, (arg_type, param_type)) in
+                            argument_types.iter().zip(parameters.iter()).enumerate()
                         {
-                            let arg_type = self.infer_expression_type(&arg.value);
-                            if !self.are_types_compatible(param_type, &arg_type) {
+                            if !self.are_types_compatible(param_type, arg_type) {
                                 self.type_error(
                                     format!(
                                         "Argument {} has incorrect type: expected {}, found {}",
@@ -3947,7 +8059,7 @@ impl TypeChecker {
                                         arg_type
                                     ),
                                     Some(param_type.clone()),
-                                    Some(arg_type),
+                                    Some(arg_type.clone()),
                                     *line,
                                     *column,
                                 );
@@ -3958,10 +8070,27 @@ impl TypeChecker {
                         if has_type_error {
                             Type::Error
                         } else {
+                            self.escape_user_action_list_arguments(arguments, &argument_types);
+                            let _ = user_callee;
+                            // Reaching this generic Function path means there
+                            // is no named WFL action summary (for example, a
+                            // stored container method reference). Treat it as
+                            // an opaque closure boundary.
+                            self.escape_all_visible_mutable_state();
                             *return_type
                         }
                     }
-                    Type::Unknown | Type::Error => Type::Unknown,
+                    Type::Unknown => {
+                        self.escape_user_action_list_arguments(arguments, &argument_types);
+                        self.escape_all_visible_mutable_state();
+                        Type::Unknown
+                    }
+                    Type::Any => {
+                        self.escape_user_action_list_arguments(arguments, &argument_types);
+                        self.escape_all_visible_mutable_state();
+                        Type::Any
+                    }
+                    Type::Error => Type::Error,
                     _ => {
                         self.type_error(
                             format!("Cannot call {function_type}, not a function"),
@@ -3990,8 +8119,9 @@ impl TypeChecker {
                 }
 
                 match object_type {
-                    Type::Custom(_) => Type::Unknown,
-                    Type::Unknown => Type::Unknown,
+                    Type::Custom(_) | Type::Unknown => Type::Unknown,
+                    Type::Any => Type::Any,
+                    Type::Error => Type::Error,
                     _ => {
                         self.type_error(
                             format!("Cannot access property '{property}' on {object_type}"),
@@ -4089,7 +8219,12 @@ impl TypeChecker {
                             );
                             Type::Error
                         } else {
-                            Type::Any
+                            match &**index {
+                                Expression::Literal(Literal::String(field), ..) => {
+                                    Self::stream_field_type(name, field).unwrap_or(Type::Any)
+                                }
+                                _ => Type::Any,
+                            }
                         }
                     }
                     _ => {
@@ -4130,7 +8265,7 @@ impl TypeChecker {
                 let text_type = self.infer_expression_type(text);
                 let pattern_type = self.infer_expression_type(pattern);
 
-                if text_type != Type::Text && text_type != Type::Unknown {
+                if text_type != Type::Text && !self.is_gradual_type(&text_type) {
                     self.type_error(
                         format!("Expected Text for pattern matching, got {text_type}"),
                         Some(Type::Text),
@@ -4140,10 +8275,7 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Pattern
-                    && pattern_type != Type::Text
-                    && pattern_type != Type::Unknown
-                {
+                if pattern_type != Type::Pattern && !self.is_gradual_type(&pattern_type) {
                     self.type_error(
                         format!("Expected Pattern for pattern matching, got {pattern_type}"),
                         Some(Type::Pattern),
@@ -4155,31 +8287,39 @@ impl TypeChecker {
 
                 Type::Boolean
             }
-            Expression::PatternFind { text, pattern, .. } => {
+            Expression::PatternFind {
+                text,
+                pattern,
+                line,
+                column,
+            } => {
                 let text_type = self.infer_expression_type(text);
                 let pattern_type = self.infer_expression_type(pattern);
 
-                if text_type != Type::Text {
+                if text_type != Type::Text && !self.is_gradual_type(&text_type) {
                     self.type_error(
                         format!("Expected Text for pattern finding, got {text_type}"),
                         Some(Type::Text),
                         Some(text_type),
-                        0,
-                        0,
+                        *line,
+                        *column,
                     );
                 }
 
-                if pattern_type != Type::Pattern && pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && !self.is_gradual_type(&pattern_type) {
                     self.type_error(
                         format!("Expected Pattern for pattern finding, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
-                        0,
-                        0,
+                        *line,
+                        *column,
                     );
                 }
 
-                Type::Map(Box::new(Type::Text), Box::new(Type::Nothing))
+                Type::Optional(Box::new(Type::Map(
+                    Box::new(Type::Text),
+                    Box::new(Type::Any),
+                )))
             }
             Expression::PatternReplace {
                 text,
@@ -4191,7 +8331,7 @@ impl TypeChecker {
                 let pattern_type = self.infer_expression_type(pattern);
                 let replacement_type = self.infer_expression_type(replacement);
 
-                if text_type != Type::Text {
+                if text_type != Type::Text && !self.is_gradual_type(&text_type) {
                     self.type_error(
                         format!("Expected Text for pattern replacement, got {text_type}"),
                         Some(Type::Text),
@@ -4201,7 +8341,7 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Pattern && pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && !self.is_gradual_type(&pattern_type) {
                     self.type_error(
                         format!("Expected Pattern for pattern replacement, got {pattern_type}"),
                         Some(Type::Pattern),
@@ -4211,7 +8351,7 @@ impl TypeChecker {
                     );
                 }
 
-                if replacement_type != Type::Text {
+                if replacement_type != Type::Text && !self.is_gradual_type(&replacement_type) {
                     self.type_error(
                         format!("Expected Text for replacement, got {replacement_type}"),
                         Some(Type::Text),
@@ -4227,7 +8367,7 @@ impl TypeChecker {
                 let text_type = self.infer_expression_type(text);
                 let pattern_type = self.infer_expression_type(pattern);
 
-                if text_type != Type::Text {
+                if text_type != Type::Text && !self.is_gradual_type(&text_type) {
                     self.type_error(
                         format!("Expected Text for pattern splitting, got {text_type}"),
                         Some(Type::Text),
@@ -4237,7 +8377,7 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Pattern && pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && !self.is_gradual_type(&pattern_type) {
                     self.type_error(
                         format!("Expected Pattern for pattern splitting, got {pattern_type}"),
                         Some(Type::Pattern),
@@ -4261,7 +8401,7 @@ impl TypeChecker {
                 // Accept statically-unknown operands (Unknown from untyped params,
                 // Any from list-index/map results) without a false ERROR — they are
                 // verified at runtime (gradual typing, issue #567).
-                if text_type != Type::Text && text_type != Type::Unknown && text_type != Type::Any {
+                if text_type != Type::Text && !self.is_gradual_type(&text_type) {
                     self.type_error(
                         format!("Expected Text for string splitting, got {text_type}"),
                         Some(Type::Text),
@@ -4271,10 +8411,7 @@ impl TypeChecker {
                     );
                 }
 
-                if delimiter_type != Type::Text
-                    && delimiter_type != Type::Unknown
-                    && delimiter_type != Type::Any
-                {
+                if delimiter_type != Type::Text && !self.is_gradual_type(&delimiter_type) {
                     self.type_error(
                         format!("Expected Text for delimiter, got {delimiter_type}"),
                         Some(Type::Text),
@@ -4295,6 +8432,9 @@ impl TypeChecker {
 
                 match expr_type {
                     Type::Async(inner_type) => *inner_type,
+                    Type::Unknown => Type::Unknown,
+                    Type::Any => Type::Any,
+                    Type::Error => Type::Error,
                     _ => {
                         self.type_error(
                             format!("Cannot await non-async value of type {expr_type}"),
@@ -4313,9 +8453,10 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                // For builtin functions, use special handling (variadic support, etc.)
-                if Analyzer::is_builtin_function(name) {
-                    return self.get_builtin_function_type(name, arguments.len());
+                // Builtins share argument traversal, arity checks, registered
+                // parameter contracts, and return inference with the `of` form.
+                if self.should_use_builtin_contract(name, *_line, *_column) {
+                    return self.infer_builtin_call_type(name, arguments, *_line, *_column);
                 }
 
                 // Stored action references called with `call ... with` get the
@@ -4327,10 +8468,17 @@ impl TypeChecker {
                 {
                     match resolution {
                         crate::analyzer::AliasState::Dynamic => {
-                            for arg in arguments {
-                                let _ = self.infer_expression_type(&arg.value);
-                            }
+                            let argument_types: Vec<_> = arguments
+                                .iter()
+                                .map(|arg| self.infer_expression_type(&arg.value))
+                                .collect();
+                            self.escape_user_action_list_arguments(arguments, &argument_types);
+                            self.escape_all_visible_mutable_state();
                             return Type::Unknown;
+                        }
+                        crate::analyzer::AliasState::Builtin { name } => {
+                            return self
+                                .infer_builtin_call_type(&name, arguments, *_line, *_column);
                         }
                         crate::analyzer::AliasState::Bound {
                             action,
@@ -4350,12 +8498,10 @@ impl TypeChecker {
                     }
                 }
 
-                // Overloaded actions (several registered signatures) resolve
-                // through the signature list; the single symbol_type below can
-                // only describe one definition.
-                if let Some(signatures) = self.action_signatures(name)
-                    && signatures.len() > 1
-                {
+                // Direct actions resolve through their registered signatures,
+                // including a forward-referenced single definition whose
+                // result is still provisional.
+                if let Some(signatures) = self.action_signatures(name) {
                     return self.infer_overloaded_call_type(
                         name,
                         &signatures,
@@ -4373,8 +8519,14 @@ impl TypeChecker {
                         // It's an action parameter or a special function name, so don't report an error
                         // For builtin functions, return their proper type
                         if Analyzer::is_builtin_function(name) {
-                            return self.get_builtin_function_type(name, arguments.len());
+                            return self.infer_builtin_call_type(name, arguments, *_line, *_column);
                         }
+                        let argument_types: Vec<_> = arguments
+                            .iter()
+                            .map(|argument| self.infer_expression_type(&argument.value))
+                            .collect();
+                        self.escape_user_action_list_arguments(arguments, &argument_types);
+                        self.escape_all_visible_mutable_state();
                         return Type::Unknown;
                     } else if self.has_includes {
                         // Action may be provided by an included file at runtime;
@@ -4383,11 +8535,17 @@ impl TypeChecker {
                         // Still infer each argument expression first so type errors
                         // inside the arguments are not missed in include-using
                         // programs.
-                        for arg in arguments {
-                            let _ = self.infer_expression_type(&arg.value);
-                        }
+                        let argument_types: Vec<_> = arguments
+                            .iter()
+                            .map(|arg| self.infer_expression_type(&arg.value))
+                            .collect();
+                        self.escape_user_action_list_arguments(arguments, &argument_types);
+                        self.escape_all_visible_mutable_state();
                         return Type::Any;
                     } else {
+                        for argument in arguments {
+                            self.infer_expression_type(&argument.value);
+                        }
                         self.type_error(
                             format!("Undefined action '{name}'"),
                             None,
@@ -4402,6 +8560,11 @@ impl TypeChecker {
                 let symbol = symbol_opt.unwrap();
 
                 if symbol.symbol_type.is_none() {
+                    let argument_types: Vec<_> = arguments
+                        .iter()
+                        .map(|argument| self.infer_expression_type(&argument.value))
+                        .collect();
+                    self.escape_user_action_list_arguments(arguments, &argument_types);
                     self.type_error(
                         format!("Cannot determine type of action '{name}'"),
                         None,
@@ -4413,6 +8576,10 @@ impl TypeChecker {
                 }
 
                 let symbol_type = symbol.symbol_type.clone().unwrap();
+                let arg_types: Vec<Type> = arguments
+                    .iter()
+                    .map(|argument| self.infer_expression_type(&argument.value))
+                    .collect();
 
                 match symbol_type {
                     Type::Function {
@@ -4433,11 +8600,6 @@ impl TypeChecker {
                                 *_column,
                             );
                             return Type::Error;
-                        }
-
-                        let mut arg_types = Vec::with_capacity(arguments.len());
-                        for arg in arguments {
-                            arg_types.push(self.infer_expression_type(&arg.value));
                         }
 
                         for (i, (param_type, arg_type)) in
@@ -4461,7 +8623,10 @@ impl TypeChecker {
                             }
                         }
 
-                        *return_type
+                        self.escape_user_action_list_arguments(arguments, &arg_types);
+                        let keys = vec![(name.clone(), 0)];
+                        self.apply_user_action_list_effects(&keys);
+                        self.escape_shared_list_return_type(&keys, *return_type)
                     }
                     _ => {
                         self.type_error(
@@ -4484,26 +8649,22 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                // Look up the container in the analyzer's registry
-                if let Some(container_info) = self.analyzer.get_container(container) {
-                    // First check static properties
-                    if let Some(prop_info) = container_info.static_properties.get(member) {
-                        return prop_info.property_type.clone();
+                if self.analyzer.get_container(container).is_some() {
+                    if let Some(property_type) =
+                        self.container_static_property_type(container, member)
+                    {
+                        return property_type;
                     }
-
-                    // Then check static methods
-                    if let Some(method_info) = container_info.static_methods.get(member) {
+                    if let Some(method_info) = self.container_static_method(container, member) {
                         return Type::Function {
                             parameters: method_info
                                 .parameters
                                 .iter()
                                 .map(|p| p.param_type.as_ref().cloned().unwrap_or(Type::Unknown))
                                 .collect(),
-                            return_type: Box::new(method_info.return_type.clone()),
+                            return_type: Box::new(method_info.return_type),
                         };
                     }
-
-                    // Member not found
                     self.errors.push(TypeError::new(
                         format!("Static member '{member}' not found in container '{container}'"),
                         None,
@@ -4533,9 +8694,73 @@ impl TypeChecker {
             } => {
                 // First, determine the type of the object
                 let object_type = self.infer_expression_type(object);
+                // Runtime evaluates every argument before dispatch, including
+                // extra arguments and calls that later fail lookup/arity.
+                let argument_types: Vec<Type> = arguments
+                    .iter()
+                    .map(|argument| self.infer_expression_type(&argument.value))
+                    .collect();
 
-                // Check if the object is a container instance
-                match object_type {
+                // Check if the object is a container instance.
+                let result = match object_type {
+                    Type::Container(container_name) => {
+                        if let Some(method_info) =
+                            self.container_static_method(&container_name, method)
+                        {
+                            if arguments.len() != method_info.parameters.len() {
+                                self.errors.push(TypeError::new(
+                                    format!(
+                                        "Static method '{}' expects {} arguments but {} were provided",
+                                        method,
+                                        method_info.parameters.len(),
+                                        arguments.len()
+                                    ),
+                                    None,
+                                    None,
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                            for (index, (argument_type, parameter)) in argument_types
+                                .iter()
+                                .zip(&method_info.parameters)
+                                .enumerate()
+                            {
+                                let expected = parameter
+                                    .param_type
+                                    .as_ref()
+                                    .cloned()
+                                    .unwrap_or(Type::Unknown);
+                                if !self.are_types_compatible(&expected, argument_type) {
+                                    self.errors.push(TypeError::new(
+                                        format!(
+                                            "Argument {} of static method '{}' has type {} but expected {}",
+                                            index + 1,
+                                            method,
+                                            argument_type,
+                                            expected
+                                        ),
+                                        Some(expected),
+                                        Some(argument_type.clone()),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                            }
+                            method_info.return_type
+                        } else {
+                            self.errors.push(TypeError::new(
+                                format!(
+                                    "Static method '{method}' not found in container '{container_name}'"
+                                ),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            ));
+                            Type::Error
+                        }
+                    }
                     Type::ContainerInstance(container_name) => {
                         // Look up the container in the analyzer's registry
                         if let Some(container_info) = self.analyzer.get_container(&container_name) {
@@ -4562,17 +8787,13 @@ impl TypeChecker {
                                 }
 
                                 // Check argument types
-                                for (i, (arg, param)) in
-                                    arguments.iter().zip(&method_params).enumerate()
+                                for (i, (arg_type, param)) in
+                                    argument_types.iter().zip(&method_params).enumerate()
                                 {
-                                    let arg_type = self.infer_expression_type(&arg.value);
                                     let expected_type =
                                         param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
 
-                                    if arg_type != Type::Unknown
-                                        && expected_type != Type::Unknown
-                                        && arg_type != expected_type
-                                    {
+                                    if !self.are_types_compatible(&expected_type, arg_type) {
                                         self.errors.push(TypeError::new(
                                             format!(
                                                 "Argument {} of method '{}' has type {} but expected {}",
@@ -4582,7 +8803,7 @@ impl TypeChecker {
                                                 expected_type
                                             ),
                                             Some(expected_type),
-                                            Some(arg_type),
+                                            Some(arg_type.clone()),
                                             *line,
                                             *column,
                                         ));
@@ -4595,8 +8816,12 @@ impl TypeChecker {
                                 // Check parent containers if the method is not found
                                 let mut current_container = container_info.extends.as_ref();
                                 let mut found_method = None;
+                                let mut visited = HashSet::new();
 
                                 while let Some(parent_name) = current_container {
+                                    if !visited.insert(parent_name.as_str()) {
+                                        break;
+                                    }
                                     if let Some(parent_info) =
                                         self.analyzer.get_container(parent_name)
                                     {
@@ -4630,20 +8855,16 @@ impl TypeChecker {
                                         ));
                                     }
 
-                                    for (i, (arg, param)) in
-                                        arguments.iter().zip(&method_params).enumerate()
+                                    for (i, (arg_type, param)) in
+                                        argument_types.iter().zip(&method_params).enumerate()
                                     {
-                                        let arg_type = self.infer_expression_type(&arg.value);
                                         let expected_type = param
                                             .param_type
                                             .as_ref()
                                             .cloned()
                                             .unwrap_or(Type::Unknown);
 
-                                        if arg_type != Type::Unknown
-                                            && expected_type != Type::Unknown
-                                            && arg_type != expected_type
-                                        {
+                                        if !self.are_types_compatible(&expected_type, arg_type) {
                                             self.errors.push(TypeError::new(
                                                 format!(
                                                     "Argument {} of method '{}' has type {} but expected {}",
@@ -4653,7 +8874,7 @@ impl TypeChecker {
                                                     expected_type
                                                 ),
                                                 Some(expected_type),
-                                                Some(arg_type),
+                                                Some(arg_type.clone()),
                                                 *line,
                                                 *column,
                                             ));
@@ -4685,6 +8906,9 @@ impl TypeChecker {
                             Type::Error
                         }
                     }
+                    Type::Unknown => Type::Unknown,
+                    Type::Any => Type::Any,
+                    Type::Error => Type::Error,
                     _ => {
                         self.type_error(
                             format!(
@@ -4697,7 +8921,16 @@ impl TypeChecker {
                         );
                         Type::Error
                     }
+                };
+                if result != Type::Error {
+                    self.escape_user_action_list_arguments(arguments, &argument_types);
+                    // Methods can close over the caller's runtime environment
+                    // and container properties can retain shared list values.
+                    // Until method/property effect summaries carry those paths,
+                    // this is the explicit conservative user-code boundary.
+                    self.escape_all_visible_mutable_state();
                 }
+                Self::escape_possible_shared_list_return_type(result)
             }
             Expression::PropertyAccess {
                 object,
@@ -4706,100 +8939,175 @@ impl TypeChecker {
                 column,
             } => {
                 let object_type = self.infer_expression_type(object);
-                match object_type {
-                    Type::ContainerInstance(container_name) => {
-                        // Look up the container in the analyzer's registry
-                        if let Some(container_info) = self.analyzer.get_container(&container_name) {
-                            // Look up the property in the container
-                            if let Some(prop_info) = container_info.properties.get(property) {
-                                prop_info.property_type.clone()
-                            } else {
-                                // Check parent containers if property not found
-                                let mut current_container = container_info.extends.as_ref();
-                                let mut found = false;
-                                let mut prop_type = Type::Unknown;
-
-                                while let Some(parent_name) = current_container {
-                                    if let Some(parent_info) =
-                                        self.analyzer.get_container(parent_name)
-                                    {
-                                        if let Some(prop_info) =
-                                            parent_info.properties.get(property)
-                                        {
-                                            found = true;
-                                            prop_type = prop_info.property_type.clone();
-                                            break;
-                                        }
-                                        current_container = parent_info.extends.as_ref();
-                                    } else {
-                                        break;
-                                    }
-                                }
-
-                                if !found {
-                                    self.errors.push(TypeError::new(
-                                        format!(
-                                            "Property '{property}' not found in container '{container_name}'"
-                                        ),
-                                        None,
-                                        None,
-                                        *line,
-                                        *column,
-                                    ));
-                                    Type::Error
-                                } else {
-                                    prop_type
-                                }
-                            }
-                        } else {
-                            self.errors.push(TypeError::new(
-                                format!("Container '{container_name}' not found"),
-                                None,
-                                None,
-                                *line,
-                                *column,
-                            ));
-                            Type::Error
-                        }
+                self.infer_property_access_type(object_type, property, *line, *column)
+                    .0
+            }
+            Expression::FileExists { path, line, column }
+            | Expression::DirectoryExists { path, line, column }
+            | Expression::ListFiles { path, line, column } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && !self.is_gradual_type(&path_type) {
+                    self.type_error(
+                        "Filesystem path must be text".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *line,
+                        *column,
+                    );
+                }
+                match expression {
+                    Expression::FileExists { .. } | Expression::DirectoryExists { .. } => {
+                        Type::Boolean
                     }
-                    // Objects/maps support property access at runtime
-                    // (e.g. `response.status` on an HTTP response object);
-                    // the value type is whatever the map stores.
-                    Type::Map(_, value_type) => *value_type,
-                    Type::Unknown | Type::Any | Type::Error => Type::Unknown,
-                    // Stream handles expose fields (`status`/`ok`/`headers`) via
-                    // the documented dot form too; the field type is only known at
-                    // runtime.
-                    Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => {
-                        Type::Unknown
-                    }
-                    _ => {
-                        self.type_error(
-                            format!(
-                                "Cannot access property '{property}' on non-container type {object_type}"
-                            ),
-                            Some(Type::ContainerInstance("Unknown".to_string())),
-                            Some(object_type),
-                            *line,
-                            *column,
-                        );
-                        Type::Error
-                    }
+                    Expression::ListFiles { .. } => Type::List(Box::new(Type::Text)),
+                    _ => unreachable!(),
                 }
             }
-            Expression::FileExists { .. } => Type::Boolean,
-            Expression::DirectoryExists { .. } => Type::Boolean,
-            Expression::ListFiles { .. } => Type::List(Box::new(Type::Text)),
-            Expression::ReadContent { .. } => Type::Text,
-            Expression::ReadBinaryContent { .. } => Type::Binary,
-            Expression::ReadBinaryN { .. } => Type::Binary,
-            Expression::FileSizeOf { .. } => Type::Number,
-            Expression::ListFilesRecursive { .. } => Type::List(Box::new(Type::Text)),
-            Expression::ListFilesFiltered { .. } => Type::List(Box::new(Type::Text)),
-            Expression::HeaderAccess { .. } => Type::Text,
+            Expression::ReadContent {
+                file_handle,
+                line,
+                column,
+            }
+            | Expression::ReadBinaryContent {
+                file_handle,
+                line,
+                column,
+            }
+            | Expression::FileSizeOf {
+                file_handle,
+                line,
+                column,
+            } => {
+                let handle_type = self.infer_expression_type(file_handle);
+                if handle_type != Type::Text
+                    && handle_type != Type::Custom("File".to_string())
+                    && !self.is_gradual_type(&handle_type)
+                {
+                    self.type_error(
+                        "File handle or path must be text".to_string(),
+                        Some(Type::Text),
+                        Some(handle_type),
+                        *line,
+                        *column,
+                    );
+                }
+                match expression {
+                    Expression::ReadContent { .. } => Type::Text,
+                    Expression::ReadBinaryContent { .. } => Type::Binary,
+                    Expression::FileSizeOf { .. } => Type::Number,
+                    _ => unreachable!(),
+                }
+            }
+            Expression::ReadBinaryN {
+                file_handle,
+                count,
+                line,
+                column,
+            } => {
+                let handle_type = self.infer_expression_type(file_handle);
+                if handle_type != Type::Text
+                    && handle_type != Type::Custom("File".to_string())
+                    && !self.is_gradual_type(&handle_type)
+                {
+                    self.type_error(
+                        "File handle or path must be text".to_string(),
+                        Some(Type::Text),
+                        Some(handle_type),
+                        *line,
+                        *column,
+                    );
+                }
+                let count_type = self.infer_expression_type(count);
+                if count_type != Type::Number && !self.is_gradual_type(&count_type) {
+                    self.type_error(
+                        "Binary byte count must be a number".to_string(),
+                        Some(Type::Number),
+                        Some(count_type),
+                        *line,
+                        *column,
+                    );
+                }
+                Type::Binary
+            }
+            Expression::ListFilesRecursive {
+                path,
+                extensions,
+                line,
+                column,
+            } => {
+                self.check_file_listing_operands(
+                    path,
+                    extensions.as_deref().unwrap_or_default(),
+                    *line,
+                    *column,
+                );
+                Type::List(Box::new(Type::Text))
+            }
+            Expression::ListFilesFiltered {
+                path,
+                extensions,
+                line,
+                column,
+            } => {
+                self.check_file_listing_operands(path, extensions, *line, *column);
+                Type::List(Box::new(Type::Text))
+            }
+            Expression::HeaderAccess {
+                request,
+                line,
+                column,
+                ..
+            } => {
+                // Request objects are currently gradual/map-shaped, but the
+                // operand still needs traversal so nested diagnostics survive.
+                let request_type = self.infer_expression_type(request);
+                let headers_fallback = self
+                    .analyzer
+                    .get_symbol("headers")
+                    .and_then(|symbol| symbol.symbol_type.clone());
+                let has_headers_fallback = headers_fallback
+                    .as_ref()
+                    .is_some_and(|ty| matches!(ty, Type::Map(_, _)) || self.is_gradual_type(ty));
+                if !self.is_execute_file_request_type(&request_type) && !has_headers_fallback {
+                    self.type_error(
+                        "Header access requires a request object or request headers in scope"
+                            .to_string(),
+                        Some(Type::Custom("Request".to_string())),
+                        Some(request_type.clone()),
+                        *line,
+                        *column,
+                    );
+                }
+                let header_value_type = match &request_type {
+                    Type::Custom(name) if name == "Request" => Type::Text,
+                    Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error => Type::Any,
+                    _ => match headers_fallback {
+                        Some(Type::Map(_, value_type)) => *value_type,
+                        Some(Type::Unknown | Type::Any | Type::Error) => Type::Any,
+                        _ => Type::Error,
+                    },
+                };
+                Type::Optional(Box::new(header_value_type))
+            }
             Expression::CurrentTimeMilliseconds { .. } => Type::Number,
             Expression::CurrentTimeFormatted { .. } => Type::Text,
-            Expression::ProcessRunning { .. } => Type::Boolean,
+            Expression::ProcessRunning {
+                process_id,
+                line,
+                column,
+            } => {
+                let process_type = self.infer_expression_type(process_id);
+                if process_type != Type::Text && !self.is_gradual_type(&process_type) {
+                    self.type_error(
+                        "Process ID must be text".to_string(),
+                        Some(Type::Text),
+                        Some(process_type),
+                        *line,
+                        *column,
+                    );
+                }
+                Type::Boolean
+            }
             Expression::DatabaseQuery {
                 db,
                 sql,
@@ -4810,6 +9118,57 @@ impl TypeChecker {
             } => {
                 self.check_database_query_operands(db, sql, parameters.as_deref(), *line, *column);
                 Self::database_result_type(*kind)
+            }
+        }
+    }
+
+    /// Builtin contracts are independent of program symbols and constructor
+    /// choice; the CLI supplies an already-run analyzer that does not contain
+    /// these registrations.
+    fn builtin_signatures(&self, name: &str) -> Option<Vec<crate::analyzer::FunctionSignature>> {
+        let symbol = self.builtin_contracts.get_symbol(name)?;
+        if let SymbolKind::Function { signatures } = &symbol.kind {
+            Some(signatures.clone())
+        } else {
+            None
+        }
+    }
+
+    fn check_file_listing_operands(
+        &mut self,
+        path: &Expression,
+        extensions: &[Expression],
+        line: usize,
+        column: usize,
+    ) {
+        let path_type = self.infer_expression_type(path);
+        if path_type != Type::Text && !self.is_gradual_type(&path_type) {
+            self.type_error(
+                "Directory path must be text".to_string(),
+                Some(Type::Text),
+                Some(path_type),
+                line,
+                column,
+            );
+        }
+
+        for extension in extensions {
+            let extension_type = self.infer_expression_type(extension);
+            let valid = match &extension_type {
+                Type::Text => true,
+                Type::List(item_type) => {
+                    **item_type == Type::Text || self.is_gradual_type(item_type)
+                }
+                other => self.is_gradual_type(other),
+            };
+            if !valid {
+                self.type_error(
+                    "File extension filter must be text or a list of text".to_string(),
+                    None,
+                    Some(extension_type),
+                    line,
+                    column,
+                );
             }
         }
     }
@@ -4826,10 +9185,7 @@ impl TypeChecker {
         column: usize,
     ) {
         let db_type = self.infer_expression_type(db);
-        if db_type != Type::Custom("Database".to_string())
-            && db_type != Type::Unknown
-            && db_type != Type::Error
-        {
+        if db_type != Type::Custom("Database".to_string()) && !self.is_gradual_type(&db_type) {
             self.type_error(
                 "Expected a Database connection".to_string(),
                 Some(Type::Custom("Database".to_string())),
@@ -4840,7 +9196,7 @@ impl TypeChecker {
         }
 
         let sql_type = self.infer_expression_type(sql);
-        if sql_type != Type::Text && sql_type != Type::Unknown && sql_type != Type::Error {
+        if sql_type != Type::Text && !self.is_gradual_type(&sql_type) {
             self.type_error(
                 "SQL statement must be a text string".to_string(),
                 Some(Type::Text),
@@ -4852,12 +9208,13 @@ impl TypeChecker {
 
         if let Some(params) = parameters {
             let params_type = self.infer_expression_type(params);
-            if !matches!(params_type, Type::List(_))
-                && params_type != Type::Unknown
-                && params_type != Type::Error
-            {
+            let valid = match &params_type {
+                Type::List(item_type) => self.is_sql_parameter_type(item_type),
+                other => self.is_gradual_type(other),
+            };
+            if !valid {
                 self.type_error(
-                    "Query parameters must be a list".to_string(),
+                    "Query parameters must be a list of SQL scalar values".to_string(),
                     Some(Type::List(Box::new(Type::Any))),
                     Some(params_type),
                     line,
@@ -4865,6 +9222,26 @@ impl TypeChecker {
                 );
             }
         }
+    }
+
+    fn is_sql_parameter_type(&self, ty: &Type) -> bool {
+        if let Type::Optional(inner) = ty {
+            return self.is_sql_parameter_type(inner);
+        }
+        matches!(
+            ty,
+            Type::Text
+                | Type::Number
+                | Type::Boolean
+                | Type::Binary
+                | Type::Date
+                | Type::Time
+                | Type::DateTime
+                | Type::Nothing
+                | Type::Unknown
+                | Type::Any
+                | Type::Error
+        ) || self.is_unambiguous_temporal_type(ty)
     }
 
     /// Result type of a database query/execute. Rows are objects keyed by
@@ -4932,7 +9309,7 @@ impl TypeChecker {
                             // If it accepts an argument, it must be a Number (the signal number)
                             // Also allow Unknown for backward compatibility with untyped parameters
                             let param_type = &parameters[0];
-                            if *param_type != Type::Number && *param_type != Type::Unknown {
+                            if *param_type != Type::Number && !self.is_gradual_type(param_type) {
                                 self.type_error(
                                     format!(
                                         "Signal handler parameter must be a Number (signal code), but got {}",
@@ -4979,47 +9356,301 @@ impl TypeChecker {
         }
     }
 
+    fn join_return_types(left: Type, right: Type) -> Type {
+        match (left, right) {
+            (Type::Error, _) | (_, Type::Error) => Type::Error,
+            (Type::Nothing, Type::Nothing) => Type::Nothing,
+            (Type::Nothing, other) | (other, Type::Nothing) => Self::optionalize(other),
+            (left, right) => Self::join_inferred_types(left, right),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn action_block_must_terminate(statements: &[Statement]) -> bool {
+        for statement in statements {
+            let must_terminate = match statement {
+                Statement::ReturnStatement { .. } | Statement::ExitStatement { .. } => true,
+                Statement::IfStatement {
+                    condition: Expression::Literal(Literal::Boolean(true), ..),
+                    then_block,
+                    ..
+                } => Self::action_block_must_terminate(then_block),
+                Statement::IfStatement {
+                    condition: Expression::Literal(Literal::Boolean(false), ..),
+                    else_block,
+                    ..
+                } => else_block
+                    .as_ref()
+                    .is_some_and(|block| Self::action_block_must_terminate(block)),
+                Statement::IfStatement {
+                    then_block,
+                    else_block: Some(else_block),
+                    ..
+                } => {
+                    Self::action_block_must_terminate(then_block)
+                        && Self::action_block_must_terminate(else_block)
+                }
+                Statement::SingleLineIf {
+                    condition: Expression::Literal(Literal::Boolean(true), ..),
+                    then_stmt,
+                    ..
+                } => Self::action_block_must_terminate(std::slice::from_ref(then_stmt.as_ref())),
+                Statement::SingleLineIf {
+                    condition: Expression::Literal(Literal::Boolean(false), ..),
+                    else_stmt,
+                    ..
+                } => else_stmt.as_ref().is_some_and(|statement| {
+                    Self::action_block_must_terminate(std::slice::from_ref(statement.as_ref()))
+                }),
+                Statement::SingleLineIf {
+                    then_stmt,
+                    else_stmt: Some(else_stmt),
+                    ..
+                } => {
+                    Self::action_block_must_terminate(std::slice::from_ref(then_stmt.as_ref()))
+                        && Self::action_block_must_terminate(std::slice::from_ref(
+                            else_stmt.as_ref(),
+                        ))
+                }
+                Statement::TryStatement {
+                    body,
+                    when_clauses,
+                    otherwise_block,
+                    finally_block,
+                    ..
+                } => {
+                    if finally_block
+                        .as_ref()
+                        .is_some_and(|block| Self::action_block_must_terminate(block))
+                    {
+                        true
+                    } else {
+                        Self::action_block_must_terminate(body)
+                            && when_clauses
+                                .iter()
+                                .all(|clause| Self::action_block_must_terminate(&clause.body))
+                            && otherwise_block
+                                .as_ref()
+                                .is_none_or(|block| Self::action_block_must_terminate(block))
+                    }
+                }
+                Statement::WaitForStatement { inner, .. } => {
+                    Self::action_block_must_terminate(std::slice::from_ref(inner.as_ref()))
+                }
+                Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
+                    !Self::block_may_break_current_loop(body)
+                }
+                Statement::WhileLoop {
+                    condition: Expression::Literal(Literal::Boolean(true), ..),
+                    body,
+                    ..
+                }
+                | Statement::RepeatWhileLoop {
+                    condition: Expression::Literal(Literal::Boolean(true), ..),
+                    body,
+                    ..
+                } => !Self::block_may_break_current_loop(body),
+                Statement::RepeatUntilLoop {
+                    condition, body, ..
+                } => {
+                    Self::action_block_must_terminate(body)
+                        || (matches!(condition, Expression::Literal(Literal::Boolean(false), ..))
+                            && !Self::block_may_break_current_loop(body))
+                }
+                _ => false,
+            };
+            if must_terminate {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn block_may_break_current_loop(statements: &[Statement]) -> bool {
+        statements
+            .iter()
+            .any(Self::statement_may_break_current_loop)
+    }
+
+    fn statement_may_break_current_loop(statement: &Statement) -> bool {
+        match statement {
+            Statement::BreakStatement { .. } => true,
+            Statement::IfStatement {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                then_block,
+                ..
+            } => Self::block_may_break_current_loop(then_block),
+            Statement::IfStatement {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                else_block,
+                ..
+            } => else_block
+                .as_ref()
+                .is_some_and(|block| Self::block_may_break_current_loop(block)),
+            Statement::IfStatement {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::block_may_break_current_loop(then_block)
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|block| Self::block_may_break_current_loop(block))
+            }
+            Statement::SingleLineIf {
+                condition: Expression::Literal(Literal::Boolean(true), ..),
+                then_stmt,
+                ..
+            } => Self::statement_may_break_current_loop(then_stmt),
+            Statement::SingleLineIf {
+                condition: Expression::Literal(Literal::Boolean(false), ..),
+                else_stmt,
+                ..
+            } => else_stmt
+                .as_ref()
+                .is_some_and(|statement| Self::statement_may_break_current_loop(statement)),
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                Self::statement_may_break_current_loop(then_stmt)
+                    || else_stmt
+                        .as_ref()
+                        .is_some_and(|statement| Self::statement_may_break_current_loop(statement))
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                Self::block_may_break_current_loop(body)
+                    || when_clauses
+                        .iter()
+                        .any(|clause| Self::block_may_break_current_loop(&clause.body))
+                    || otherwise_block
+                        .as_ref()
+                        .is_some_and(|block| Self::block_may_break_current_loop(block))
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|block| Self::block_may_break_current_loop(block))
+            }
+            Statement::WaitForStatement { inner, .. } => {
+                Self::statement_may_break_current_loop(inner)
+            }
+            // A break inside a nested loop belongs to that nested loop.
+            Statement::ForEachLoop { .. }
+            | Statement::CountLoop { .. }
+            | Statement::WhileLoop { .. }
+            | Statement::RepeatWhileLoop { .. }
+            | Statement::RepeatUntilLoop { .. }
+            | Statement::ForeverLoop { .. }
+            | Statement::MainLoop { .. } => false,
+            _ => false,
+        }
+    }
+
+    fn infer_recorded_action_return_type(
+        returns: &[RecordedReturn],
+        implicit_completion: Option<&Type>,
+    ) -> Type {
+        returns
+            .iter()
+            .map(|record| record.return_type.clone())
+            .chain(implicit_completion.cloned())
+            .reduce(Self::join_return_types)
+            .unwrap_or(Type::Nothing)
+    }
+
+    fn check_recorded_return_types(&mut self, returns: &[RecordedReturn], expected_type: &Type) {
+        for record in returns {
+            if !record.has_value && *expected_type != Type::Nothing {
+                self.type_error(
+                    "Function must return a value".to_string(),
+                    Some(expected_type.clone()),
+                    Some(Type::Nothing),
+                    record.line,
+                    record.column,
+                );
+            } else if record.has_value
+                && !self.are_types_compatible(expected_type, &record.return_type)
+            {
+                self.type_error(
+                    "Return statement has incorrect type".to_string(),
+                    Some(expected_type.clone()),
+                    Some(record.return_type.clone()),
+                    record.line,
+                    record.column,
+                );
+            }
+        }
+    }
+
+    fn check_implicit_action_result(
+        &mut self,
+        actual_type: &Type,
+        expected_type: &Type,
+        line: usize,
+        column: usize,
+    ) {
+        if (*actual_type == Type::Nothing && *expected_type != Type::Nothing)
+            || !self.are_types_compatible(expected_type, actual_type)
+        {
+            self.type_error(
+                "Action's implicit result has incorrect type".to_string(),
+                Some(expected_type.clone()),
+                Some(actual_type.clone()),
+                line,
+                column,
+            );
+        }
+    }
+
     /// Infer an action's return type from its `return` statements (issue #569).
     ///
     /// WFL has no return-type annotation, so the type checker must derive it
     /// from the body. Collect the type of every reachable `return <expr>` and
-    /// merge them: identical types collapse to that type; differing concrete
-    /// types (or an `Unknown`) widen to a permissive type so we never turn an
-    /// un-inferrable body into a false positive at the call site. A body with no
-    /// value-returning `return` yields `Nothing`, preserving void-action
-    /// behavior.
+    /// merge them: identical types collapse to that type, common collection
+    /// structure is retained with joined inner types, and otherwise differing
+    /// concrete types widen to `Any`. `Unknown` remains unknown so we never turn
+    /// an un-inferrable body into a false positive at the call site. A body with
+    /// no value-returning `return` yields `Nothing`, preserving void-action
+    /// behavior. If execution can fall through after at least one value return,
+    /// retain that fact as `Optional<T>` rather than claiming every call
+    /// produces `T`.
+    #[allow(dead_code)]
     fn infer_action_return_type(&mut self, body: &[Statement]) -> Type {
         let mut return_types = Vec::new();
-        self.collect_return_types(body, &mut return_types);
+        let must_return = self.collect_return_types(body, &mut return_types);
 
         let mut result: Option<Type> = None;
         for t in return_types {
             result = Some(match result {
                 None => t,
-                Some(existing) if existing == t => existing,
-                // Differing return types (or an un-inferrable one): widen.
-                // `Unknown` stays `Unknown` (still permissive, and preserves the
-                // "could not infer" signal); otherwise fall back to `Any`, which
-                // is accepted everywhere a concrete type is required.
-                Some(existing) => {
-                    if existing == Type::Unknown || t == Type::Unknown {
-                        Type::Unknown
-                    } else {
-                        Type::Any
-                    }
-                }
+                Some(existing) => Self::join_return_types(existing, t),
             });
         }
-        result.unwrap_or(Type::Nothing)
+        let inferred = result.unwrap_or(Type::Nothing);
+        if must_return || inferred == Type::Nothing {
+            inferred
+        } else {
+            match inferred {
+                Type::Optional(_) => inferred,
+                other => Type::Optional(Box::new(other)),
+            }
+        }
     }
 
     /// Gather the inferred type of each `return <expr>` reachable in `body`,
     /// descending into conditionals and loops (mirrors `check_return_statements`
     /// traversal). Diagnostics produced while inferring are discarded: the body
     /// pass has already reported them, so this is purely for type collection.
-    fn collect_return_types(&mut self, statements: &[Statement], out: &mut Vec<Type>) {
+    #[allow(dead_code)]
+    fn collect_return_types(&mut self, statements: &[Statement], out: &mut Vec<Type>) -> bool {
         for statement in statements {
-            match statement {
+            let must_return = match statement {
                 Statement::ReturnStatement { value, .. } => {
                     if let Some(expr) = value {
                         let errors_before = self.errors.len();
@@ -5034,27 +9665,31 @@ impl TypeChecker {
                     // Stop here: collecting their returns would let dead code
                     // widen a precise type (e.g. `Text`) to `Any` and mask a
                     // genuine mismatch at the call site.
-                    break;
+                    true
                 }
+                Statement::ExitStatement { .. } => true,
                 Statement::IfStatement {
                     then_block,
                     else_block,
                     ..
                 } => {
-                    self.collect_return_types(then_block, out);
-                    if let Some(else_stmts) = else_block {
-                        self.collect_return_types(else_stmts, out);
-                    }
+                    let then_returns = self.collect_return_types(then_block, out);
+                    let else_returns = else_block
+                        .as_ref()
+                        .is_some_and(|else_stmts| self.collect_return_types(else_stmts, out));
+                    then_returns && else_returns
                 }
                 Statement::SingleLineIf {
                     then_stmt,
                     else_stmt,
                     ..
                 } => {
-                    self.collect_return_types(&[*(*then_stmt).clone()], out);
-                    if let Some(else_stmt) = else_stmt {
-                        self.collect_return_types(&[*(*else_stmt).clone()], out);
-                    }
+                    let then_returns =
+                        self.collect_return_types(std::slice::from_ref(then_stmt.as_ref()), out);
+                    let else_returns = else_stmt.as_ref().is_some_and(|else_stmt| {
+                        self.collect_return_types(std::slice::from_ref(else_stmt.as_ref()), out)
+                    });
+                    then_returns && else_returns
                 }
                 Statement::ForEachLoop { body, .. }
                 | Statement::CountLoop { body, .. }
@@ -5063,7 +9698,8 @@ impl TypeChecker {
                 | Statement::RepeatUntilLoop { body, .. }
                 | Statement::ForeverLoop { body, .. }
                 | Statement::MainLoop { body, .. } => {
-                    self.collect_return_types(body, out);
+                    let _ = self.collect_return_types(body, out);
+                    false
                 }
                 // Actions commonly return from inside error handling — a `try:`
                 // body, its `when error` clauses, `otherwise`, or `finally`.
@@ -5077,29 +9713,56 @@ impl TypeChecker {
                     finally_block,
                     ..
                 } => {
-                    self.collect_return_types(body, out);
+                    let primary_start = out.len();
+                    let body_must_return = self.collect_return_types(body, out);
+                    let mut handlers_must_return = true;
                     for clause in when_clauses {
-                        self.collect_return_types(&clause.body, out);
+                        handlers_must_return &= self.collect_return_types(&clause.body, out);
                     }
-                    if let Some(otherwise_stmts) = otherwise_block {
-                        self.collect_return_types(otherwise_stmts, out);
-                    }
+                    let otherwise_must_return =
+                        otherwise_block.as_ref().is_none_or(|otherwise_stmts| {
+                            self.collect_return_types(otherwise_stmts, out)
+                        });
+                    // An unhandled error propagates out of the action rather
+                    // than producing Nothing. Only normally-completing try
+                    // paths contribute a fallthrough value.
+                    let primary_must_return =
+                        body_must_return && handlers_must_return && otherwise_must_return;
                     if let Some(finally_stmts) = finally_block {
-                        self.collect_return_types(finally_stmts, out);
+                        let mut finally_returns = Vec::new();
+                        let finally_must_return =
+                            self.collect_return_types(finally_stmts, &mut finally_returns);
+                        if finally_must_return {
+                            // A definitely-returning finally overrides every
+                            // success/error-path return from the primary try.
+                            out.truncate(primary_start);
+                            out.extend(finally_returns);
+                            true
+                        } else {
+                            out.extend(finally_returns);
+                            primary_must_return
+                        }
+                    } else {
+                        primary_must_return
                     }
                 }
                 Statement::WaitForStatement { inner, .. } => {
-                    self.collect_return_types(std::slice::from_ref(inner), out);
+                    self.collect_return_types(std::slice::from_ref(inner), out)
                 }
-                _ => {}
+                _ => false,
+            };
+            if must_return {
+                return true;
             }
         }
+        false
     }
 
     // `line`/`column` are the action's fallback location, threaded through the
     // recursive descent; each error site prefers the offending statement's own
     // position, so the parameters are only forwarded to recursive calls.
     #[allow(clippy::only_used_in_recursion)]
+    #[allow(dead_code)]
     fn check_return_statements(
         &mut self,
         statements: &[Statement],
@@ -5226,6 +9889,33 @@ impl TypeChecker {
             .push(TypeError::new(message, expected, found, line, column));
     }
 
+    /// Recreate a value that the interpreter binds while executing a statement.
+    ///
+    /// The analyzer checks action/loop/handler bodies in temporary scopes and
+    /// discards those scopes before the type-checker pass. Updating an existing
+    /// symbol with `get_symbol_mut` therefore loses statement-produced locals in
+    /// exactly the places where their types matter most. Bind into the current
+    /// checker scope instead, matching the interpreter's local environment.
+    fn bind_runtime_value(
+        &mut self,
+        name: &str,
+        value_type: Type,
+        mutable: bool,
+        line: usize,
+        column: usize,
+    ) {
+        if name.is_empty() {
+            return;
+        }
+        self.analyzer.define_or_replace_symbol(Symbol {
+            name: name.to_string(),
+            kind: SymbolKind::Variable { mutable },
+            symbol_type: Some(value_type),
+            line,
+            column,
+        });
+    }
+
     /// Whether an inferred type is acceptable as an HTTP header map. Header names
     /// must be text, and header values are what the interpreter accepts and
     /// stringifies — text, number, or boolean (see the `respond`/HTTP header
@@ -5255,6 +9945,90 @@ impl TypeChecker {
         }
     }
 
+    /// Server response statements require the opaque pending Request produced
+    /// by `wait for request`; an ordinary map has no response sender.
+    fn is_pending_request_type(&self, ty: &Type) -> bool {
+        matches!(
+            ty,
+            Type::Custom(name) if name == "Request"
+        ) || matches!(ty, Type::Unknown | Type::Any | Type::Error)
+    }
+
+    /// `execute file ... with <request>` accepts either a live Request or a
+    /// structurally complete object. Static Map types do not retain field
+    /// shape, so map-shaped values must defer to the runtime field validator.
+    fn is_execute_file_request_type(&self, ty: &Type) -> bool {
+        self.is_pending_request_type(ty) || matches!(ty, Type::Map(_, _))
+    }
+
+    fn is_process_arguments_type(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Text | Type::List(_)) || self.is_gradual_type(ty)
+    }
+
+    /// WebSocket send targets are runtime objects whose text `id` field names
+    /// the connection. Handler bindings are `Map<Text, Text>` for lifecycle
+    /// events and `Map<Text, Any>` for message events; gradual key/value types
+    /// stay deferred to the runtime shape check.
+    fn is_websocket_connection_target_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Map(key_type, value_type) => {
+                (matches!(key_type.as_ref(), Type::Text) || self.is_gradual_type(key_type))
+                    && (matches!(value_type.as_ref(), Type::Text)
+                        || self.is_gradual_type(value_type))
+            }
+            _ => self.is_gradual_type(ty),
+        }
+    }
+
+    fn check_websocket_message_type(&mut self, ty: Type, line: usize, column: usize) {
+        if !matches!(&ty, Type::Text | Type::Number | Type::Boolean) && !self.is_gradual_type(&ty) {
+            self.type_error(
+                "WebSocket message must be text, a number, or a boolean".to_string(),
+                None,
+                Some(ty),
+                line,
+                column,
+            );
+        }
+    }
+
+    fn temporal_kind(ty: &Type) -> Option<&'static str> {
+        match ty {
+            Type::Date => Some("date"),
+            Type::Time => Some("time"),
+            Type::DateTime => Some("datetime"),
+            Type::Custom(name) if name.eq_ignore_ascii_case("date") => Some("date"),
+            Type::Custom(name) if name.eq_ignore_ascii_case("time") => Some("time"),
+            Type::Custom(name) if name.eq_ignore_ascii_case("datetime") => Some("datetime"),
+            _ => None,
+        }
+    }
+
+    fn custom_temporal_is_unambiguous(&self, ty: &Type) -> bool {
+        let Type::Custom(name) = ty else {
+            return true;
+        };
+        if Self::temporal_kind(ty).is_none() {
+            return false;
+        }
+        !self
+            .analyzer
+            .get_containers()
+            .keys()
+            .any(|container_name| container_name == name)
+    }
+
+    fn is_unambiguous_temporal_type(&self, ty: &Type) -> bool {
+        Self::temporal_kind(ty).is_some() && self.custom_temporal_is_unambiguous(ty)
+    }
+
+    fn are_same_temporal_type(&self, left: &Type, right: &Type) -> bool {
+        Self::temporal_kind(left) == Self::temporal_kind(right)
+            && Self::temporal_kind(left).is_some()
+            && self.custom_temporal_is_unambiguous(left)
+            && self.custom_temporal_is_unambiguous(right)
+    }
+
     /// Whether a type can name a closeable resource: a file handle
     /// (`Custom("File")`), a stream handle (`Custom("HttpStream")` outbound or
     /// `Custom("ResponseStream")` server-side), or a statically-unresolved value.
@@ -5266,7 +10040,7 @@ impl TypeChecker {
             Type::Custom(name) => {
                 name == "File" || name == "HttpStream" || name == "ResponseStream"
             }
-            Type::Unknown | Type::Any | Type::Error => true,
+            Type::Text | Type::Unknown | Type::Any | Type::Error => true,
             _ => false,
         }
     }
@@ -5279,6 +10053,21 @@ impl TypeChecker {
             Type::Custom(name) => name == "HttpStream",
             Type::Unknown | Type::Any | Type::Error => true,
             _ => false,
+        }
+    }
+
+    /// Concrete fields stored in runtime stream-handle objects. Unknown fields
+    /// remain gradual because a historical custom annotation can also carry
+    /// these names, but documented literal fields retain their real type.
+    fn stream_field_type(stream_name: &str, field: &str) -> Option<Type> {
+        match (stream_name, field) {
+            ("HttpStream", "status") | ("ResponseStream", "status") => Some(Type::Number),
+            ("HttpStream", "ok") => Some(Type::Boolean),
+            ("HttpStream", "headers") => {
+                Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text)))
+            }
+            ("HttpStream", "_stream") | ("ResponseStream", "_server_stream") => Some(Type::Text),
+            _ => None,
         }
     }
 
@@ -5298,6 +10087,21 @@ impl TypeChecker {
     /// reject it.
     fn is_gradual_type(&self, ty: &Type) -> bool {
         matches!(ty, Type::Unknown | Type::Any | Type::Error)
+    }
+
+    fn is_response_content_type(ty: &Type) -> bool {
+        match ty {
+            Type::Optional(inner) => Self::is_response_content_type(inner),
+            Type::Text
+            | Type::Binary
+            | Type::Number
+            | Type::Boolean
+            | Type::Nothing
+            | Type::Unknown
+            | Type::Any
+            | Type::Error => true,
+            _ => false,
+        }
     }
 
     /// The value types `write line|chunk` can send to a response stream — the
@@ -5348,21 +10152,246 @@ impl TypeChecker {
         // bodies. Use TypeChecker's live container context here so direct and
         // inherited properties remain defined on the selected write branch.
         let mut container_name = self.current_container.as_deref();
+        let mut visited = HashSet::new();
         while let Some(container_key) = container_name {
+            if !visited.insert(container_key) {
+                break;
+            }
             let Some(container) = self.analyzer.get_container(container_key) else {
                 break;
             };
-            if let Some(property) = container
-                .properties
-                .get(name)
-                .or_else(|| container.static_properties.get(name))
-            {
+            let property = match self.current_method_is_static {
+                Some(true) => container.static_properties.get(name),
+                Some(false) => container.properties.get(name),
+                None => container
+                    .properties
+                    .get(name)
+                    .or_else(|| container.static_properties.get(name)),
+            };
+            if let Some(property) = property {
                 return Some(property.property_type.clone());
             }
             container_name = container.extends.as_deref();
         }
 
         None
+    }
+
+    /// Capture the true outer lexical binding for every property visible to
+    /// the active method. Method parameters and locals receive different
+    /// binding keys, and keep those keys when referenced through nested
+    /// try/loop scopes; a same-named global retains the captured key.
+    fn snapshot_current_method_outer_property_bindings(
+        &self,
+    ) -> HashMap<String, Option<SymbolBindingKey>> {
+        let mut result = HashMap::new();
+        let mut container_name = self.current_container.as_deref();
+        let mut visited = HashSet::new();
+        while let Some(container_key) = container_name {
+            if !visited.insert(container_key) {
+                break;
+            }
+            let Some(container) = self.analyzer.get_container(container_key) else {
+                break;
+            };
+            let properties = if self.current_method_is_static == Some(true) {
+                &container.static_properties
+            } else {
+                &container.properties
+            };
+            for name in properties.keys() {
+                result
+                    .entry(name.clone())
+                    .or_insert_with(|| self.analyzer.get_symbol_binding_key(name));
+            }
+            container_name = container.extends.as_deref();
+        }
+        result
+    }
+
+    /// True when the nearest lexical binding is owned by the active method
+    /// (a parameter, body local, or nested implicit binding), rather than the
+    /// same-named lexical binding that existed outside the method.
+    fn method_lexical_binding_shadows_property(&self, name: &str) -> bool {
+        let Some(outer_bindings) = &self.current_method_outer_property_bindings else {
+            return self.analyzer.get_local_symbol(name).is_some();
+        };
+        let Some(outer_binding) = outer_bindings.get(name) else {
+            return self.analyzer.get_local_symbol(name).is_some();
+        };
+        self.analyzer.get_symbol_binding_key(name).as_ref() != outer_binding.as_ref()
+    }
+
+    /// Resolve a legacy bare mutation target with the same precedence as the
+    /// runtime environment: a method-local binding shadows a current container
+    /// property, which in turn shadows an outer lexical binding.
+    fn resolve_bare_mutation_target_type(&self, name: &str) -> (Option<Type>, bool) {
+        if self.method_lexical_binding_shadows_property(name)
+            && let Some(symbol) = self.analyzer.get_symbol(name)
+        {
+            return (symbol.symbol_type.clone(), false);
+        }
+        if let Some(property_type) = self.current_container_property_type(name) {
+            return (Some(property_type), true);
+        }
+        (
+            self.analyzer
+                .get_symbol(name)
+                .and_then(|symbol| symbol.symbol_type.clone()),
+            false,
+        )
+    }
+
+    fn container_static_property_type(
+        &self,
+        container_name: &str,
+        property_name: &str,
+    ) -> Option<Type> {
+        let mut current = Some(container_name);
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name) {
+                return None;
+            }
+            let container = self.analyzer.get_container(name)?;
+            if let Some(property) = container.static_properties.get(property_name) {
+                return Some(property.property_type.clone());
+            }
+            current = container.extends.as_deref();
+        }
+        None
+    }
+
+    fn container_static_method(
+        &self,
+        container_name: &str,
+        method_name: &str,
+    ) -> Option<crate::analyzer::MethodInfo> {
+        let mut current = Some(container_name);
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name) {
+                return None;
+            }
+            let container = self.analyzer.get_container(name)?;
+            if let Some(method) = container.static_methods.get(method_name) {
+                return Some(method.clone());
+            }
+            current = container.extends.as_deref();
+        }
+        None
+    }
+
+    fn container_property_type(&self, container_name: &str, property_name: &str) -> Option<Type> {
+        let mut current = Some(container_name);
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name) {
+                return None;
+            }
+            let container = self.analyzer.get_container(name)?;
+            if let Some(property) = container.properties.get(property_name) {
+                return Some(property.property_type.clone());
+            }
+            current = container.extends.as_deref();
+        }
+        None
+    }
+
+    /// Resolve a dot-property from an already-inferred receiver. The boolean
+    /// identifies registry-backed instance/static properties (as opposed to a
+    /// static method, map field, or gradual value), allowing mutation sites to
+    /// preserve declared property contracts without evaluating the receiver a
+    /// second time.
+    fn infer_property_access_type(
+        &mut self,
+        object_type: Type,
+        property: &str,
+        line: usize,
+        column: usize,
+    ) -> (Type, bool) {
+        match object_type {
+            Type::Container(container_name) => {
+                if let Some(property_type) =
+                    self.container_static_property_type(&container_name, property)
+                {
+                    (property_type, true)
+                } else if let Some(method_info) =
+                    self.container_static_method(&container_name, property)
+                {
+                    (
+                        Type::Function {
+                            parameters: method_info
+                                .parameters
+                                .iter()
+                                .map(|parameter| {
+                                    parameter.param_type.clone().unwrap_or(Type::Unknown)
+                                })
+                                .collect(),
+                            return_type: Box::new(method_info.return_type),
+                        },
+                        false,
+                    )
+                } else {
+                    self.type_error(
+                        format!(
+                            "Static property '{property}' not found in container '{container_name}'"
+                        ),
+                        None,
+                        None,
+                        line,
+                        column,
+                    );
+                    (Type::Error, false)
+                }
+            }
+            Type::ContainerInstance(container_name) => {
+                if self.analyzer.get_container(&container_name).is_none() {
+                    self.type_error(
+                        format!("Container '{container_name}' not found"),
+                        None,
+                        None,
+                        line,
+                        column,
+                    );
+                    return (Type::Error, false);
+                }
+                if let Some(property_type) = self.container_property_type(&container_name, property)
+                {
+                    (property_type, true)
+                } else {
+                    self.type_error(
+                        format!("Property '{property}' not found in container '{container_name}'"),
+                        None,
+                        None,
+                        line,
+                        column,
+                    );
+                    (Type::Error, false)
+                }
+            }
+            // Objects/maps support property access at runtime
+            // (e.g. `response.status` on an HTTP response object).
+            Type::Map(_, value_type) => (*value_type, false),
+            Type::Unknown => (Type::Unknown, false),
+            Type::Any => (Type::Any, false),
+            Type::Error => (Type::Error, false),
+            // Stream handles expose documented dot fields.
+            Type::Custom(ref name) if name == "HttpStream" || name == "ResponseStream" => (
+                Self::stream_field_type(name, property).unwrap_or(Type::Unknown),
+                false,
+            ),
+            other => {
+                self.type_error(
+                    format!("Cannot access property '{property}' on non-container type {other}"),
+                    Some(Type::ContainerInstance("Unknown".to_string())),
+                    Some(other),
+                    line,
+                    column,
+                );
+                (Type::Error, false)
+            }
+        }
     }
 
     /// Walk an expression and report every undefined bare name. Used for the
@@ -5523,6 +10552,103 @@ impl TypeChecker {
         }
     }
 
+    /// Builtin `Custom` contracts describe runtime-branded values (Date,
+    /// Database, Request, and so on), not user containers that happen to use
+    /// the same name. User action annotations retain their historical
+    /// container-name semantics through `are_types_compatible`.
+    fn are_builtin_types_compatible(&self, target_type: &Type, source_type: &Type) -> bool {
+        if source_type == &Type::Nothing
+            && !matches!(
+                target_type,
+                Type::Any | Type::Unknown | Type::Nothing | Type::Optional(_)
+            )
+        {
+            return false;
+        }
+        if matches!(
+            (target_type, source_type),
+            (Type::Custom(_), Type::ContainerInstance(_))
+        ) {
+            return false;
+        }
+        if Self::temporal_kind(target_type) == Self::temporal_kind(source_type)
+            && matches!(target_type, Type::Date | Type::Time | Type::DateTime)
+            && self.custom_temporal_is_unambiguous(source_type)
+        {
+            return true;
+        }
+        self.are_types_compatible(target_type, source_type)
+    }
+
+    /// Container property annotations are persistent runtime invariants, not
+    /// one-shot flow hints. Unlike an ordinary mutable local, a property is
+    /// read later from the container registry using its declared type, so
+    /// accepting an `Any`/`Unknown` or incompatible replacement would leave
+    /// those later reads unsafely precise.
+    fn are_declared_property_types_compatible(
+        &self,
+        target_type: &Type,
+        source_type: &Type,
+    ) -> bool {
+        if source_type == &Type::Error {
+            return true;
+        }
+        match (target_type, source_type) {
+            (a, b) if a == b => true,
+            (Type::Any | Type::Unknown, _) => true,
+            (_, Type::Any | Type::Unknown) => false,
+            (Type::Optional(target), Type::Optional(source)) => {
+                self.are_declared_property_types_compatible(target, source)
+            }
+            (Type::Optional(_), Type::Nothing) => true,
+            (Type::Optional(target), source) => {
+                self.are_declared_property_types_compatible(target, source)
+            }
+            (_, Type::Optional(_)) | (_, Type::Nothing) => false,
+            (Type::List(target), Type::List(source)) => {
+                self.are_declared_property_types_compatible(target, source)
+            }
+            (Type::Map(target_key, target_value), Type::Map(source_key, source_value)) => {
+                self.are_declared_property_types_compatible(target_key, source_key)
+                    && self.are_declared_property_types_compatible(target_value, source_value)
+            }
+            (Type::Async(target), Type::Async(source)) => {
+                self.are_declared_property_types_compatible(target, source)
+            }
+            _ => self.are_types_compatible(target_type, source_type),
+        }
+    }
+
+    /// Expression-aware form of the persistent property contract. A fresh
+    /// empty list literal is safe for any declared list element type: it has no
+    /// elements that could violate the contract, while a shared
+    /// `List<Unknown>` binding remains unsafe because another alias may later
+    /// insert an incompatible value.
+    fn are_declared_property_values_compatible(
+        &self,
+        target_type: &Type,
+        source_type: &Type,
+        source: &Expression,
+    ) -> bool {
+        self.are_declared_property_types_compatible(target_type, source_type)
+            || Self::is_fresh_empty_list_shape_compatible(target_type, source)
+    }
+
+    fn is_fresh_empty_list_shape_compatible(target_type: &Type, source: &Expression) -> bool {
+        match (target_type, source) {
+            (Type::Optional(inner), source) => {
+                Self::is_fresh_empty_list_shape_compatible(inner, source)
+            }
+            (Type::List(element_type), Expression::Literal(Literal::List(elements), ..)) => {
+                elements.is_empty()
+                    || elements.iter().all(|element| {
+                        Self::is_fresh_empty_list_shape_compatible(element_type, element)
+                    })
+            }
+            _ => false,
+        }
+    }
+
     fn are_types_compatible(&self, target_type: &Type, source_type: &Type) -> bool {
         #[allow(clippy::only_used_in_recursion)]
         let _self = self; // Suppress the warning for self parameter
@@ -5535,11 +10661,29 @@ impl TypeChecker {
             (Type::Any, _) => true, // Any can accept any type
             (_, Type::Any) => true, // Any can be assigned to any type
 
+            // Optional return inference is deliberately stricter than the
+            // general gradual `Any` type: a value that may fall through as
+            // Nothing cannot satisfy a consumer requiring a definite value.
+            (Type::Optional(target), Type::Optional(source)) => {
+                self.are_types_compatible(target, source)
+            }
+            (Type::Optional(_), Type::Nothing) => true,
+            (Type::Optional(target), source) => self.are_types_compatible(target, source),
+            (_, Type::Optional(_)) => false,
+
             (_, Type::Nothing) => true,
 
             (_, Type::Error) => true,
 
             (inner, Type::Async(async_type)) => self.are_types_compatible(inner, async_type),
+
+            // Lowercase temporal annotations use dedicated runtime-value
+            // types. Historical named annotations remain Custom(...) and
+            // accept those values, but not conversely: a runtime-branded
+            // temporal contract must never accept a same-named container.
+            (Type::Custom(name), Type::Date) if name.eq_ignore_ascii_case("date") => true,
+            (Type::Custom(name), Type::Time) if name.eq_ignore_ascii_case("time") => true,
+            (Type::Custom(name), Type::DateTime) if name.eq_ignore_ascii_case("datetime") => true,
 
             (Type::List(a), Type::List(b)) => self.are_types_compatible(a, b),
             (Type::Map(a_key, a_val), Type::Map(b_key, b_val)) => {
@@ -5587,8 +10731,183 @@ impl TypeChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::lex_wfl_with_positions;
+    use crate::parser::Parser;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
     use std::sync::Arc;
+
+    fn typecheck_symbol_type(source: &str, name: &str) -> Type {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().expect("program should parse");
+        let mut checker = TypeChecker::new();
+        checker
+            .check_types(&program)
+            .unwrap_or_else(|error| panic!("program should type-check: {error:?}"));
+        checker
+            .analyzer
+            .get_symbol(name)
+            .and_then(|symbol| symbol.symbol_type.clone())
+            .unwrap_or_else(|| panic!("symbol {name:?} should have a type"))
+    }
+
+    fn list_of(element: Type) -> Type {
+        Type::List(Box::new(element))
+    }
+
+    #[test]
+    fn clear_through_may_alias_preserves_unselected_descendant_type_effects() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+store leaf_b as [1]
+store leaf_c as [1]
+store b as [leaf_b]
+store c as [leaf_c]
+store selected as b
+store choose_c as yes
+check if choose_c:
+    change selected to c
+end check
+clear selected
+push with b[0] and "text"
+"#,
+            "leaf_b",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn known_action_map_argument_escapes_nested_list_alias_type() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+define action called append_text with parameters wrapper:
+    push with wrapper["items"] and "text"
+end action
+store leaf as [1]
+create map wrapper:
+    "items" is leaf
+end map
+call append_text with wrapper
+"#,
+            "leaf",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn known_action_nested_list_argument_escapes_every_alias_depth_type() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+define action called append_text with parameters wrapper:
+    push with wrapper[0] and "text"
+end action
+store leaf as [1]
+store wrapper as [leaf]
+call append_text with wrapper
+"#,
+            "leaf",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn returned_map_carries_captured_nested_list_type_effect() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+store leaf as [1]
+define action called expose:
+    create map result:
+        "items" is leaf
+    end map
+    return result
+end action
+store exposed as call expose
+push with exposed["items"] and "text"
+"#,
+            "leaf",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn projection_reassignment_rebases_descendant_alias_type_effects() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+store leaf as [1]
+store outer as [0 and [leaf]]
+change outer to pop of outer
+push with outer[0] and "text"
+"#,
+            "leaf",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn gradual_add_records_inserted_list_alias_type_effect() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+store leaf as [1]
+store target as parse_json of "[]"
+add leaf to target
+push with target[0] and "text"
+"#,
+            "leaf",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn implicit_shared_return_through_try_carries_captured_type_effect() {
+        let leaf_type = typecheck_symbol_type(
+            r#"
+store leaf as [1]
+define action called expose:
+    try:
+        leaf
+    when error:
+        leaf
+    end try
+end action
+store exposed as call expose
+push with exposed and "text"
+"#,
+            "leaf",
+        );
+        assert_eq!(leaf_type, list_of(Type::Any));
+    }
+
+    #[test]
+    fn optional_joins_preserve_the_known_nothing_path() {
+        let optional_text = Type::Optional(Box::new(Type::Text));
+        for (other, expected) in [
+            (Type::Text, optional_text.clone()),
+            (
+                Type::Optional(Box::new(Type::Number)),
+                Type::Optional(Box::new(Type::Any)),
+            ),
+            (Type::Unknown, Type::Optional(Box::new(Type::Unknown))),
+            (Type::Any, Type::Optional(Box::new(Type::Any))),
+            (Type::Nothing, optional_text.clone()),
+        ] {
+            assert_eq!(
+                TypeChecker::join_inferred_types(optional_text.clone(), other),
+                expected
+            );
+        }
+
+        assert_eq!(
+            TypeChecker::join_inferred_types(
+                Type::List(Box::new(optional_text.clone())),
+                Type::List(Box::new(Type::Text)),
+            ),
+            Type::List(Box::new(optional_text)),
+        );
+        assert_eq!(
+            TypeChecker::join_inferred_types(Type::Nothing, Type::Text),
+            Type::Optional(Box::new(Type::Text)),
+        );
+    }
 
     #[test]
     fn test_header_map_type_requires_text_keys() {
@@ -6635,6 +11954,38 @@ end
             log_it.return_type,
             Type::Nothing,
             "void static method should be refined to Nothing, not left as the Unknown seed"
+        );
+    }
+
+    #[test]
+    fn opaque_method_calls_escape_captured_mutable_scalars() {
+        let code = r#"
+store captured_number as 1
+create container Mutator:
+    action reset:
+        change captured_number to nothing
+    end
+end
+create new Mutator as mutator:
+end
+mutator.reset()
+"#;
+        let tokens = crate::lexer::lex_wfl_with_positions(code);
+        let program = crate::parser::Parser::new(&tokens)
+            .parse()
+            .expect("program should parse");
+        let mut checker = TypeChecker::new();
+        checker
+            .check_types(&program)
+            .expect("the opaque call is gradual rather than a static rejection");
+
+        assert_eq!(
+            checker
+                .analyzer
+                .get_symbol("captured_number")
+                .and_then(|symbol| symbol.symbol_type.clone()),
+            Some(Type::Any),
+            "a method can rebind a captured mutable scalar, so its old Number type is stale"
         );
     }
 }

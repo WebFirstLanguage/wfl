@@ -727,10 +727,21 @@ mod tests {
     }
 
     #[test]
-    fn test_find_not_found() {
+    fn test_find_not_found_preserves_legacy_nothing_identity() {
         let list = make_list(vec![Value::Number(1.0)]);
         let result = native_find(vec![list, Value::Number(99.0)]).unwrap();
-        assert_eq!(result, Value::Nothing);
+        assert!(
+            matches!(result, Value::Nothing),
+            "a failed find must preserve the legacy Nothing variant for typeof"
+        );
+        assert_eq!(
+            crate::stdlib::core::native_typeof(vec![result.clone()]).unwrap(),
+            Value::Text(Arc::from("Nothing"))
+        );
+        assert_eq!(
+            crate::stdlib::core::native_isnothing(vec![result]).unwrap(),
+            Value::Bool(true)
+        );
     }
 
     #[test]
