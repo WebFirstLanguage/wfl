@@ -27,7 +27,7 @@ pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("isnothing", &args, 1)?;
 
     match &args[0] {
-        Value::Null => Ok(Value::Bool(true)),
+        Value::Null | Value::Nothing => Ok(Value::Bool(true)),
         _ => Ok(Value::Bool(false)),
     }
 }
@@ -49,4 +49,21 @@ pub fn register_core(env: &mut Environment) {
     // Exposed as an immutable constant so programs can self-report the running
     // interpreter's version without shelling out to `wfl --version`.
     let _ = env.define("wfl_version", Value::Text(crate::version::VERSION.into()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn isnothing_accepts_both_legacy_no_value_variants() {
+        assert_eq!(
+            native_isnothing(vec![Value::Null]).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            native_isnothing(vec![Value::Nothing]).unwrap(),
+            Value::Bool(true)
+        );
+    }
 }

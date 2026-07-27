@@ -483,6 +483,8 @@ impl StaticAnalyzer for Analyzer {
                 "This name is not defined at this point; if it is still undefined at runtime, the resulting error can be handled by the surrounding try/catch block."
             } else if warning.message.starts_with("Undefined signal handler") {
                 "No action with this name is defined; define the handler action so it can run when the signal is received."
+            } else if warning.message.starts_with("Property '") {
+                "Inherited instance properties share one mutable runtime slot. Keep the parent and child annotations identical; invariant enforcement requires the compatibility deprecation process."
             } else {
                 "This action is not defined in this file; it may be provided by an included module at runtime, otherwise this is likely a typo."
             };

@@ -10,11 +10,13 @@ use crate::parser::expr::ExprParser;
 /// Maps a token in type position (`x as <type>`, `returns <type>`) to its
 /// `Type`. Some type names lex as keywords rather than identifiers (`text`,
 /// `pattern`), so matching on `Identifier` alone would reject them.
-fn type_from_token(token: &Token) -> Option<Type> {
+pub(crate) fn type_from_token(token: &Token) -> Option<Type> {
     match token {
         Token::KeywordText => Some(Type::Text),
         Token::KeywordPattern => Some(Type::Pattern),
         Token::KeywordAny => Some(Type::Any),
+        Token::KeywordDate => Some(Type::Date),
+        Token::KeywordTime => Some(Type::Time),
         // `nothing` lexes as its own literal token, never as an identifier.
         Token::NothingLiteral => Some(Type::Nothing),
         // Primitive names match case-insensitively (`as Text` == `as text`):
@@ -31,6 +33,103 @@ fn type_from_token(token: &Token) -> Option<Type> {
             _ => Type::Custom(type_name.clone()),
         }),
         _ => None,
+    }
+}
+
+/// Maps the older colon-style container syntax (`property x: T`,
+/// `action f needs x: T`) without changing its historical custom-type
+/// interpretation. Before keyword-backed types were supported here, only the
+/// exact spellings below were primitives; lowercase or mixed-case identifiers
+/// such as a user container named `number` remained custom types.
+pub(crate) fn colon_type_from_token(token: &Token) -> Option<Type> {
+    match token {
+        Token::KeywordText => Some(Type::Text),
+        Token::KeywordPattern => Some(Type::Pattern),
+        Token::KeywordAny => Some(Type::Any),
+        Token::KeywordDate => Some(Type::Date),
+        Token::KeywordTime => Some(Type::Time),
+        Token::NothingLiteral => Some(Type::Nothing),
+        Token::Identifier(type_name) => Some(match type_name.as_str() {
+            "Text" => Type::Text,
+            "Number" => Type::Number,
+            "Boolean" => Type::Boolean,
+            "Nothing" => Type::Nothing,
+            "Pattern" => Type::Pattern,
+            _ => Type::Custom(type_name.clone()),
+        }),
+        _ => None,
+    }
+}
+
+fn is_action_return_type_marker(token: &Token, keyword: Token, spelling: &str) -> bool {
+    token == &keyword
+        || matches!(token, Token::Identifier(name) if name.eq_ignore_ascii_case(spelling))
+}
+
+impl<'a> Parser<'a> {
+    /// Parse the recursive type syntax used between the two colons in a typed
+    /// action header (`name: List of Optional of Number:`).
+    ///
+    /// This deliberately returns `None` without recording an error. The caller
+    /// parses speculatively after the normal action-body colon and rewinds when
+    /// there is no second colon, preserving legacy same-line action bodies.
+    fn parse_action_return_type(&mut self) -> Option<Type> {
+        let token = self.cursor.peek()?.token.clone();
+
+        // CodeFixer capitalizes these contextual keywords, so accept both the
+        // keyword token and its identifier spelling inside the framed header.
+        if is_action_return_type_marker(&token, Token::KeywordList, "list") {
+            self.bump_sync();
+            return self
+                .parse_action_return_type_after_of()
+                .map(|inner| Type::List(Box::new(inner)));
+        }
+        if is_action_return_type_marker(&token, Token::KeywordMap, "map") {
+            self.bump_sync();
+            if !self.consume_action_type_token(Token::KeywordOf) {
+                return None;
+            }
+            let key = self.parse_action_return_type()?;
+            if !self.consume_action_type_token(Token::KeywordTo) {
+                return None;
+            }
+            let value = self.parse_action_return_type()?;
+            return Some(Type::Map(Box::new(key), Box::new(value)));
+        }
+        if is_action_return_type_marker(&token, Token::KeywordOptional, "optional") {
+            self.bump_sync();
+            return self
+                .parse_action_return_type_after_of()
+                .map(|inner| Type::Optional(Box::new(inner)));
+        }
+        if is_action_return_type_marker(&token, Token::KeywordBinary, "binary") {
+            self.bump_sync();
+            return Some(Type::Binary);
+        }
+
+        let parsed = type_from_token(&token)?;
+        self.bump_sync();
+        Some(parsed)
+    }
+
+    fn parse_action_return_type_after_of(&mut self) -> Option<Type> {
+        if !self.consume_action_type_token(Token::KeywordOf) {
+            return None;
+        }
+        self.parse_action_return_type()
+    }
+
+    fn consume_action_type_token(&mut self, expected: Token) -> bool {
+        if self
+            .cursor
+            .peek()
+            .is_some_and(|token| token.token == expected)
+        {
+            self.bump_sync();
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -207,43 +306,6 @@ impl<'a> ActionParser<'a> for Parser<'a> {
             }
         }
 
-        let return_type = if let Some(token) = self.cursor.peek() {
-            if let Token::Identifier(id) = &token.token {
-                if id.to_lowercase() == "returns" {
-                    self.bump_sync(); // Consume "returns"
-
-                    if let Some(type_token) = self.cursor.peek() {
-                        if let Some(typ) = type_from_token(&type_token.token) {
-                            self.bump_sync();
-                            Some(typ)
-                        } else {
-                            let err_token = type_token.clone();
-                            return Err(ParseError::from_token(
-                                format!(
-                                    "Expected type name after 'returns', found {:?}",
-                                    err_token.token
-                                ),
-                                &err_token,
-                            ));
-                        }
-                    } else {
-                        return Err(ParseError::from_span(
-                            "Unexpected end of input after 'returns'".to_string(),
-                            crate::diagnostics::Span { start: 0, end: 0 },
-                            0,
-                            0,
-                        ));
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
         // Check for KeywordAnd that might be mistakenly present after the last parameter
         if let Some(token) = self.cursor.peek()
             && let Token::Identifier(id) = &token.token
@@ -258,6 +320,22 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         }
 
         self.expect_token(Token::Colon, "Expected ':' after action definition")?;
+        let return_type_start = self.cursor.checkpoint();
+        let return_type = match self.parse_action_return_type() {
+            Some(parsed_type)
+                if self
+                    .cursor
+                    .peek()
+                    .is_some_and(|token| token.token == Token::Colon) =>
+            {
+                self.bump_sync(); // Consume the typed header's closing colon.
+                Some(parsed_type)
+            }
+            _ => {
+                self.cursor.rewind(return_type_start);
+                None
+            }
+        };
 
         // Skip any Eol tokens after the colon
         self.skip_eol();
@@ -392,30 +470,26 @@ impl<'a> ActionParser<'a> for Parser<'a> {
             // Check if the next token is actually a type identifier
             // If it's not, this colon just marks the start of the action body (no return type)
             if let Some(type_token) = self.cursor.peek() {
-                if let Token::Identifier(type_name) = &type_token.token {
-                    // Check if this identifier is a valid type name
-                    let is_type = matches!(
-                        type_name.as_str(),
-                        "Text" | "Number" | "Boolean" | "Nothing" | "Pattern"
-                    ) || type_name.chars().next().is_some_and(|c| c.is_uppercase());
-
-                    if is_type {
-                        let name_str = type_name.clone();
-                        self.bump_sync(); // Consume type name
-                        Some(match name_str.as_str() {
-                            "Text" => Type::Text,
-                            "Number" => Type::Number,
-                            "Boolean" => Type::Boolean,
-                            "Nothing" => Type::Nothing,
-                            "Pattern" => Type::Pattern,
-                            _ => Type::Custom(name_str),
-                        })
-                    } else {
-                        // This identifier is not a type, so no return type specified
-                        None
+                let is_explicit_type = match &type_token.token {
+                    Token::KeywordText
+                    | Token::KeywordPattern
+                    | Token::KeywordAny
+                    | Token::KeywordDate
+                    | Token::KeywordTime
+                    | Token::NothingLiteral => true,
+                    Token::Identifier(type_name) => {
+                        matches!(
+                            type_name.as_str(),
+                            "Text" | "Number" | "Boolean" | "Nothing" | "Pattern"
+                        ) || type_name.chars().next().is_some_and(|c| c.is_uppercase())
                     }
+                    _ => false,
+                };
+                if is_explicit_type {
+                    let parsed = colon_type_from_token(&type_token.token);
+                    self.bump_sync();
+                    parsed
                 } else {
-                    // Next token after ':' is not an identifier, so no return type
                     None
                 }
             } else {
@@ -478,16 +552,11 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume ':'
 
                         if let Some(type_name_token) = self.cursor.peek() {
-                            if let Token::Identifier(type_name) = &type_name_token.token {
+                            if let Some(parameter_type) =
+                                colon_type_from_token(&type_name_token.token)
+                            {
                                 self.bump_sync(); // Consume type name
-                                Some(match type_name.as_str() {
-                                    "Text" => Type::Text,
-                                    "Number" => Type::Number,
-                                    "Boolean" => Type::Boolean,
-                                    "Nothing" => Type::Nothing,
-                                    "Pattern" => Type::Pattern,
-                                    _ => Type::Custom(type_name.clone()),
-                                })
+                                Some(parameter_type)
                             } else {
                                 let err_token = type_name_token.clone();
                                 return Err(ParseError::from_token(

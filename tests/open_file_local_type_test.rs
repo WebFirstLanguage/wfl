@@ -68,8 +68,9 @@ fn fresh_local_file_handles_are_concrete_in_action_loop_and_method_scopes() {
 #[test]
 fn reconstructed_local_file_type_does_not_retype_an_outer_visible_binding() {
     // The type checker must reconstruct `out` as File while checking the loop,
-    // then expose the original outer Text binding after leaving that scope.
-    let source = "store out as \"outer.txt\"\n\
+    // then expose the original outer Number binding after leaving that scope.
+    // Text is intentionally accepted as an opaque runtime file-handle ID.
+    let source = "store out as 42\n\
                   main loop:\n\
                   \x20\x20\x20\x20open file at \"inner.txt\" for writing as out\n\
                   \x20\x20\x20\x20close out\n\
@@ -77,10 +78,10 @@ fn reconstructed_local_file_type_does_not_retype_an_outer_visible_binding() {
                   end loop\n\
                   close out\n";
     let errors =
-        typecheck(source).expect_err("the outer Text binding must remain Text after the loop");
+        typecheck(source).expect_err("the outer Number binding must remain Number after the loop");
     assert!(
         errors.contains("file or stream handle") || errors.contains("File"),
-        "expected the outer Text/handle diagnostic, got: {errors}"
+        "expected the outer Number/handle diagnostic, got: {errors}"
     );
 }
 

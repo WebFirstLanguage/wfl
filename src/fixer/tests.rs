@@ -114,3 +114,104 @@ fn test_concatenation_chain_length() {
         assert_eq!(fixer.count_concatenation_chain(expression), 2);
     }
 }
+
+#[test]
+fn temporal_type_identity_survives_fix_and_reparse() {
+    let input = "define action called inspect with parameters day as date and clock as time and instant as datetime:\n    display day\nend action";
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let fixer = CodeFixer::new();
+    let (fixed_code, _) = fixer.fix(&program, input);
+    let reparsed_tokens = lex_wfl_with_positions(&fixed_code);
+    let reparsed = Parser::new(&reparsed_tokens).parse().unwrap();
+
+    let parameter_types = |program: &Program| {
+        let Statement::ActionDefinition { parameters, .. } = &program.statements[0] else {
+            panic!("expected action definition");
+        };
+        parameters
+            .iter()
+            .map(|parameter| parameter.param_type.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(parameter_types(&program), parameter_types(&reparsed));
+    assert!(fixed_code.contains("day as date"));
+    assert!(fixed_code.contains("clock as time"));
+    assert!(fixed_code.contains("instant as datetime"));
+    assert!(fixed_code.contains("date and clock"));
+}
+
+#[test]
+fn action_return_type_survives_fix_and_reparse() {
+    let input = "define action called current_day: date:\n    return today\nend action";
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let fixer = CodeFixer::new();
+    let (fixed_code, _) = fixer.fix(&program, input);
+    assert!(
+        fixed_code.contains("current_day: date:"),
+        "the fixer must emit parser-canonical return syntax: {fixed_code}"
+    );
+
+    let reparsed = Parser::new(&lex_wfl_with_positions(&fixed_code))
+        .parse()
+        .expect("fixed action must reparse");
+    let Statement::ActionDefinition {
+        name, return_type, ..
+    } = &reparsed.statements[0]
+    else {
+        panic!("expected an action definition after fixing");
+    };
+    assert_eq!(name, "current_day");
+    assert_eq!(return_type, &Some(Type::Date));
+}
+
+#[test]
+fn compound_action_return_types_survive_fix_and_reparse() {
+    let cases = [
+        (Type::List(Box::new(Type::Text)), "produce: List of Text:"),
+        (
+            Type::Map(Box::new(Type::Text), Box::new(Type::Binary)),
+            "produce: Map of Text to Binary:",
+        ),
+        (
+            Type::Optional(Box::new(Type::List(Box::new(Type::Number)))),
+            "produce: Optional of List of Number:",
+        ),
+    ];
+
+    for (expected_type, expected_source) in cases {
+        let program = Program {
+            statements: vec![Statement::ActionDefinition {
+                name: "produce".to_string(),
+                parameters: vec![],
+                body: vec![],
+                return_type: Some(expected_type.clone()),
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let (fixed_code, _) = CodeFixer::new().fix(&program, "");
+        assert!(
+            fixed_code.contains(expected_source),
+            "fixer emitted an unexpected compound return type: {fixed_code}"
+        );
+
+        let reparsed = Parser::new(&lex_wfl_with_positions(&fixed_code))
+            .parse()
+            .unwrap_or_else(|error| {
+                panic!("fixed compound return type must reparse: {fixed_code}\n{error:?}")
+            });
+        let Statement::ActionDefinition { return_type, .. } = &reparsed.statements[0] else {
+            panic!("expected an action definition after fixing");
+        };
+        assert_eq!(
+            return_type,
+            &Some(expected_type),
+            "fixed return annotation changed type: {fixed_code}"
+        );
+    }
+}

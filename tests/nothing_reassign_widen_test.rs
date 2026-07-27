@@ -127,6 +127,33 @@ change x to "hello"
     );
 }
 
+#[test]
+fn test_change_to_nothing_updates_the_flow_type() {
+    assert_type_error_contains(
+        r#"
+store label as "ready"
+change label to nothing
+store invalid as touppercase of label
+"#,
+        "expected Text",
+    );
+}
+
+#[test]
+fn test_conditional_change_to_nothing_is_optional() {
+    assert_type_error_contains(
+        r#"
+store label as "ready"
+store flag as yes
+check if flag:
+    change label to nothing
+end check
+store invalid as touppercase of label
+"#,
+        "expected Text",
+    );
+}
+
 /// Defining an action that would widen an outer Nothing binding must not
 /// permanently refine that outer binding — the action may never be called
 /// (PR #606 Codex review).

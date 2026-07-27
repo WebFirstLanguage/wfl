@@ -258,14 +258,14 @@ impl CodeFixer {
                     output.push_str(" with parameters ");
                     for (i, param) in parameters.iter().enumerate() {
                         if i > 0 {
-                            output.push_str(", ");
+                            output.push_str(" and ");
                         }
                         let fixed_param_name = self.fix_identifier_name(&param.name, summary);
                         output.push_str(&fixed_param_name);
 
                         if let Some(param_type) = &param.param_type {
                             output.push_str(" as ");
-                            output.push_str(&format!("{param_type:?}"));
+                            output.push_str(&self.format_type(param_type));
                         }
 
                         if let Some(default_value) = &param.default_value {
@@ -281,8 +281,8 @@ impl CodeFixer {
                 }
 
                 if let Some(ret_type) = return_type {
-                    output.push_str(" returning ");
-                    output.push_str(&format!("{ret_type:?}"));
+                    output.push_str(": ");
+                    output.push_str(&self.format_action_return_type(ret_type));
                 }
 
                 output.push_str(":\n");
@@ -1139,6 +1139,30 @@ impl CodeFixer {
         }
     }
 
+    /// Format the recursively representable action-return surface types.
+    ///
+    /// This is intentionally separate from `format_type`: changing the shared
+    /// spellings would also change parameters and properties. Only list,
+    /// map/binary, and optional nesting are added to the action-header
+    /// round-trip contract; other internal type spellings retain their existing
+    /// behavior.
+    fn format_action_return_type(&self, type_val: &Type) -> String {
+        match type_val {
+            Type::List(inner) => {
+                format!("List of {}", self.format_action_return_type(inner))
+            }
+            Type::Map(key, value) => format!(
+                "Map of {} to {}",
+                self.format_action_return_type(key),
+                self.format_action_return_type(value)
+            ),
+            Type::Optional(inner) => {
+                format!("Optional of {}", self.format_action_return_type(inner))
+            }
+            _ => self.format_type(type_val),
+        }
+    }
+
     #[allow(clippy::only_used_in_recursion)]
     fn format_type(&self, type_val: &Type) -> String {
         match type_val {
@@ -1147,6 +1171,9 @@ impl CodeFixer {
             Type::Boolean => "Boolean".to_string(),
             Type::Nothing => "Nothing".to_string(),
             Type::Pattern => "Pattern".to_string(),
+            Type::Date => "date".to_string(),
+            Type::Time => "time".to_string(),
+            Type::DateTime => "datetime".to_string(),
             Type::Binary => "Binary".to_string(),
             Type::Custom(name) => name.clone(),
             Type::List(inner) => format!("List of {}", self.format_type(inner)),
@@ -1171,6 +1198,9 @@ impl CodeFixer {
             Type::Interface(name) => name.clone(),
             Type::Async(inner) => format!("Async {}", self.format_type(inner)),
             Type::Any => "Any".to_string(),
+            Type::Optional(inner) => {
+                format!("{} or Nothing", self.format_type(inner))
+            }
             Type::Unknown => "Unknown".to_string(),
             Type::Error => "Error".to_string(),
         }

@@ -4,10 +4,10 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-/// Complete list of all builtin function names in WFL
+/// Complete list of all builtin function names recognized by WFL.
 /// This list includes:
 /// 1. Functions actually implemented in stdlib modules
-/// 2. Functions recognized by TypeChecker (for future compatibility)
+/// 2. Names reserved by the parser/analyzer for clear diagnostics and future compatibility
 /// 3. Special test functions used in test programs
 const BUILTIN_FUNCTIONS: &[&str] = &[
     // Core functions (implemented in stdlib/core.rs)
@@ -166,6 +166,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "timestamp",
     "datetime_from_timestamp",
     "time_diff",
+    "isleapyear",
+    "is_leap_year",
     // Time functions recognized by TypeChecker but not yet implemented
     "sleep",
     "time",
@@ -181,11 +183,9 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "add_minutes",
     "addseconds",
     "add_seconds",
-    "formatdate", // Duplicate of format_date
-    "formattime", // Duplicate of format_time
-    "parsedate",  // Duplicate of parse_date
-    "isleapyear",
-    "is_leap_year",
+    "formatdate",  // Duplicate of format_date
+    "formattime",  // Duplicate of format_time
+    "parsedate",   // Duplicate of parse_date
     "daysbetween", // Duplicate of days_between
     "monthsbetween",
     "months_between",
@@ -226,12 +226,12 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "copy_file",
     "move_file",
     "remove_file",
+    "delete_file",
     "remove_dir",
     // File system functions recognized by TypeChecker but not yet implemented
     "read_file",
     "write_file",
     "file_exists",
-    "delete_file",
     "create_directory",
     "list_directory",
     "is_directory",
@@ -240,8 +240,188 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "nested_function",
 ];
 
+/// Native functions actually installed by [`crate::stdlib::register_stdlib`].
+///
+/// Keep this inventory distinct from [`BUILTIN_FUNCTIONS`]: the latter also
+/// reserves future names so the parser can recognize their call syntax. Static
+/// checking must only assign callable contracts to names in this runtime list.
+const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
+    // Core
+    "print",
+    "typeof",
+    "type_of",
+    "isnothing",
+    "is_nothing",
+    // Crypto
+    "wflhash256",
+    "wflhash512",
+    "wflhash256_with_salt",
+    "wflmac256",
+    "sha256",
+    "hmac_sha256",
+    "generate_csrf_token",
+    "pbkdf2_hmac_sha256",
+    "constant_time_equals",
+    "secure_random_bytes",
+    "hash_password",
+    "verify_password",
+    "argon2_hash",
+    "argon2_verify",
+    "bcrypt_hash",
+    "bcrypt_verify",
+    "scrypt_hash",
+    "scrypt_verify",
+    "pbkdf2_hash",
+    "pbkdf2_verify",
+    // Filesystem
+    "list_dir",
+    "glob",
+    "rglob",
+    "path_join",
+    "path_basename",
+    "path_dirname",
+    "makedirs",
+    "file_mtime",
+    "path_exists",
+    "is_file",
+    "is_dir",
+    "count_lines",
+    "path_extension",
+    "path_stem",
+    "file_size",
+    "copy_file",
+    "move_file",
+    "remove_file",
+    "delete_file",
+    "remove_dir",
+    // JSON
+    "parse_json",
+    "stringify_json",
+    "stringify_json_pretty",
+    // Math
+    "abs",
+    "round",
+    "floor",
+    "ceil",
+    "clamp",
+    "min",
+    "max",
+    "power",
+    "sqrt",
+    "sin",
+    "cos",
+    "tan",
+    // Random
+    "random",
+    "random_between",
+    "random_int",
+    "random_boolean",
+    "random_from",
+    "random_seed",
+    "generate_uuid",
+    // Text
+    "touppercase",
+    "tolowercase",
+    "substring",
+    "string_split",
+    "to_uppercase",
+    "to_lowercase",
+    "trim",
+    "starts_with",
+    "ends_with",
+    "split",
+    "startswith",
+    "endswith",
+    "replace",
+    "last_index_of",
+    "lastindexof",
+    "padleft",
+    "padright",
+    "format_number",
+    "capitalize",
+    "reverse",
+    "reverse_text",
+    "parse_query_string",
+    "parse_cookies",
+    "parse_form_urlencoded",
+    // Lists (including text/binary overloads implemented by this module)
+    "length",
+    "push",
+    "pop",
+    "contains",
+    "indexof",
+    "index_of",
+    "shift",
+    "unshift",
+    "remove_at",
+    "removeat",
+    "insert_at",
+    "insertat",
+    "clear",
+    "slice",
+    "concat",
+    "includes",
+    "join",
+    "unique",
+    "count",
+    "size",
+    "fill",
+    "sort",
+    "reverse_list",
+    "find",
+    "find_index",
+    "every",
+    "some",
+    // Pattern
+    "pattern_matches",
+    "pattern_find",
+    "pattern_find_all",
+    // Time
+    "today",
+    "now",
+    "datetime_now",
+    "format_date",
+    "format_time",
+    "format_datetime",
+    "parse_date",
+    "parse_time",
+    "create_time",
+    "create_date",
+    "create_datetime",
+    "add_days",
+    "subtract_days",
+    "days_between",
+    "current_date",
+    "date_part",
+    "time_part",
+    "utc_now",
+    "year",
+    "month",
+    "day",
+    "dayofweek",
+    "day_of_week",
+    "dayofyear",
+    "day_of_year",
+    "hour",
+    "minute",
+    "second",
+    "is_leap_year",
+    "isleapyear",
+    "days_in_month",
+    "week_of_year",
+    "timestamp",
+    "datetime_from_timestamp",
+    "time_diff",
+    // Web
+    "path_params",
+    "path_matches",
+    "mime_type",
+    "parse_multipart",
+];
+
 /// Cached HashSet for O(1) lookup performance
 static BUILTIN_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+static IMPLEMENTED_BUILTIN_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
 /// Initialize the builtin function set
 fn get_builtin_set() -> &'static HashSet<&'static str> {
@@ -256,6 +436,18 @@ pub fn is_builtin_function(name: &str) -> bool {
 /// Get an iterator over all builtin function names
 pub fn builtin_functions() -> impl Iterator<Item = &'static str> {
     BUILTIN_FUNCTIONS.iter().copied()
+}
+
+/// Check whether a recognized builtin name has a native runtime implementation.
+pub fn is_implemented_builtin_function(name: &str) -> bool {
+    IMPLEMENTED_BUILTIN_SET
+        .get_or_init(|| IMPLEMENTED_BUILTIN_FUNCTIONS.iter().copied().collect())
+        .contains(name)
+}
+
+/// Iterate over every native builtin installed by the standard library.
+pub fn implemented_builtin_functions() -> impl Iterator<Item = &'static str> {
+    IMPLEMENTED_BUILTIN_FUNCTIONS.iter().copied()
 }
 
 /// Get the parameter count (arity) for a builtin function
@@ -376,10 +568,10 @@ pub fn get_function_arity(name: &str) -> usize {
         // Single argument functions
         "compile_pattern" => 1,
         // Two argument functions
-        "pattern_matches" | "pattern_find" | "match_pattern" | "pattern" | "match" | "test"
-        | "extract" | "ismatch" | "is_match" => 2,
+        "pattern_matches" | "pattern_find" | "pattern_find_all" | "match_pattern" | "pattern"
+        | "match" | "test" | "extract" | "ismatch" | "is_match" => 2,
         // Three argument functions
-        "pattern_find_all" | "replace_pattern" | "findall" | "find_all" => 3,
+        "replace_pattern" | "findall" | "find_all" => 3,
 
         // === FILE SYSTEM FUNCTIONS ===
         // Single argument functions (remove_dir also here as it can take 1 or 2 args)
@@ -401,6 +593,27 @@ pub fn get_function_arity(name: &str) -> usize {
                 name
             );
             1
+        }
+    }
+}
+
+/// Return the inclusive argument-count range accepted by a builtin at runtime.
+///
+/// `get_function_arity` remains the canonical arity used by zero-argument
+/// auto-call detection and by legacy callers that can represent only one
+/// number. Static call validation must use this range so optional and variadic
+/// builtins are not rejected merely because their preferred arity differs.
+pub fn get_function_arity_range(name: &str) -> (usize, Option<usize>) {
+    match name {
+        "print" => (0, None),
+        "path_join" => (1, None),
+        "create_time" => (2, Some(3)),
+        "create_datetime" => (3, Some(6)),
+        "timestamp" => (0, Some(1)),
+        "remove_dir" => (1, Some(2)),
+        _ => {
+            let arity = get_function_arity(name);
+            (arity, Some(arity))
         }
     }
 }
@@ -456,6 +669,17 @@ mod tests {
             set.len(),
             BUILTIN_FUNCTIONS.len(),
             "Duplicate builtin function names detected"
+        );
+
+        let implemented: HashSet<_> = IMPLEMENTED_BUILTIN_FUNCTIONS.iter().copied().collect();
+        assert_eq!(
+            implemented.len(),
+            IMPLEMENTED_BUILTIN_FUNCTIONS.len(),
+            "Duplicate implemented builtin function names detected"
+        );
+        assert!(
+            implemented.iter().all(|name| set.contains(name)),
+            "Every implemented builtin must also be present in the recognized catalog"
         );
     }
 
