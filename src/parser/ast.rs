@@ -1071,8 +1071,11 @@ pub enum Type {
     Error,            // Used to mark expressions that have already failed type checking
     Async(Box<Type>), // For asynchronous operations returning a value of Type
     Any,              // Used for generic types like lists of any type
-    /// An inferred value that may be `Nothing` because an action can fall
-    /// through without executing a value-returning `return`.
+    /// An inferred `T | Nothing` value: the inner type when a value is present,
+    /// or `Nothing` when it is absent. Produced wherever a value may be missing,
+    /// e.g. an action falling through without a value-returning `return`,
+    /// `find`-style lookups that may not match, and control-flow joins where some
+    /// branch yields `Nothing`.
     Optional(Box<Type>),
     // Container-related types
     Container(String),

@@ -69,7 +69,8 @@ fn fresh_local_file_handles_are_concrete_in_action_loop_and_method_scopes() {
 fn reconstructed_local_file_type_does_not_retype_an_outer_visible_binding() {
     // The type checker must reconstruct `out` as File while checking the loop,
     // then expose the original outer Number binding after leaving that scope.
-    // Text is intentionally accepted as an opaque runtime file-handle ID.
+    // `close out` then operates on the outer Number (42), which is neither a
+    // File nor a stream handle, so it must be rejected.
     let source = "store out as 42\n\
                   main loop:\n\
                   \x20\x20\x20\x20open file at \"inner.txt\" for writing as out\n\

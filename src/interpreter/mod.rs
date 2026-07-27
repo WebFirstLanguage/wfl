@@ -890,6 +890,19 @@ struct RunState {
     loading_stack: Vec<PathBuf>,
 }
 
+#[cfg(test)]
+impl RunState {
+    /// Build a fresh run state seeded with the given call depth; every other
+    /// scratch field starts empty/default. Used by the concurrent-handler unit
+    /// tests to stand up an isolated [`RunState`] without a live handler.
+    fn fresh(call_depth: usize) -> Self {
+        RunState {
+            call_depth,
+            ..RunState::default()
+        }
+    }
+}
+
 /// Installs one handler's parked [`RunState`] in the interpreter until drop.
 ///
 /// Besides reducing duplicated swap calls, the guard makes restoration

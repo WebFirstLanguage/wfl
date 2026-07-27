@@ -7177,20 +7177,14 @@ impl TypeChecker {
                     *line,
                     *column,
                 );
+                // `bind_runtime_value` above already recreated the binding in
+                // this handler scope with its concrete runtime map type,
+                // deliberately shadowing any outer same-named variable so the
+                // body is not checked against the outer symbol's type (#642).
+                // Keeping that map type (rather than downgrading to Unknown)
+                // leaves field/index access on the event object permissive while
+                // still rejecting misuse such as arithmetic on it.
                 let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
-                // Runtime binds the event object with `define_direct`,
-                // deliberately shadowing an outer same-named variable. Analyzer
-                // body scopes are discarded before this pass, so recreate the
-                // binding here — typed Unknown, keeping event-object access
-                // permissive instead of checking the body against the outer
-                // symbol's concrete type (#642).
-                self.analyzer.define_or_replace_symbol(Symbol {
-                    name: binding.clone(),
-                    kind: SymbolKind::Variable { mutable: true },
-                    symbol_type: Some(Type::Unknown),
-                    line: *line,
-                    column: *column,
-                });
                 let outer_alias_snapshot = self.list_alias_groups.clone();
                 let outer_refinement_snapshot = self.optional_refinement_origins.clone();
                 let outer_nonempty_snapshot = self.definitely_nonempty_lists.clone();
