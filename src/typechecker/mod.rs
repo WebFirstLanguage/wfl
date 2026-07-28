@@ -12170,9 +12170,52 @@ mutator.reset()
             .unwrap_or(0);
 
         assert!(
+            deepest_member <= MAX_LIST_ALIAS_INDEX_DEPTH,
+            "alias members reported depth {deepest_member}, past the tracked bound of \
+             {MAX_LIST_ALIAS_INDEX_DEPTH} (issue #654)"
+        );
+        assert!(
             deepest_member <= bound,
             "alias members reported depth {deepest_member} for a query at the relation's ceiling \
              {bound}; synthesized members must not escape the bound (issue #654)"
+        );
+    }
+
+    /// The bound has to hold on the *real* pipeline, not only when the relation
+    /// is driven by hand. Checking a program whose aggregates are cyclic — the
+    /// `binds`-inside-`scope` shape from the issue, plus a direct self-push —
+    /// must leave every path in the relation within the documented depth.
+    ///
+    /// This is the assertion that ties the constant to observed behaviour: if a
+    /// future change reintroduces an unbounded translation, the relation stops
+    /// respecting the bound here even if the hand-driven fixpoint tests are
+    /// edited around.
+    #[test]
+    fn checking_a_cyclic_program_keeps_every_alias_path_within_the_bound() {
+        let source = r#"
+store scope as [1]
+store binds as [1]
+create map nsval:
+    "binds" is binds
+end map
+push with scope and nsval
+push with binds and scope
+push with scope and scope
+push with scope and binds
+"#;
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().expect("program should parse");
+        let mut checker = TypeChecker::new();
+        // Acceptance is not the claim under test — a cyclic aggregate may or may
+        // not draw a diagnostic. Termination and the depth bound are the claim.
+        let _ = checker.check_types(&program);
+
+        let deepest = deepest_alias_depth(&checker);
+        assert!(
+            deepest <= MAX_LIST_ALIAS_INDEX_DEPTH,
+            "checking a cyclic program left an alias path at depth {deepest}, past the tracked \
+             bound of {MAX_LIST_ALIAS_INDEX_DEPTH} (issue #654)"
         );
     }
 }

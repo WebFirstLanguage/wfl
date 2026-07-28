@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WFL Static Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .header { color: #007acc; }
+    </style>
+</head>
+<body>
+    <h1 class="header">WFL Static File Test</h1>
+    <p>This HTML file is served by WFL's static file server!</p>
+    <p>Current time: <span id="time"></span></p>
+    <script>
+        document.getElementById('time').textContent = new Date().toLocaleString();
+    </script>
+</body>
+</html>

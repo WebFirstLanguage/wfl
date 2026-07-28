@@ -1,0 +1,10 @@
+{
+    "message": "Hello from WFL static JSON file!",
+    "server": "WFL Web Server",
+    "features": [
+        "Static file serving",
+        "MIME type detection",
+        "Natural language syntax"
+    ],
+    "timestamp": "2025-01-01T00:00:00Z"
+}
