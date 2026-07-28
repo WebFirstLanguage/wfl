@@ -11988,4 +11988,129 @@ mutator.reset()
             "a method can rebind a captured mutable scalar, so its old Number type is stale"
         );
     }
+
+    /// Binding key for `name` after checking a one-statement program. Alias
+    /// tests drive the relation directly so a non-converging relation shows up
+    /// as a failed assertion rather than a hung test process.
+    fn binding_key_after_checking(
+        checker: &mut TypeChecker,
+        source: &str,
+        name: &str,
+    ) -> SymbolBindingKey {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().expect("program should parse");
+        checker
+            .check_types(&program)
+            .unwrap_or_else(|error| panic!("setup program should type-check: {error:?}"));
+        checker
+            .analyzer
+            .get_symbol_binding_key(name)
+            .unwrap_or_else(|| panic!("binding {name:?} should exist"))
+    }
+
+    /// Deepest `index_depth` reachable anywhere in the alias relation, counting
+    /// both map keys and group members.
+    fn deepest_alias_depth(checker: &TypeChecker) -> usize {
+        checker
+            .list_alias_groups
+            .iter()
+            .flat_map(|(path, members)| std::iter::once(path).chain(members))
+            .map(|path| path.index_depth)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn alias_path(binding: &SymbolBindingKey, index_depth: usize) -> ListAliasPath {
+        ListAliasPath {
+            binding: binding.clone(),
+            index_depth,
+        }
+    }
+
+    /// Issue #654. `add_structural_list_alias` materializes descendants at a
+    /// *translated* depth. When a binding aliases itself at a different depth —
+    /// what `push with scope and scope` records — each application produces a
+    /// strictly deeper path, that path becomes a new map key, and the new key
+    /// is a "descendant" for the next application. The relation must instead
+    /// stabilize, or the checker spins forever with no diagnostic.
+    #[test]
+    fn self_referential_structural_alias_relation_reaches_a_fixpoint() {
+        let mut checker = TypeChecker::new();
+        let scope = binding_key_after_checking(&mut checker, "store scope as [1]\n", "scope");
+
+        let root = alias_path(&scope, 0);
+        let nested = alias_path(&scope, 1);
+
+        // Re-apply the exact translation the statement walker performs for a
+        // self-push. A relation with a fixpoint stops deepening; the buggy one
+        // gains a level on every single application.
+        let mut deepest = deepest_alias_depth(&checker);
+        let mut applications = 0;
+        let mut reached_fixpoint = false;
+        for _ in 0..64 {
+            checker.add_structural_list_alias(root.clone(), nested.clone());
+            applications += 1;
+            let next = deepest_alias_depth(&checker);
+            if next == deepest {
+                reached_fixpoint = true;
+                break;
+            }
+            deepest = next;
+        }
+
+        assert!(
+            reached_fixpoint,
+            "the self-referential alias relation never stabilized: depth reached {deepest} after \
+             {applications} applications and was still growing (issue #654)"
+        );
+
+        // Stability has to hold, not just be observed once.
+        for _ in 0..8 {
+            checker.add_structural_list_alias(root.clone(), nested.clone());
+        }
+        assert_eq!(
+            deepest_alias_depth(&checker),
+            deepest,
+            "alias depth resumed growing after the relation had stabilized"
+        );
+    }
+
+    /// The companion read path. `list_alias_members_for_path` translates every
+    /// ancestor relation upward by the query's offset, so it can report members
+    /// deeper than anything stored. Those synthesized members are fed straight
+    /// back into the relation, so they must be bounded too.
+    #[test]
+    fn alias_members_never_report_a_path_deeper_than_the_relation_admits() {
+        let mut checker = TypeChecker::new();
+        let scope = binding_key_after_checking(&mut checker, "store scope as [1]\n", "scope");
+
+        let root = alias_path(&scope, 0);
+        checker.add_structural_list_alias(root.clone(), alias_path(&scope, 1));
+
+        // Saturate the relation first, so `bound` is the relation's true ceiling.
+        let mut bound = deepest_alias_depth(&checker);
+        for _ in 0..64 {
+            checker.add_structural_list_alias(root.clone(), alias_path(&scope, 1));
+            let next = deepest_alias_depth(&checker);
+            if next == bound {
+                break;
+            }
+            bound = next;
+        }
+
+        // Querying *at* the ceiling translates every ancestor by that offset.
+        let deepest_member = checker
+            .list_alias_members_for_path(&alias_path(&scope, bound))
+            .into_iter()
+            .map(|member| member.index_depth)
+            .max()
+            .unwrap_or(0);
+
+        assert!(
+            deepest_member <= bound,
+            "alias members reported depth {deepest_member} for a query at the relation's ceiling \
+             {bound}; synthesized members must not escape the bound (issue #654)"
+        );
+    }
 }
