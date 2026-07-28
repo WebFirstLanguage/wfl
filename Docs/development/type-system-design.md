@@ -82,6 +82,26 @@ descendant shape when a projection is returned. Operations that replace or
 clear aggregate storage detach stale descendant paths only for a proven strong
 update; may-alias descendants remain conservative.
 
+Structural tracking is bounded to a fixed nesting depth
+(`MAX_LIST_ALIAS_INDEX_DEPTH`, currently 8); paths deeper than that are not
+tracked. The bound is what makes the alias relation's key space finite, and so
+what guarantees it reaches a fixpoint. Without it, an aggregate that
+transitively contains itself — a list holding a map whose value is a list
+holding the original — translates its own paths upward forever and the checker
+never terminates (issue #654). Real structure does not approach the bound:
+across the whole `TestPrograms/` corpus the deepest path any acyclic program
+reaches is 2. A gradually typed program cannot supply the bound from its static
+type, because `Any` admits an alias path at every depth.
+
+The bound limits what the *relation* records, not which mutations propagate.
+Nesting deeper than the bound is still finite structure, so a mutation through
+an over-deep alias is applied at the deepest tracked ancestor as an escape,
+widening it to `Any`, rather than being discarded. Discarding it would leave a
+genuinely aliased aggregate holding a stale, narrower element type, and a later
+read through the original path would be rejected on a type the program legally
+widened. Escaping only loses precision at those depths; it never reports an
+error the unbounded relation would not have reported.
+
 ## Built-in function contracts
 
 The runtime built-in inventory and its accepted arities live in
