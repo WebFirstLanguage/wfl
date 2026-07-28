@@ -122,7 +122,15 @@ jobs:
     name: Build WFL for Windows
     needs: check-for-changes
     if: needs.check-for-changes.outputs.should_build == 'true'
-    runs-on: blacksmith-4vcpu-windows-2025
+    # 4 -> 8 vCPU. This job has died on its own timeout twice (runs
+    # 30190411454, and again after PRs #641/#643 added 26 test files), and a
+    # cancelled job never runs its cache-save post step - so each failure left
+    # the next nightly equally cold and it timed out again. Compiling 112
+    # release-mode test binaries is the one workload that genuinely scales
+    # with cores, so doubling them should more than halve wall-clock: ~70min
+    # at $0.016/min = $1.12 becomes ~30min at $0.032/min = $0.96. Cheaper AND
+    # it breaks the timeout death spiral.
+    runs-on: blacksmith-8vcpu-windows-2025
     # `cargo test --release` here compiles EVERY integration test binary in
     # tests/ (112 of them as of 26.7.49) against the full dependency graph, in
     # release mode with `[profile.release] debug = true` — so each one also links
@@ -281,6 +289,11 @@ jobs:
           name: vscode-wfl-${{ needs.check-for-changes.outputs.version }}.vsix
           path: vscode-extension/vscode-wfl-${{ needs.check-for-changes.outputs.version }}.vsix
           if-no-files-found: warn
+          # A hand-off to the release job, not an archive: Spaces and the
+          # GitHub Release are the durable copies. GitHub's 90-day default
+          # retains ~90 nightlies of MSIs and VSIXs on artifact storage, which
+          # GitHub bills separately from Blacksmith compute.
+          retention-days: 7
 
       # ---------- Initialize WiX Source Files ----------
       - name: Initialize WiX source files
@@ -433,12 +446,167 @@ jobs:
           name: wfl-${{ needs.check-for-changes.outputs.version }}.msi
           path: target/${{ env.TARGET }}/release/wfl-${{ needs.check-for-changes.outputs.version }}.msi
           if-no-files-found: error
+          retention-days: 7
+  # ------------------------------------------------------------
+  # BUILD JOB (Linux, statically linked against musl)
+  # ------------------------------------------------------------
+  # Runs in parallel with the Windows leg. This produces the artifact that until
+  # now was built by hand on the wflbuild.starnet droplet, with one deliberate
+  # change: the target is musl, not glibc. The old glibc build IS wfl#616 - it
+  # links against glibc 2.39 from Ubuntu 24.04 and refuses to run on Debian 12
+  # or Ubuntu 22.04. A static musl binary has no libc floor at all.
+  build-linux:
+    name: Build WFL for Linux (static musl)
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.should_build == 'true'
+    # Rust release codegen genuinely scales with cores, so this is one of the
+    # few places a bigger runner pays for itself instead of idling.
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 60
+    env:
+      TARGET: x86_64-unknown-linux-musl
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+      # Matches the BUILD_INFO the old wflbuild tarballs carried: no debug
+      # symbols in the shipped artifact. Also keeps target/ far below the ~30 GB
+      # ceiling CLAUDE.md warns about, so no disk-space dance is needed here.
+      CARGO_PROFILE_RELEASE_DEBUG: false
+    steps:
+      - uses: actions/checkout@v4
+
+      # cmake and clang are for aws-lc-sys, which reqwest 0.13 pulls in and
+      # which compiles C and assembly. It is the only dependency in the graph
+      # with a musl story to get wrong - there is no openssl-sys anywhere here
+      # (TLS is rustls end to end), so the usual musl blocker does not apply.
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools musl-dev cmake clang
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache Cargo registry + target dir
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: x86_64-unknown-linux-musl
+          # Only main writes the cache, so PR runs cannot race each other to
+          # overwrite it with a partial target dir.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Both binaries, matching the Windows MSI, which has always shipped wfl
+      # and wfl-lsp together. The Linux tarball previously carried only wfl, so
+      # editor support was Windows-only by accident of packaging.
+      - name: Build wfl and wfl-lsp
+        run: |
+          cargo build --release --locked --target "$TARGET" --bin wfl
+          cargo build --release --locked --target "$TARGET" -p wfl-lsp --bin wfl-lsp
+
+      # A musl *target* does not guarantee a static *binary* - one stray dynamic
+      # dependency silently reintroduces the libc floor while the job still goes
+      # green. Assert the property we actually promise, for BOTH binaries.
+      #
+      # The authoritative test is the ABSENCE of a PT_INTERP program header: a
+      # binary that names no interpreter cannot be asking a loader for libc at
+      # startup. Do not match on `file` output - Rust's musl target emits a
+      # static-PIE, which `file` describes as "static-pie linked" rather than
+      # "statically linked", so grepping for the latter reports a perfectly
+      # static binary as broken.
+      - name: Assert the binaries are statically linked
+        run: |
+          for b in wfl wfl-lsp; do
+            BIN="target/$TARGET/release/$b"
+            file "$BIN"
+            if readelf -l "$BIN" | grep -q "Requesting program interpreter"; then
+              echo "::error::$BIN has a PT_INTERP segment - it is dynamically linked and wfl#616 would reappear"
+              readelf -l "$BIN" | grep -A1 INTERP
+              exit 1
+            fi
+            echo "  $b: no PT_INTERP segment - statically linked"
+          done
+
+      - name: Smoke test
+        run: |
+          BIN="$PWD/target/$TARGET/release/wfl"
+          "$BIN" --version
+          "$PWD/target/$TARGET/release/wfl-lsp" --version
+          "$BIN" TestPrograms/basic_syntax_comprehensive.wfl
+
+      - name: Package tarball
+        env:
+          VERSION:   ${{ needs.check-for-changes.outputs.version }}
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          # Superset of the tarballs already in the Spaces bucket: the existing
+          # wfl-<version>-linux-x86_64/{wfl,README.md,LICENSE,BUILD_INFO} layout
+          # is preserved exactly, with wfl-lsp added alongside. Anything already
+          # installing from that URL keeps working unchanged.
+          DIR="wfl-${VERSION}-linux-x86_64"
+          mkdir -p "dist/$DIR"
+          cp "target/$TARGET/release/wfl"     "dist/$DIR/wfl"
+          cp "target/$TARGET/release/wfl-lsp" "dist/$DIR/wfl-lsp"
+          strip "dist/$DIR/wfl" "dist/$DIR/wfl-lsp"
+          cp README.md LICENSE "dist/$DIR/"
+          cat > "dist/$DIR/BUILD_INFO" <<EOF
+          wfl ${VERSION}
+          commit:   ${{ github.sha }}
+          branch:   ${{ github.ref_name }}
+          built:    $(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+          builder:  GitHub Actions / Blacksmith (x86_64-unknown-linux-musl)
+          rustc:    $(rustc --version)
+          contents: wfl, wfl-lsp
+          note:     statically linked against musl - no glibc floor (wfl#616)
+          EOF
+          tar czf "dist/${DIR}-${SHORT_SHA}.tar.gz" -C dist "$DIR"
+          ls -la "dist/${DIR}-${SHORT_SHA}.tar.gz"
+
+      # The real boundary test, not a proxy for it, and it runs *after* packaging
+      # on purpose: the thing a user installs is the extracted tarball, not the
+      # build output it was copied from. Verifying the pre-package binaries would
+      # leave `strip` and the tar round-trip untested on the only distro this
+      # gate exists for. Debian 12 is exactly where the glibc build failed in
+      # issue #616.
+      #
+      # The full TestPrograms suite still runs on the host runner (ci.yml); what
+      # is unique here is the old-glibc distro, so this runs the same
+      # comprehensive program the host smoke test does, from the shipped tarball.
+      - name: Prove portability on Debian 12 (wfl#616 regression gate)
+        env:
+          VERSION:   ${{ needs.check-for-changes.outputs.version }}
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e TARBALL="wfl-${VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz" \
+            -v "$PWD/dist:/dist:ro" \
+            -v "$PWD/TestPrograms:/TestPrograms:ro" \
+            debian:12-slim sh -euc '
+              cat /etc/debian_version
+              cd /tmp
+              tar xzf "/dist/$TARBALL"
+              cd wfl-*-linux-x86_64
+              ls -la
+              ./wfl --version
+              ./wfl-lsp --version
+              ./wfl /TestPrograms/basic_syntax_comprehensive.wfl
+            '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wfl-${{ needs.check-for-changes.outputs.version }}-linux-x86_64.tar.gz
+          path: dist/wfl-${{ needs.check-for-changes.outputs.version }}-linux-x86_64-${{ needs.check-for-changes.outputs.short_sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
   # ------------------------------------------------------------
   # RELEASE JOB
   # ------------------------------------------------------------
   release:
     name: Create or Update Nightly Release
-    needs: [check-for-changes, build]
+    needs: [check-for-changes, build, build-linux]
     if: needs.check-for-changes.outputs.should_build == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
@@ -465,6 +633,13 @@ jobs:
           find artifacts -type f -name "*.msi" -exec ls -la {} \;
           echo "VSIX artifacts:"
           find artifacts -type f -name "*.vsix" -exec ls -la {} \;
+          echo "Linux tarballs:"
+          find artifacts -type f -name "*.tar.gz" -exec ls -la {} \;
+
+          if [ $(find artifacts -type f -name "*.tar.gz" | wc -l) -eq 0 ]; then
+            echo "::error::No Linux tarball found in downloaded artifacts directory"
+            exit 1
+          fi
 
           if [ $(find artifacts -type f -name "*.msi" | wc -l) -eq 0 ]; then
             echo "::error::No MSI artifacts found in downloaded artifacts directory"
@@ -474,6 +649,34 @@ jobs:
           if [ $(find artifacts -type f -name "*.vsix" | wc -l) -eq 0 ]; then
             echo "::warning::No VSIX artifacts found in downloaded artifacts directory"
           fi
+
+      # Spaces is the canonical download location; the GitHub Release below is a
+      # mirror, so the canonical publish goes first.
+      #
+      # It also has to go first for retry reasons: the nightly tag and release
+      # ARE the success marker that check-for-changes reads. If the tag existed
+      # and this step failed, the next scheduled run would resolve that tag to
+      # the current commit, set should_build=false, and never retry the publish -
+      # the rolling downloads would stay stale until an unrelated code commit
+      # landed. Failing before the tag is written keeps the run retryable.
+      #
+      # publish_spaces.sh is itself ordered so a partial failure cannot leave the
+      # bucket describing a mixed release (immutable objects first, rolling
+      # pointers and metadata only after every upload succeeds).
+      - name: Publish artifacts to DigitalOcean Spaces
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          SPACES_BUCKET:         wfl
+          SPACES_ENDPOINT:       https://nyc3.digitaloceanspaces.com
+          AWS_DEFAULT_REGION:    nyc3
+        run: |
+          ./scripts/publish_spaces.sh \
+            artifacts \
+            "${{ needs.check-for-changes.outputs.version }}" \
+            "${{ needs.check-for-changes.outputs.short_sha }}" \
+            "${{ github.sha }}" \
+            "${{ github.ref_name }}"
 
       - name: Configure git identity
         run: |
@@ -523,10 +726,11 @@ jobs:
           # GitHub's immutable releases require assets to be attached during creation
           MSI_FILES=$(find artifacts -type f -name "*.msi")
           VSIX_FILES=$(find artifacts -type f -name "*.vsix")
+          TARBALL_FILES=$(find artifacts -type f -name "*.tar.gz")
 
           # Build the list of files to attach and validate them
           ASSET_FILES=""
-          for f in $MSI_FILES $VSIX_FILES; do
+          for f in $MSI_FILES $VSIX_FILES $TARBALL_FILES; do
             if [ ! -s "$f" ]; then
               echo "::error::Empty or corrupted file: $f"
               exit 1
@@ -553,9 +757,11 @@ jobs:
 
           ## Downloads
           - **wfl-${VERSION}.msi** - Windows MSI installer (includes WFL, WFL-LSP, and VS Code extension)
-          - **vscode-wfl-${VERSION}.vsix** - VS Code extension (standalone installation)" \
+          - **wfl-${VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz** - Linux x86_64 (includes WFL and WFL-LSP), statically linked against musl so it has no glibc requirement
+          - **vscode-wfl-${VERSION}.vsix** - VS Code extension (standalone installation)
+
+          Canonical, CDN-backed downloads: <https://wfl.nyc3.cdn.digitaloceanspaces.com/releases/>" \
             --prerelease \
             $ASSET_FILES
 
           echo "Release created successfully: $TAG with $(echo $ASSET_FILES | wc -w) assets"
-

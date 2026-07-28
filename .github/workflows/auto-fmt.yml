@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   auto-format:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # runs cargo fmt and commits the result - no parallelism to
+    # exploit and no x86 artifact produced, so the smallest ARM runner
+    # does the same work for a third of the price.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

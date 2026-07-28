@@ -30,7 +30,7 @@ exercises**, not by aspiration.
 | **Linux (glibc)** | `x86_64` | **Tier 1** | `ci.yml` builds + tests on `ubuntu-latest`: unit/integration tests, Clippy (`-D warnings`), database tests (PostgreSQL + MariaDB), and the `TestPrograms` runner. |
 | **Windows** | `x86_64` (`x86_64-pc-windows-msvc`) | **Tier 1** | `ci.yml` runs the integration + `TestPrograms` matrix on `windows-latest`. The MSI installer (`cargo-wix`) and its smoke test run in `nightly.yml` **after** merge, not on PRs. |
 | **macOS** | `x86_64`, `aarch64` (Apple Silicon) | **Tier 2** | Builds from source ([`installation.md`](../02-getting-started/installation.md) documents the flow) but is **not** in CI. Supported best-effort until a macOS CI lane is added. |
-| **Linux (musl / non-glibc)** | any | **Tier 2** | No CI lane; static-musl builds are expected to work but unverified. |
+| **Linux (musl, static)** | `x86_64` (`x86_64-unknown-linux-musl`) | **Tier 2** | `nightly.yml` (`build-linux`) builds `wfl` + `wfl-lsp`, asserts neither binary carries a program interpreter (`PT_INTERP`, i.e. no libc floor), runs them on `debian:12-slim`, and smoke-tests one `TestPrograms` program. That lane is post-merge only, **not** on PRs, and does not run the integration or full `TestPrograms` suites, so static musl stays Tier 2 under the promotion policy below. This is the artifact published to the canonical CDN (see [`installation.md`](../02-getting-started/installation.md#linux-x86_64-tarball)). Other musl architectures have no CI lane. |
 | **Linux / other Unix** | `aarch64`, others | **Tier 2** | Pure-Rust with a Tokio runtime; expected to build where the toolchain and dependencies do. Unverified. |
 | **32-bit targets** | `i686`, `armv7`, … | **Unsupported** | Not built or tested. The interpreter runs on a large (1 GiB) call stack thread and assumes 64-bit address space. |
 
@@ -98,8 +98,10 @@ testable, documented, and operable* for **supported language behaviour**:
   mandatory release gate that is **not yet met** — examples are validated
   locally via `scripts/validate_docs_examples.py` today.)
 - Release artifacts are produced by the nightly/release workflows (not from PR
-  CI) and installable via the documented paths; verifiable checksums are a
-  tracked Operations follow-up.
+  CI) and installable via the documented paths. Each publish writes a
+  `SHA256SUMS` file next to the artifacts at
+  <https://wfl.nyc3.cdn.digitaloceanspaces.com/releases/>; signing the installers
+  remains a tracked Operations follow-up.
 
 Support **does not** extend to:
 

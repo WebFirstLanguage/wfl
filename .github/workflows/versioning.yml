@@ -5,7 +5,10 @@ on:
 
 jobs:
   bump-version:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # bump_version.py --update-all shells out to `cargo update` and a locked
+    # `cargo check` on the fuzz crate, so this compiles - keep 4 cores, and
+    # match the fuzz-check job it mirrors. ARM is 37.5% cheaper per vCPU.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: write
     steps:

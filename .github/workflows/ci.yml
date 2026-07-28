@@ -6,8 +6,24 @@ on:
   pull_request:
     branches: [ main ]
 
+# Without this, every push to a branch leaves the previous run compiling a
+# commit whose result nobody will ever read. A superseded clippy-and-test run
+# can burn its full 30-minute budget for nothing.
+#
+# Cancellation is deliberately OFF on main: the post-merge `bump-version` job
+# commits, pushes, and *then* tags. Cancelling it between those two writes would
+# leave main carrying an untagged version bump, which is a state no later run
+# repairs. Wasted compute on main is cheap; a missing release tag is not.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # Incremental artifacts are pure overhead in CI: the target dir is restored
+  # from cache and never reused across edits, so incremental only bloats what
+  # gets saved back. nightly.yml already sets this.
+  CARGO_INCREMENTAL: 0
 
 # Default to least-privilege; jobs that need more (e.g. bump-version) opt in.
 permissions:
@@ -16,7 +32,10 @@ permissions:
 jobs:
   fmt:
     name: Check formatting
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # `cargo fmt --check` parses and prints. It is setup- and I/O-bound and
+    # never saturates one core, let alone four. Smallest ARM runner:
+    # $0.0025/min against the $0.008 it costs today.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -31,7 +50,9 @@ jobs:
   # API on stable (libFuzzer/nightly is only needed to actually *run* them).
   fuzz-check:
     name: Fuzz targets compile
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # `cargo check` only - no codegen, and it produces no shipped artifact,
+    # so architecture is irrelevant and ARM is 37.5% cheaper per vCPU.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs: fmt
     steps:
       - uses: actions/checkout@v4
@@ -554,7 +575,10 @@ jobs:
   # so API drift that breaks the fuzz targets blocks the post-merge version bump.
   bump-version:
     name: Bump Version
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Runs the same bump_version.py --update-all as versioning.yml, which shells
+    # out to a locked `cargo check` on the fuzz crate - so this compiles and
+    # needs the same 4 cores as fuzz-check. ARM: no x86 artifact produced.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs: [fmt, fuzz-check, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:

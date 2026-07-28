@@ -11,7 +11,10 @@ permissions:
 
 jobs:
   config-lint:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Does a full `cargo build` plus three `cargo run` invocations, so this is a
+    # real compile, not a lint - keep 4 cores. ARM is still 37.5% cheaper at
+    # the same core count, and nothing here produces an x86 artifact.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     
     steps:
     - uses: actions/checkout@v4
