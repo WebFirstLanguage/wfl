@@ -141,10 +141,50 @@ enum ListMutationEffect {
     Escape,
 }
 
+/// Deepest `index_depth` the list-alias relation will track.
+///
+/// The relation's key space is `live bindings × index_depth`. Leaving
+/// `index_depth` unbounded left that space infinite, and because
+/// [`TypeChecker::add_structural_list_alias`] and
+/// [`TypeChecker::list_alias_members_for_path`] both *synthesize* paths at a
+/// translated depth, a binding that transitively aliases itself at a different
+/// depth drove the depth upward forever with no fixpoint — issue #654, where a
+/// three-line program hung the checker with no diagnostic.
+///
+/// Bounding the depth makes the key space finite, so the relation is guaranteed
+/// to stabilize. Paths past the bound are *dropped* rather than clamped: a
+/// clamped path would apply a mutation effect at the wrong nesting level, where
+/// [`ListMutationEffect::Replace`] could overwrite a type that is not the one
+/// the program named. Dropping instead degrades to "not tracked this deep",
+/// which is what the checker did before aggregate paths were tracked at all.
+///
+/// The bound has to be a constant rather than the aggregate's static nesting,
+/// because `Type::Any` makes [`TypeChecker::type_at_alias_path`] answer at
+/// every depth — a gradually-typed program supplies no structural ceiling.
+///
+/// Eight is chosen against measurement, not intuition: instrumenting
+/// [`TypeChecker::add_list_may_alias_edge`] over the whole `TestPrograms/`
+/// corpus — including the comprehensive container, pattern, list, and web-server
+/// programs — puts the deepest path any acyclic program reaches at **2**. Eight
+/// leaves four times that headroom while keeping the bound tight enough to
+/// matter: a saturated cyclic relation costs roughly the fifth power of this
+/// constant, so 16 left a pathological twelve-line program taking 14s where 8
+/// takes well under a second. Real structure never approaches either value;
+/// only cyclic translation does.
+const MAX_LIST_ALIAS_INDEX_DEPTH: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ListAliasPath {
     binding: SymbolBindingKey,
     index_depth: usize,
+}
+
+impl ListAliasPath {
+    /// True when this path is deeper than the relation tracks. Such a path is
+    /// never stored and never reported; see [`MAX_LIST_ALIAS_INDEX_DEPTH`].
+    fn exceeds_tracked_depth(&self) -> bool {
+        self.index_depth > MAX_LIST_ALIAS_INDEX_DEPTH
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -450,6 +490,9 @@ impl TypeChecker {
         left: ListAliasPath,
         right: ListAliasPath,
     ) {
+        if left.exceeds_tracked_depth() || right.exceeds_tracked_depth() {
+            return;
+        }
         let left_neighbors = groups
             .get(&left)
             .cloned()
@@ -479,7 +522,13 @@ impl TypeChecker {
         Self::union_list_alias_bindings_in(&mut self.list_alias_groups, left, right);
     }
 
+    /// Sole write path into [`Self::list_alias_groups`] for a new relation.
+    /// Rejecting over-deep endpoints here is what keeps the relation's key
+    /// space finite, and therefore what makes it stabilize (issue #654).
     fn add_list_may_alias_edge(&mut self, left: ListAliasPath, right: ListAliasPath) {
+        if left.exceeds_tracked_depth() || right.exceeds_tracked_depth() {
+            return;
+        }
         self.list_alias_groups
             .entry(left.clone())
             .or_insert_with(|| HashSet::from([left.clone()]))
@@ -515,6 +564,12 @@ impl TypeChecker {
                 binding: target.binding.clone(),
                 index_depth: target.index_depth + descendant.index_depth - source.index_depth,
             };
+            // Translating a self-referential relation upward is exactly how the
+            // depth used to run away (issue #654). The edge would be rejected
+            // anyway; skipping here also avoids expanding its members.
+            if translated.exceeds_tracked_depth() {
+                continue;
+            }
             for alias in self.list_alias_members_for_path(&descendant) {
                 if alias != descendant {
                     edges.push((alias, translated.clone()));
@@ -1418,10 +1473,17 @@ impl TypeChecker {
             if ancestor.binding == path.binding && ancestor.index_depth <= path.index_depth {
                 let offset = path.index_depth - ancestor.index_depth;
                 for alias in aliases {
-                    members.insert(ListAliasPath {
+                    let translated = ListAliasPath {
                         binding: alias.binding.clone(),
                         index_depth: alias.index_depth + offset,
-                    });
+                    };
+                    // A synthesized member is fed straight back into the
+                    // relation by every caller, so the bound has to hold on the
+                    // read path too or the relation reacquires its unbounded
+                    // growth through the back door (issue #654).
+                    if !translated.exceeds_tracked_depth() {
+                        members.insert(translated);
+                    }
                 }
             }
         }
