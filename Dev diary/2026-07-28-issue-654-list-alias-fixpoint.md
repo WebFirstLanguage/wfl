@@ -86,11 +86,30 @@ enter or escape the relation, so no synthesized path can slip past:
 
 Two decisions worth recording:
 
-**Drop, don't clamp.** Saturating a too-deep path onto the bound would make
-`apply_effect_at_list_path` apply a mutation at the *wrong* nesting level,
-where `ListMutationEffect::Replace` could overwrite a type the program never
-named. Dropping degrades to "not tracked this deep", which is what the checker
-did before aggregate paths were tracked at all.
+**Drop from the relation, don't clamp into it.** Saturating a too-deep path
+onto the bound as a relation *key* would make `apply_effect_at_list_path` apply
+a mutation at the wrong nesting level, where `ListMutationEffect::Replace`
+could overwrite a type the program never named. Dropping the key degrades to
+"not tracked this deep", which is what the checker did before aggregate paths
+were tracked at all.
+
+**But the effect still has to land.** Review caught that dropping the *effect*
+along with the key breaks valid programs, and it reproduces: ten nested lists,
+`inner` extracted from the outermost one, a push at `inner@8` (so `level9@9`,
+one past the bound), and reading the element back through the original path is
+rejected with "Cannot assign value of incompatible type" for a widening the
+program performed legally. Nesting past the bound is still *finite structure*,
+not a cycle, so the aggregate really was widened and the checker was left
+holding its stale `Number` element type. `list_alias_effect_members_for_path`
+therefore reports an over-deep member clamped, flagged, and the effect applied
+there is `Escape` rather than the real one: widening the deepest tracked
+ancestor to `Any` subsumes anything the mutation would have done further down.
+Escape is the most permissive of the three effects, so this can only cost
+precision at those depths; unlike a clamped `Replace` it cannot pin an
+unrelated depth to a narrower type. Nothing re-enters the relation, because
+every depth it returns is capped and the paths it records on the deferred
+effect stack are replayed as `Escape` anyway, so the key space stays finite and
+the fixpoint argument above is untouched.
 
 **The bound is measured, not guessed.** The static type cannot supply it —
 `Type::Any` makes `type_at_alias_path` answer at every depth, so a gradually
@@ -134,6 +153,10 @@ compatibility, and a liveness/termination property):
 The negative-direction test matters most for regression: the bound must fire
 only on cycles, never on real structure, so `deeply_nested_acyclic_lists_still_type_check`
 asserts *no* diagnostics rather than merely asserting termination.
+`mutation_below_the_depth_bound_still_reaches_the_original_aggregate` extends
+that guard past the bound itself: it failed on the first bounded implementation
+with the false "Cannot assign value of incompatible type" diagnostic described
+above, which is the Red evidence for the escape-instead-of-drop refinement.
 
 ## Follow-up not taken
 

@@ -187,6 +187,47 @@ display "done"
     );
 }
 
+/// The compatibility half of the bound: nesting deeper than the bound is still
+/// *finite* structure, so a mutation through an extracted view must still reach
+/// the original aggregate.
+///
+/// `inner` is `level9[0]`, so `inner@0 <-> level9@1` and pushing at `inner@8`
+/// translates to `level9@9`, one past `MAX_LIST_ALIAS_INDEX_DEPTH`. Discarding
+/// that member leaves `level9` holding its original `Number` element type, and
+/// reading the element back through the *original* path then reports
+/// "Cannot assign value of incompatible type" for a list the program legally
+/// widened. The relation still may not track the path at its true depth, but
+/// the effect has to land: an over-deep member is widened at the deepest
+/// tracked ancestor instead of dropped.
+#[test]
+fn mutation_below_the_depth_bound_still_reaches_the_original_aggregate() {
+    let diagnostics = typecheck_within_deadline(
+        "deep acyclic view mutation",
+        r#"
+store level0 as [1]
+store level1 as [level0]
+store level2 as [level1]
+store level3 as [level2]
+store level4 as [level3]
+store level5 as [level4]
+store level6 as [level5]
+store level7 as [level6]
+store level8 as [level7]
+store level9 as [level8]
+store inner as level9[0]
+push with inner[0][0][0][0][0][0][0][0] and "text"
+store back as level9[0][0][0][0][0][0][0][0][0][0]
+change back to "text"
+display back
+"#,
+    );
+    assert!(
+        diagnostics.is_empty(),
+        "a mutation through a view of a ten-level list must widen the original \
+         aggregate, got {diagnostics:?}"
+    );
+}
+
 /// Deeply-but-finitely nested aggregates are the legitimate case the depth
 /// bound must not break: nesting here is real structure, not a cycle.
 #[test]

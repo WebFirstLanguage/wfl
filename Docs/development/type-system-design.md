@@ -93,6 +93,15 @@ across the whole `TestPrograms/` corpus the deepest path any acyclic program
 reaches is 2. A gradually typed program cannot supply the bound from its static
 type, because `Any` admits an alias path at every depth.
 
+The bound limits what the *relation* records, not which mutations propagate.
+Nesting deeper than the bound is still finite structure, so a mutation through
+an over-deep alias is applied at the deepest tracked ancestor as an escape,
+widening it to `Any`, rather than being discarded. Discarding it would leave a
+genuinely aliased aggregate holding a stale, narrower element type, and a later
+read through the original path would be rejected on a type the program legally
+widened. Escaping only loses precision at those depths; it never reports an
+error the unbounded relation would not have reported.
+
 ## Built-in function contracts
 
 The runtime built-in inventory and its accepted arities live in

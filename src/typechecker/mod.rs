@@ -1490,16 +1490,81 @@ impl TypeChecker {
         members
     }
 
+    /// Alias members of `path` for the purpose of *applying a mutation effect*,
+    /// each paired with whether its depth had to be clamped to
+    /// [`MAX_LIST_ALIAS_INDEX_DEPTH`].
+    ///
+    /// [`Self::list_alias_members_for_path`] discards an over-deep translation.
+    /// That is right for the relation, whose key space has to stay finite to
+    /// reach a fixpoint (issue #654), and wrong for the effect. Nesting past the
+    /// bound is still *finite structure*, so dropping the effect leaves a
+    /// genuinely aliased aggregate holding its stale, narrower element type, and
+    /// a later read through the original path is then rejected on a type the
+    /// program legally widened.
+    ///
+    /// Such a member is therefore reported clamped, and the caller applies
+    /// [`ListMutationEffect::Escape`] there instead of the real effect: widening
+    /// the deepest tracked ancestor to `Any` subsumes whatever the mutation would
+    /// have done further down. `Escape` is the most permissive of the three
+    /// effects, so a clamped path can only cost precision; unlike a clamped
+    /// `Replace` it cannot pin an unrelated depth to a narrower type. That is
+    /// also why a member seen both exactly and clamped keeps the clamped verdict.
+    ///
+    /// The work is bounded and nothing here re-enters the relation: the clamp
+    /// caps every depth this returns, and the paths the caller records on
+    /// [`Self::deferred_list_effect_stack`] are replayed as `Escape` anyway.
+    fn list_alias_effect_members_for_path(
+        &self,
+        path: &ListAliasPath,
+    ) -> Vec<(ListAliasPath, bool)> {
+        let mut members = self
+            .list_alias_groups
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| HashSet::from([path.clone()]))
+            .into_iter()
+            .map(|member| (member, false))
+            .collect::<HashMap<_, _>>();
+
+        for (ancestor, aliases) in &self.list_alias_groups {
+            if ancestor.binding == path.binding && ancestor.index_depth <= path.index_depth {
+                let offset = path.index_depth - ancestor.index_depth;
+                for alias in aliases {
+                    let index_depth = alias.index_depth + offset;
+                    let clamped = index_depth > MAX_LIST_ALIAS_INDEX_DEPTH;
+                    let member = ListAliasPath {
+                        binding: alias.binding.clone(),
+                        index_depth: index_depth.min(MAX_LIST_ALIAS_INDEX_DEPTH),
+                    };
+                    members
+                        .entry(member)
+                        .and_modify(|seen_clamped| *seen_clamped |= clamped)
+                        .or_insert(clamped);
+                }
+            }
+        }
+
+        members.into_iter().collect()
+    }
+
     fn apply_list_mutation_effect_at_path(
         &mut self,
         path: &ListAliasPath,
         effect: &ListMutationEffect,
     ) {
-        let members = self.list_alias_members_for_path(path);
+        let members = self.list_alias_effect_members_for_path(path);
         if let Some(active_effects) = self.deferred_list_effect_stack.last_mut() {
-            active_effects.extend(members.iter().cloned());
+            active_effects.extend(members.iter().map(|(member, _)| member.clone()));
         }
-        for member in members {
+        for (member, clamped) in members {
+            // A member the relation cannot track at its true depth is widened at
+            // the deepest depth it can track, never skipped; see
+            // [`Self::list_alias_effect_members_for_path`].
+            let effect = if clamped {
+                &ListMutationEffect::Escape
+            } else {
+                effect
+            };
             if let Some(symbol) = self.analyzer.get_symbol_by_binding_key_mut(&member.binding)
                 && let Some(current_type) = symbol.symbol_type.clone()
                 && let Some(updated_type) =
