@@ -1,0 +1,60 @@
+// Regression program for issue #654.
+//
+// A list whose contents transitively include the list itself creates a cyclic
+// may-alias relation in the type checker. Before the fix, the alias relation
+// had no fixpoint: `wfl` spun at 100% CPU, never emitted a diagnostic, and a
+// web-server program never reached its `listen` statement. Every shape below
+// must simply run to completion.
+
+display "list alias cycle termination"
+
+// --- Shape 1: a list pushed into itself -------------------------------------
+store scope as [1]
+push with scope and scope
+push with scope and scope
+display "self push ok"
+
+// --- Shape 2: the list -> map -> list cycle from lib/scribe.wfl -------------
+// The scope list holds a namespace map whose "binds" value is a bindings list,
+// and that bindings list holds the scope. No statement pushes a list into
+// itself, yet the alias relation is still cyclic.
+store outer_scope as [1]
+store binds as [1]
+create map nsval:
+    "binds" is binds
+end map
+push with outer_scope and nsval
+push with binds and outer_scope
+display "list/map/list cycle ok"
+
+// --- Shape 3: the cycle established inside a loop ---------------------------
+store loop_scope as [1]
+store items as [1 and 2 and 3]
+for each item in items:
+    push with loop_scope and loop_scope
+    push with loop_scope and item
+end for
+display "loop cycle ok"
+
+// --- Shape 4: the cycle closed across an action boundary --------------------
+define action called nest with parameters target and payload:
+    push with target and payload
+end action
+
+store action_scope as [1]
+store action_binds as [1]
+call nest with action_scope and action_binds
+call nest with action_binds and action_scope
+call nest with action_scope and action_binds
+display "action cycle ok"
+
+// --- Deep but acyclic nesting still behaves ---------------------------------
+// The depth bound must only ever fire on a cycle, never on real structure.
+store leaf as [1]
+store level1 as [leaf]
+store level2 as [level1]
+store level3 as [level2]
+push with level3[0][0] and "text"
+display "deep acyclic nesting ok"
+
+display "all list alias cycles terminated"
