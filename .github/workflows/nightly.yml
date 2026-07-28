@@ -506,17 +506,25 @@ jobs:
 
       # A musl *target* does not guarantee a static *binary* - one stray dynamic
       # dependency silently reintroduces the libc floor while the job still goes
-      # green. Assert the property we actually promise, for BOTH binaries, and
-      # fail if it is absent.
+      # green. Assert the property we actually promise, for BOTH binaries.
+      #
+      # The authoritative test is the ABSENCE of a PT_INTERP program header: a
+      # binary that names no interpreter cannot be asking a loader for libc at
+      # startup. Do not match on `file` output - Rust's musl target emits a
+      # static-PIE, which `file` describes as "static-pie linked" rather than
+      # "statically linked", so grepping for the latter reports a perfectly
+      # static binary as broken.
       - name: Assert the binaries are statically linked
         run: |
           for b in wfl wfl-lsp; do
             BIN="target/$TARGET/release/$b"
             file "$BIN"
-            if ! file "$BIN" | grep -q "statically linked"; then
-              echo "::error::$BIN is not statically linked - wfl#616 would reappear"
+            if readelf -l "$BIN" | grep -q "Requesting program interpreter"; then
+              echo "::error::$BIN has a PT_INTERP segment - it is dynamically linked and wfl#616 would reappear"
+              readelf -l "$BIN" | grep -A1 INTERP
               exit 1
             fi
+            echo "  $b: no PT_INTERP segment - statically linked"
           done
 
       # The real boundary test, not a proxy for it: run the binaries we are
