@@ -9,9 +9,14 @@ on:
 # Without this, every push to a branch leaves the previous run compiling a
 # commit whose result nobody will ever read. A superseded clippy-and-test run
 # can burn its full 30-minute budget for nothing.
+#
+# Cancellation is deliberately OFF on main: the post-merge `bump-version` job
+# commits, pushes, and *then* tags. Cancelling it between those two writes would
+# leave main carrying an untagged version bump, which is a state no later run
+# repairs. Wasted compute on main is cheap; a missing release tag is not.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always

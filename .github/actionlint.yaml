@@ -1,0 +1,17 @@
+# actionlint configuration.
+#
+# Every job in this repository runs on a Blacksmith runner rather than a
+# GitHub-hosted one. actionlint only knows the GitHub-hosted label set, so it
+# reports each `runs-on:` value here as `label "..." is unknown` unless the
+# labels are declared. Declaring them is what makes `actionlint` usable on this
+# repo at all - locally, in an editor, or in any review tool that runs it.
+#
+# Keep this list in sync with the `runs-on:` values in .github/workflows/.
+self-hosted-runner:
+  labels:
+    - blacksmith-2vcpu-ubuntu-2404-arm
+    - blacksmith-4vcpu-ubuntu-2404
+    - blacksmith-4vcpu-ubuntu-2404-arm
+    - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-4vcpu-windows-2025
+    - blacksmith-8vcpu-windows-2025

@@ -11,6 +11,59 @@ Three things, in one change because they only make sense together:
 3. **Runners were right-sized**, including a fix for the Windows nightly's
    timeout spiral.
 
+## Risk class and verification (R3)
+
+**R3: backward compatibility.** The artifact layout and the download URLs are
+user-facing, and #616 is a compatibility defect. No WFL language behaviour
+changes here; the runtime is the same interpreter compiled for a different target,
+so the language-level gates are the existing suites, unchanged.
+
+| Acceptance criterion | Gate that proves it | Layer |
+|---|---|---|
+| The shipped binaries start on the oldest distro we claim to support | *Prove portability on Debian 12*: extracts the published tarball inside `debian:12-slim` and runs `wfl --version`, `wfl-lsp --version`, and `TestPrograms/basic_syntax_comprehensive.wfl` from it | E2E, in-CI, on the packaged artifact |
+| No libc floor is reintroduced by a dependency | *Assert the binaries are statically linked*: fails on a `PT_INTERP` program header in either binary | Artifact property, in-CI |
+| The tarball stays a superset of the layout already published | `dist/wfl-<version>-linux-x86_64/` keeps `wfl`, `README.md`, `LICENSE`, `BUILD_INFO` and adds `wfl-lsp`; existing paths unchanged | Packaging, reviewed diff |
+| Published artifacts are readable *and* byte-identical through the CDN | `publish_spaces.sh` re-downloads every immutable object through the CDN and compares SHA-256 against the local file; rolling keys are checked for a 200 | Integration, in-CI |
+| A partial publish cannot be observed as a release | Two-phase upload: immutable objects first, rolling pointers and metadata only after all of them succeed | Integration, by construction + the ordering test below |
+| `status.json` is always parseable | Built with `jq -n --arg`, so quotes and newlines in `VERSION`/`BRANCH`/artifact names are escaped | Unit, script-level |
+| Language behaviour is unchanged | Existing `cargo test`, integration, and `TestPrograms` suites in `ci.yml` | Unit/integration/E2E |
+
+**Red evidence.**
+
+- *#616 itself is the Red.* The `main` artifact fails the Debian 12 gate by
+  construction: a glibc-2.39-linked binary cannot start there. This change is the
+  Green.
+- *Static-linkage gate.* The first implementation grepped `file` output for
+  `statically linked` and failed the nightly on a perfectly static binary
+  (Rust's musl target emits a static PIE, which `file` calls `static-pie
+  linked`). Observed Red in CI, fixed in `e9e045d`, green after.
+- *`status.json` escaping.* Reproduced with the previous here-doc: a branch name
+  containing `"` produced `"branch": "main"quote"`, which `jq` rejects as invalid
+  JSON. The `jq -n` version emits `"main\"quote"` and parses.
+- *CDN byte verification.* Exercised the script against stub `aws`/`curl` shims:
+  tampering with an already-published object makes the new check exit non-zero
+  with a want/got hash mismatch, where the previous status-code-only check passed.
+- *Region derivation.* With `SPACES_ENDPOINT=https://ams3.digitaloceanspaces.com`
+  the old hardcoded `nyc3` CDN host failed a correct publish; the derived host now
+  follows the endpoint.
+
+**Layers executed.** Workflow lint (`actionlint`, clean apart from two
+pre-existing action-version warnings), `bash -n` and a stubbed end-to-end run of
+`publish_spaces.sh`, and the nightly's own in-CI gates listed above. The Rust
+suites are untouched by this change and run as usual in `ci.yml`.
+
+**Residual risk.**
+
+- The Debian 12 gate is post-merge (nightly), not per-PR, so a portability
+  regression is caught within a day rather than at review time. Static musl stays
+  **Tier 2** in `Docs/reference/supported-platforms.md` for exactly this reason.
+- The publish path cannot be fully exercised without live Spaces credentials, so
+  the ordering and verification logic is proven against shims plus the first real
+  nightly. Until that nightly is green, `wflbuild.starnet` stays in place as the
+  fallback.
+- `aws-lc-sys` compiles C and assembly for musl; if it ever breaks, the escape
+  hatch is pinning reqwest to `rustls-tls-ring`, which belongs in its own change.
+
 ## Why musl and not glibc
 
 Until now the project shipped a Windows MSI nightly and no Linux artifact from

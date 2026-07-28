@@ -527,16 +527,6 @@ jobs:
             echo "  $b: no PT_INTERP segment - statically linked"
           done
 
-      # The real boundary test, not a proxy for it: run the binaries we are
-      # about to ship on the oldest distro we claim to support. Debian 12 is
-      # exactly where the glibc build failed in issue #616.
-      - name: Prove portability on Debian 12 (wfl#616 regression gate)
-        run: |
-          docker run --rm \
-            -v "$PWD/target/$TARGET/release/wfl:/usr/local/bin/wfl:ro" \
-            -v "$PWD/target/$TARGET/release/wfl-lsp:/usr/local/bin/wfl-lsp:ro" \
-            debian:12-slim sh -c 'wfl --version && wfl-lsp --version'
-
       - name: Smoke test
         run: |
           BIN="$PWD/target/$TARGET/release/wfl"
@@ -572,6 +562,37 @@ jobs:
           EOF
           tar czf "dist/${DIR}-${SHORT_SHA}.tar.gz" -C dist "$DIR"
           ls -la "dist/${DIR}-${SHORT_SHA}.tar.gz"
+
+      # The real boundary test, not a proxy for it, and it runs *after* packaging
+      # on purpose: the thing a user installs is the extracted tarball, not the
+      # build output it was copied from. Verifying the pre-package binaries would
+      # leave `strip` and the tar round-trip untested on the only distro this
+      # gate exists for. Debian 12 is exactly where the glibc build failed in
+      # issue #616.
+      #
+      # The full TestPrograms suite still runs on the host runner (ci.yml); what
+      # is unique here is the old-glibc distro, so this runs the same
+      # comprehensive program the host smoke test does, from the shipped tarball.
+      - name: Prove portability on Debian 12 (wfl#616 regression gate)
+        env:
+          VERSION:   ${{ needs.check-for-changes.outputs.version }}
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e TARBALL="wfl-${VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz" \
+            -v "$PWD/dist:/dist:ro" \
+            -v "$PWD/TestPrograms:/TestPrograms:ro" \
+            debian:12-slim sh -euc '
+              cat /etc/debian_version
+              cd /tmp
+              tar xzf "/dist/$TARBALL"
+              cd wfl-*-linux-x86_64
+              ls -la
+              ./wfl --version
+              ./wfl-lsp --version
+              ./wfl /TestPrograms/basic_syntax_comprehensive.wfl
+            '
 
       - uses: actions/upload-artifact@v4
         with:

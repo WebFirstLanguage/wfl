@@ -28,6 +28,10 @@ BRANCH="${5:-main}"
 BUCKET="${SPACES_BUCKET:-wfl}"
 ENDPOINT="${SPACES_ENDPOINT:-https://nyc3.digitaloceanspaces.com}"
 
+# `status.json` is serialized with jq rather than a here-doc, so fail loudly and
+# early if it is missing instead of halfway through a publish.
+command -v jq >/dev/null || { echo "::error::jq is required but not installed"; exit 1; }
+
 # AWS CLI v2.23+ sends CRC32 integrity headers by default. DigitalOcean Spaces
 # rejects them with a 400, so every upload fails with an opaque error unless
 # these are relaxed. This is the single most common reason "aws s3 cp works
@@ -35,6 +39,18 @@ ENDPOINT="${SPACES_ENDPOINT:-https://nyc3.digitaloceanspaces.com}"
 export AWS_REQUEST_CHECKSUM_CALCULATION="${AWS_REQUEST_CHECKSUM_CALCULATION:-when_required}"
 export AWS_RESPONSE_CHECKSUM_VALIDATION="${AWS_RESPONSE_CHECKSUM_VALIDATION:-when_required}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-nyc3}"
+
+# The CDN hostname is <bucket>.<region>.cdn.digitaloceanspaces.com, so the region
+# in it has to be the region we actually uploaded through. Hardcoding one would
+# make the verification below fetch a host the objects were never written to the
+# moment SPACES_ENDPOINT pointed elsewhere, failing a publish that succeeded.
+ENDPOINT_HOST="${ENDPOINT#*://}"
+ENDPOINT_HOST="${ENDPOINT_HOST%%/*}"
+case "$ENDPOINT_HOST" in
+  *.digitaloceanspaces.com) REGION="${ENDPOINT_HOST%%.*}" ;;
+  *)                        REGION="$AWS_DEFAULT_REGION" ;;
+esac
+CDN="https://${BUCKET}.${REGION}.cdn.digitaloceanspaces.com"
 
 IMMUTABLE="public, max-age=31536000, immutable"
 # The rolling pointers must NOT inherit the CDN's 1-hour default TTL, or an
@@ -51,6 +67,8 @@ put() { # put <local-file> <remote-key> <content-type> <cache-control>
   echo "  -> s3://${BUCKET}/$2"
 }
 
+sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+
 find_one() { find "$ARTIFACT_DIR" -type f -name "$1" | head -1; }
 
 TARBALL="$(find_one 'wfl-*-linux-x86_64-*.tar.gz')"
@@ -62,6 +80,9 @@ trap 'rm -rf "$WORK"' EXIT
 : > "$WORK/SHA256SUMS"
 
 PUBLISHED=()
+# Local paths of the immutable objects, parallel to PUBLISHED, so the CDN check
+# at the end can compare what the CDN serves against the bytes we uploaded.
+PUBLISHED_PATHS=()
 
 # ---------------------------------------------------------------------------
 # Phase 1: immutable, versioned objects.
@@ -77,6 +98,7 @@ if [ -n "$TARBALL" ]; then
   put "$TARBALL" "releases/$(basename "$TARBALL")" application/gzip "$IMMUTABLE"
   ( cd "$(dirname "$TARBALL")" && sha256sum "$(basename "$TARBALL")" ) >> "$WORK/SHA256SUMS"
   PUBLISHED+=("$(basename "$TARBALL")")
+  PUBLISHED_PATHS+=("$TARBALL")
 else
   echo "::warning::no Linux tarball found in $ARTIFACT_DIR"
 fi
@@ -86,6 +108,7 @@ if [ -n "$MSI" ]; then
   put "$MSI" "releases/$(basename "$MSI")" application/x-msi "$IMMUTABLE"
   ( cd "$(dirname "$MSI")" && sha256sum "$(basename "$MSI")" ) >> "$WORK/SHA256SUMS"
   PUBLISHED+=("$(basename "$MSI")")
+  PUBLISHED_PATHS+=("$MSI")
 else
   echo "::warning::no MSI found in $ARTIFACT_DIR"
 fi
@@ -95,6 +118,7 @@ if [ -n "$VSIX" ]; then
   put "$VSIX" "releases/$(basename "$VSIX")" application/octet-stream "$IMMUTABLE"
   ( cd "$(dirname "$VSIX")" && sha256sum "$(basename "$VSIX")" ) >> "$WORK/SHA256SUMS"
   PUBLISHED+=("$(basename "$VSIX")")
+  PUBLISHED_PATHS+=("$VSIX")
 fi
 
 if [ "${#PUBLISHED[@]}" -eq 0 ]; then
@@ -122,24 +146,53 @@ fi
 
 put "$WORK/SHA256SUMS" "releases/SHA256SUMS" text/plain "$ROLLING"
 
-cat > "$WORK/status.json" <<JSON
-{
-  "result":   "success",
-  "sha":      "${COMMIT_SHA}",
-  "version":  "${VERSION}",
-  "message":  "built and published ${PUBLISHED[*]}",
-  "branch":   "${BRANCH}",
-  "finished": "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)",
-  "host":     "github-actions/blacksmith"
-}
-JSON
+# Serialized with jq, not a here-doc: VERSION, BRANCH and the artifact names are
+# interpolated values, and a quote or newline in any of them would silently
+# publish a status.json that no consumer can parse. jq escapes them.
+jq -n \
+  --arg sha      "$COMMIT_SHA" \
+  --arg version  "$VERSION" \
+  --arg message  "built and published ${PUBLISHED[*]}" \
+  --arg branch   "$BRANCH" \
+  --arg finished "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
+  '{
+     result:   "success",
+     sha:      $sha,
+     version:  $version,
+     message:  $message,
+     branch:   $branch,
+     finished: $finished,
+     host:     "github-actions/blacksmith"
+   }' > "$WORK/status.json"
 put "$WORK/status.json" "status.json" application/json "$ROLLING"
 
 # Prove the CDN actually serves what we just uploaded. The bucket was private
 # until this pipeline existed, so a silent ACL regression would break every
 # install while the workflow still reported success.
-CDN="https://${BUCKET}.nyc3.cdn.digitaloceanspaces.com"
 echo "Verifying public readability via CDN..."
+
+# For the artifacts, a 200 is not enough - it proves a key exists, not that the
+# bytes an installer downloads are the ones we built. Pull each immutable object
+# back through the CDN and compare its SHA-256 against the local file.
+for f in "${PUBLISHED_PATHS[@]}"; do
+  key="releases/$(basename "$f")"
+  want="$(sha256_of "$f")"
+  if ! curl -fsS --max-time 300 -o "$WORK/verify.bin" "${CDN}/${key}"; then
+    echo "::error::could not fetch ${CDN}/${key} - the object is not publicly readable"
+    exit 1
+  fi
+  got="$(sha256_of "$WORK/verify.bin")"
+  rm -f "$WORK/verify.bin"
+  if [ "$want" != "$got" ]; then
+    echo "::error::${CDN}/${key} does not match the artifact we uploaded (want ${want}, got ${got})"
+    exit 1
+  fi
+  echo "  ok ${CDN}/${key} sha256=${want}"
+done
+
+# The rolling keys get a byte check only on their status code: they carry
+# max-age=60, so the CDN may legitimately still be serving the previous publish
+# for up to a minute and a hash comparison here would be flaky by design.
 for key in "releases/SHA256SUMS" "status.json"; do
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${CDN}/${key}")"
   if [ "$code" != "200" ]; then
