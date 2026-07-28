@@ -629,6 +629,34 @@ jobs:
             echo "::warning::No VSIX artifacts found in downloaded artifacts directory"
           fi
 
+      # Spaces is the canonical download location; the GitHub Release below is a
+      # mirror, so the canonical publish goes first.
+      #
+      # It also has to go first for retry reasons: the nightly tag and release
+      # ARE the success marker that check-for-changes reads. If the tag existed
+      # and this step failed, the next scheduled run would resolve that tag to
+      # the current commit, set should_build=false, and never retry the publish -
+      # the rolling downloads would stay stale until an unrelated code commit
+      # landed. Failing before the tag is written keeps the run retryable.
+      #
+      # publish_spaces.sh is itself ordered so a partial failure cannot leave the
+      # bucket describing a mixed release (immutable objects first, rolling
+      # pointers and metadata only after every upload succeeds).
+      - name: Publish artifacts to DigitalOcean Spaces
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          SPACES_BUCKET:         wfl
+          SPACES_ENDPOINT:       https://nyc3.digitaloceanspaces.com
+          AWS_DEFAULT_REGION:    nyc3
+        run: |
+          ./scripts/publish_spaces.sh \
+            artifacts \
+            "${{ needs.check-for-changes.outputs.version }}" \
+            "${{ needs.check-for-changes.outputs.short_sha }}" \
+            "${{ github.sha }}" \
+            "${{ github.ref_name }}"
+
       - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
@@ -716,21 +744,3 @@ jobs:
             $ASSET_FILES
 
           echo "Release created successfully: $TAG with $(echo $ASSET_FILES | wc -w) assets"
-
-      # Spaces is the canonical download location; the GitHub Release above is a
-      # mirror. This runs last so a failed upload cannot leave a half-written
-      # bucket sitting behind a release that claims the files are there.
-      - name: Publish artifacts to DigitalOcean Spaces
-        env:
-          AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          SPACES_BUCKET:         wfl
-          SPACES_ENDPOINT:       https://nyc3.digitaloceanspaces.com
-          AWS_DEFAULT_REGION:    nyc3
-        run: |
-          ./scripts/publish_spaces.sh \
-            artifacts \
-            "${{ needs.check-for-changes.outputs.version }}" \
-            "${{ needs.check-for-changes.outputs.short_sha }}" \
-            "${{ github.sha }}" \
-            "${{ github.ref_name }}"

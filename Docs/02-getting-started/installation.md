@@ -5,6 +5,7 @@ Get WFL running on your system in just a few minutes. Choose the installation me
 ## Installation Methods
 
 - **[Windows MSI Installer](#windows-msi-installer)** - Easiest for Windows users
+- **[Linux x86_64 Tarball](#linux-x86_64-tarball)** - Prebuilt, no dependencies to install
 - **[From Source](#from-source)** - Cross-platform, latest features
 - **[Verify Installation](#verify-installation)** - Make sure it works
 
@@ -68,6 +69,89 @@ To update to a newer version:
 3. Choose "Upgrade" when prompted
 
 Your existing WFL code will continue to work (backward compatibility guarantee).
+
+---
+
+## Linux x86_64 Tarball
+
+**Recommended for Linux users on x86_64.** The tarball ships prebuilt `wfl` and
+`wfl-lsp` binaries, so there is nothing to compile and no runtime to install.
+
+The binaries are statically linked against musl, which means they have **no glibc
+requirement** and run on any x86_64 Linux distribution, including older ones like
+Debian 12 and Ubuntu 22.04. Every nightly build verifies this by running the
+binaries inside a `debian:12-slim` container before publishing them.
+
+### Step 1: Download and Verify
+
+The canonical, CDN-backed download location is
+<https://wfl.nyc3.cdn.digitaloceanspaces.com/releases/>. The GitHub Release is a
+mirror of the same files.
+
+```bash
+BASE=https://wfl.nyc3.cdn.digitaloceanspaces.com/releases
+curl -fLO "$BASE/wfl-latest-linux-x86_64.tar.gz"
+curl -fLO "$BASE/SHA256SUMS"
+```
+
+`wfl-latest-linux-x86_64.tar.gz` always points at the most recent build. To pin a
+specific build instead, download the versioned name shown in `SHA256SUMS`
+(`wfl-<version>-linux-x86_64-<short-sha>.tar.gz`); those objects are immutable.
+
+Check the download against the published checksums:
+
+```bash
+# The rolling "latest" tarball is byte-identical to the versioned one it mirrors,
+# so compare its hash against the Linux entry in SHA256SUMS.
+sha256sum wfl-latest-linux-x86_64.tar.gz
+grep linux-x86_64 SHA256SUMS
+```
+
+The two hashes must match. If they do not, do not install the archive.
+
+### Step 2: Extract
+
+```bash
+tar xzf wfl-latest-linux-x86_64.tar.gz
+```
+
+This creates a `wfl-<version>-linux-x86_64/` directory containing:
+
+- `wfl` - the WFL compiler and runtime
+- `wfl-lsp` - the Language Server, for editor integration
+- `README.md`, `LICENSE`
+- `BUILD_INFO` - version, commit, build time, and target triple
+
+### Step 3: Install
+
+Install both binaries somewhere on your `PATH`:
+
+```bash
+sudo install -m 755 wfl-*-linux-x86_64/wfl     /usr/local/bin/wfl
+sudo install -m 755 wfl-*-linux-x86_64/wfl-lsp /usr/local/bin/wfl-lsp
+```
+
+Prefer a per-user install? Use `~/.local/bin` instead of `/usr/local/bin` and
+drop the `sudo` (make sure `~/.local/bin` is on your `PATH`).
+
+### Step 4: Verify Installation
+
+```bash
+wfl --version
+wfl-lsp --version
+```
+
+### Updating WFL
+
+Repeat Steps 1-3 with the current tarball; `install` overwrites the previous
+binaries in place. Your existing WFL code will continue to work (backward
+compatibility guarantee).
+
+> **Other platforms and architectures:** Linux on `aarch64`, macOS, and non-x86_64
+> musl targets have no prebuilt artifact yet - build [from
+> source](#from-source). See
+> [`supported-platforms.md`](../reference/supported-platforms.md) for the current
+> support tiers.
 
 ---
 

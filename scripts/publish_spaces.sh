@@ -63,10 +63,18 @@ trap 'rm -rf "$WORK"' EXIT
 
 PUBLISHED=()
 
+# ---------------------------------------------------------------------------
+# Phase 1: immutable, versioned objects.
+#
+# Every key written here is new, so nothing an installer can already be
+# pointing at changes. With `set -e` a failure anywhere in this phase aborts
+# before a single rolling pointer moves, leaving the previous publish fully
+# intact rather than a mix of old and new. That is why the rolling pointers
+# below are deliberately NOT written next to their immutable counterparts.
+# ---------------------------------------------------------------------------
 if [ -n "$TARBALL" ]; then
   echo "Linux tarball: $TARBALL"
   put "$TARBALL" "releases/$(basename "$TARBALL")" application/gzip "$IMMUTABLE"
-  put "$TARBALL" "releases/wfl-latest-linux-x86_64.tar.gz" application/gzip "$ROLLING"
   ( cd "$(dirname "$TARBALL")" && sha256sum "$(basename "$TARBALL")" ) >> "$WORK/SHA256SUMS"
   PUBLISHED+=("$(basename "$TARBALL")")
 else
@@ -76,7 +84,6 @@ fi
 if [ -n "$MSI" ]; then
   echo "Windows MSI: $MSI"
   put "$MSI" "releases/$(basename "$MSI")" application/x-msi "$IMMUTABLE"
-  put "$MSI" "releases/wfl-latest-windows-x86_64.msi" application/x-msi "$ROLLING"
   ( cd "$(dirname "$MSI")" && sha256sum "$(basename "$MSI")" ) >> "$WORK/SHA256SUMS"
   PUBLISHED+=("$(basename "$MSI")")
 else
@@ -93,6 +100,24 @@ fi
 if [ "${#PUBLISHED[@]}" -eq 0 ]; then
   echo "::error::nothing was published - refusing to overwrite SHA256SUMS/status.json"
   exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 2: rolling pointers and metadata.
+#
+# Only reached once every immutable upload above succeeded, so "latest",
+# SHA256SUMS and status.json always describe the same publish. A failure here
+# can still leave the Linux pointer ahead of the Windows one, so the pointers
+# go first and the metadata that claims the publish is complete goes last.
+# ---------------------------------------------------------------------------
+echo "All immutable objects uploaded; updating rolling pointers..."
+
+if [ -n "$TARBALL" ]; then
+  put "$TARBALL" "releases/wfl-latest-linux-x86_64.tar.gz" application/gzip "$ROLLING"
+fi
+
+if [ -n "$MSI" ]; then
+  put "$MSI" "releases/wfl-latest-windows-x86_64.msi" application/x-msi "$ROLLING"
 fi
 
 put "$WORK/SHA256SUMS" "releases/SHA256SUMS" text/plain "$ROLLING"

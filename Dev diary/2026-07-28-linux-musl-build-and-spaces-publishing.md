@@ -31,7 +31,13 @@ Two gates enforce this, because a musl *target* does not by itself guarantee a
 static *binary* — one dependency that links dynamically silently reintroduces
 the floor while CI still reports success:
 
-- `file` must report `statically linked` for **both** binaries, or the job fails.
+- **Both** binaries must have no `PT_INTERP` program header, per `readelf`, or
+  the job fails: a binary that names no interpreter cannot be asking a loader
+  for libc at startup. The first version of this gate grepped `file` output for
+  `statically linked` and failed the whole nightly on a perfectly static
+  binary, because Rust's musl target emits a static PIE, which `file` describes
+  as `static-pie linked`. The ELF fact is the property being claimed; `file`'s
+  phrasing is not.
 - Both binaries are then executed inside `debian:12-slim` — the exact
   distro where the glibc build failed. This is the real boundary, not a proxy
   for it.
@@ -86,8 +92,27 @@ Three things this script gets right that are easy to get wrong:
   `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` is set for this reason. This
   is the single most common cause of "the same command works against S3."
 
-The publish step runs *last* in the release job, so a failed upload cannot leave
-a half-written bucket sitting behind a release that claims the files are there.
+### Failure ordering
+
+Two orderings matter, and the obvious choice for each is the wrong one.
+
+**Within the script**, all immutable objects upload first; the rolling pointers,
+`SHA256SUMS`, and `status.json` are written only once every one of them has
+succeeded. Writing each rolling pointer next to its immutable counterpart reads
+more naturally, but under `set -e` a later failure would then leave
+`wfl-latest-linux-x86_64.tar.gz` pointing at the new build while the Windows
+pointer, the checksums, and `status.json` still described the previous one: a
+mixed release that consumers could observe indefinitely.
+
+**Within the release job**, the Spaces publish runs *before* the nightly tag and
+GitHub Release are created. Publishing last looks safer, but the tag and release
+*are* the success marker `check-for-changes` reads: it resolves the newest
+`nightly-*` tag to a commit and sets `should_build=false` when that matches HEAD.
+A publish failure behind an already-pushed tag therefore would not be retried on
+the next scheduled run, and the rolling downloads would stay stale until an
+unrelated code commit happened to land. Failing before the tag is written keeps
+the run retryable, and the canonical location being written before its mirror is
+the right order anyway.
 
 ## Runner sizing
 
@@ -145,6 +170,11 @@ roughly 70 min at $0.016/min ($1.12) becomes roughly 30 min at $0.032/min
   the CI pipeline green, and it is reversible until then.
 - **#616 should be verifiable as closed** once the first nightly publishes: the
   Debian 12 gate proves the property the issue is about.
-- Docs that point at a download URL should point at
+- Docs ship with the change. `Docs/02-getting-started/installation.md` gains a
+  *Linux x86_64 Tarball* section pointing at
   `https://wfl.nyc3.cdn.digitaloceanspaces.com/releases/wfl-latest-linux-x86_64.tar.gz`,
-  which is now always current and no longer requires a glibc check first.
+  which is now always current and no longer requires a glibc check first, and
+  `Docs/reference/supported-platforms.md` no longer claims static-musl Linux has
+  "no CI lane" and is unverified. Static musl stays **Tier 2**: the new lane is
+  post-merge only and does not run the integration or `TestPrograms` suites, and
+  the promotion policy in that document requires both.
