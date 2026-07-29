@@ -2251,7 +2251,14 @@ impl IoClient {
     /// A `reqwest::Error` for which `is_request()` holds means no response head
     /// arrived, so the caller observed nothing; re-sending it once cannot
     /// duplicate anything the caller could have acted on, and it is the same
-    /// recovery a person would make by retrying. The retry is deliberately
+    /// recovery a person would make by retrying. Note that this is a claim about
+    /// the *caller*, not the upstream: `is_request()` also covers a request that
+    /// was written in full and then lost its response, so a re-sent
+    /// non-idempotent request can reach a server that already acted on the first
+    /// copy. Delivery is at-least-once, which is documented for WFL programs in
+    /// `Docs/04-advanced-features/interoperability.md`; the pool idle timeout
+    /// above is what keeps the recoverable stale-socket case dominant. The retry
+    /// is deliberately
     /// bounded at one: a peer that is genuinely gone must surface as an error
     /// promptly rather than being replayed in a loop. A body that cannot be
     /// cloned (a streaming body) is never retried, since it cannot be re-sent

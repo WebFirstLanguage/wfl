@@ -127,6 +127,16 @@ status: a `500` from the server is yours to handle, not something WFL retries
 behind your back. If the second attempt fails too, the error is raised as usual
 and can be caught with `try`/`catch`.
 
+**Non-idempotent requests:** "nothing the program could have observed" is a
+statement about your program, not a guarantee about the server. The same failure
+also covers a request that was fully written and then lost its response — an
+upstream that dies after acting on the body — and WFL cannot tell the two apart,
+so the re-send can reach a server that already processed the first copy. Delivery
+is therefore at-least-once, not exactly-once. If a `POST` (or any other
+non-idempotent call) must never run twice, make it safe to repeat: send an
+idempotency key the upstream deduplicates on, or check server-side state before
+retrying the operation at the WFL level.
+
 #### Streaming a response incrementally
 
 `read content` / `read response` buffer the whole body before returning. For a
