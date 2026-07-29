@@ -76,10 +76,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `Failed to send HTTP POST request: error sending request for url (...)` for a
   request the server never received — most visibly as an intermittent failure
   after a program had been idle between calls. Pooled connections are now
-  reused only while idle for under three seconds, and a request that failed
-  before any of the response arrived is re-sent once on a fresh connection, on
-  both the `read response`/`read content` and `stream response` paths. A
-  request that reached a response head is never re-sent
+  reused only while idle for under three seconds, and a request whose
+  connection was lost before any of the response arrived is re-sent once on a
+  fresh connection, on both the `read response`/`read content` and
+  `stream response` paths. Only a lost connection qualifies: a peer that replied
+  with something unparseable, one that refused the connection, and any request
+  that reached a response head are all reported as they stand. Because a
+  connection can also be lost after a server acted on the body, outbound
+  delivery is at-least-once — see the interoperability guide for how to make a
+  non-idempotent call safe to repeat
 - `header "<Name>" of <request>` now reads headers from the request object, so it works inside actions that receive `req` as a parameter (previously looked only at loop-scoped `headers` and failed with "no request in scope") (#597)
 - `respond to ... with <content> and status <code> and content_type <type>` previously parsed the status as the boolean expression `<code> and content_type`, which failed at runtime and left the HTTP request unanswered; status/content_type values now parse as primary expressions
 - `header "<Name>" of <request>` is now case-insensitive; warp normalizes header names to lowercase, so canonically-spelled names like `User-Agent` always returned nothing on real requests. Absent headers now compare equal to `nothing`

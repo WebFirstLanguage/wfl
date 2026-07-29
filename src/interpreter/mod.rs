@@ -56,9 +56,11 @@ use crate::stdlib;
 use once_cell::sync::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -2274,35 +2276,48 @@ impl IoClient {
     /// Both send sites use this, so the buffered and streaming paths recover
     /// identically. The whole thing runs inside the caller's timeout/budget
     /// wrapper, so the retry cannot extend a request past its deadline.
-    async fn send_with_reuse_retry(
+    ///
+    /// The future is boxed rather than left inline, which is a stack-size
+    /// decision, not a style one. Holding a request builder, its replay clone,
+    /// and an in-flight `send()` inline would embed all of that in the async
+    /// state machine of every statement that can make a request — and a
+    /// `execute file` chain nests one such state machine per level. Measured on
+    /// the self-executing-file depth guard, the inline form cost roughly 150 KiB
+    /// of stack headroom (survived a 2048 KiB thread stack, overflowed at 1920
+    /// KiB, where the same test survived 1920 KiB before this change). One heap
+    /// allocation per outbound request is not measurable next to a network
+    /// round trip; the stack headroom is worth keeping.
+    fn send_with_reuse_retry<'a>(
         request: reqwest::RequestBuilder,
-        method: &str,
-    ) -> Result<reqwest::Response, HttpClientError> {
-        let mut attempt = request;
-        let mut attempts_left = HTTP_SEND_MAX_ATTEMPTS;
+        method: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<reqwest::Response, HttpClientError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut attempt = request;
+            let mut attempts_left = HTTP_SEND_MAX_ATTEMPTS;
 
-        loop {
-            attempts_left -= 1;
-            let replay = if attempts_left > 0 {
-                attempt.try_clone()
-            } else {
-                None
-            };
+            loop {
+                attempts_left -= 1;
+                let replay = if attempts_left > 0 {
+                    attempt.try_clone()
+                } else {
+                    None
+                };
 
-            match attempt.send().await {
-                Ok(response) => return Ok(response),
-                Err(error) => match replay {
-                    // The connection died with nothing to observe: try once
-                    // more on a connection that is known to be fresh.
-                    Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
-                    _ => {
-                        return Err(HttpClientError::Request(format!(
-                            "Failed to send HTTP {method} request: {error}"
-                        )));
-                    }
-                },
+                match attempt.send().await {
+                    Ok(response) => return Ok(response),
+                    Err(error) => match replay {
+                        // The connection died with nothing to observe: try once
+                        // more on a connection that is known to be fresh.
+                        Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
+                        _ => {
+                            return Err(HttpClientError::Request(format!(
+                                "Failed to send HTTP {method} request: {error}"
+                            )));
+                        }
+                    },
+                }
             }
-        }
+        })
     }
 
     /// Did this send failure mean the connection died before any of the response
