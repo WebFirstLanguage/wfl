@@ -53,6 +53,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
+use once_cell::sync::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Write};
@@ -1849,7 +1850,15 @@ async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result
 
 #[allow(dead_code)]
 pub struct IoClient {
-    http_client: reqwest::Client,
+    /// Shared outbound HTTP client, built on first use.
+    ///
+    /// Deliberately lazy: `reqwest::Client::new()` panics when the TLS builder
+    /// fails, and the builder fails on any system whose trust store holds no CA
+    /// certificates (a minimal container image, for instance). Building it in
+    /// [`IoClient::new`] therefore aborted the whole process at interpreter
+    /// start-up on such a system, even for a program that never makes a
+    /// request. See [`IoClient::http_client`].
+    http_client: OnceCell<reqwest::Client>,
     file_handles: Mutex<HashMap<String, (PathBuf, tokio::fs::File)>>,
     next_file_id: Mutex<usize>,
     process_handles: Mutex<HashMap<String, ProcessHandle>>,
@@ -2186,9 +2195,27 @@ where
 }
 
 impl IoClient {
+    /// The shared outbound HTTP client, built on first use.
+    ///
+    /// `reqwest::Client::new()` unwraps the builder, so it *panics* rather than
+    /// returning an error when no CA certificates can be loaded from the system
+    /// trust store. Constructing it eagerly meant a machine with an empty trust
+    /// store could not run **any** WFL program — the interpreter aborted before
+    /// the first statement, whether or not the program touched the network.
+    /// Building it here instead keeps start-up independent of the trust store,
+    /// and turns a genuinely unusable TLS stack into an ordinary WFL runtime
+    /// error raised at the request that needs it.
+    fn http_client(&self) -> Result<&reqwest::Client, HttpClientError> {
+        self.http_client.get_or_try_init(|| {
+            reqwest::Client::builder().build().map_err(|error| {
+                HttpClientError::Request(format!("Could not create HTTP client: {error}"))
+            })
+        })
+    }
+
     fn new(config: Arc<WflConfig>) -> Self {
         Self {
-            http_client: reqwest::Client::new(),
+            http_client: OnceCell::new(),
             file_handles: Mutex::new(HashMap::new()),
             next_file_id: Mutex::new(1),
             process_handles: Mutex::new(HashMap::new()),
@@ -2247,7 +2274,7 @@ impl IoClient {
         budget: Arc<ExecutionBudget>,
     ) -> Result<String, HttpClientError> {
         let (_, _, body) = self
-            .send_http_request(self.http_client.get(url), "GET", budget)
+            .send_http_request(self.http_client()?.get(url), "GET", budget)
             .await?;
         Ok(body)
     }
@@ -2261,7 +2288,7 @@ impl IoClient {
     ) -> Result<String, HttpClientError> {
         let (_, _, body) = self
             .send_http_request(
-                self.http_client.post(url).body(data.to_string()),
+                self.http_client()?.post(url).body(data.to_string()),
                 "POST",
                 budget,
             )
@@ -2283,7 +2310,7 @@ impl IoClient {
         let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
 
-        let mut request = self.http_client.request(parsed_method, url);
+        let mut request = self.http_client()?.request(parsed_method, url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -2314,7 +2341,7 @@ impl IoClient {
 
         let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
-        let mut request = self.http_client.request(parsed_method, url);
+        let mut request = self.http_client()?.request(parsed_method, url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -17622,6 +17649,39 @@ mod file_read_tests {
                 actual: 9
             }))
         ));
+    }
+
+    /// Regression (nightly 2026-07-29): the interpreter must start on a machine
+    /// whose CA trust store is empty.
+    ///
+    /// `reqwest::Client::new()` unwraps the TLS builder, and that builder fails
+    /// with "No CA certificates were loaded from the system" on an image that
+    /// ships no `ca-certificates` — so building the client in `IoClient::new`
+    /// aborted the process before the first statement of *every* program, even
+    /// one that never makes a request. The static-musl portability gate caught
+    /// it on `debian:12-slim` the first night it ran. Keep construction lazy.
+    #[test]
+    fn io_client_new_does_not_build_the_http_client() {
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        assert!(
+            client.http_client.get().is_none(),
+            "IoClient::new must not construct the HTTP client: doing so makes \
+             interpreter start-up depend on the system CA trust store"
+        );
+    }
+
+    /// The lazily-built client is still a *shared* client: one connection pool
+    /// per interpreter, as before. Callers must not get a fresh client (and a
+    /// fresh pool) per request.
+    #[test]
+    fn http_client_is_built_once_and_reused() {
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        let first = client.http_client().expect("host has a usable TLS stack");
+        let second = client.http_client().expect("host has a usable TLS stack");
+        assert!(
+            std::ptr::eq(first, second),
+            "the HTTP client must be memoized, not rebuilt per call"
+        );
     }
 
     #[tokio::test]
