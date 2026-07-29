@@ -79,11 +79,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   reused only while idle for under three seconds, and a request whose
   connection was lost before any of the response arrived is re-sent once on a
   fresh connection, on both the `read response`/`read content` and
-  `stream response` paths. Only a lost connection qualifies: a peer that replied
-  with something unparseable, one that refused the connection, and any request
-  that reached a response head are all reported as they stand. Because a
-  connection can also be lost after a server acted on the body, outbound
-  delivery is at-least-once — see the interoperability guide for how to make a
+  `stream response` paths. Two conditions gate that re-send. Only a lost
+  connection qualifies: a peer that replied with something unparseable, one that
+  refused the connection, and any request that reached a response head are all
+  reported as they stand. And only a request that is safe to repeat is re-sent:
+  an idempotent method (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`, `TRACE`) or one
+  carrying an `Idempotency-Key` / `X-Idempotency-Key` header. A bare `POST` or
+  `PATCH` is never re-sent, since a lost connection cannot be distinguished from
+  an upstream that committed the body and then died; it relies on the shortened
+  idle window instead. See the interoperability guide for how to make a
   non-idempotent call safe to repeat
 - `header "<Name>" of <request>` now reads headers from the request object, so it works inside actions that receive `req` as a parameter (previously looked only at loop-scoped `headers` and failed with "no request in scope") (#597)
 - `respond to ... with <content> and status <code> and content_type <type>` previously parsed the status as the boolean expression `<code> and content_type`, which failed at runtime and left the HTTP request unanswered; status/content_type values now parse as primary expressions
