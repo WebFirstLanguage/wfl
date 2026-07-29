@@ -52,6 +52,8 @@ enum DropPolicy {
     Requests(Vec<usize>),
     /// Close the socket on every request.
     All,
+    /// Answer with something that is not HTTP at all.
+    Garbage,
     /// Answer everything, but close a kept-alive connection once it has been
     /// idle this long — what Node's `keepAliveTimeout` does at 5 seconds.
     IdleAfter(Duration),
@@ -62,8 +64,12 @@ impl DropPolicy {
         match self {
             DropPolicy::Requests(numbers) => numbers.contains(&request_number),
             DropPolicy::All => true,
-            DropPolicy::IdleAfter(_) => false,
+            DropPolicy::Garbage | DropPolicy::IdleAfter(_) => false,
         }
+    }
+
+    fn garbles(&self) -> bool {
+        matches!(self, DropPolicy::Garbage)
     }
 
     fn idle_timeout(&self) -> Option<Duration> {
@@ -155,6 +161,16 @@ async fn spawn_upstream(policy: DropPolicy) -> (String, Arc<ServerStats>) {
                         // The peer's idle timeout "fired": close without a
                         // response. Dropping the socket at the end of this task
                         // sends the FIN.
+                        return;
+                    }
+
+                    if policy.garbles() {
+                        // A reply arrives, but it is not HTTP. The connection
+                        // is alive and the peer clearly handled the request —
+                        // nothing here says the request went unseen.
+                        let _ = socket.write_all(b"NOT-HTTP AT ALL\r\n\r\n").await;
+                        let _ = socket.flush().await;
+                        tokio::time::sleep(Duration::from_millis(200)).await;
                         return;
                     }
 
@@ -348,6 +364,36 @@ async fn an_idle_gap_past_the_peers_keepalive_still_gets_a_reply() {
     assert!(
         stats.connections.load(Ordering::SeqCst) >= 2,
         "the second call must end up on a live connection"
+    );
+}
+
+/// Only a *lost connection* earns a re-send. A peer that answers — even with
+/// something unparseable — has demonstrably handled the request, so replaying it
+/// could duplicate whatever the peer did with the first copy. The send failure
+/// is real either way; what must not happen is a second delivery.
+///
+/// This is the line between "the connection died under the request" and "the
+/// request phase failed for some other reason", and it is why the retry keys on
+/// the connection being lost rather than on any request-phase error.
+#[tokio::test]
+async fn a_non_http_reply_is_not_replayed() {
+    let (url, stats) = spawn_upstream(DropPolicy::Garbage).await;
+
+    let code = format!(
+        r#"
+        open url at "{url}" with method "POST" and body "once" and read response as resp
+        "#
+    );
+
+    let program = parse(&code);
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&program).await;
+
+    result.expect_err("an unparseable reply is still a failed request");
+    assert_eq!(
+        stats.requests.load(Ordering::SeqCst),
+        1,
+        "a peer that answered must not have the request delivered twice"
     );
 }
 
