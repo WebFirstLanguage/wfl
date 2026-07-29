@@ -124,8 +124,11 @@ repeating that request is safe**. Two things make it safe:
   `TRACE`. Making one of these twice is defined to affect the server the same as
   making it once.
 - **The request carries an idempotency key** — an `Idempotency-Key` (or
-  `X-Idempotency-Key`) header, which is you telling WFL that the upstream
-  collapses repeats of this exact request.
+  `X-Idempotency-Key`) header with a non-empty value, which is you telling WFL
+  that the upstream collapses repeats of this exact request. The promise is the
+  value, not the header name: sending the header with an empty string does not
+  opt into a re-send, so a key that came from an unset variable leaves the
+  request treated as unkeyed.
 
 ```wfl
 create map charge_headers:

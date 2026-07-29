@@ -2174,7 +2174,9 @@ const HTTP_SEND_MAX_ATTEMPTS: u32 = 2;
 /// safe: the upstream deduplicates on the key, so a second delivery of the same
 /// request is not a second side effect. `Idempotency-Key` is the name the
 /// payment and API ecosystem settled on; the `X-` form is accepted because
-/// plenty of services still publish it.
+/// plenty of services still publish it. The promise is in the *value*, so only a
+/// non-empty one counts: an empty key gives the upstream nothing to deduplicate
+/// on, and is usually an unset variable rather than a deliberate opt-in.
 const HTTP_IDEMPOTENCY_KEY_HEADERS: [&str; 2] = ["idempotency-key", "x-idempotency-key"];
 
 /// Whether re-sending `request` after a failure that produced no response head
@@ -2191,8 +2193,8 @@ const HTTP_IDEMPOTENCY_KEY_HEADERS: [&str; 2] = ["idempotency-key", "x-idempoten
 ///
 /// * an idempotent method (RFC 9110 §9.2.2), where repeating the request is
 ///   defined to have the same effect on the server as issuing it once, or
-/// * an explicit idempotency-key header, the caller's own statement that the
-///   upstream collapses retries of this exact request.
+/// * an explicit idempotency-key header with a non-empty value, the caller's own
+///   statement that the upstream collapses retries of this exact request.
 ///
 /// Every other request surfaces the send failure instead. A bare `POST` is not
 /// left unprotected: [`HTTP_POOL_IDLE_TIMEOUT_SECONDS`] keeps a connection from
@@ -2304,7 +2306,7 @@ impl IoClient {
     ///    also be lost after a server read and committed the body, and nothing on
     ///    this side can tell that apart from a socket the peer abandoned before
     ///    the request arrived. So the replay is restricted to requests that carry
-    ///    a promise they can be repeated — an idempotent method, or an
+    ///    a promise they can be repeated — an idempotent method, or a non-empty
     ///    idempotency-key header — and a bare `POST` relies on the pool idle
     ///    timeout above instead.
     ///

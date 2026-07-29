@@ -84,7 +84,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   refused the connection, and any request that reached a response head are all
   reported as they stand. And only a request that is safe to repeat is re-sent:
   an idempotent method (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`, `TRACE`) or one
-  carrying an `Idempotency-Key` / `X-Idempotency-Key` header. A bare `POST` or
+  carrying a non-empty `Idempotency-Key` / `X-Idempotency-Key` header — an empty
+  key value gives the upstream nothing to deduplicate on, so it does not opt into
+  a re-send. A bare `POST` or
   `PATCH` is never re-sent, since a lost connection cannot be distinguished from
   an upstream that committed the body and then died; it relies on the shortened
   idle window instead. See the interoperability guide for how to make a

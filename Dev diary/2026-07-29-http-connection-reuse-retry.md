@@ -149,6 +149,12 @@ to have been lost *and* the request to carry a promise it can be repeated:
 * an `Idempotency-Key` / `X-Idempotency-Key` header — the caller stating the
   upstream deduplicates repeats of this exact request.
 
+The promise lives in the header's *value*, so the predicate requires a non-empty
+one. A header sent as `""` names the key and says nothing: there is nothing for
+the upstream to deduplicate on, and in practice an empty value is an unset
+variable rather than a deliberate opt-in, which is the reading least likely to
+duplicate a charge.
+
 A bare `POST` or `PATCH` gets no re-send; its protection is the 3-second pool
 window, which is what made these failures routine in the first place. Building the
 replay clone up front doubles as the check that the body can be reproduced, so a
@@ -183,6 +189,8 @@ peer had already decided to close. Coverage:
 * the negative half of the replay contract: an unkeyed `POST` against an upstream
   that reads it in full and then closes reaches the server **exactly once** and
   surfaces the failure, rather than being silently submitted twice;
+* the boundary of the key itself: a `POST` carrying `Idempotency-Key` with an
+  empty value is treated as unkeyed and delivered exactly once;
 * the reported real-world shape: a peer whose keep-alive window is shorter than
   the gap the program leaves between calls still yields a reply. The gap is
   longer than our own pool window, since an unkeyed POST has to survive this
@@ -190,7 +198,9 @@ peer had already decided to close. Coverage:
 
 Red for the added replay contract is the test commit preceding the change: with
 the old predicate, `an_unkeyed_post_is_never_replayed` observed 2 deliveries
-where it requires 1.
+where it requires 1. The empty-key boundary was checked the same way, by
+weakening the predicate to accept any present key value:
+`an_empty_idempotency_key_is_not_a_promise` then observed 2 deliveries as well.
 
 Stability, since the defect this replaces was itself intermittent: 90 runs green
 (30 sequential + 60 across 6 concurrent copies), 0 failures.

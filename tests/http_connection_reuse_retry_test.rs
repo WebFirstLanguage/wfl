@@ -470,6 +470,36 @@ async fn an_unkeyed_post_is_never_replayed() {
     );
 }
 
+/// An empty key value is not a promise. `"Idempotency-Key" is ""` names the
+/// header but tells the upstream nothing to deduplicate on, so it must not buy a
+/// replay that a bare POST is denied.
+#[tokio::test]
+async fn an_empty_idempotency_key_is_not_a_promise() {
+    let (url, stats) = spawn_upstream(DropPolicy::All).await;
+
+    let code = format!(
+        r#"
+        create map blank_headers:
+            "Idempotency-Key" is ""
+        end map
+
+        open url at "{url}" with method "POST" and headers blank_headers and body "charge=1000" and read response as resp
+        "#
+    );
+
+    let program = parse(&code);
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&program).await;
+
+    result.expect_err("a peer that never answers must surface an error");
+    assert_eq!(
+        stats.requests.load(Ordering::SeqCst),
+        1,
+        "an empty idempotency key carries no promise of deduplication, so the \
+         POST must reach the upstream exactly once"
+    );
+}
+
 /// An idempotent method needs no key: repeating a GET is defined to have the
 /// same effect as making it once (RFC 9110 §9.2.2), so the `read content` path
 /// recovers from a peer-closed pooled socket on its own.
