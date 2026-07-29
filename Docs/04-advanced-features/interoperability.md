@@ -132,6 +132,8 @@ create map charge_headers:
     "Idempotency-Key" is "order-4417-capture"
 end map
 
+store payload as "{\"order\": \"4417\", \"amount\": 2500}"
+
 // Safe to re-send: the upstream will honour the key and charge once.
 open url at "https://api.example.com/charges"
     with method "POST"

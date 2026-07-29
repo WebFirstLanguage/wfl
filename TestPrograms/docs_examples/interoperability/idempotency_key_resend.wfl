@@ -1,0 +1,30 @@
+// CI-SKIP: needs a live upstream; validated via docs-examples layers 1-4
+// An outbound POST that WFL is allowed to re-send after a lost connection.
+//
+// A re-send needs two things: the connection was lost before any of the
+// response reached WFL, and repeating the request is safe. An idempotent
+// method is safe on its own; a POST becomes safe when it carries an
+// `Idempotency-Key` header, which tells WFL the upstream collapses repeats.
+//
+// Inside `open url` the words `method`, `headers`, and `body` introduce
+// clauses, so the values they take live in differently named variables
+// (`charge_headers`, `payload`).
+//
+// Validated for syntax/analysis/lint only (layers 1-4): running it needs a
+// live upstream, so execution is skipped.
+
+create map charge_headers:
+    "Idempotency-Key" is "order-4417-capture"
+end map
+
+store payload as "{\"order\": \"4417\", \"amount\": 2500}"
+display "Charging with body: " with payload
+
+// Safe to re-send: the upstream will honour the key and charge once.
+open url at "https://api.example.com/charges"
+    with method "POST"
+    and headers charge_headers
+    and body payload
+    and read response as resp
+
+display "Status: " with resp["status"]
