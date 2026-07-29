@@ -3933,7 +3933,7 @@ dependencies = [
 
 [[package]]
 name = "wfl"
-version = "26.7.57"
+version = "26.7.58"
 dependencies = [
  "argon2",
  "bcrypt",
