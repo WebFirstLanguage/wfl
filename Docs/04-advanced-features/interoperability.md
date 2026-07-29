@@ -105,6 +105,28 @@ request that is waiting on the remote peer.
 `body` introduce clauses, so use different variable names there (e.g.
 `request_headers`, `payload`).
 
+#### Connection reuse and the automatic re-send
+
+Outbound requests share a pool of keep-alive connections, so back-to-back calls
+to the same host skip the TCP and TLS handshake. A pooled connection is reused
+only while it has been idle for less than three seconds: peers close idle
+connections on their own schedule (Node closes at five seconds, many proxies
+between five and fifteen), and writing to a connection the peer has already
+closed just fails.
+
+That still leaves a narrow window where the peer closes a connection at the
+moment WFL writes a request onto it. So when a request fails before *any* of the
+response reaches WFL — no status, no headers, nothing the program could have
+observed — WFL sends it once more on a fresh connection. This applies to both
+`read response`/`read content` and `stream response`, and both attempts share
+the one timeout described above, so the re-send cannot push a request past its
+deadline.
+
+A request that got as far as a response head is never re-sent, whatever the
+status: a `500` from the server is yours to handle, not something WFL retries
+behind your back. If the second attempt fails too, the error is raised as usual
+and can be caught with `try`/`catch`.
+
 #### Streaming a response incrementally
 
 `read content` / `read response` buffer the whole body before returning. For a

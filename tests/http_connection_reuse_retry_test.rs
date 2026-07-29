@@ -24,6 +24,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -43,12 +44,17 @@ struct ServerStats {
     reused_connection_requests: AtomicUsize,
 }
 
-/// Which request numbers (1-based, counted across all connections) the upstream
-/// should answer by closing the socket instead of writing a response.
+/// How the upstream misbehaves.
 #[derive(Clone)]
 enum DropPolicy {
+    /// Close the socket, with no response, on these request numbers (1-based,
+    /// counted across every connection).
     Requests(Vec<usize>),
+    /// Close the socket on every request.
     All,
+    /// Answer everything, but close a kept-alive connection once it has been
+    /// idle this long — what Node's `keepAliveTimeout` does at 5 seconds.
+    IdleAfter(Duration),
 }
 
 impl DropPolicy {
@@ -56,6 +62,14 @@ impl DropPolicy {
         match self {
             DropPolicy::Requests(numbers) => numbers.contains(&request_number),
             DropPolicy::All => true,
+            DropPolicy::IdleAfter(_) => false,
+        }
+    }
+
+    fn idle_timeout(&self) -> Option<Duration> {
+        match self {
+            DropPolicy::IdleAfter(duration) => Some(*duration),
+            _ => None,
         }
     }
 }
@@ -79,6 +93,7 @@ async fn spawn_upstream(policy: DropPolicy) -> (String, Arc<ServerStats>) {
             let conn_stats = Arc::clone(&server_stats);
 
             tokio::spawn(async move {
+                let idle_timeout = policy.idle_timeout();
                 let mut buf: Vec<u8> = Vec::new();
                 let mut requests_on_this_connection = 0usize;
 
@@ -89,7 +104,18 @@ async fn spawn_upstream(policy: DropPolicy) -> (String, Arc<ServerStats>) {
                         if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
                             break Some(pos);
                         }
-                        match socket.read(&mut tmp).await {
+                        // Between requests, an idle connection may time out and
+                        // be closed — the client is not told.
+                        let read = match idle_timeout {
+                            Some(limit) if buf.is_empty() => {
+                                match tokio::time::timeout(limit, socket.read(&mut tmp)).await {
+                                    Ok(result) => result,
+                                    Err(_elapsed) => break None,
+                                }
+                            }
+                            _ => socket.read(&mut tmp).await,
+                        };
+                        match read {
                             Ok(0) | Err(_) => break None,
                             Ok(n) => buf.extend_from_slice(&tmp[..n]),
                         }
@@ -280,6 +306,48 @@ async fn a_permanently_closing_upstream_is_retried_once_and_then_fails() {
         stats.requests.load(Ordering::SeqCst),
         2,
         "the send should be attempted exactly twice (initial + one retry)"
+    );
+}
+
+/// The shape the defect was reported in: a peer whose keep-alive window is
+/// shorter than the gap the program leaves between two calls (Node's 5s default
+/// versus a chat turn spent talking to somebody else).
+///
+/// Unlike the tests above this one is time-based, so it does not pin *which*
+/// recovery ran — the pool may drop the expired socket before the second call,
+/// or hand it over and let the re-send recover. It pins the outcome that
+/// matters either way: an idle gap past the peer's keep-alive window still
+/// yields a reply rather than a spurious send failure. Both calls run through
+/// one interpreter, so they share one connection pool.
+#[tokio::test]
+async fn an_idle_gap_past_the_peers_keepalive_still_gets_a_reply() {
+    let (url, stats) = spawn_upstream(DropPolicy::IdleAfter(Duration::from_millis(300))).await;
+
+    let first = parse(&format!(
+        r#"open url at "{url}" with method "POST" and body "first" and read response as resp
+           store body1 as resp["body"]"#
+    ));
+    let second = parse(&format!(
+        r#"open url at "{url}" with method "POST" and body "second" and read response as later
+           store body2 as later["body"]"#
+    ));
+
+    let mut interpreter = Interpreter::new();
+    interpreter.interpret(&first).await.expect("first call");
+    assert_eq!(get_text(&interpreter, "body1"), "reply1\n");
+
+    // Long enough that the peer has certainly closed the socket it was keeping
+    // alive for us.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+
+    interpreter
+        .interpret(&second)
+        .await
+        .unwrap_or_else(|e| panic!("call after the peer's keep-alive expired: {e:?}"));
+    assert_eq!(get_text(&interpreter, "body2"), "reply2\n");
+    assert!(
+        stats.connections.load(Ordering::SeqCst) >= 2,
+        "the second call must end up on a live connection"
     );
 }
 

@@ -2151,6 +2151,23 @@ const HTTP_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// observed promptly.
 const REQUEST_DISCONNECT_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
+/// How long an idle keep-alive connection may sit in the outbound pool before
+/// it is dropped instead of reused.
+///
+/// reqwest's own default is 90 seconds, which is longer than most peers keep an
+/// idle connection alive: Node closes at 5 seconds, and proxies commonly sit
+/// between 5 and 15. Reusing a socket the peer has already closed turns the
+/// next request into a spurious failure, so the pool is kept well under that
+/// floor. It does not *close* the race — the peer can still close between the
+/// pool's check and the write, which is what [`IoClient::send_with_reuse_retry`]
+/// is for — it just makes the race rare instead of routine. Connections are
+/// still reused for back-to-back requests, where the win actually is.
+const HTTP_POOL_IDLE_TIMEOUT_SECONDS: u64 = 3;
+
+/// Total attempts (initial send + retries) for an outbound request that never
+/// reached a response head. See [`IoClient::send_with_reuse_retry`].
+const HTTP_SEND_MAX_ATTEMPTS: u32 = 2;
+
 #[derive(Debug)]
 enum FileReadError {
     Io(String),
@@ -2207,10 +2224,71 @@ impl IoClient {
     /// error raised at the request that needs it.
     fn http_client(&self) -> Result<&reqwest::Client, HttpClientError> {
         self.http_client.get_or_try_init(|| {
-            reqwest::Client::builder().build().map_err(|error| {
-                HttpClientError::Request(format!("Could not create HTTP client: {error}"))
-            })
+            reqwest::Client::builder()
+                // Defence in depth against reusing a socket the peer has
+                // already closed: see HTTP_POOL_IDLE_TIMEOUT_SECONDS.
+                .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECONDS))
+                .build()
+                .map_err(|error| {
+                    HttpClientError::Request(format!("Could not create HTTP client: {error}"))
+                })
         })
+    }
+
+    /// Send a request, re-sending it once on a fresh connection if the first
+    /// attempt never reached a response head.
+    ///
+    /// Keep-alive connections are pooled, and the peer may close an idle one at
+    /// any moment — Node closes at 5 seconds by default, many proxies between 5
+    /// and 15. When a request is written to a socket the peer has already
+    /// closed, hyper reports a send failure and does *not* replay it: replaying
+    /// a non-idempotent request is not hyper's call to make. Left alone, that
+    /// surfaces to the WFL program as a hard error for a request the server
+    /// never even saw — an intermittent failure that looks exactly like the
+    /// upstream being down, and that gets more likely the longer a program idles
+    /// between calls.
+    ///
+    /// A `reqwest::Error` for which `is_request()` holds means no response head
+    /// arrived, so the caller observed nothing; re-sending it once cannot
+    /// duplicate anything the caller could have acted on, and it is the same
+    /// recovery a person would make by retrying. The retry is deliberately
+    /// bounded at one: a peer that is genuinely gone must surface as an error
+    /// promptly rather than being replayed in a loop. A body that cannot be
+    /// cloned (a streaming body) is never retried, since it cannot be re-sent
+    /// faithfully.
+    ///
+    /// Both send sites use this, so the buffered and streaming paths recover
+    /// identically. The whole thing runs inside the caller's timeout/budget
+    /// wrapper, so the retry cannot extend a request past its deadline.
+    async fn send_with_reuse_retry(
+        request: reqwest::RequestBuilder,
+        method: &str,
+    ) -> Result<reqwest::Response, HttpClientError> {
+        let mut attempt = request;
+        let mut attempts_left = HTTP_SEND_MAX_ATTEMPTS;
+
+        loop {
+            attempts_left -= 1;
+            let replay = if attempts_left > 0 {
+                attempt.try_clone()
+            } else {
+                None
+            };
+
+            match attempt.send().await {
+                Ok(response) => return Ok(response),
+                Err(error) => match replay {
+                    // Nothing came back, so nothing was observed: try once more
+                    // on a connection that is known to be fresh.
+                    Some(retry) if error.is_request() => attempt = retry,
+                    _ => {
+                        return Err(HttpClientError::Request(format!(
+                            "Failed to send HTTP {method} request: {error}"
+                        )));
+                    }
+                },
+            }
+        }
     }
 
     fn new(config: Arc<WflConfig>) -> Self {
@@ -2370,11 +2448,7 @@ impl IoClient {
             }
             None => idle_timeout,
         };
-        let op = async move {
-            request.send().await.map_err(|e| {
-                HttpClientError::Request(format!("Failed to send HTTP {method_owned} request: {e}"))
-            })
-        };
+        let op = async move { Self::send_with_reuse_retry(request, &method_owned).await };
         // Only the head is awaited here; dropping this future on
         // timeout/cancel aborts the connection cleanly.
         let response =
@@ -2961,9 +3035,7 @@ impl IoClient {
         let operation = async move {
             use futures_util::StreamExt;
 
-            let response = request.send().await.map_err(|e| {
-                HttpClientError::Request(format!("Failed to send HTTP {method} request: {e}"))
-            })?;
+            let response = Self::send_with_reuse_retry(request, &method).await?;
 
             let status = response.status().as_u16();
             // Header names are normalized to lowercase for consistent access
