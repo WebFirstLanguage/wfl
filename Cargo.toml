@@ -95,6 +95,7 @@ num-bigint-dig = "0.8.6"
 # present; installing one up front keeps any ambient-default TLS path from
 # panicking. `ring` matches sqlx.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+hyper = "1"
 
 [features]
 dhat-heap = ["dhat"]    # if you are doing heap profiling

@@ -3109,6 +3109,7 @@ dependencies = [
  "glob",
  "hkdf 0.12.4",
  "hmac 0.12.1",
+ "hyper 1.10.1",
  "log",
  "logos",
  "num-bigint-dig",

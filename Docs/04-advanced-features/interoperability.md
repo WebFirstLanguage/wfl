@@ -105,6 +105,41 @@ request that is waiting on the remote peer.
 `body` introduce clauses, so use different variable names there (e.g.
 `request_headers`, `payload`).
 
+#### Connection reuse and the automatic re-send
+
+Outbound requests share a pool of keep-alive connections, so back-to-back calls
+to the same host skip the TCP and TLS handshake. A pooled connection is reused
+only while it has been idle for less than three seconds: peers close idle
+connections on their own schedule (Node closes at five seconds, many proxies
+between five and fifteen), and writing to a connection the peer has already
+closed just fails.
+
+That still leaves a narrow window where the peer closes a connection at the
+moment WFL writes a request onto it. So when the connection is *lost* before any
+of the response reaches WFL — no status, no headers, nothing the program could
+have observed — WFL sends the request once more on a fresh connection. This
+applies to both `read response`/`read content` and `stream response`, and both
+attempts share the one timeout described above, so the re-send cannot push a
+request past its deadline.
+
+Only a lost connection earns that second send. A peer that replied with
+something unparseable, or one that refused the connection outright, has either
+handled the request or cannot be helped by trying again — both are reported to
+your program as they stand. A request that got as far as a response head is never
+re-sent either, whatever the status: a `500` from the server is yours to handle,
+not something WFL retries behind your back. If the second attempt fails too, the
+error is raised as usual and can be caught with `try`/`catch`.
+
+**Non-idempotent requests:** "nothing the program could have observed" is a
+statement about your program, not a guarantee about the server. A connection can
+also be lost *after* a server has read and acted on the body, and nothing on
+WFL's side can tell that apart from a socket the peer abandoned before the
+request arrived — so the re-send can reach a server that already processed the
+first copy. Delivery is therefore at-least-once, not exactly-once. If a `POST`
+(or any other non-idempotent call) must never run twice, make it safe to repeat:
+send an idempotency key the upstream deduplicates on, or check server-side state
+before retrying the operation at the WFL level.
+
 #### Streaming a response incrementally
 
 `read content` / `read response` buffer the whole body before returning. For a

@@ -56,9 +56,11 @@ use crate::stdlib;
 use once_cell::sync::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -2151,6 +2153,23 @@ const HTTP_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// observed promptly.
 const REQUEST_DISCONNECT_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
+/// How long an idle keep-alive connection may sit in the outbound pool before
+/// it is dropped instead of reused.
+///
+/// reqwest's own default is 90 seconds, which is longer than most peers keep an
+/// idle connection alive: Node closes at 5 seconds, and proxies commonly sit
+/// between 5 and 15. Reusing a socket the peer has already closed turns the
+/// next request into a spurious failure, so the pool is kept well under that
+/// floor. It does not *close* the race — the peer can still close between the
+/// pool's check and the write, which is what [`IoClient::send_with_reuse_retry`]
+/// is for — it just makes the race rare instead of routine. Connections are
+/// still reused for back-to-back requests, where the win actually is.
+const HTTP_POOL_IDLE_TIMEOUT_SECONDS: u64 = 3;
+
+/// Total attempts (initial send + retries) for an outbound request that never
+/// reached a response head. See [`IoClient::send_with_reuse_retry`].
+const HTTP_SEND_MAX_ATTEMPTS: u32 = 2;
+
 #[derive(Debug)]
 enum FileReadError {
     Io(String),
@@ -2207,10 +2226,146 @@ impl IoClient {
     /// error raised at the request that needs it.
     fn http_client(&self) -> Result<&reqwest::Client, HttpClientError> {
         self.http_client.get_or_try_init(|| {
-            reqwest::Client::builder().build().map_err(|error| {
-                HttpClientError::Request(format!("Could not create HTTP client: {error}"))
-            })
+            reqwest::Client::builder()
+                // Defence in depth against reusing a socket the peer has
+                // already closed: see HTTP_POOL_IDLE_TIMEOUT_SECONDS.
+                .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECONDS))
+                .build()
+                .map_err(|error| {
+                    HttpClientError::Request(format!("Could not create HTTP client: {error}"))
+                })
         })
+    }
+
+    /// Send a request, re-sending it once on a fresh connection if the first
+    /// attempt never reached a response head.
+    ///
+    /// Keep-alive connections are pooled, and the peer may close an idle one at
+    /// any moment — Node closes at 5 seconds by default, many proxies between 5
+    /// and 15. When a request is written to a socket the peer has already
+    /// closed, hyper reports a send failure and does *not* replay it: replaying
+    /// a non-idempotent request is not hyper's call to make. Left alone, that
+    /// surfaces to the WFL program as a hard error for a request the server
+    /// never even saw — an intermittent failure that looks exactly like the
+    /// upstream being down, and that gets more likely the longer a program idles
+    /// between calls.
+    ///
+    /// Only a *lost connection* earns a re-send — see
+    /// [`Self::connection_was_lost`]. The narrower test matters because the
+    /// request may not be idempotent: a peer that answered, even with something
+    /// unparseable, has demonstrably handled the request, and replaying it could
+    /// duplicate whatever it did with the first copy. A connection that died
+    /// before any of the response arrived leaves the caller nothing to have
+    /// acted on, which is what makes the second send the same recovery a person
+    /// would make by retrying.
+    ///
+    /// That last point is a claim about the *caller*, not a guarantee about the
+    /// upstream. A connection can also be lost after a server has read and acted
+    /// on the body, and nothing on this side can tell that apart from a socket
+    /// the peer abandoned before the request arrived — so a re-sent
+    /// non-idempotent request can reach a server that already processed the
+    /// first copy. Delivery is at-least-once, documented for WFL programs in
+    /// `Docs/04-advanced-features/interoperability.md`; the pool idle timeout
+    /// above is what keeps the recoverable stale-socket case the dominant one.
+    ///
+    /// The retry is deliberately bounded at one: a peer that is genuinely gone
+    /// must surface as an error promptly rather than being replayed in a loop. A
+    /// body that cannot be cloned (a streaming body) is never retried, since it
+    /// cannot be re-sent faithfully.
+    ///
+    /// Both send sites use this, so the buffered and streaming paths recover
+    /// identically. The whole thing runs inside the caller's timeout/budget
+    /// wrapper, so the retry cannot extend a request past its deadline.
+    ///
+    /// The future is boxed rather than left inline, which is a stack-size
+    /// decision, not a style one. Holding a request builder, its replay clone,
+    /// and an in-flight `send()` inline would embed all of that in the async
+    /// state machine of every statement that can make a request — and a
+    /// `execute file` chain nests one such state machine per level. Measured on
+    /// the self-executing-file depth guard, the inline form cost roughly 150 KiB
+    /// of stack headroom (survived a 2048 KiB thread stack, overflowed at 1920
+    /// KiB, where the same test survived 1920 KiB before this change). One heap
+    /// allocation per outbound request is not measurable next to a network
+    /// round trip; the stack headroom is worth keeping.
+    fn send_with_reuse_retry<'a>(
+        request: reqwest::RequestBuilder,
+        method: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<reqwest::Response, HttpClientError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut attempt = request;
+            let mut attempts_left = HTTP_SEND_MAX_ATTEMPTS;
+
+            loop {
+                attempts_left -= 1;
+                let replay = if attempts_left > 0 {
+                    attempt.try_clone()
+                } else {
+                    None
+                };
+
+                match attempt.send().await {
+                    Ok(response) => return Ok(response),
+                    Err(error) => match replay {
+                        // The connection died with nothing to observe: try once
+                        // more on a connection that is known to be fresh.
+                        Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
+                        _ => {
+                            return Err(HttpClientError::Request(format!(
+                                "Failed to send HTTP {method} request: {error}"
+                            )));
+                        }
+                    },
+                }
+            }
+        })
+    }
+
+    /// Did this send failure mean the connection died before any of the response
+    /// arrived — as opposed to the peer answering, or never being reachable at
+    /// all?
+    ///
+    /// This is the whole safety argument for re-sending a request that may not
+    /// be idempotent, so it tests the specific evidence rather than the general
+    /// shape of the failure. `reqwest::Error::is_request()` is far too broad: it
+    /// also covers a peer that replied with something unparseable (which handled
+    /// the request) and a peer that refused the connection (which cannot be
+    /// fixed by trying again immediately). The two signals that do mean the
+    /// connection was lost mid-request:
+    ///
+    /// * `hyper::Error::is_incomplete_message` — the connection closed before
+    ///   the response head, which is exactly what a peer's expired keep-alive
+    ///   socket produces;
+    /// * an I/O error whose kind says the socket was reset, aborted, broken, or
+    ///   read to an unexpected end — the same event seen at the syscall layer,
+    ///   which is what some platforms surface instead.
+    ///
+    /// Anything else — a parse failure, a refused connection, a TLS error — is
+    /// reported to the program as it stands.
+    fn connection_was_lost(error: &reqwest::Error) -> bool {
+        use std::io::ErrorKind as IoErrorKind;
+
+        let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error);
+        while let Some(current) = cause {
+            if let Some(hyper_error) = current.downcast_ref::<hyper::Error>()
+                && hyper_error.is_incomplete_message()
+            {
+                return true;
+            }
+            if let Some(io_error) = current.downcast_ref::<io::Error>()
+                && matches!(
+                    io_error.kind(),
+                    IoErrorKind::ConnectionReset
+                        | IoErrorKind::ConnectionAborted
+                        | IoErrorKind::BrokenPipe
+                        | IoErrorKind::NotConnected
+                        | IoErrorKind::UnexpectedEof
+                )
+            {
+                return true;
+            }
+            cause = current.source();
+        }
+        false
     }
 
     fn new(config: Arc<WflConfig>) -> Self {
@@ -2370,11 +2525,7 @@ impl IoClient {
             }
             None => idle_timeout,
         };
-        let op = async move {
-            request.send().await.map_err(|e| {
-                HttpClientError::Request(format!("Failed to send HTTP {method_owned} request: {e}"))
-            })
-        };
+        let op = async move { Self::send_with_reuse_retry(request, &method_owned).await };
         // Only the head is awaited here; dropping this future on
         // timeout/cancel aborts the connection cleanly.
         let response =
@@ -2961,9 +3112,7 @@ impl IoClient {
         let operation = async move {
             use futures_util::StreamExt;
 
-            let response = request.send().await.map_err(|e| {
-                HttpClientError::Request(format!("Failed to send HTTP {method} request: {e}"))
-            })?;
+            let response = Self::send_with_reuse_retry(request, &method).await?;
 
             let status = response.status().as_u16();
             // Header names are normalized to lowercase for consistent access
