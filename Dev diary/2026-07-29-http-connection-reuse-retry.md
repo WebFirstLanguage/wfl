@@ -180,7 +180,6 @@ peer had already decided to close. Coverage:
 * a peer that replies with something unparseable is not replayed either, even
   with a key permitting it: the peer handled the request, so the failure is real
   but the delivery must stay single;
-* an idempotent `GET` through `read content` recovers with no key at all;
 * the negative half of the replay contract: an unkeyed `POST` against an upstream
   that reads it in full and then closes reaches the server **exactly once** and
   surfaces the failure, rather than being silently submitted twice;
