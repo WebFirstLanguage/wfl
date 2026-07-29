@@ -2248,21 +2248,28 @@ impl IoClient {
     /// upstream being down, and that gets more likely the longer a program idles
     /// between calls.
     ///
-    /// A `reqwest::Error` for which `is_request()` holds means no response head
-    /// arrived, so the caller observed nothing; re-sending it once cannot
-    /// duplicate anything the caller could have acted on, and it is the same
-    /// recovery a person would make by retrying. Note that this is a claim about
-    /// the *caller*, not the upstream: `is_request()` also covers a request that
-    /// was written in full and then lost its response, so a re-sent
-    /// non-idempotent request can reach a server that already acted on the first
-    /// copy. Delivery is at-least-once, which is documented for WFL programs in
+    /// Only a *lost connection* earns a re-send — see
+    /// [`Self::connection_was_lost`]. The narrower test matters because the
+    /// request may not be idempotent: a peer that answered, even with something
+    /// unparseable, has demonstrably handled the request, and replaying it could
+    /// duplicate whatever it did with the first copy. A connection that died
+    /// before any of the response arrived leaves the caller nothing to have
+    /// acted on, which is what makes the second send the same recovery a person
+    /// would make by retrying.
+    ///
+    /// That last point is a claim about the *caller*, not a guarantee about the
+    /// upstream. A connection can also be lost after a server has read and acted
+    /// on the body, and nothing on this side can tell that apart from a socket
+    /// the peer abandoned before the request arrived — so a re-sent
+    /// non-idempotent request can reach a server that already processed the
+    /// first copy. Delivery is at-least-once, documented for WFL programs in
     /// `Docs/04-advanced-features/interoperability.md`; the pool idle timeout
-    /// above is what keeps the recoverable stale-socket case dominant. The retry
-    /// is deliberately
-    /// bounded at one: a peer that is genuinely gone must surface as an error
-    /// promptly rather than being replayed in a loop. A body that cannot be
-    /// cloned (a streaming body) is never retried, since it cannot be re-sent
-    /// faithfully.
+    /// above is what keeps the recoverable stale-socket case the dominant one.
+    ///
+    /// The retry is deliberately bounded at one: a peer that is genuinely gone
+    /// must surface as an error promptly rather than being replayed in a loop. A
+    /// body that cannot be cloned (a streaming body) is never retried, since it
+    /// cannot be re-sent faithfully.
     ///
     /// Both send sites use this, so the buffered and streaming paths recover
     /// identically. The whole thing runs inside the caller's timeout/budget
@@ -2285,9 +2292,9 @@ impl IoClient {
             match attempt.send().await {
                 Ok(response) => return Ok(response),
                 Err(error) => match replay {
-                    // Nothing came back, so nothing was observed: try once more
-                    // on a connection that is known to be fresh.
-                    Some(retry) if error.is_request() => attempt = retry,
+                    // The connection died with nothing to observe: try once
+                    // more on a connection that is known to be fresh.
+                    Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
                     _ => {
                         return Err(HttpClientError::Request(format!(
                             "Failed to send HTTP {method} request: {error}"
@@ -2296,6 +2303,54 @@ impl IoClient {
                 },
             }
         }
+    }
+
+    /// Did this send failure mean the connection died before any of the response
+    /// arrived — as opposed to the peer answering, or never being reachable at
+    /// all?
+    ///
+    /// This is the whole safety argument for re-sending a request that may not
+    /// be idempotent, so it tests the specific evidence rather than the general
+    /// shape of the failure. `reqwest::Error::is_request()` is far too broad: it
+    /// also covers a peer that replied with something unparseable (which handled
+    /// the request) and a peer that refused the connection (which cannot be
+    /// fixed by trying again immediately). The two signals that do mean the
+    /// connection was lost mid-request:
+    ///
+    /// * `hyper::Error::is_incomplete_message` — the connection closed before
+    ///   the response head, which is exactly what a peer's expired keep-alive
+    ///   socket produces;
+    /// * an I/O error whose kind says the socket was reset, aborted, broken, or
+    ///   read to an unexpected end — the same event seen at the syscall layer,
+    ///   which is what some platforms surface instead.
+    ///
+    /// Anything else — a parse failure, a refused connection, a TLS error — is
+    /// reported to the program as it stands.
+    fn connection_was_lost(error: &reqwest::Error) -> bool {
+        use std::io::ErrorKind as IoErrorKind;
+
+        let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error);
+        while let Some(current) = cause {
+            if let Some(hyper_error) = current.downcast_ref::<hyper::Error>()
+                && hyper_error.is_incomplete_message()
+            {
+                return true;
+            }
+            if let Some(io_error) = current.downcast_ref::<io::Error>()
+                && matches!(
+                    io_error.kind(),
+                    IoErrorKind::ConnectionReset
+                        | IoErrorKind::ConnectionAborted
+                        | IoErrorKind::BrokenPipe
+                        | IoErrorKind::NotConnected
+                        | IoErrorKind::UnexpectedEof
+                )
+            {
+                return true;
+            }
+            cause = current.source();
+        }
+        false
     }
 
     fn new(config: Arc<WflConfig>) -> Self {
