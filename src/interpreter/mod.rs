@@ -17673,14 +17673,90 @@ mod file_read_tests {
     /// The lazily-built client is still a *shared* client: one connection pool
     /// per interpreter, as before. Callers must not get a fresh client (and a
     /// fresh pool) per request.
+    ///
+    /// Construction is a *checked* failure here, not an `expect`: this test has
+    /// to keep passing on exactly the host the laziness exists for — one whose
+    /// trust store is empty and where no client can be built at all. There is
+    /// no client to memoize on such a host, so the reuse property is vacuous;
+    /// what must hold instead is that the failure is an ordinary
+    /// `HttpClientError` and that nothing was cached, so a later call on a
+    /// repaired host can still succeed.
     #[test]
     fn http_client_is_built_once_and_reused() {
         let client = IoClient::new(Arc::new(WflConfig::default()));
-        let first = client.http_client().expect("host has a usable TLS stack");
-        let second = client.http_client().expect("host has a usable TLS stack");
+        let first = match client.http_client() {
+            Ok(first) => first,
+            Err(error) => {
+                assert!(
+                    matches!(&error, HttpClientError::Request(message)
+                        if message.contains("Could not create HTTP client")),
+                    "a TLS stack that cannot produce a client must surface as a \
+                     checked request error, got {error:?}"
+                );
+                assert!(
+                    client.http_client.get().is_none(),
+                    "a failed build must not memoize anything, or a host whose \
+                     trust store is fixed mid-run could never build a client"
+                );
+                return;
+            }
+        };
+        let second = client
+            .http_client()
+            .expect("a client that built once must build again");
         assert!(
             std::ptr::eq(first, second),
             "the HTTP client must be memoized, not rebuilt per call"
+        );
+    }
+
+    /// The other half of the same regression: deferring construction must not
+    /// turn a broken TLS stack into a *different* abort. A request is the first
+    /// thing that forces the client to be built, so that build's failure has to
+    /// travel the ordinary outbound-HTTP error path — a `RuntimeError` that
+    /// `try`/`when` can catch — and never a panic that takes the process down.
+    ///
+    /// The program below deliberately has no `try`/`when`: the interpreter must
+    /// still start, execute, and *return* the error. The request targets a port
+    /// nothing is listening on, so it always fails; which failure it is depends
+    /// on the host (connection refused, or "Could not create HTTP client" where
+    /// the trust store is empty), and either way it must arrive as a returned
+    /// `RuntimeError`.
+    #[tokio::test]
+    async fn a_request_reports_client_failure_as_a_catchable_runtime_error() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("reserve a port");
+        let port = listener.local_addr().expect("reserved address").port();
+        drop(listener);
+
+        let source =
+            format!("open url at \"http://127.0.0.1:{port}/\" and read content as reply\n");
+        let tokens = crate::lexer::lex_wfl_with_positions(&source);
+        let program = crate::parser::Parser::new(&tokens)
+            .parse()
+            .unwrap_or_else(|errors| panic!("fixture did not parse: {errors:?}"));
+
+        let mut interpreter = Interpreter::new();
+        let errors = interpreter
+            .interpret(&program)
+            .await
+            .expect_err("a request to a dead port cannot succeed");
+
+        let first = errors.first().expect("a returned runtime error");
+        assert!(
+            first.message.contains(&format!("127.0.0.1:{port}"))
+                || first.message.contains("Could not create HTTP client"),
+            "the returned error must come from the request that forced client \
+             construction: {first:?}"
+        );
+        assert!(
+            matches!(first.kind, ErrorKind::General),
+            "an outbound request failure must stay an ordinary catchable error: {first:?}"
+        );
+        assert!(
+            first.line > 0,
+            "the failure must be attributed to the requesting statement: {first:?}"
         );
     }
 
