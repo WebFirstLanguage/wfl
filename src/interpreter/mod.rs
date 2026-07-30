@@ -2170,6 +2170,49 @@ const HTTP_POOL_IDLE_TIMEOUT_SECONDS: u64 = 3;
 /// reached a response head. See [`IoClient::send_with_reuse_retry`].
 const HTTP_SEND_MAX_ATTEMPTS: u32 = 2;
 
+/// Headers with which a caller states that repeating an outbound request is
+/// safe: the upstream deduplicates on the key, so a second delivery of the same
+/// request is not a second side effect. `Idempotency-Key` is the name the
+/// payment and API ecosystem settled on; the `X-` form is accepted because
+/// plenty of services still publish it. The promise is in the *value*, so only a
+/// non-empty one counts: an empty key gives the upstream nothing to deduplicate
+/// on, and is usually an unset variable rather than a deliberate opt-in.
+const HTTP_IDEMPOTENCY_KEY_HEADERS: [&str; 2] = ["idempotency-key", "x-idempotency-key"];
+
+/// Whether re-sending `request` after a failure that produced no response head
+/// can only ever duplicate work the upstream is prepared for.
+///
+/// `reqwest::Error::is_request()` establishes that the *caller* saw no response.
+/// It does not establish that the upstream never received the request: hyper
+/// reports the same error for a socket the peer closed before reading anything
+/// and for one it closed after reading — and possibly committing — the body, and
+/// the two are indistinguishable from the client side. Replaying the second case
+/// would deliver a non-idempotent request twice, duplicating a charge or a write
+/// the program never asked to repeat, so replay requires a request that carries
+/// a promise it is safe:
+///
+/// * an idempotent method (RFC 9110 §9.2.2), where repeating the request is
+///   defined to have the same effect on the server as issuing it once, or
+/// * an explicit idempotency-key header with a non-empty value, the caller's own
+///   statement that the upstream collapses retries of this exact request.
+///
+/// Every other request surfaces the send failure instead. A bare `POST` is not
+/// left unprotected: [`HTTP_POOL_IDLE_TIMEOUT_SECONDS`] keeps a connection from
+/// being reused once it has been idle long enough for the peer to have dropped
+/// it, which is the case that made these failures routine.
+fn request_may_be_replayed(request: &reqwest::Request) -> bool {
+    if request.method().is_idempotent() {
+        return true;
+    }
+
+    HTTP_IDEMPOTENCY_KEY_HEADERS.iter().any(|name| {
+        request
+            .headers()
+            .get(*name)
+            .is_some_and(|value| !value.is_empty())
+    })
+}
+
 #[derive(Debug)]
 enum FileReadError {
     Io(String),
@@ -2250,23 +2293,22 @@ impl IoClient {
     /// upstream being down, and that gets more likely the longer a program idles
     /// between calls.
     ///
-    /// Only a *lost connection* earns a re-send — see
-    /// [`Self::connection_was_lost`]. The narrower test matters because the
-    /// request may not be idempotent: a peer that answered, even with something
-    /// unparseable, has demonstrably handled the request, and replaying it could
-    /// duplicate whatever it did with the first copy. A connection that died
-    /// before any of the response arrived leaves the caller nothing to have
-    /// acted on, which is what makes the second send the same recovery a person
-    /// would make by retrying.
+    /// A re-send needs *both* of two conditions, because either one alone would
+    /// duplicate work:
     ///
-    /// That last point is a claim about the *caller*, not a guarantee about the
-    /// upstream. A connection can also be lost after a server has read and acted
-    /// on the body, and nothing on this side can tell that apart from a socket
-    /// the peer abandoned before the request arrived — so a re-sent
-    /// non-idempotent request can reach a server that already processed the
-    /// first copy. Delivery is at-least-once, documented for WFL programs in
-    /// `Docs/04-advanced-features/interoperability.md`; the pool idle timeout
-    /// above is what keeps the recoverable stale-socket case the dominant one.
+    /// 1. The connection was lost — see [`Self::connection_was_lost`]. A peer
+    ///    that answered, even with something unparseable, has demonstrably
+    ///    handled the request, so replaying it could duplicate whatever it did
+    ///    with the first copy. Only a connection that died before any of the
+    ///    response arrived leaves the caller nothing to have acted on.
+    /// 2. Repeating the request is safe — see [`request_may_be_replayed`]. A
+    ///    lost connection says nothing about whether the *upstream* acted: it can
+    ///    also be lost after a server read and committed the body, and nothing on
+    ///    this side can tell that apart from a socket the peer abandoned before
+    ///    the request arrived. So the replay is restricted to requests that carry
+    ///    a promise they can be repeated — an idempotent method, or a non-empty
+    ///    idempotency-key header — and a bare `POST` relies on the pool idle
+    ///    timeout above instead.
     ///
     /// The retry is deliberately bounded at one: a peer that is genuinely gone
     /// must surface as an error promptly rather than being replayed in a loop. A
@@ -2291,13 +2333,21 @@ impl IoClient {
         request: reqwest::RequestBuilder,
         method: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<reqwest::Response, HttpClientError>> + Send + 'a>> {
+        // Decided once, before anything goes out: whether this request may be
+        // repeated at all. Building a clone is also what proves the body can be
+        // reproduced faithfully, so a streaming body drops out here too.
+        let replayable = request
+            .try_clone()
+            .and_then(|probe| probe.build().ok())
+            .is_some_and(|probe| request_may_be_replayed(&probe));
+
         Box::pin(async move {
             let mut attempt = request;
             let mut attempts_left = HTTP_SEND_MAX_ATTEMPTS;
 
             loop {
                 attempts_left -= 1;
-                let replay = if attempts_left > 0 {
+                let replay = if replayable && attempts_left > 0 {
                     attempt.try_clone()
                 } else {
                     None
@@ -2306,8 +2356,9 @@ impl IoClient {
                 match attempt.send().await {
                     Ok(response) => return Ok(response),
                     Err(error) => match replay {
-                        // The connection died with nothing to observe: try once
-                        // more on a connection that is known to be fresh.
+                        // The connection died with nothing to observe, and this
+                        // request is safe to repeat: try once more on a
+                        // connection that is known to be fresh.
                         Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
                         _ => {
                             return Err(HttpClientError::Request(format!(
@@ -2324,9 +2375,10 @@ impl IoClient {
     /// arrived — as opposed to the peer answering, or never being reachable at
     /// all?
     ///
-    /// This is the whole safety argument for re-sending a request that may not
-    /// be idempotent, so it tests the specific evidence rather than the general
-    /// shape of the failure. `reqwest::Error::is_request()` is far too broad: it
+    /// This is one half of the safety argument for a re-send (the other is
+    /// [`request_may_be_replayed`]), so it tests the specific evidence rather
+    /// than the general shape of the failure. `reqwest::Error::is_request()` is
+    /// far too broad: it
     /// also covers a peer that replied with something unparseable (which handled
     /// the request) and a peer that refused the connection (which cannot be
     /// fixed by trying again immediately). The two signals that do mean the

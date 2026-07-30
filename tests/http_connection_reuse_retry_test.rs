@@ -10,11 +10,13 @@
 // "Failed to send HTTP POST request: error sending request for url (...)"
 // instead of transparently reconnecting.
 //
-// A request that never received a response head demonstrably produced no
-// observable effect the caller can see, so re-sending it once on a fresh
-// connection is the correct recovery — that is what these tests pin down, for
-// BOTH send sites (the buffered `read response` path and the `stream response`
-// path), plus the bound that stops the retry from looping.
+// A request that never received a response head produced no effect the caller
+// can see, but the *upstream* may still have acted on it, so re-sending one is
+// only correct when repeating it is safe: an idempotent method, or a caller-
+// supplied idempotency key the upstream deduplicates on. These tests pin both
+// halves of that contract — the recovery, for BOTH send sites (the buffered
+// `read response`/`read content` path and the `stream response` path), the bound
+// that stops the retry from looping, and the refusal to replay a bare POST.
 //
 // The upstream here is a raw TCP server so the "peer closed the keep-alive
 // socket" moment is deterministic rather than a timing race: it answers
@@ -220,15 +222,27 @@ fn get_text(interpreter: &Interpreter, name: &str) -> String {
 /// Two POSTs through one interpreter (hence one pooled client). The second one
 /// lands on the connection the first one left in the pool, and the peer closes
 /// it instead of answering — the program must still get its reply.
+///
+/// The POSTs carry an `Idempotency-Key`, which is what makes them replayable:
+/// this upstream reads a dropped request in full before closing, so a client
+/// cannot know the body was not acted on, and only the caller's key says a
+/// second delivery is safe. See the negative test below for a bare POST.
 #[tokio::test]
-async fn buffered_post_survives_a_peer_closed_keepalive_socket() {
+async fn buffered_keyed_post_survives_a_peer_closed_keepalive_socket() {
     let (url, stats) = spawn_upstream(DropPolicy::Requests(vec![2])).await;
 
     let code = format!(
         r#"
-        open url at "{url}" with method "POST" and body "first" and read response as resp1
+        create map first_headers:
+            "Idempotency-Key" is "buffered-first"
+        end map
+        create map second_headers:
+            "Idempotency-Key" is "buffered-second"
+        end map
+
+        open url at "{url}" with method "POST" and headers first_headers and body "first" and read response as resp1
         store body1 as resp1["body"]
-        open url at "{url}" with method "POST" and body "second" and read response as resp2
+        open url at "{url}" with method "POST" and headers second_headers and body "second" and read response as resp2
         store body2 as resp2["body"]
         store status2 as resp2["status"]
         "#
@@ -263,14 +277,18 @@ async fn buffered_post_survives_a_peer_closed_keepalive_socket() {
 /// The streaming path: `open url ... and stream response`. This is the one an
 /// SSE/LLM proxy uses, and the one that produced the reported 500.
 #[tokio::test]
-async fn streaming_post_survives_a_peer_closed_keepalive_socket() {
+async fn streaming_keyed_post_survives_a_peer_closed_keepalive_socket() {
     let (url, stats) = spawn_upstream(DropPolicy::Requests(vec![2])).await;
 
     let code = format!(
         r#"
+        create map stream_headers:
+            "Idempotency-Key" is "streamed-turn"
+        end map
+
         open url at "{url}" with method "POST" and body "warm" and read response as resp1
         store body1 as resp1["body"]
-        open url at "{url}" with method "POST" and body "stream" and stream response as up
+        open url at "{url}" with method "POST" and headers stream_headers and body "stream" and stream response as up
         wait for next line from up as line1
         store first_line as line1
         "#
@@ -300,7 +318,11 @@ async fn a_permanently_closing_upstream_is_retried_once_and_then_fails() {
 
     let code = format!(
         r#"
-        open url at "{url}" with method "POST" and body "doomed" and read response as resp
+        create map doomed_headers:
+            "Idempotency-Key" is "doomed"
+        end map
+
+        open url at "{url}" with method "POST" and headers doomed_headers and body "doomed" and read response as resp
         "#
     );
 
@@ -329,12 +351,12 @@ async fn a_permanently_closing_upstream_is_retried_once_and_then_fails() {
 /// shorter than the gap the program leaves between two calls (Node's 5s default
 /// versus a chat turn spent talking to somebody else).
 ///
-/// Unlike the tests above this one is time-based, so it does not pin *which*
-/// recovery ran — the pool may drop the expired socket before the second call,
-/// or hand it over and let the re-send recover. It pins the outcome that
-/// matters either way: an idle gap past the peer's keep-alive window still
-/// yields a reply rather than a spurious send failure. Both calls run through
-/// one interpreter, so they share one connection pool.
+/// This is the case a bare, unkeyed POST has to survive *without* a re-send,
+/// since replaying it is not safe: the pool must refuse to hand out a socket it
+/// has held past its own idle timeout, so the second call opens a fresh
+/// connection instead of writing onto a dead one. Hence the gap below is longer
+/// than the pool's idle timeout, not merely longer than the peer's. Both calls
+/// run through one interpreter, so they share one connection pool.
 #[tokio::test]
 async fn an_idle_gap_past_the_peers_keepalive_still_gets_a_reply() {
     let (url, stats) = spawn_upstream(DropPolicy::IdleAfter(Duration::from_millis(300))).await;
@@ -353,14 +375,20 @@ async fn an_idle_gap_past_the_peers_keepalive_still_gets_a_reply() {
     assert_eq!(get_text(&interpreter, "body1"), "reply1\n");
 
     // Long enough that the peer has certainly closed the socket it was keeping
-    // alive for us.
-    tokio::time::sleep(Duration::from_millis(900)).await;
+    // alive for us, and long enough that our own pool has expired it too — the
+    // only protection an unkeyed POST gets.
+    tokio::time::sleep(Duration::from_millis(3_500)).await;
 
     interpreter
         .interpret(&second)
         .await
         .unwrap_or_else(|e| panic!("call after the peer's keep-alive expired: {e:?}"));
     assert_eq!(get_text(&interpreter, "body2"), "reply2\n");
+    assert_eq!(
+        stats.requests.load(Ordering::SeqCst),
+        2,
+        "the pool should have avoided the dead socket outright, with no re-send"
+    );
     assert!(
         stats.connections.load(Ordering::SeqCst) >= 2,
         "the second call must end up on a live connection"
@@ -381,7 +409,11 @@ async fn a_non_http_reply_is_not_replayed() {
 
     let code = format!(
         r#"
-        open url at "{url}" with method "POST" and body "once" and read response as resp
+        create map keyed_headers:
+            "Idempotency-Key" is "unparseable-reply"
+        end map
+
+        open url at "{url}" with method "POST" and headers keyed_headers and body "once" and read response as resp
         "#
     );
 
@@ -393,7 +425,108 @@ async fn a_non_http_reply_is_not_replayed() {
     assert_eq!(
         stats.requests.load(Ordering::SeqCst),
         1,
-        "a peer that answered must not have the request delivered twice"
+        "a peer that answered must not have the request delivered twice, even \
+         with an idempotency key permitting a replay"
+    );
+}
+
+/// The other half of the contract: even a lost connection does not earn a
+/// re-send when the request cannot be safely repeated.
+///
+/// This upstream reads the dropped request in full before closing the socket,
+/// which is exactly the ambiguity that makes replay unsafe: from the client the
+/// failure is identical whether the server ignored the body or committed it. An
+/// unkeyed POST therefore surfaces the failure after a single delivery, rather
+/// than the interpreter quietly submitting the same payment twice.
+#[tokio::test]
+async fn an_unkeyed_post_is_never_replayed() {
+    let (url, stats) = spawn_upstream(DropPolicy::All).await;
+
+    let code = format!(
+        r#"
+        open url at "{url}" with method "POST" and body "charge=1000" and read response as resp
+        "#
+    );
+
+    let program = parse(&code);
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&program).await;
+
+    let errors = result.expect_err("a peer that never answers must surface an error");
+    let message = errors
+        .iter()
+        .map(|e| e.message.clone())
+        .collect::<Vec<_>>()
+        .join("; ");
+    assert!(
+        message.contains("Failed to send HTTP POST request"),
+        "unexpected error: {message}"
+    );
+    assert_eq!(
+        stats.requests.load(Ordering::SeqCst),
+        1,
+        "a non-idempotent request with no idempotency key must reach the upstream \
+         exactly once, even though the failure looks retryable"
+    );
+}
+
+/// An empty key value is not a promise. `"Idempotency-Key" is ""` names the
+/// header but tells the upstream nothing to deduplicate on, so it must not buy a
+/// replay that a bare POST is denied.
+#[tokio::test]
+async fn an_empty_idempotency_key_is_not_a_promise() {
+    let (url, stats) = spawn_upstream(DropPolicy::All).await;
+
+    let code = format!(
+        r#"
+        create map blank_headers:
+            "Idempotency-Key" is ""
+        end map
+
+        open url at "{url}" with method "POST" and headers blank_headers and body "charge=1000" and read response as resp
+        "#
+    );
+
+    let program = parse(&code);
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&program).await;
+
+    result.expect_err("a peer that never answers must surface an error");
+    assert_eq!(
+        stats.requests.load(Ordering::SeqCst),
+        1,
+        "an empty idempotency key carries no promise of deduplication, so the \
+         POST must reach the upstream exactly once"
+    );
+}
+
+/// An idempotent method needs no key: repeating a GET is defined to have the
+/// same effect as making it once (RFC 9110 §9.2.2), so the `read content` path
+/// recovers from a peer-closed pooled socket on its own.
+#[tokio::test]
+async fn an_idempotent_get_is_replayed_without_a_key() {
+    let (url, stats) = spawn_upstream(DropPolicy::Requests(vec![2])).await;
+
+    let code = format!(
+        r#"
+        open url at "{url}" and read content as body1
+        open url at "{url}" and read content as body2
+        "#
+    );
+
+    let interpreter = run_wfl(&code).await;
+
+    assert_eq!(get_text(&interpreter, "body1"), "reply1\n");
+    // Request 2 was dropped by the peer; the retry is request 3.
+    assert_eq!(get_text(&interpreter, "body2"), "reply3\n");
+    assert_eq!(
+        stats.requests.load(Ordering::SeqCst),
+        3,
+        "expected the dropped GET to be re-sent exactly once"
+    );
+    assert!(
+        stats.reused_connection_requests.load(Ordering::SeqCst) >= 1,
+        "the second GET should have reused the pooled keep-alive socket"
     );
 }
 

@@ -402,6 +402,23 @@
     ],
     "doc_purpose": "Docs README tour: containers/objects"
   },
+  "docs_examples/interoperability/idempotency_key_resend.wfl": {
+    "doc_section": "Docs/04-advanced-features/interoperability.md#connection-reuse-and-the-automatic-re-send",
+    "type": "snippet",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "skip_execution": true,
+    "tags": [
+      "http-client",
+      "idempotency",
+      "interoperability"
+    ],
+    "description": "A POST carrying an Idempotency-Key header, the shape WFL is allowed to re-send after a lost connection."
+  },
   "docs_examples/interoperability/streaming_response.wfl": {
     "doc_section": "Docs/04-advanced-features/interoperability.md#streaming-a-response-incrementally",
     "type": "snippet",
