@@ -687,32 +687,45 @@ jobs:
         run: |
           DATE=$(date +'%Y-%m-%d')
           TAG="nightly-${DATE}"
+          SHA=$(git rev-parse HEAD)
 
-          # Delete existing local tag if it exists
-          echo "Checking for existing local tag: $TAG"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Deleting existing local tag: $TAG"
-            git tag -d "$TAG"
-          else
-            echo "No existing local tag found"
+          # This repository has GitHub immutable releases enabled, so the tag of a
+          # published release is permanently protected: pushing a delete is refused
+          # with "GH013 ... Cannot delete this tag". The previous
+          # delete-then-recreate flow swallowed that refusal as a warning and then
+          # died on "tag already exists", failing the whole release job on any run
+          # that happened after a release already existed for the same date -- a
+          # manual re-dispatch on a day the scheduled nightly had already
+          # published, for instance -- even with every build job green.
+          # Tagging is idempotent now and never fails on an already-published tag.
+          REFS=$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}" || true)
+
+          if [ -z "$REFS" ]; then
+            echo "No existing remote tag $TAG; creating it at $SHA."
+            git tag -f -a "$TAG" -m "Nightly build $DATE"
+            git push origin "refs/tags/$TAG"
+            exit 0
           fi
 
-          # Delete existing remote tag if it exists
-          echo "Checking for existing remote tag: $TAG"
-          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
-            echo "Deleting existing remote tag: $TAG"
-            if ! git push origin ":refs/tags/$TAG" 2>&1; then
-              echo "::warning::Failed to delete remote tag $TAG, but continuing (may not exist or insufficient permissions)"
-            fi
-          else
-            echo "No existing remote tag found"
+          # An annotated tag reports the tag object on the plain line and the
+          # commit it points at on the "^{}" line; prefer the latter.
+          TAGGED=$(printf '%s\n' "$REFS" | awk '$2 ~ /\^\{\}$/ { print $1 }' | head -n 1)
+          if [ -z "$TAGGED" ]; then
+            TAGGED=$(printf '%s\n' "$REFS" | awk 'NR == 1 { print $1 }')
           fi
 
-          # Create new tag and push
-          echo "Creating new tag: $TAG"
-          git tag -a "$TAG" -m "Nightly build $DATE"
-          echo "Pushing new tag: $TAG"
-          git push origin "$TAG"
+          if [ "$TAGGED" = "$SHA" ]; then
+            echo "Tag $TAG already points at $SHA; nothing to do."
+            exit 0
+          fi
+
+          echo "::warning::Tag $TAG already exists at $TAGGED but this build is $SHA; attempting to move it."
+          git tag -f -a "$TAG" -m "Nightly build $DATE"
+          if git push --force origin "refs/tags/$TAG"; then
+            echo "Moved $TAG to $SHA."
+          else
+            echo "::warning::Could not move $TAG; it is protected by an immutable release. Leaving the published tag at $TAGGED."
+          fi
 
       - name: Publish or update nightly release
         env:
@@ -720,7 +733,6 @@ jobs:
           SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
         run: |
           TAG="nightly-$(date +'%Y-%m-%d')"
-          gh release delete "$TAG" --yes 2>/dev/null || true
 
           # Collect all artifact files to upload with the release
           # GitHub's immutable releases require assets to be attached during creation
@@ -745,6 +757,22 @@ jobs:
 
           echo "Files to upload: $ASSET_FILES"
           echo "Number of files: $(echo $ASSET_FILES | wc -w)"
+
+          # An immutable release cannot be deleted or edited once published, so the
+          # old unconditional "delete, then create" could not refresh one: the
+          # delete was silently discarded by "|| true" and the create then failed
+          # because the release already existed. Only replace a release that is
+          # still mutable.
+          RELEASE_ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" -q '.id' 2>/dev/null || true)
+          if [ -n "$RELEASE_ID" ]; then
+            IMMUTABLE=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" -q '.immutable' 2>/dev/null || true)
+            if [ "$IMMUTABLE" = "true" ]; then
+              echo "::warning::Release $TAG is already published and immutable, so it cannot be replaced. Skipping the GitHub release step; this run's artifacts are on DigitalOcean Spaces, which the release notes already name as the canonical download location."
+              exit 0
+            fi
+            echo "Replacing the existing (mutable) release $TAG."
+            gh release delete "$TAG" --yes 2>/dev/null || true
+          fi
 
           # Create release with assets attached in a single command
           # This works with immutable releases since assets are part of the creation
