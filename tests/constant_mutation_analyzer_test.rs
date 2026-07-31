@@ -85,6 +85,59 @@ clear FIXED_LIST
     );
 }
 
+/// Action parameters, loop variables, and container properties are registered
+/// as immutable symbols in the analyzer even though they are not constants.
+/// Appending to a list parameter has always been legal (`TestPrograms/
+/// test_create_list_expression.wfl` relies on it) and must stay legal.
+#[test]
+fn list_parameters_and_loop_variables_are_not_constants() {
+    let reports = constant_mutation_reports(
+        r#"
+define action called process_list with parameters list_param:
+    add "processed" to list_param
+    remove "processed" from list_param
+    clear list_param
+    give back list_param
+end action
+
+store gathered as []
+for each entry in [1 and 2]:
+    add entry to gathered
+end for
+"#,
+    );
+
+    assert!(
+        reports.is_empty(),
+        "parameters and loop variables must not be reported as constants: {reports:?}"
+    );
+}
+
+/// Container-method parameters and container properties are registered
+/// immutable on a different code path than plain action parameters, so they get
+/// their own guard.
+#[test]
+fn container_members_are_not_constants() {
+    let reports = constant_mutation_reports(
+        r#"
+create container Messages:
+    property entries: List
+
+    action enqueue needs incoming: List:
+        add "queued" to incoming
+        add "queued" to entries
+        clear entries
+    end
+end
+"#,
+    );
+
+    assert!(
+        reports.is_empty(),
+        "container properties and method parameters must not be reported as constants: {reports:?}"
+    );
+}
+
 #[test]
 fn mutable_targets_are_still_accepted() {
     let reports = constant_mutation_reports(

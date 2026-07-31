@@ -362,6 +362,13 @@ pub struct Analyzer {
     /// surfaced as a warning rather than a fatal error or silent suppression.
     warnings: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
+    /// Bindings introduced by `store new constant`. `SymbolKind::Variable {
+    /// mutable: false }` cannot stand in for this: action and container-method
+    /// parameters, loop variables, `try`/`when` error bindings, predefined
+    /// globals, and REPL parent-scope variables are all registered immutable
+    /// without being constants. Keyed by binding rather than by name so a
+    /// constant shadowed in an inner scope is not mistaken for the outer one.
+    constant_bindings: std::collections::HashSet<SymbolBindingKey>,
     containers: HashMap<String, ContainerInfo>,
     events: HashMap<String, EventInfo>,
     current_container: Option<String>,
@@ -649,6 +656,7 @@ impl Analyzer {
             errors: Vec::new(),
             warnings: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
+            constant_bindings: std::collections::HashSet::new(),
             containers: HashMap::new(),
             events: HashMap::new(),
             current_container: None,
@@ -725,6 +733,7 @@ impl Analyzer {
         self.errors.clear();
         self.warnings.clear();
         self.action_parameters.clear();
+        self.constant_bindings.clear();
         self.containers.clear();
         self.events.clear();
         self.current_container = None;
@@ -946,7 +955,12 @@ impl Analyzer {
                 if !is_property_assignment {
                     match self.current_scope.define(symbol) {
                         Err(error) => self.errors.push(error),
-                        Ok(()) => self.update_action_alias(name, value),
+                        Ok(()) => {
+                            if *is_constant && let Some(key) = self.get_symbol_binding_key(name) {
+                                self.constant_bindings.insert(key);
+                            }
+                            self.update_action_alias(name, value)
+                        }
                     }
                 }
             }
@@ -2427,6 +2441,8 @@ impl Analyzer {
                         *line,
                         *column,
                     ));
+                } else {
+                    self.report_constant_mutation(list_name, *line, *column);
                 }
             }
 
@@ -2443,6 +2459,8 @@ impl Analyzer {
                         *line,
                         *column,
                     ));
+                } else {
+                    self.report_constant_mutation(list_name, *line, *column);
                 }
             }
 
@@ -2457,7 +2475,13 @@ impl Analyzer {
                     *column,
                 ));
             }
-            Statement::ClearListStatement { .. } => {}
+            Statement::ClearListStatement {
+                list_name,
+                line,
+                column,
+            } => {
+                self.report_constant_mutation(list_name, *line, *column);
+            }
 
             Statement::EventDefinition {
                 name,
@@ -4595,6 +4619,34 @@ impl Analyzer {
             return self.is_container_property(container_name, name);
         }
         false
+    }
+
+    /// Report a mutation of an immutable binding through one of the bare-name
+    /// mutation statements (`add ... to`, `remove ... from`, `clear`). These
+    /// parse to their own statement kinds rather than `Assignment` — `add 10 to
+    /// MAX_SIZE` becomes an `AddToListStatement` because the target's type is
+    /// unknown at parse time — so they need the same constness check the
+    /// assignment path performs (issue #671).
+    ///
+    /// Callers reach this only on the defined-target branch, so a name can
+    /// never draw both this report and `Variable '<name>' is not defined`.
+    ///
+    /// The test is `constant_bindings` membership, not `mutable: false`: action
+    /// and container-method parameters, loop variables, and REPL parent-scope
+    /// variables are all immutable symbols that are not constants, and
+    /// appending to a list parameter (`add "x" to list_param`) has always been
+    /// legal.
+    fn report_constant_mutation(&mut self, name: &str, line: usize, column: usize) {
+        let is_constant = self
+            .get_symbol_binding_key(name)
+            .is_some_and(|key| self.constant_bindings.contains(&key));
+        if is_constant {
+            self.errors.push(SemanticError::new(
+                format!("Cannot modify constant '{name}' - constants are immutable once defined"),
+                line,
+                column,
+            ));
+        }
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {

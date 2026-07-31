@@ -1,73 +1,10 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "WFL Documentation Validation Cache",
-  "description": "Cache of validation results to avoid re-validating unchanged files",
-  "type": "object",
-  "properties": {
-    "cache_version": {
-      "type": "string",
-      "description": "Version of cache format",
-      "const": "1.0"
-    },
-    "wfl_version": {
-      "type": "string",
-      "description": "Version of WFL compiler used for validation"
-    },
-    "last_full_validation": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Timestamp of last full validation run"
-    },
-    "files": {
-      "type": "object",
-      "patternProperties": {
-        "^[a-zA-Z0-9_/-]+\\.wfl$": {
-          "type": "object",
-          "properties": {
-            "content_hash": {
-              "type": "string",
-              "pattern": "^sha256:[a-f0-9]{64}$"
-            },
-            "last_validated": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "validation_result": {
-              "type": "string",
-              "enum": [
-                "pass",
-                "fail",
-                "skip"
-              ]
-            },
-            "validation_time_ms": {
-              "type": "number",
-              "description": "Time taken to validate in milliseconds"
-            },
-            "layers_passed": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "required": [
-    "cache_version",
-    "wfl_version",
-    "files"
-  ],
   "files": {
     "docs_examples/basic_syntax/hello_world.wfl": {
-      "content_hash": "sha256:be2be1dfd36cde98afaa632bac0df89113490f5b6fdfadaf610fcdffe45ae13b",
-      "last_validated": "2026-01-09T11:05:24.070922+00:00",
+      "content_hash": "sha256:5bfee120e6a3a5d287bae82f7c42b1cdbb1da8b23709bafadba57fd2098f012e",
+      "last_validated": "2026-07-31T05:44:28.596834+00:00",
       "validation_result": "pass",
-      "validation_time_ms": 47.69182205200195,
+      "validation_time_ms": 16.66712760925293,
       "layers_passed": [
         1,
         2,
@@ -75,8 +12,260 @@
         4,
         5
       ]
+    },
+    "docs_examples/basic_syntax/display_multiple_01.wfl": {
+      "content_hash": "sha256:ebd39db92448dde0246b75f956899e96f0fe20be13756a9c00f8115c403d55b7",
+      "last_validated": "2026-07-31T05:44:28.596927+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 15.560626983642578,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/basic_syntax/variables_01.wfl": {
+      "content_hash": "sha256:1c49f31fde86f28be8657e0c0b9c8712eb7e519eeb61499efa70faea6ed1b6dc",
+      "last_validated": "2026-07-31T05:44:28.596955+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 14.144659042358398,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/basic_syntax/constants_01.wfl": {
+      "content_hash": "sha256:14a9b42c6fc07e4d734a7c527716d8c48a9dd8e137f7f3b6961f81a6053c92fb",
+      "last_validated": "2026-07-31T05:44:28.596977+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.668060302734375,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/basic_syntax/constants_immutable_01.wfl": {
+      "content_hash": "sha256:06136c2c3b9039facef44695a8bd3244c1ad9c1428514a833b2c90dc3462c34c",
+      "last_validated": "2026-07-31T05:44:28.597003+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 6.65283203125,
+      "layers_passed": [
+        1
+      ]
+    },
+    "docs_examples/basic_syntax/operators_01.wfl": {
+      "content_hash": "sha256:201229c7c51194da23cd3e9562466350e7d16ddeef004f7b90cbd9a2e6900c1c",
+      "last_validated": "2026-07-31T05:44:28.597024+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 14.770269393920898,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/basic_syntax/control_flow_01.wfl": {
+      "content_hash": "sha256:d7ff11af42cbe80cf21da2b459f6c56f17d95c93663483f6b8dd4f8f0305e6a9",
+      "last_validated": "2026-07-31T05:44:28.597047+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 15.36250114440918,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/basic_syntax/loops_01.wfl": {
+      "content_hash": "sha256:e362a8307c91a01ae274d15e0bcfe03aecab20567ff5bb226d1a411515f376b4",
+      "last_validated": "2026-07-31T05:44:28.597082+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 15.189409255981445,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/basic_syntax/for_each_01.wfl": {
+      "content_hash": "sha256:09ec90b2238c910db86baf580daf81260582a686395a5a340c2fe585a880abdc",
+      "last_validated": "2026-07-31T05:44:28.597123+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 14.603376388549805,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/01_hello.wfl": {
+      "content_hash": "sha256:2d031526230c983f23657be45e36f1a623f8f2336db2da8c5db220a310048674",
+      "last_validated": "2026-07-31T05:44:28.597146+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.627052307128906,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/02_variables.wfl": {
+      "content_hash": "sha256:878c80380dd3fa70b01135258f973cfbde605928f13d83b3a92fd28656e55457",
+      "last_validated": "2026-07-31T05:44:28.597167+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.377666473388672,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/03_conditionals.wfl": {
+      "content_hash": "sha256:f861fc3b4d88acb689f97d0ba38945763631cc92da25502529df28bb04e91008",
+      "last_validated": "2026-07-31T05:44:28.597188+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.41867446899414,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/04_loops.wfl": {
+      "content_hash": "sha256:ec0f1f21fa0762a6180d37c91af1b435532b2b1d053cab86aa70055627522d31",
+      "last_validated": "2026-07-31T05:44:28.597210+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.568639755249023,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/05_lists.wfl": {
+      "content_hash": "sha256:115ade8e28503290d34de3bbd850e953c14f8dd43ba4ec8499c6b860d8972e0a",
+      "last_validated": "2026-07-31T05:44:28.597228+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.858556747436523,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/06_actions.wfl": {
+      "content_hash": "sha256:78eda9a4a3ded03ed961ad90a518a113bcd548da40da962f9d18f606820f7922",
+      "last_validated": "2026-07-31T05:44:28.597246+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.782262802124023,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/07_errors.wfl": {
+      "content_hash": "sha256:a04d116e763c526dd5fefe52b0812cc9a3133e99069c13300e8b132edbd76ea6",
+      "last_validated": "2026-07-31T05:44:28.597263+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 13.933181762695312,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/tour/08_containers.wfl": {
+      "content_hash": "sha256:d6654e5b6459b325a0e069b06e4499c39ca6d5b076f25c370a29f9600e01eb2d",
+      "last_validated": "2026-07-31T05:44:28.597281+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 14.121770858764648,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "docs_examples/interoperability/idempotency_key_resend.wfl": {
+      "content_hash": "sha256:0525a7ba920eb7aa00de941d35d2d520081a5ae8ad0bdcbe165b5da48d8c3f21",
+      "last_validated": "2026-07-31T05:44:28.597303+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 10.030984878540039,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "docs_examples/interoperability/streaming_response.wfl": {
+      "content_hash": "sha256:68a97457e150d1ff3aadaf8665f12a350df9182dbbbcec505cf1de9d14f7a128",
+      "last_validated": "2026-07-31T05:44:28.597340+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 9.25135612487793,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "docs_examples/web_servers/streaming_response.wfl": {
+      "content_hash": "sha256:a6f43b2b911011cf0f24463003164efa9dba13f0f673891f622c25e6eb8e214f",
+      "last_validated": "2026-07-31T05:44:28.597367+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 10.085821151733398,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "docs_examples/web_servers/concurrent_main_loop.wfl": {
+      "content_hash": "sha256:6d036e77f971c181698204ecb4355e11fc6f3f3e2029307e318c395fa619fccf",
+      "last_validated": "2026-07-31T05:44:28.597397+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 9.518861770629883,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4
+      ]
     }
   },
-  "wfl_version": "WebFirst Language (WFL) version 26.1.13",
-  "last_full_validation": "2026-01-09T11:05:24.081134+00:00"
+  "wfl_version": "WebFirst Language (WFL) version 26.7.60",
+  "last_full_validation": "2026-07-31T05:50:16.413732+00:00"
 }
