@@ -1,6 +1,6 @@
 [package]
 name = "wfl"
-version = "26.7.61"
+version = "26.7.62"
 edition = "2024"
 # Minimum supported Rust version. Driven by the `sqlx` 0.9 dependency, which
 # declares `rust-version = "1.94"`; the WFL sources themselves need less.
@@ -16,7 +16,7 @@ default-run = "wfl"
 name = "WFL"
 identifier = "com.logbie.wfl"
 icon = ["icons/wfl.png"]
-version = "26.7.61"
+version = "26.7.62"
 copyright = "© 2025 Logbie LLC"
 category = "Developer Tool"
 short_description = "WebFirst Language Compiler and Runtime"
@@ -64,10 +64,11 @@ serde_json = "1.0.150"
 # Backs the `parse_toml` / `stringify_toml` builtins, mirroring the serde_json-backed
 # JSON surface. Ships TOML 1.0 support (and reads the 1.1 spec additions).
 toml = "1.1.4"
-# Held at 0.3.x: warp 0.4 dropped the `tls` feature (its TLS code is gated behind
-# an undeclared `tls` feature), which would remove HTTPS support from WFL's web
-# server (`secured with certificate ... and key ...`) — a backward-compat break.
-warp = { version = "0.3.7", features = ["tls"] }
+# Keep Warp 0.3.x for its stable routing/filter API, but do not enable its legacy
+# TLS adapter: that adapter pins rustls 0.22. WFL serves the same filters through
+# Tokio-Rustls 0.26 below, preserving secured-listener behavior on rustls 0.23.
+warp = "0.3.7"
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
 rustls-pemfile = "2"
 uuid = { version = "1.23.5", features = ["v4"] }
 bytes = "1.12.1"
@@ -102,7 +103,7 @@ num-bigint-dig = "0.8.6"
 # into the same rustls 0.23, and rustls refuses to pick a default when both are
 # present; installing one up front keeps any ambient-default TLS path from
 # panicking. `ring` matches sqlx.
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 hyper = "1"
 
 [features]
