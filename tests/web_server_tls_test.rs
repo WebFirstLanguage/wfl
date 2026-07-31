@@ -5,14 +5,17 @@
 //
 // Self-signed certificates are generated per test with rcgen (localhost +
 // 127.0.0.1 SANs); reqwest clients accept them via
-// danger_accept_invalid_certs. Ports 8210-8219 (the bind-address tests use
-// 8200-8203).
+// danger_accept_invalid_certs. Ports 8210-8224 (the bind-address tests use
+// 8200-8203); the ephemeral-address test uses port 0.
 
 use reqwest::tls::Version as TlsVersion;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use wfl::Interpreter;
 use wfl::config::WflConfig;
+use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
@@ -40,7 +43,10 @@ fn write_self_signed_cert(dir: &std::path::Path) -> (String, String) {
 }
 
 /// Runs a WFL program in its own thread + runtime, like the bind-address tests.
-fn start_server_with_config(code: String, config: WflConfig) -> std::thread::JoinHandle<()> {
+fn start_server_with_config(
+    code: String,
+    config: WflConfig,
+) -> std::thread::JoinHandle<Result<(), String>> {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
         rt.block_on(async {
@@ -48,9 +54,20 @@ fn start_server_with_config(code: String, config: WflConfig) -> std::thread::Joi
             let mut parser = Parser::new(&tokens);
             let ast = parser.parse().expect("Failed to parse WFL code");
             let mut interpreter = Interpreter::with_config(Arc::new(config));
-            let _ = interpreter.interpret(&ast).await;
-        });
+            interpreter
+                .interpret(&ast)
+                .await
+                .map(|_| ())
+                .map_err(|errors| format!("{errors:?}"))
+        })
     })
+}
+
+fn assert_server_program_completed(handle: std::thread::JoinHandle<Result<(), String>>) {
+    handle
+        .join()
+        .expect("TLS server program panicked")
+        .expect("TLS server program returned runtime errors");
 }
 
 fn insecure_client() -> reqwest::Client {
@@ -89,7 +106,7 @@ async fn test_https_server_serves_requests() {
     assert_eq!(response.status(), 200);
     assert_eq!(response.text().await.unwrap(), "Hello over HTTPS");
 
-    let _ = server_handle.join();
+    assert_server_program_completed(server_handle);
 }
 
 #[tokio::test]
@@ -121,7 +138,7 @@ async fn test_plain_http_to_tls_port_fails() {
         "Plain HTTP request to a TLS port should fail"
     );
 
-    let _ = server_handle.join();
+    assert_server_program_completed(server_handle);
 }
 
 #[tokio::test]
@@ -163,7 +180,7 @@ async fn test_redirect_server_returns_301_with_location() {
         "Location should preserve host, path and query, swapping scheme and port"
     );
 
-    let _ = server_handle.join();
+    assert_server_program_completed(server_handle);
 }
 
 #[tokio::test]
@@ -197,7 +214,7 @@ async fn test_bare_secured_uses_config_paths() {
         .expect("HTTPS request using config-supplied cert should succeed");
     assert_eq!(response.text().await.unwrap(), "Config-driven TLS");
 
-    let _ = server_handle.join();
+    assert_server_program_completed(server_handle);
 }
 
 #[tokio::test]
@@ -297,7 +314,7 @@ async fn test_dual_http_and_https_servers() {
         .expect("HTTPS server should answer");
     assert_eq!(https_response.text().await.unwrap(), "HTTPS OK");
 
-    let _ = server_handle.join();
+    assert_server_program_completed(server_handle);
 }
 
 #[tokio::test]
@@ -427,7 +444,7 @@ async fn test_stalled_tls_handshake_does_not_block_protocol_matrix_or_peer_ip() 
     );
 
     drop(stalled_client);
-    let _ = server_handle.join();
+    assert_server_program_completed(server_handle);
 }
 
 #[tokio::test]
@@ -471,8 +488,10 @@ async fn test_tls_configuration_rejects_malformed_and_mismatched_keys() {
         mismatch_result.expect_err("Certificate/key mismatch should be rejected")
     );
     assert!(
-        mismatch_message.contains("Failed to start secure web server"),
-        "Certificate/key mismatch should be a secure-listener error, got: {mismatch_message}"
+        mismatch_message.contains(&cert_path)
+            && mismatch_message.contains(&unrelated_key_path)
+            && mismatch_message.contains("not a valid pair"),
+        "Certificate/key mismatch should identify both invalid inputs, got: {mismatch_message}"
     );
 }
 
@@ -484,22 +503,124 @@ async fn test_close_server_stops_tls_listener() {
     let server_code = format!(
         r#"
         listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        wait for 1500 milliseconds
         close server secure_server
     "#
     );
 
-    start_server_with_config(server_code, WflConfig::default())
-        .join()
-        .expect("TLS server program panicked");
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let tokens = lex_wfl_with_positions(&server_code);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser.parse().expect("Failed to parse TLS close program");
+    let mut interpreter = Interpreter::with_config(Arc::new(WflConfig::default()));
 
-    let result = insecure_client()
-        .get(format!("https://127.0.0.1:{port}/after-close"))
-        .timeout(Duration::from_secs(1))
-        .send()
-        .await;
-    assert!(
-        result.is_err(),
-        "A closed TLS server must not accept a new connection"
+    let cert_file = std::fs::File::open(&cert_path).expect("Failed to reopen test certificate");
+    let cert = rustls_pemfile::certs(&mut std::io::BufReader::new(cert_file))
+        .next()
+        .expect("Test certificate PEM was empty")
+        .expect("Test certificate PEM was invalid");
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(cert).expect("Failed to trust test certificate");
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut client_config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("Failed to configure client protocol versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    client_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(client_config));
+
+    let exercise_lifecycle = async {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        let tcp = loop {
+            match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                Ok(stream) => break stream,
+                Err(error) if tokio::time::Instant::now() < deadline => {
+                    let _ = error;
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Err(error) => panic!("TLS listener never became reachable: {error}"),
+            }
+        };
+
+        let server_name =
+            rustls::pki_types::ServerName::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST).into());
+        let mut established =
+            tokio::time::timeout(Duration::from_secs(2), connector.connect(server_name, tcp))
+                .await
+                .expect("TLS handshake timed out")
+                .expect("TLS listener did not complete a valid handshake");
+
+        // This second accepted socket deliberately never sends a ClientHello.
+        // It must be cancelled along with the established idle connection.
+        let mut stalled = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("Failed to open stalled TLS connection");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        async fn assert_peer_closed<S: AsyncRead + Unpin>(stream: &mut S, label: &str) {
+            let mut byte = [0_u8; 1];
+            match tokio::time::timeout(Duration::from_secs(2), stream.read(&mut byte)).await {
+                Ok(Ok(0)) | Ok(Err(_)) => {}
+                Ok(Ok(count)) => {
+                    panic!("{label} received {count} unexpected bytes after close server")
+                }
+                Err(_) => panic!("{label} remained open after close server"),
+            }
+        }
+
+        assert_peer_closed(&mut established, "Established TLS connection").await;
+        assert_peer_closed(&mut stalled, "Stalled TLS handshake").await;
+
+        std::net::TcpListener::bind(("127.0.0.1", port))
+            .expect("The TLS address must be immediately reusable after close server");
+    };
+
+    let (interpret_result, ()) = tokio::join!(interpreter.interpret(&ast), exercise_lifecycle);
+    interpret_result.expect("TLS close program returned runtime errors");
+}
+
+#[tokio::test]
+async fn test_tls_port_zero_reports_actual_bound_address() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let listen_code = format!(
+        r#"listen on port 0 secured with certificate "{cert_path}" and key "{key_path}" as secure_server"#
     );
+    let tokens = lex_wfl_with_positions(&listen_code);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser
+        .parse()
+        .expect("Failed to parse ephemeral TLS listener");
+    let mut interpreter = Interpreter::with_config(Arc::new(WflConfig::default()));
+
+    interpreter
+        .interpret(&ast)
+        .await
+        .expect("Ephemeral TLS listener failed to start");
+    let server_value = interpreter
+        .global_env()
+        .borrow()
+        .get("secure_server")
+        .expect("TLS listener did not define its server variable");
+    let Value::Text(server_text) = server_value else {
+        panic!("TLS server variable was not text: {server_value:?}");
+    };
+    let actual_port = server_text
+        .rsplit_once(':')
+        .and_then(|(_, port)| port.parse::<u16>().ok())
+        .expect("TLS server value did not contain a numeric bound port");
+    assert_ne!(
+        actual_port, 0,
+        "A port-zero TLS listener must report the actual ephemeral port"
+    );
+
+    let close_tokens = lex_wfl_with_positions("close server secure_server");
+    let mut close_parser = Parser::new(&close_tokens);
+    let close_ast = close_parser
+        .parse()
+        .expect("Failed to parse ephemeral TLS close statement");
+    interpreter
+        .interpret(&close_ast)
+        .await
+        .expect("Ephemeral TLS listener failed to close");
 }
