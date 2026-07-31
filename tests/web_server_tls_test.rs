@@ -8,6 +8,7 @@
 // danger_accept_invalid_certs. Ports 8210-8219 (the bind-address tests use
 // 8200-8203).
 
+use reqwest::tls::Version as TlsVersion;
 use std::sync::Arc;
 use std::time::Duration;
 use wfl::Interpreter;
@@ -297,4 +298,208 @@ async fn test_dual_http_and_https_servers() {
     assert_eq!(https_response.text().await.unwrap(), "HTTPS OK");
 
     let _ = server_handle.join();
+}
+
+#[tokio::test]
+async fn test_tls_listener_reports_occupied_port_without_panicking() {
+    let port = 8220;
+    let occupied = std::net::TcpListener::bind(("127.0.0.1", port))
+        .expect("Failed to reserve the TLS test port");
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let code = format!(
+        r#"listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server"#
+    );
+    let tokens = lex_wfl_with_positions(&code);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser.parse().expect("Failed to parse");
+
+    let mut interpreter = Interpreter::with_config(Arc::new(WflConfig::default()));
+    let result = interpreter.interpret(&ast).await;
+
+    drop(occupied);
+    let errors = result.expect_err("An occupied TLS port should be a runtime error");
+    let message = format!("{errors:?}");
+    assert!(
+        message.contains("Failed to start secure web server")
+            && message.contains(&port.to_string()),
+        "Error should identify the secure listener and occupied port, got: {message}"
+    );
+}
+
+#[tokio::test]
+async fn test_stalled_tls_handshake_does_not_block_protocol_matrix_or_peer_ip() {
+    let port = 8221;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let server_code = format!(
+        r#"
+        listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        wait for request comes in on secure_server as req1 with timeout 5000
+        respond to req1 with client_ip of req1
+        wait for request comes in on secure_server as req2 with timeout 5000
+        respond to req2 with "http1"
+        wait for request comes in on secure_server as req3 with timeout 5000
+        respond to req3 with "tls12"
+        wait for request comes in on secure_server as req4 with timeout 5000
+        respond to req4 with "tls13"
+        close server secure_server
+    "#
+    );
+
+    let server_handle = start_server_with_config(server_code, WflConfig::default());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Leave one TCP client connected without sending a TLS ClientHello. A
+    // serial handshake in the accept loop would prevent every valid request
+    // below from reaching the WFL request queue.
+    let stalled_client = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .expect("Failed to open stalled TLS client");
+
+    let h2_response = insecure_client()
+        .get(format!("https://127.0.0.1:{port}/peer"))
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .expect("A stalled handshake must not block a valid HTTP/2 client");
+    assert_eq!(
+        h2_response.version(),
+        reqwest::Version::HTTP_2,
+        "The secured listener must advertise h2 through ALPN"
+    );
+    assert_eq!(
+        h2_response.text().await.unwrap(),
+        "127.0.0.1",
+        "The custom TLS transport must preserve the accepted peer address"
+    );
+
+    let http1_client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .http1_only()
+        .build()
+        .expect("Failed to build HTTP/1.1 client");
+    let http1_response = http1_client
+        .get(format!("https://127.0.0.1:{port}/http1"))
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .expect("The TLS listener must retain HTTP/1.1 fallback");
+    assert_eq!(http1_response.version(), reqwest::Version::HTTP_11);
+    assert_eq!(http1_response.text().await.unwrap(), "http1");
+
+    let tls12_client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .min_tls_version(TlsVersion::TLS_1_2)
+        .max_tls_version(TlsVersion::TLS_1_2)
+        .build()
+        .expect("Failed to build TLS 1.2 client");
+    assert_eq!(
+        tls12_client
+            .get(format!("https://127.0.0.1:{port}/tls12"))
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .expect("The secured listener must retain TLS 1.2")
+            .text()
+            .await
+            .unwrap(),
+        "tls12"
+    );
+
+    let tls13_client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .min_tls_version(TlsVersion::TLS_1_3)
+        .max_tls_version(TlsVersion::TLS_1_3)
+        .build()
+        .expect("Failed to build TLS 1.3 client");
+    assert_eq!(
+        tls13_client
+            .get(format!("https://127.0.0.1:{port}/tls13"))
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .expect("The secured listener must retain TLS 1.3")
+            .text()
+            .await
+            .unwrap(),
+        "tls13"
+    );
+
+    drop(stalled_client);
+    let _ = server_handle.join();
+}
+
+#[tokio::test]
+async fn test_tls_configuration_rejects_malformed_and_mismatched_keys() {
+    let malformed_dir = tempfile::tempdir().unwrap();
+    let (cert_path, malformed_key_path) = write_self_signed_cert(malformed_dir.path());
+    std::fs::write(&malformed_key_path, "not a private key")
+        .expect("Failed to replace the test key");
+
+    let malformed_code = format!(
+        r#"listen on port 8222 secured with certificate "{cert_path}" and key "{malformed_key_path}" as secure_server"#
+    );
+    let tokens = lex_wfl_with_positions(&malformed_code);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser.parse().expect("Failed to parse malformed-key case");
+    let mut interpreter = Interpreter::with_config(Arc::new(WflConfig::default()));
+    let malformed_result = interpreter.interpret(&ast).await;
+    let malformed_message = format!(
+        "{:?}",
+        malformed_result.expect_err("Malformed private key should be rejected")
+    );
+    assert!(
+        malformed_message.contains("contains no private key"),
+        "Malformed-key error should explain the PEM requirement, got: {malformed_message}"
+    );
+
+    let cert_dir = tempfile::tempdir().unwrap();
+    let key_dir = tempfile::tempdir().unwrap();
+    let (cert_path, _) = write_self_signed_cert(cert_dir.path());
+    let (_, unrelated_key_path) = write_self_signed_cert(key_dir.path());
+    let mismatch_code = format!(
+        r#"listen on port 8223 secured with certificate "{cert_path}" and key "{unrelated_key_path}" as secure_server"#
+    );
+    let tokens = lex_wfl_with_positions(&mismatch_code);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser.parse().expect("Failed to parse mismatched-key case");
+    let mut interpreter = Interpreter::with_config(Arc::new(WflConfig::default()));
+    let mismatch_result = interpreter.interpret(&ast).await;
+    let mismatch_message = format!(
+        "{:?}",
+        mismatch_result.expect_err("Certificate/key mismatch should be rejected")
+    );
+    assert!(
+        mismatch_message.contains("Failed to start secure web server"),
+        "Certificate/key mismatch should be a secure-listener error, got: {mismatch_message}"
+    );
+}
+
+#[tokio::test]
+async fn test_close_server_stops_tls_listener() {
+    let port = 8224;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let server_code = format!(
+        r#"
+        listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        close server secure_server
+    "#
+    );
+
+    start_server_with_config(server_code, WflConfig::default())
+        .join()
+        .expect("TLS server program panicked");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let result = insecure_client()
+        .get(format!("https://127.0.0.1:{port}/after-close"))
+        .timeout(Duration::from_secs(1))
+        .send()
+        .await;
+    assert!(
+        result.is_err(),
+        "A closed TLS server must not accept a new connection"
+    );
 }
