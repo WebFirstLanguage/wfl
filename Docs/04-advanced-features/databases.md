@@ -160,12 +160,14 @@ WFL does not currently expose.
 **A database cannot be closed inside its own transaction.** `close database`
 during an open block is an error; let the block finish first.
 
-### Do not send BEGIN or COMMIT through `execute`
+### Do not send BEGIN or COMMIT through `query` or `execute`
 
-Writing transaction control as SQL does not work, and WFL now says so:
+Writing transaction control as SQL does not work, and WFL now says so. Both
+statements are checked, not just `execute`:
 
 ```wfl
 store t as execute db with "BEGIN"     // Error, with a pointer to the block syntax
+store r as query db with "COMMIT"      // Same error — `query` is checked too
 ```
 
 The reason is the connection pool. `BEGIN`, the statements after it, and

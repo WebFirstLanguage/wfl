@@ -413,3 +413,84 @@ store sealed as seal of "secret" and "{key}"
         .err()
         .expect("a multi-byte character inside a key must be reported, not panic");
 }
+
+/// The uniform-failure property itself, not just its individual cases.
+///
+/// `unseal` funnels every failure — bad hex, wrong length, wrong key, tampered
+/// nonce/ciphertext/tag, truncation — into one message on purpose: telling an
+/// attacker *which* part failed helps them work toward a valid value. Each case
+/// is covered above, but nothing yet asserts they are indistinguishable from one
+/// another, so a later change that split the messages would still pass.
+#[tokio::test]
+async fn every_unseal_failure_reports_the_same_message() {
+    let sealed = seal_once("top secret").await;
+    let body_len = sealed.split_once(':').expect("prefixed blob").1.len();
+
+    let tampered_ciphertext = flip_hex_digit(&sealed, 60);
+    let tampered_tag = flip_hex_digit(&sealed, body_len - 1);
+    let truncated = sealed[..sealed.len() - 8].to_string();
+
+    let baseline = expect_unseal_failure(&tampered_ciphertext, "a tampered ciphertext").await;
+    for (blob, what) in [
+        (tampered_tag, "a tampered tag"),
+        (truncated, "a truncated blob"),
+    ] {
+        let other = expect_unseal_failure(&blob, what).await;
+        assert_eq!(
+            baseline, other,
+            "{what} must be indistinguishable from a tampered ciphertext, \
+             or `unseal` becomes an oracle"
+        );
+    }
+}
+
+/// An empty context is refused rather than silently meaning "no context".
+///
+/// Without this, `seal of secret and key and ""` and `seal of secret and key`
+/// would produce interchangeable values, so a context built from a config key
+/// that turned out to be missing would yield an *unbound* ciphertext while the
+/// program appeared to bind it.
+#[tokio::test]
+async fn an_empty_context_is_refused_on_seal() {
+    let code = format!(
+        r#"
+store key as "{KEY}"
+store sealed as seal of "secret" and key and ""
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("an empty context must be refused, not treated as no context");
+}
+
+#[tokio::test]
+async fn an_empty_context_is_refused_on_unseal() {
+    let code = format!(
+        r#"
+store key as "{KEY}"
+store sealed as seal of "secret" and key
+store plain as unseal of sealed and key and ""
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("an empty context must be refused on unseal too");
+}
+
+/// Omitting the argument entirely still works — the rejection is of an empty
+/// *value*, not of the two-argument form.
+#[tokio::test]
+async fn omitting_the_context_entirely_is_still_supported() {
+    let code = format!(
+        r#"
+store key as "{KEY}"
+store sealed as seal of "secret" and key
+store plain as unseal of sealed and key
+"#
+    );
+    run_wfl(&code)
+        .await
+        .expect("sealing without a context must keep working");
+}

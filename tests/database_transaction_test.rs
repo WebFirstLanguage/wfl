@@ -590,9 +590,11 @@ async fn a_slow_statement_in_a_transaction_does_not_block_an_unrelated_handle() 
     let slow_url = &slow_db.url;
     let other_url = &other_db.url;
 
-    // `main loop concurrently` runs both bodies on one thread, interleaved at
-    // await points. If the unrelated query cannot make progress until the
-    // transaction finishes, this deadlocks and the test times out.
+    // These statements run serially — the concurrent-handler case is covered by
+    // tests/transaction_handler_scope_test.rs. What this pins is the lock
+    // discipline: the unrelated handle is queried while the transaction is still
+    // open, so if the transaction map's lock were held across the SQL await that
+    // query could never acquire it and this program would deadlock.
     let code = format!(
         r#"
 open database at "{slow_url}" as slow_db

@@ -1082,6 +1082,35 @@ fn parse_seal_key(func_name: &str, key_text: &str) -> Result<Zeroizing<Vec<u8>>,
 /// The optional context (associated data) is authenticated but not encrypted,
 /// and binds the ciphertext to where it lives: a blob sealed with one context
 /// will not unseal under another.
+/// Read the optional third argument as associated data.
+///
+/// An empty context is refused rather than treated as "no context". Passing the
+/// argument at all means the caller intends to bind this value to something, and
+/// `context.as_deref().unwrap_or("")` would otherwise make `""` and an absent
+/// argument the same associated data — so a context read from a config key that
+/// turned out to be missing would silently produce an *unbound* ciphertext while
+/// the author believed it was bound. Better to say so.
+fn seal_context(func_name: &str, args: &[Value]) -> Result<Option<Arc<str>>, RuntimeError> {
+    match args.get(2) {
+        Some(value) => {
+            let context = expect_text(value)?;
+            if context.is_empty() {
+                return Err(RuntimeError::new(
+                    format!(
+                        "{func_name}: the context must not be empty. Leave the argument out \
+                         entirely to seal without a context, or pass the value this secret \
+                         belongs to (for example \"project:acme/api_key\")."
+                    ),
+                    0,
+                    0,
+                ));
+            }
+            Ok(Some(context))
+        }
+        None => Ok(None),
+    }
+}
+
 pub fn native_seal(args: Vec<Value>) -> Result<Value, RuntimeError> {
     use chacha20poly1305::aead::{Aead, KeyInit, Payload};
     use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -1091,10 +1120,7 @@ pub fn native_seal(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let plaintext = expect_text(&args[0])?;
     let key_text = expect_text(&args[1])?;
-    let context = match args.get(2) {
-        Some(value) => Some(expect_text(value)?),
-        None => None,
-    };
+    let context = seal_context("seal", &args)?;
 
     let key = parse_seal_key("seal", &key_text)?;
     let cipher = XChaCha20Poly1305::new_from_slice(&key)
@@ -1144,10 +1170,7 @@ pub fn native_unseal(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let sealed = expect_text(&args[0])?;
     let key_text = expect_text(&args[1])?;
-    let context = match args.get(2) {
-        Some(value) => Some(expect_text(value)?),
-        None => None,
-    };
+    let context = seal_context("unseal", &args)?;
 
     let key = parse_seal_key("unseal", &key_text)?;
 
@@ -1166,7 +1189,7 @@ pub fn native_unseal(args: Vec<Value>) -> Result<Value, RuntimeError> {
         RuntimeError::new(
             format!(
                 "unseal: this is not a sealed value. Expected text beginning with \
-                     '{SEAL_V1_PREFIX}', as produced by `seal`."
+                 '{SEAL_V1_PREFIX}', as produced by `seal`."
             ),
             0,
             0,

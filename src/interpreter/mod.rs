@@ -2487,12 +2487,18 @@ impl IoClient {
     /// Refuses while a transaction is open on the handle: closing the pool
     /// under an in-flight transaction would discard the work with no report of
     /// what happened to it.
-    async fn close_database(&self, scope: u64, handle_id: &str) -> Result<(), String> {
+    async fn close_database(&self, handle_id: &str) -> Result<(), String> {
+        // Any scope's transaction blocks the close, not just the caller's.
+        // Handles are plain text, so two concurrent handlers can name the same
+        // one; checking only the caller's scope would let handler B close the
+        // pool out from under handler A's live transaction — the exact outcome
+        // this guard exists to prevent.
         if self
             .db_transactions
             .lock()
             .await
-            .contains_key(&(scope, handle_id.to_string()))
+            .keys()
+            .any(|(_, handle)| handle == handle_id)
         {
             return Err(format!(
                 "Cannot close database '{handle_id}' while a transaction is open on it. \
@@ -6474,10 +6480,16 @@ impl Interpreter {
                     .await
                 {
                     Ok(()) => Err(err),
-                    Err(rollback_error) => Err(RuntimeError::new(
+                    // Keep the original kind. `Cancelled`, `Timeout` and
+                    // `ResourceLimit` select `when` clauses and drive concurrent
+                    // handler classification, so flattening them to `General`
+                    // would turn a client disconnect inside a transaction into a
+                    // structural handler failure.
+                    Err(rollback_error) => Err(RuntimeError::with_kind(
                         format!("{} (rollback also failed: {rollback_error})", err.message),
                         err.line,
                         err.column,
+                        err.kind,
                     )),
                 }
             }
@@ -7400,10 +7412,7 @@ impl Interpreter {
                             Err(msg) => {
                                 // Don't leave an unreachable pool behind when
                                 // the variable binding fails.
-                                let _ = self
-                                    .io_client
-                                    .close_database(self.tx_scope.get(), &handle)
-                                    .await;
+                                let _ = self.io_client.close_database(&handle).await;
                                 Err(RuntimeError::new(msg, *line, *column))
                             }
                         }
@@ -7451,7 +7460,7 @@ impl Interpreter {
                 };
 
                 self.io_client
-                    .close_database(self.tx_scope.get(), &handle)
+                    .close_database(&handle)
                     .await
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 

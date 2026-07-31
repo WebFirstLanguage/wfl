@@ -25,6 +25,9 @@ describe "Sealing and unsealing":
         store secret_key as secure_random_bytes of 32
         store sealed as seal of "correct-horse-battery-staple" and secret_key
         expect sealed to contain "wflseal1:"
+        // The name of this test is the assertion that matters.
+        store leaked as sealed contains "correct-horse"
+        expect leaked to be no
     end test
 
     test "sealing the same text twice gives different results":

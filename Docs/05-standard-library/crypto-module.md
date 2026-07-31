@@ -562,7 +562,7 @@ seal of <plaintext> and <key> and <context>
 **Parameters:**
 - `plaintext` (Text): The secret to protect
 - `key` (Text): A 64-character hex key — exactly what `secure_random_bytes of 32` returns
-- `context` (Text, optional): Associated data that binds this ciphertext to where it lives
+- `context` (Text, optional): Associated data that binds this ciphertext to where it lives. It must not be empty — leave the argument out entirely to seal without one.
 
 **Returns:** Text — a sealed value beginning with `wflseal1:`
 
@@ -581,10 +581,26 @@ Sealing the same text twice never produces the same result — each call generat
 **Binding a secret to its context.** The optional third argument is authenticated but not encrypted. It ties the ciphertext to a place, so a value lifted out of one record cannot be replayed into another:
 
 ```wfl
+store project_key as secure_random_bytes of 32
+store api_token as "sk-live-provider-token"
+
 store sealed as seal of api_token and project_key and "project:acme/api_key"
-store token as unseal of sealed and project_key and "project:acme/api_key"   // works
-store stolen as unseal of sealed and project_key and "project:evil/api_key"  // error
+store token as unseal of sealed and project_key and "project:acme/api_key"
+display token                        // sk-live-provider-token
+
+// The same ciphertext under another project's context is refused.
+try:
+    store stolen as unseal of sealed and project_key and "project:evil/api_key"
+    display "This should not be reachable"
+when error:
+    display "Refused — this value belongs to another project"
+end try
 ```
+
+An **empty** context is an error rather than a synonym for "no context". Passing
+the argument means you intend to bind the value to something, so a context built
+from a config key that turned out to be missing is reported instead of quietly
+producing an unbound ciphertext.
 
 **Use Cases:**
 - API tokens and provider keys written to a config file

@@ -5868,9 +5868,15 @@ impl TypeChecker {
                         *_column,
                     );
                 }
-                // Like `try:`, the block shares the enclosing scope and
-                // introduces no bindings of its own.
-                self.check_statement_block(body);
+                // Like `try:`, the block shares the enclosing scope, introduces
+                // no bindings of its own, and passes its body's value through —
+                // `execute_transaction_statement` returns the body's last value
+                // directly. Recording the completion keeps an action whose body
+                // ends in a transaction from being inferred as returning
+                // nothing, which would make every later use of its result a
+                // spurious type error.
+                let (_, completion) = self.check_statement_block_with_completion(body);
+                self.current_statement_completion = completion;
             }
             Statement::CreateDirectoryStatement {
                 path,

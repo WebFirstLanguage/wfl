@@ -91,10 +91,15 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
         .get(format!("http://127.0.0.1:{port}/shutdown"))
         .send()
         .await;
-    match tokio::task::spawn_blocking(move || server.join()).await {
-        Ok(Ok(())) => {}
-        Ok(Err(panic)) => std::panic::resume_unwind(panic),
-        Err(join_err) => panic!("server join task failed: {join_err}"),
+    // Bounded: an unbounded join turns a server that never exits into a silent
+    // hang until the harness kills the run, which is a far weaker signal than a
+    // named failure.
+    let join = tokio::task::spawn_blocking(move || server.join());
+    match tokio::time::timeout(Duration::from_secs(30), join).await {
+        Ok(Ok(Ok(()))) => {}
+        Ok(Ok(Err(panic))) => std::panic::resume_unwind(panic),
+        Ok(Err(join_err)) => panic!("server join task failed: {join_err}"),
+        Err(_) => panic!("server thread did not exit within 30s after /shutdown"),
     }
 }
 
@@ -130,6 +135,7 @@ async fn an_unrelated_handler_is_not_enrolled_in_another_handlers_transaction() 
                             wait for 600 milliseconds
                             store boom as execute db with "INSERT INTO no_such_table (x) VALUES (1)"
                         end transaction
+                        respond to req with "tx-committed"
                     when error:
                         respond to req with "tx-rolled-back"
                     end try

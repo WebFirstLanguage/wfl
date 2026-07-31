@@ -57,21 +57,45 @@ end transaction
     );
 }
 
-/// The database expression in the block header is walked too.
+/// Calls in a database statement's operands are collected too — the handle, the
+/// SQL text, and any bound parameters are ordinary expressions, so a
+/// security-sensitive call can hide in one whether or not a transaction block is
+/// involved.
 #[test]
-fn calls_in_the_transaction_header_are_collected() {
+fn calls_in_database_statement_operands_are_collected() {
     let program = parse(
         r#"
 open database at "sqlite::memory:" as db
+store seeded as random_seed of 42
+store rows as query db with "SELECT 1" and parameters [hash_password of "hunter2"]
+"#,
+    );
+    let found = rng_security_ingredients(&program);
+    assert!(found.seed_site.is_some(), "random_seed must be seen");
+    assert!(
+        found.security_site.is_some(),
+        "a crypto call inside a bound parameter must not escape the security lint"
+    );
+}
+
+/// ...and the same holds inside a transaction block, where both walks apply.
+#[test]
+fn calls_in_database_operands_inside_a_transaction_are_collected() {
+    let program = parse(
+        r#"
+open database at "sqlite::memory:" as db
+store seeded as random_seed of 42
 in transaction on db:
-    store seeded as random_seed of 42
+    store rows as query db with "SELECT 1" and parameters [hash_password of "hunter2"]
 end transaction
-store token as hash_password of "hunter2"
 "#,
     );
     let found = rng_security_ingredients(&program);
     assert!(found.seed_site.is_some());
-    assert!(found.security_site.is_some());
+    assert!(
+        found.security_site.is_some(),
+        "a crypto call in a database parameter inside a transaction must still be seen"
+    );
 }
 
 /// The unused-variable walk must see declarations inside the block. Its failure

@@ -517,6 +517,9 @@ pub fn get_function_arity(name: &str) -> usize {
         // === JSON FUNCTIONS ===
         // Single argument functions
         "parse_json" | "stringify_json" | "stringify_json_pretty" => 1,
+
+        // === TOML FUNCTIONS ===
+        // Single argument functions
         "parse_toml" | "stringify_toml" | "stringify_toml_pretty" => 1,
 
         // === QUERY AND FORM PARSING ===

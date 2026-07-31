@@ -282,3 +282,66 @@ The pattern worth remembering: the findings I would not have reached on my own
 were all about what happens when two things run at once, or when input is
 hostile. Those are the parts where reading the code carefully is not the same as
 proving it.
+
+## A second review round
+
+CodeRabbit went over the merged branch and raised thirteen items. Four were bugs
+I had introduced, and two of those came directly out of the scoping fix from the
+first round — which is a useful reminder that a fix is a change like any other.
+
+**Keying transactions by `(scope, handle)` broke `close_database`.** The guard
+that refuses to close a pool with a transaction open was still looking up the
+caller's scope only, so a handler in a *different* scope could close the pool out
+from under a live transaction — precisely the thing the guard exists to stop. It
+now matches on the handle across every scope.
+
+**The transaction block never reported its completion type.** It calls
+`check_statement_block`, which discards it, where `TryStatement` — the construct
+this block explicitly claims to mirror — uses `check_statement_block_with_completion`.
+The consequence is visible: an action whose body ends in a transaction is
+inferred to return nothing, so `store n as call row_count` followed by
+`n times 2` is reported as "Cannot perform Multiply operation on Nothing and
+Number" for a program that runs correctly. Worth noting that the review
+overstated the blast radius — it predicted a false error from a *declared*
+return type, but WFL's parser always sets `return_type: None`, so that path is
+unreachable today. The inferred-type path is real, and I reproduced it before
+fixing it.
+
+**The static contracts for `stringify_toml` contradicted the runtime, and my own
+docs.** I registered the JSON value set — scalars and lists included — while
+`wfl_to_toml_document` accepts only a table, which the TOML page states and a
+test already asserted. So `stringify_toml of 42` type-checked and then failed at
+runtime. Narrowed to `map(Text, Any)`.
+
+**A failed rollback flattened the error kind.** `RuntimeError::new` produces
+`General`, discarding `Cancelled`/`Timeout`/`ResourceLimit` — kinds that select
+`when` clauses and drive concurrent-handler classification. A client disconnect
+inside a transaction whose rollback also failed would have been counted as a
+structural handler failure.
+
+Also fixed: the call collector still ignored `DatabaseQueryStatement`, so a
+`random_seed` or `seal` call hidden in a SQL string or a bound parameter escaped
+the security lint whether or not a transaction was involved; the docs said the
+transaction-control guard applied to `execute` when it applies to `query` too;
+and the crypto context example could not have passed docs validation, because it
+used an undefined `api_token` and let a deliberately-failing call abort the
+program.
+
+One review item was wrong: it flagged the `StaticAnalyzer` import in
+`tests/transaction_analyzer_walk_test.rs` as unused. It is the trait that
+provides `check_unused_variables`, and clippy runs with `-D warnings`, so an
+actually-unused import could not have got this far.
+
+One I decided differently than suggested. An absent context and an empty one
+were the same associated data, since `context.as_deref().unwrap_or("")` maps both
+to `""`. The suggestion was to document the equivalence. I made it an error
+instead: passing the argument means you intend to bind the value to something, so
+a context assembled from a config key that turned out to be missing should be
+reported rather than quietly producing an unbound ciphertext that looks bound.
+That matches how the rest of this module treats probably-mistaken input — strict
+mode strings, exact key lengths — and removes the subtlety rather than explaining
+it.
+
+The pattern from the first round repeated: the findings I would not have reached
+alone were about interactions — a fix meeting an older guard, a type contract
+meeting its runtime, an error kind meeting the code that classifies it.

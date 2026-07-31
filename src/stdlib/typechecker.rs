@@ -349,24 +349,16 @@ fn register_json(analyzer: &mut Analyzer) {
 fn register_toml(analyzer: &mut Analyzer) {
     register(analyzer, &["parse_toml"], vec![Type::Text], Type::Any);
 
-    // Mirrors the JSON value set. TOML has no null, but `nothing` is accepted
-    // here because a table simply omits those keys (see stdlib::toml).
-    let toml_values = [
-        Type::Nothing,
-        Type::Boolean,
-        Type::Number,
+    // Only a table, unlike JSON. `wfl_to_toml_document` rejects anything else at
+    // runtime because there is no valid TOML document whose top level is a list
+    // or a scalar, so accepting them here would type-check a call that is
+    // guaranteed to fail. Scalars and lists remain valid *inside* a table.
+    register(
+        analyzer,
+        &["stringify_toml", "stringify_toml_pretty"],
+        vec![map(Type::Text, Type::Any)],
         Type::Text,
-        list(Type::Any),
-        map(Type::Text, Type::Any),
-    ];
-    for value_type in toml_values {
-        register(
-            analyzer,
-            &["stringify_toml", "stringify_toml_pretty"],
-            vec![value_type],
-            Type::Text,
-        );
-    }
+    );
 }
 
 fn register_web(analyzer: &mut Analyzer) {

@@ -242,6 +242,23 @@ fn collect_calls_in_statement(stmt: &Statement, out: &mut Vec<CallSite>) {
             collect_calls_in_expression(db, out);
             collect_calls_in_statements(body, out);
         }
+        // A database statement's operands are ordinary expressions, so a call
+        // can hide in the handle, the SQL text, or a bound parameter — e.g.
+        // `query db with "..." and parameters [seal of secret and key]`. Without
+        // this arm those calls are invisible to the security lint whether or not
+        // they sit inside a transaction block.
+        Statement::DatabaseQueryStatement {
+            db,
+            sql,
+            parameters,
+            ..
+        } => {
+            collect_calls_in_expression(db, out);
+            collect_calls_in_expression(sql, out);
+            if let Some(parameters) = parameters {
+                collect_calls_in_expression(parameters, out);
+            }
+        }
         Statement::SingleLineIf {
             condition,
             then_stmt,
