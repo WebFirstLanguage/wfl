@@ -295,7 +295,12 @@ def check_archive(report, root, files, profile):
             report.add("archive-manifest", path,
                        "manifest entry points at a file that does not exist")
             continue
-        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        # Hash the staged blob, not the working-tree bytes: on Windows an
+        # autocrlf checkout materializes text files with CRLF endings, which
+        # would make every archived text file's checksum drift. The index
+        # content is canonical (LF, as committed) on every platform.
+        blob = git(root, "show", f":{path}")
+        digest = hashlib.sha256(blob).hexdigest()
         if digest != entry["sha256"]:
             report.add("archive-manifest", path,
                        f"sha256 drift: manifest {entry['sha256'][:12]}… vs "

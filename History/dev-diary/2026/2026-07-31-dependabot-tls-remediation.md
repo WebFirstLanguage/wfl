@@ -52,7 +52,7 @@ The VS Code extension lockfile was regenerated with:
 - `js-yaml` overridden to 4.3.0 for GHSA-52cp-r559-cp3m;
 - the affected nested `brace-expansion` copy updated past 5.0.7 for
   GHSA-mh99-v99m-4gvg;
-- the lockfile's product version synchronized to 26.7.60.
+- the lockfile's product version synchronized to the current repository version.
 
 ## Test evidence
 

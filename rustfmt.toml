@@ -1,3 +1,8 @@
 edition = "2024"
 max_width = 100
-newline_style = "Unix"
+# Auto (the default) accepts each file's existing, consistent line-ending
+# style. "Unix" breaks `cargo fmt --check` on Windows runners, where git's
+# autocrlf checkout materializes every file with CRLF endings — this was the
+# effective behavior all along via the now-removed duplicate .rustfmt.toml,
+# which carried no newline_style and shadowed this file.
+newline_style = "Auto"

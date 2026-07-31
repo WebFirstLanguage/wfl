@@ -185,6 +185,42 @@
     ],
     "doc_purpose": "Demonstrates variable declaration and type inference"
   },
+  "docs_examples/basic_syntax/constants_01.wfl": {
+    "doc_section": "Docs/03-language-basics/variables-and-types.md#constants",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "variables",
+      "constants",
+      "immutability"
+    ],
+    "doc_purpose": "Declares constants with 'store new constant' and reads them like any other variable"
+  },
+  "docs_examples/basic_syntax/constants_immutable_01.wfl": {
+    "doc_section": "Docs/03-language-basics/variables-and-types.md#constants",
+    "type": "error_example",
+    "validate_layers": [
+      1,
+      2
+    ],
+    "expected_failure_layer": 2,
+    "expected_error_pattern": "Cannot modify constant",
+    "skip_execution": true,
+    "tags": [
+      "constants",
+      "immutability",
+      "error-example"
+    ],
+    "doc_purpose": "Every mutation form of a constant (change/add/subtract/multiply/divide, and add/remove/clear on a constant list) is rejected during semantic analysis (issue #671)"
+  },
   "docs_examples/basic_syntax/operators_01.wfl": {
     "doc_section": "Docs/03-language-basics/operators-and-expressions.md",
     "type": "executable",

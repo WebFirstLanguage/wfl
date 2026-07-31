@@ -281,16 +281,55 @@ end count
 
 ## Constants
 
-Currently, all variables can be changed. True constants (immutable values) are planned for future versions.
-
-**Best practice:** Use uppercase names for values you don't intend to change:
+Add `new constant` to a `store` to declare a value that must never change:
 
 ```wfl
-store MAX_USERS as 100
-store PI as 3.14159
-store APP_NAME as "My Application"
+store new constant MAX_USERS as 100
+store new constant PI as 3.14159
+store new constant APP_NAME as "My Application"
 
-// Don't change these (convention, not enforced)
+display "Up to " with MAX_USERS with " users"
+```
+
+A constant is read exactly like any other variable — the only difference is
+that WFL rejects the mutation forms below before the program runs, so you get
+the error at check time, not halfway through a run:
+
+```wfl
+store new constant MAX_SIZE as 100
+
+change MAX_SIZE to 200        // ERROR: Cannot modify constant 'MAX_SIZE'
+add 10 to MAX_SIZE            // ERROR: Cannot modify constant 'MAX_SIZE'
+subtract 5 from MAX_SIZE      // ERROR: Cannot modify constant 'MAX_SIZE'
+multiply MAX_SIZE by 2        // ERROR: Cannot modify constant 'MAX_SIZE'
+divide MAX_SIZE by 2          // ERROR: Cannot modify constant 'MAX_SIZE'
+```
+
+The same applies to a constant list — `add ... to`, `remove ... from`, and
+`clear` are all rejected:
+
+```wfl
+store new constant ALLOWED_ROLES as ["admin" and "editor"]
+
+add "guest" to ALLOWED_ROLES  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+clear ALLOWED_ROLES           // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+```
+
+> **Known gap:** `push with <list> and <value>` is **not** yet checked. Pushing
+> onto a constant list currently succeeds silently, at both check time and run
+> time — see [issue #673](https://github.com/WebFirstLanguage/wfl/issues/673).
+> Use `add ... to` when you want the constant to be enforced.
+>
+> Constants also fix the *binding*, not the contents reached through it. Binding
+> a constant list to a mutable name (`store alias as ALLOWED_ROLES`) and mutating
+> the alias changes the underlying list.
+
+**Best practice:** Use uppercase names for constants so a reader can see at a
+glance that a value is fixed:
+
+```wfl
+store new constant MAX_RETRIES as 3
+store new constant TIMEOUT_SECONDS as 30
 ```
 
 ## Naming Conventions
