@@ -2,9 +2,10 @@
 
 ## Context
 
-Issue #671 came out of converting `syntax_test/test_constant_immutability.wfl`
-into an asserted diagnostics fixture. The program mutates one constant five
-ways:
+Issue #671 came out of the repository-hygiene migration (#672), which converted
+the old `syntax_test/test_constant_immutability.wfl` into the asserted
+diagnostics fixture `tests/fixtures/diagnostics/constant_immutability.wfl`. The
+program mutates one constant five ways:
 
 ```wfl
 store new constant MAX_SIZE as 100
@@ -124,9 +125,9 @@ before the program runs.
 
 Mutating a constant has always been an error the language intends to reject —
 the new reports make the analyzer agree with the documented semantics and with
-what the runtime already did for numbers. No program in `TestPrograms/`,
-`Nexus/`, or `examples/` mutates a constant; the only sources that did were the
-`syntax_test/` programs written to demonstrate the error.
+what the runtime already did for numbers. No program in `TestPrograms/` or
+`examples/` mutates a constant; the only sources that did were the diagnostics
+fixtures written to demonstrate the error.
 
 The one genuine behavior change is the constant-list case described above, which
 moves from "silently allowed" to "rejected at analysis time". That is the
@@ -153,7 +154,11 @@ variables, container properties), must stay untouched. The two parameter tests
 were added in response to the over-reporting bug described above, which the
 full-suite and `TestPrograms/` runs caught.
 
-Also run: `cargo test --all --no-fail-fast` (100 test binaries, all green),
+`tests/diagnostics_fixtures_test.rs::constant_mutation_is_rejected_for_every_mutation_form`
+pinned `>= 4` reports with a comment pointing at this issue; it is now an exact
+`== 5`.
+
+Also run: `cargo test --all --no-fail-fast` (150 test binaries, all green),
 `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --all --
 --check`, all 111 non-skipped `TestPrograms/` programs against the release
 binary, and `python scripts/validate_docs_examples.py` (21/21).
