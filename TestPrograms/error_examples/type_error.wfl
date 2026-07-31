@@ -1,3 +1,3 @@
 store x as 42
 store y as "hello"
-display x plus y
+display x minus y

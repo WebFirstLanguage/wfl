@@ -1,4 +1,5 @@
 // Simple Middleware Test
+makedirs "target/test-artifacts/web"
 // Tests basic middleware functionality without complex nesting
 
 display "=== Simple Middleware Test ==="
@@ -7,7 +8,7 @@ display ""
 
 // Test configuration
 store server_port as 8080
-store log_file as "middleware_test.log"
+store log_file as "target/test-artifacts/web/middleware_test.log"
 store max_test_requests as 3
 
 display "Server port: " with server_port

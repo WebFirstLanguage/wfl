@@ -1,4 +1,5 @@
 // Comprehensive File I/O Test - WFL
+makedirs "target/test-artifacts/file_io"
 // Consolidates: fileIO.wfl, fileIO_fixed.wfl, simple_file_test.wfl, file_*.wfl, filesystem_*.wfl, directory_*.wfl
 
 display "=== WFL File I/O Comprehensive Test ==="
@@ -6,7 +7,7 @@ display ""
 
 // === Basic File Operations ===
 display "1. Basic File Write/Read Test"
-open file at "test_output.txt" for writing as test_file
+open file at "target/test-artifacts/file_io/test_output.txt" for writing as test_file
 
 // Write content using wait for syntax
 wait for write content "Hello, World!" into test_file
@@ -18,7 +19,7 @@ close file test_file
 display "✓ File write operations completed"
 
 // Read the file back
-open file at "test_output.txt" for reading as read_file
+open file at "target/test-artifacts/file_io/test_output.txt" for reading as read_file
 wait for store file_content as read content from read_file
 close file read_file
 
@@ -76,18 +77,18 @@ display ""
 display "4. Advanced File Operations"
 
 // Test file existence
-store file_exists as file exists at "test_output.txt"
+store file_exists as file exists at "target/test-artifacts/file_io/test_output.txt"
 display "test_output.txt exists: " with file_exists
 
 store missing_exists as file exists at "nonexistent.txt"
 display "nonexistent.txt exists: " with missing_exists
 
 // Test file size (if available - not yet implemented)
-// wait for store file_size as size of file at "test_output.txt"
+// wait for store file_size as size of file at "target/test-artifacts/file_io/test_output.txt"
 // display "File size: " with file_size with " bytes"
 
 // Test file info (if available - not yet implemented)
-// wait for store file_info as info of file at "test_output.txt"
+// wait for store file_info as info of file at "target/test-artifacts/file_io/test_output.txt"
 // display "File info: " with file_info
 display ""
 
@@ -99,7 +100,7 @@ open file at "test.txt" for writing as txt_file
 wait for write content "Text file content" into txt_file
 close file txt_file
 
-open file at "test.log" for writing as log_file  
+open file at "target/test-artifacts/file_io/test.log" for writing as log_file  
 wait for write content "Log file content" into log_file
 close file log_file
 
@@ -134,7 +135,7 @@ display ""
 display "7. File Path Tests"
 
 // Note: Path operations not yet implemented
-// store full_path as absolute path of "test_output.txt"
+// store full_path as absolute path of "target/test-artifacts/file_io/test_output.txt"
 // display "Absolute path: " with full_path
 
 // store dir_name as directory of full_path  
@@ -198,7 +199,7 @@ end try
 
 // Try to write to read-only file (if applicable)  
 try:
-    open file at "test_output.txt" for reading as readonly_file  
+    open file at "target/test-artifacts/file_io/test_output.txt" for reading as readonly_file  
     wait for write content "This should fail" into readonly_file
     display "✗ This should not execute"
     close file readonly_file
@@ -263,7 +264,7 @@ display ""
 display "12. Cleaning Up Test Files"
 
 // Clean up all test files created during the test
-delete file at "test_output.txt"
+delete file at "target/test-artifacts/file_io/test_output.txt"
 display "✓ Deleted test_output.txt"
 
 delete file at "crud_test.txt"
@@ -272,7 +273,7 @@ display "✓ Deleted crud_test.txt"
 delete file at "test.txt"
 display "✓ Deleted test.txt"
 
-delete file at "test.log"
+delete file at "target/test-artifacts/file_io/test.log"
 display "✓ Deleted test.log"
 
 delete file at "test.dat"

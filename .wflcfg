@@ -1,6 +1,11 @@
 timeout_seconds = 60
 logging_enabled = false
-debug_report_enabled = true
+# Off in the repository: crash reports and execution logs are written next to
+# the program being run, which litters the checkout during test suites
+# (REPOSITORY_HYGIENE.md §5 — the working-tree CI gate fails on droppings).
+# The packaged installer config enables debug reports for end users.
+debug_report_enabled = false
+execution_logging = false
 log_level = info
 
 # Web server settings
