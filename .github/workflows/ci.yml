@@ -213,6 +213,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # The post-suite working-tree hygiene check needs Python 3.11+ (tomllib);
+      # the Windows runner's default python is older, so set it up explicitly.
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
 
       # Reclaim runner disk before building: this job builds the (debuginfo-heavy)
       # release tree AND every integration test binary (`cargo test --test '*'`),
@@ -372,6 +377,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # The post-suite working-tree hygiene check needs Python 3.11+ (tomllib);
+      # the Windows runner's default python is older, so set it up explicitly.
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
 
       # Cache Cargo registry and target directory for faster builds
       - name: Cache Cargo registry and target directory
