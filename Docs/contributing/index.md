@@ -1,6 +1,7 @@
-# Development
+# Contributing
 
 Guides for building WFL itself, contributing, and integrating editor and AI tooling.
+(Formerly `Docs/development/`; renamed by the repository hygiene migration.)
 
 These pages support people who work **on** WFL (compiler, LSP, docs, tooling). For writing WFL *programs*, start with [Getting Started](../02-getting-started/index.md) and the [Code Style Guide](../06-best-practices/code-style-guide.md).
 
@@ -17,10 +18,14 @@ Development work still follows the [WFL foundation](../wfl-foundation.md): clear
 
 ## Design notes
 
-- **[Type system design](type-system-design.md)** — Gradual typing, collection inference, control-flow joins, built-in contracts, and runtime parity
-- **[Route construct design](route-construct-design.md)** — HTTP routing design history
+Active designs and plans live under `Engineering/` (see
+[REPOSITORY_HYGIENE.md](../../REPOSITORY_HYGIENE.md) for the layout policy):
+
+- **[Type system design](../../Engineering/designs/type-system-design.md)** — Gradual typing, collection inference, control-flow joins, built-in contracts, and runtime parity
+- **[Route construct design](../../Engineering/designs/route-construct-design.md)** — HTTP routing design history
+- **[Response streaming design](../../Engineering/designs/response-streaming-design.md)** — Streaming response architecture
 - **[Stdlib higher-order functions](stdlib-higher-order-functions.md)** — Design notes for list transforms
-- **[Concurrency phase plan](concurrency-phase-plan.md)** — Phased TODOs for cooperative concurrency (`main loop concurrently:`, crypto off-thread, nursery)
+- **[Concurrency phase plan](../../Engineering/plans/concurrency-phase-plan.md)** — Phased TODOs for cooperative concurrency (`main loop concurrently:`, crypto off-thread, nursery)
 
 ## Quality gates
 
@@ -33,7 +38,10 @@ cargo test --all --verbose
 cargo build --release   # required for many integration / TestPrograms runs
 ```
 
-See root `CONTRIBUTING.md`, `GOVERNANCE.md`, and `AI_POLICY.md` for community and review rules.
+See root `CONTRIBUTING.md`, `GOVERNANCE.md`, and `AI_POLICY.md` for community
+and review rules, root `testing.md` for the binding testing policy, and root
+`REPOSITORY_HYGIENE.md` for where files belong and what may be tracked
+(enforced by `python3 scripts/check_repo_hygiene.py`).
 
 ## Related user docs
 

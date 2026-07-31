@@ -136,7 +136,8 @@ tools. See [AI_POLICY.md](AI_POLICY.md).
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute & apply for Contributor status |
 | [GOVERNANCE.md](GOVERNANCE.md) | Project authority and binding policies |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
-| [Docs/development/contributing-guide.md](Docs/development/contributing-guide.md) | Day-to-day TDD / fmt / clippy / test workflow |
+| [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Repository layout & hygiene policy (binding) |
+| [Docs/contributing/contributing-guide.md](Docs/contributing/contributing-guide.md) | Day-to-day TDD / fmt / clippy / test workflow |
 
 Project conventions (also binding under governance):
 
@@ -144,6 +145,10 @@ Project conventions (also binding under governance):
   for WFL end-to-end).
 - **Backward compatibility is sacred** — existing WFL programs must keep working.
 - **Docs ship with the feature** — update `Docs/` in the same change.
+- **One canonical home per file** — placement, tracked-content, and output
+  rules are enforced by the `repo-hygiene` CI gate
+  (`python3 scripts/check_repo_hygiene.py --mode static`); see
+  [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md).
 - Before a PR: `cargo fmt --all -- --check`,
   `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all`.
 

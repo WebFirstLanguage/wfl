@@ -464,7 +464,7 @@ HARD RULES:
 ```text
 You are implementing WFL concurrency PR-<id>: <title>.
 
-Read: Docs/development/concurrency-phase-plan.md
+Read: Docs/contributing/concurrency-phase-plan.md
       (optional design rationale: Starnet brainstorms/2026-07-11-wfl-concurrency-model.md)
 
 Scope: ONLY the TODOs under PR-<id>.

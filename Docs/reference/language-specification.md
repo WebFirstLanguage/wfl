@@ -237,4 +237,4 @@ Source → Lexer → Parser → Analyzer → Type Checker → Interpreter
 
 ---
 
-**Previous:** [← Error Codes](error-codes.md) | **Next:** [Development →](../development/)
+**Previous:** [← Error Codes](error-codes.md) | **Next:** [Development →](../contributing/)

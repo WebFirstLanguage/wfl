@@ -131,7 +131,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     supply-chain and trust-root decisions are the hardest in the project to walk
     back once published, so it was withdrawn before the first release candidate
     rather than shipped and then revised. The design documents are archived,
-    unimplemented, under `Docs/Archive/wflpkg/`.
+    unimplemented, under `Archive/retired-systems/wflpkg/`.
   - **Governance (`GOVERNANCE.md` §2.2, §8):** package and registry design is a
     Maintainer-only decision area. The Maintainer directed this removal and
     accepted the immediate withdrawal. Recorded here so the decision is

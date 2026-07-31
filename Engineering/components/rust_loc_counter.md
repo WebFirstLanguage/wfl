@@ -61,7 +61,7 @@ The tool categorizes every line in Rust source files (`.rs` files) into four dis
 - Sorted by total line count (descending)
 
 #### Markdown Report
-- Automatically saved to `../Docs/rust_loc_report.md`
+- Automatically saved to `target/reports/metrics/rust_loc_report.md`
 - Formatted with proper markdown headers and tables
 - Includes generation timestamp
 - Same statistical breakdown as console report
@@ -153,7 +153,7 @@ python3 rust_loc_counter.py
 1. Scans `../src` directory relative to script location
 2. Processes all `.rs` files recursively
 3. Displays report to console
-4. Saves markdown report to `../Docs/rust_loc_report.md`
+4. Saves markdown report to `target/reports/metrics/rust_loc_report.md`
 
 ## Output Example
 
@@ -183,7 +183,7 @@ src/interpreter                         2,890      1,945      634        311
 
 ### Project Context
 - Part of the WFL (WebFirst Language) toolchain
-- Located in `Tools/` directory
+- Located at `scripts/metrics/generate_rust_loc_report.py` (WFL port: `examples/tools/rust_loc_counter.wfl`)
 - Generates reports saved to `Docs/` directory
 - Supports development workflow documentation
 

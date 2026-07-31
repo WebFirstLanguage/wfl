@@ -76,7 +76,7 @@ Execution / Output
 **File:** `src/typechecker/mod.rs`
 
 The complete compatibility and inference contract is documented in
-[Type System Design](type-system-design.md).
+[Type System Design](../../Engineering/designs/type-system-design.md).
 
 **Type inference:**
 - Literal types from values

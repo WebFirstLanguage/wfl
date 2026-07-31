@@ -220,9 +220,12 @@ def main():
     report = generate_report(stats_by_file, stats_by_dir, total_stats)
     print(report)
     
-    # Save the report as a markdown file in the Docs directory
-    docs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Docs")
-    output_path = os.path.join(docs_dir, "rust_loc_report.md")
+    # Reports are ephemeral output (REPOSITORY_HYGIENE.md §5): write under
+    # target/reports/, never into Docs/.
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    reports_dir = os.path.join(repo_root, "target", "reports", "metrics")
+    os.makedirs(reports_dir, exist_ok=True)
+    output_path = os.path.join(reports_dir, "rust_loc_report.md")
     save_report_to_markdown(report, output_path)
     print(f"\nReport saved to {output_path}")
 

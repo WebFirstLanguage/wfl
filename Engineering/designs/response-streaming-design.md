@@ -220,5 +220,5 @@ a slow stream and other requests arrives with Phase 1.
 ## Related
 
 - `Docs/04-advanced-features/interoperability.md` — user docs (client streaming shipped)
-- `Docs/development/concurrency-phase-plan.md` — item 4 governance
+- `Docs/contributing/concurrency-phase-plan.md` — item 4 governance
 - `Dev diary/2026-07-22-outbound-response-streaming.md`

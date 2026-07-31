@@ -219,7 +219,7 @@ When adding new scripts:
 
 - [CLAUDE.md](../CLAUDE.md) - Development guidelines
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution guidelines
-- [Docs/development/](../Docs/development/) - Development documentation
+- [Docs/contributing/](../Docs/contributing/) - Development documentation
 
 ## Repository Hygiene
 

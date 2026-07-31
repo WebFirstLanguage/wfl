@@ -260,7 +260,7 @@ Claude now has access to WFL-specific tools!
 > "Can you suggest improvements for this WFL code?"
 
 For complete MCP documentation:
-**[MCP Integration →](../development/mcp-integration.md)**
+**[MCP Integration →](../contributing/mcp-integration.md)**
 
 ---
 

@@ -542,6 +542,21 @@
       "security_classification": "public"
     },
     {
+      "path": "Archive/reports/DOC_CODE_AUDIT.md",
+      "original_path": "TestPrograms/docs_examples/DOC_CODE_AUDIT.md",
+      "source_commit": "5c5ac2f61e0266da1b89f16f4b71f6b4ad7f09ef",
+      "sha256": "81998a0b5ef72c642836b81e3979ce16d718c15d98a39b6b627039c9fb182ef6",
+      "document_date": null,
+      "archived_at": "2026-07-31",
+      "kind": "generated-report-snapshot",
+      "status_at_archive": "stale",
+      "reason": "Point-in-time docs code-block audit; regenerate with scripts/test_docs_code_blocks.py --audit (output belongs under target/reports/)",
+      "normative": false,
+      "superseded_by": null,
+      "related_issues_or_prs": [],
+      "security_classification": "public"
+    },
+    {
       "path": "Archive/reports/rust_loc_report.md",
       "original_path": "Docs/rust_loc_report.md",
       "source_commit": "99c604a74c79514d60329dc4df9602aba5c60778",

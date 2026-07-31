@@ -15,13 +15,15 @@ Binding community and contribution policy lives at the **repo root** (not only u
 | `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
 | `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
 | `testing.md` | **Binding Logbie Testing Policy + WFL testing profile** — Red→Green TDD evidence, required test layers, risk classes, and merge/release gates (see **Testing Policy** below) |
+| `REPOSITORY_HYGIENE.md` | **Binding Repository Hygiene and Layout Policy** — canonical home for every class of content, tracked-vs-ephemeral rules, approved output roots, archive manifest, exceptions; profile in `.repo-hygiene.toml`, enforced by `scripts/check_repo_hygiene.py` in CI |
 
 **Agent implications (already in force via governance):**
 
 - **AI is first-class** — use coding agents freely; same quality bar as hand-written work (tests, docs, compatibility, reviewability).
 - **Backward compatibility is sacred** — never break existing WFL programs without the documented deprecation path.
 - **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`). Governed by the binding **Logbie Testing Policy** in root `testing.md` (see **Testing Policy** below): every behavioral change needs auditable **Red→Green** evidence and coverage at the lowest useful layer plus every affected higher layer.
-- **Docs ship with the feature** — same change; validate examples; Dev Diary for non-trivial work.
+- **Docs ship with the feature** — same change; validate examples; Dev Diary entry under `History/dev-diary/<year>/` for non-trivial work.
+- **Hygiene is enforced** — every file has one canonical home (`REPOSITORY_HYGIENE.md`); tests and tools write only under `target/` or temp dirs; never track dumps, logs, caches, local settings, or personal paths. The `repo-hygiene` CI job blocks violations — fix placement, don't widen allowlists.
 - **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
 - **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own merges and releases unless those responsibilities are **explicitly delegated**. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
 - Community tone: follow `CODE_OF_CONDUCT.md`; technical disagreement is fine; harassment and AI-shaming are not.
@@ -59,20 +61,22 @@ WFL is deliberately both a "my first language" and a language strong enough for 
 Apply it as a test on every language, docs, or tooling change: if a beginner learns a habit that a production user must later undo — or must work around the language to do the most natural thing — that is a crack in the tightrope to fix, not to document. Terser expert forms are welcome only when a beginner can grow into them without unlearning the simple form. Full description in `Docs/wfl-foundation.md`.
 
 ## Project Structure & Modules
+Layout is governed by `REPOSITORY_HYGIENE.md` (placement table + root allowlist in `.repo-hygiene.toml`); put new files in their canonical home, not at the root.
+
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
-- `crates/`: Internal crates (e.g., `wfl_core`).
-- `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
-- `benches/`: Performance benchmarks (Criterion).
-- `examples/`: Example WFL programs and demos.
-- `TestPrograms/`: End‑to‑end WFL programs that must all pass.
-- `wfl-lsp/`: Language Server workspace member.
-- `vscode-extension/`: VS Code extension integration.
-- `Docs/`: Complete user documentation (organized in 6 sections plus guides/reference). See `Docs/README.md`.
-- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
-- `Tools/`: Helper tools (Python scripts, WFL tools).
-- `Nexus/`: Experimental WFL test programs.
+- `tests/`: Rust integration/unit tests; consumed fixtures under `tests/fixtures/<feature>/` (intentionally invalid programs: `tests/fixtures/diagnostics/` + an exit-status-asserting test).
+- `TestPrograms/`: End‑to‑end WFL programs that must all pass (feature subdirs like `modules/`, `constants/`, `nexus/`; asserted via `describe`/`expect`).
+- `examples/`: Polished, validated WFL programs (`web/`, `tools/`).
+- `experiments/`: Owned, time-bounded, non-gating prototypes — each `experiments/<topic>/` needs a `README.md` with Owner/Status/Issue/Created/Review-by/Exit criteria (checker-enforced).
+- `benches/`: Performance benchmarks (Criterion). `fuzz/`: standalone cargo-fuzz workspace.
+- `wfl-lsp/`: Language Server workspace member (independently versioned). `vscode-extension/`: VS Code extension.
+- `Docs/`: Maintained user documentation (6 sections + guides/reference; contributor docs under `Docs/contributing/`). See `Docs/README.md`.
+- `Engineering/`: Active designs (`designs/`), plans (`plans/`), evidence (`evidence/`), component records (`components/`).
+- `History/`: Chronological, non-normative history — Dev Diary at `History/dev-diary/<year>/`, `perf-lessons.md`.
+- `Archive/`: Retained inactive material, indexed by `Archive/manifest.json` (non-normative; checker verifies checksums).
+- `scripts/`: Maintained automation (`run_integration_tests.*`, `check_repo_hygiene.py`, `build_windows_installer.ps1`, `bump_version.py`, `metrics/`, `docs/`).
 - `wix/`: Windows Installer (MSI) configuration.
-- `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
+- `.cursor/rules/`, `.jules/`: thin adapters pointing back to `AGENTS.md` and root policy — no policy content of their own.
 
 ## Core Architecture
 The WFL compiler pipeline consists of:
@@ -197,9 +201,10 @@ agent MUST follow:
 
 ### Testing mechanics
 - **Locations**:
-  - Rust Unit/Integration: `tests/`
-  - WFL End-to-End: `TestPrograms/` (must pass with release build)
+  - Rust Unit/Integration: `tests/` (fixtures in `tests/fixtures/<feature>/`)
+  - WFL End-to-End: `TestPrograms/` and `TestPrograms/<feature>/` (must pass with release build; a file belongs here only if the gated runner executes it and failure exits nonzero)
   - WFL Test Framework: Use `describe`/`test` blocks, run with `wfl --test <file>`
+  - Test output: only under a temp dir or `target/test-artifacts/<suite>/` — the hygiene checker's working-tree mode fails CI on droppings
 - **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
 - **Commands & profile**: one command per layer + the "run all presubmit" block are in root `testing.md`.
 - **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
@@ -217,7 +222,7 @@ agent MUST follow:
   - The relevant guide under `Docs/` (e.g. a new statement → its section in the matching `Docs/04-advanced-features/*` or `Docs/05-standard-library/*` page).
   - Both keyword references (`Docs/reference/keyword-reference.md` and `Docs/reference/reserved-keywords.md`) when keywords are added or reclassified — update them together.
   - A working example (in `TestPrograms/`, validated with MCP) demonstrating the feature.
-  - A Dev Diary entry in `Dev diary/` for any non-trivial feature or behavior change.
+  - A Dev Diary entry in `History/dev-diary/<year>/` for any non-trivial feature or behavior change.
   - When a feature is removed or its syntax changes, remove or fix the now-stale docs and examples — don't leave contradictions.
 - **Docs Must Be Honest — "validate docs" (MANDATORY)**: Documentation describes **what actually ships today**, not what is aspirational. This is a binding policy, not a preference:
   - **No overclaiming runtime behavior.** Never describe behavior the runtime does not have (e.g. calling serial request handlers "parallel" or saying they "don't block others"). Prefer the precise word — say "concurrent" (interleaved on one thread) vs "parallel" (multiple cores) deliberately, and describe the transport/handler split accurately.
@@ -253,9 +258,9 @@ agent MUST follow:
 - **Governance**: Follow root `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `AI_POLICY.md`, `CONTRIBUTING.md` (see **Project Governance** above). Do not re-litigate AI use; do not skip quality gates because AI produced the draft.
 - **Backward Compatibility**: Sacred. Never break existing WFL programs without the documented deprecation path (`GOVERNANCE.md`). Run all `TestPrograms/`.
 - **Integration Tests**: Require `cargo build --release` and provided scripts.
-- **Documentation**: MANDATORY — any added or changed feature MUST ship its docs in the same change (see "Documentation Development"). Keep `Docs/` current, validate ALL code examples with MCP before adding, and add a Dev Diary note for non-trivial changes.
+- **Documentation**: MANDATORY — any added or changed feature MUST ship its docs in the same change (see "Documentation Development"). Keep `Docs/` current, validate ALL code examples with MCP before adding, and add a Dev Diary note in `History/dev-diary/<year>/` for non-trivial changes.
+- **Repository Hygiene**: Binding (`REPOSITORY_HYGIENE.md`). One canonical home per file; write test/tool output only under `target/` or temp dirs; archive additions require an `Archive/manifest.json` entry; run `python3 scripts/check_repo_hygiene.py --mode static` before pushing structural changes.
 - **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization. No public security issues.
-- **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 
 ## Technical Requirements
 - **Rust Edition**: 2024 (MSRV: 1.94+ — raised by the `sqlx` 0.9 dependency; Dev: 1.94+)
@@ -274,7 +279,7 @@ agent MUST follow:
 - **Build/Run**: `cargo build -p wfl-lsp`.
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
-- **Docs**: See `Docs/development/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
+- **Docs**: See `Docs/contributing/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
 
 ## Claude Code Hooks
 - **Location**: `.claude/hooks/` (hook scripts), `.claude/settings.json` (configuration).
