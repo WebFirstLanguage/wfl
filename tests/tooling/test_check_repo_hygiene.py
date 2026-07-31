@@ -108,7 +108,10 @@ class FixtureTree:
         if isinstance(content, bytes):
             path.write_bytes(content)
         else:
-            path.write_text(content)
+            # newline="\n" keeps fixture bytes identical across platforms —
+            # Windows text-mode writes would otherwise turn \n into \r\n and
+            # break checksum-sensitive tests.
+            path.write_text(content, newline="\n")
         return path
 
     def commit_all(self):
