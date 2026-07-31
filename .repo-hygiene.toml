@@ -11,6 +11,7 @@ schema = 1
 # Every tracked file that may sit directly at the repository root.
 allowed-files = [
     ".build_meta.json",     # transitional version mirror — see [[generated]]
+    ".gitattributes",       # checkout rules; must sit at the root to apply
     ".gitignore",
     ".repo-hygiene.toml",
     ".wflcfg",              # default config: packaged by the MSI, documented example
