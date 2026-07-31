@@ -141,8 +141,18 @@ run_test_programs() {
         return 0
     fi
 
-    # Count WFL files
-    wfl_files=$(find TestPrograms -maxdepth 1 -name "*.wfl" 2>/dev/null | wc -l)
+    # Count WFL files. The gated set is TestPrograms/*.wfl plus feature
+    # subdirectories (REPOSITORY_HYGIENE.md: a file belongs in TestPrograms/
+    # only when this runner executes it). Excluded subtrees with their own
+    # regimes: docs_examples/ (validated by validate_docs_examples.py),
+    # execute_pages/ and test_data/ (fixtures served/read by other tests).
+    # error_examples/ programs are expected to exit nonzero.
+    mapfile -d '' wfl_file_list < <(find TestPrograms -name "*.wfl" \
+        -not -path "TestPrograms/docs_examples/*" \
+        -not -path "TestPrograms/execute_pages/*" \
+        -not -path "TestPrograms/test_data/*" \
+        -print0 | sort -z)
+    wfl_files=${#wfl_file_list[@]}
     if [ "$wfl_files" -eq 0 ]; then
         print_warning "No WFL test programs found in TestPrograms/"
         return 0
@@ -155,7 +165,7 @@ run_test_programs() {
     skipped_programs=0
     passed_programs=0
 
-    for wfl_file in TestPrograms/*.wfl; do
+    for wfl_file in "${wfl_file_list[@]}"; do
         if [ -f "$wfl_file" ]; then
             test_name=$(basename "$wfl_file")
 
@@ -188,7 +198,7 @@ run_test_programs() {
             exit_code=0
             timeout "${TEST_TIMEOUT}s" "./$WFL_BINARY" "${extra_flags[@]}" "$wfl_file" > /dev/null 2>&1 || exit_code=$?
 
-            if is_expected_fail "$test_name"; then
+            if is_expected_fail "$test_name" || [[ "$wfl_file" == TestPrograms/error_examples/* ]]; then
                 # These programs intentionally end with an error
                 if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
                     print_success "PASS $test_name (expected failure, exit code: $exit_code)"
