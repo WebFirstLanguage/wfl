@@ -1,0 +1,13 @@
+// Constants: declaring and reading immutable values
+// Source: Docs/03-language-basics/variables-and-types.md#constants
+
+store new constant MAX_USERS as 100
+store new constant PI as 3.14159
+store new constant APP_NAME as "My Application"
+
+display "Up to " with MAX_USERS with " users"
+display APP_NAME with " uses pi = " with PI
+
+// Constants read exactly like any other variable
+store circle_area as PI times 4 times 4
+display "Area: " with circle_area

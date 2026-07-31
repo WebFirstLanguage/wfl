@@ -161,6 +161,25 @@ class StaticModeTest(unittest.TestCase):
     def test_checker_exists_and_is_tracked_here(self):
         self.assertTrue(CHECKER.is_file(), f"{CHECKER} does not exist")
 
+    def test_fixture_write_is_byte_exact(self):
+        """Fixture content must reach disk unchanged.
+
+        Without an explicit newline, `Path.write_text` applies the platform
+        translation, so on Windows every "\\n" became "\\r\\n" and the sha256 a
+        test computed from the LF form could never match the file the checker
+        read — test_archive_valid_manifest_passes failed on Windows for exactly
+        this reason while passing everywhere else. This pins the property
+        directly so a future edit to `write` cannot silently reintroduce it.
+        """
+        t = self.tree()
+        content = "ancient plan\nsecond line\n"
+        path = t.write("Archive/old/plan.md", content)
+        self.assertEqual(path.read_bytes(), content.encode("utf-8"))
+        self.assertEqual(
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+            hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        )
+
     def test_clean_tree_passes(self):
         t = self.tree()
         result = run_checker("static", t.root)

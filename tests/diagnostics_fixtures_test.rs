@@ -57,15 +57,14 @@ fn constant_mutation_is_rejected_for_every_mutation_form() {
         out.contains("Cannot modify constant 'MAX_SIZE'"),
         "expected the constant-mutation diagnostic, got:\n{out}"
     );
-    // The fixture mutates via change/add/subtract/multiply/divide. Each form
-    // is rejected when it appears alone, but in sequence the analyzer
-    // currently drops the report for the `add` form (4 reports for 5
-    // mutations) — a known reporting gap tracked as issue #671. Pin what
-    // actually holds today; tighten to 5 when the gap is fixed.
+    // The fixture mutates via change/add/subtract/multiply/divide. `add`
+    // parses to AddToListStatement rather than Assignment, and the analyzer
+    // did not check that statement's target for constness, so this used to
+    // report 4 of the 5 (issue #671).
     let count = out.matches("Cannot modify constant 'MAX_SIZE'").count();
-    assert!(
-        count >= 4,
-        "expected at least 4 of 5 mutation forms rejected, saw {count}:\n{out}"
+    assert_eq!(
+        count, 5,
+        "expected all 5 mutation forms rejected, saw {count}:\n{out}"
     );
     assert!(
         !out.contains("This shouldn't be reached"),

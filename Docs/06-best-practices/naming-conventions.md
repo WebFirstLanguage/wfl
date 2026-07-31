@@ -207,16 +207,20 @@ end
 
 ## Constants
 
-True immutability is limited today; **uppercase signals “do not reassign”** by convention:
+Declare a real constant with `store new constant` — WFL then rejects `change`,
+`add`, `subtract`, `multiply`, `divide`, `remove`, and `clear` against it (see
+[Variables and Types — Constants](../03-language-basics/variables-and-types.md#constants)
+for the one form that is not yet checked) — and **use SCREAMING_SNAKE_CASE** so
+the name itself says “do not reassign”:
 
 ```wfl
-store MAX_USERS as 100
-store DEFAULT_TIMEOUT as 30
-store API_VERSION as "v1"
-store PI as 3.14159
+store new constant MAX_USERS as 100
+store new constant DEFAULT_TIMEOUT as 30
+store new constant API_VERSION as "v1"
+store new constant PI as 3.14159
 ```
 
-Use SCREAMING_SNAKE_CASE for values that act as fixed configuration or mathematical constants.  
+Use SCREAMING_SNAKE_CASE for values that act as fixed configuration or mathematical constants. Note that `wfl --lint` currently reports SCREAMING_SNAKE_CASE names as non-snake_case; the naming warning is advisory and does not fail a build.  
 See also: [Variables and Types — Constants](../03-language-basics/variables-and-types.md#constants).
 
 ## Boolean Names
