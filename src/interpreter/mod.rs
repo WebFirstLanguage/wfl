@@ -15,6 +15,7 @@ mod op_refactor_error_tests;
 mod op_refactor_tests;
 #[cfg(test)]
 mod tests;
+mod tls;
 pub mod value;
 
 use self::control_flow::ControlFlow;
@@ -761,48 +762,22 @@ fn strip_host_port(host: &str) -> &str {
     }
 }
 
-/// Validates TLS certificate/key files before handing them to warp, which
-/// would otherwise panic inside the spawned server task on a bad file. Returns
-/// an actionable message naming the offending file.
-fn validate_tls_pem_files(cert_path: &str, key_path: &str) -> Result<(), String> {
-    let cert_file = std::fs::File::open(cert_path).map_err(|e| {
-        format!(
-            "Cannot open TLS certificate file '{cert_path}': {e}. For local development you can create a self-signed certificate with: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj \"/CN=localhost\""
+/// Resolves a request's accepted peer address on both server transports.
+///
+/// Warp's normal server path stores the address in its private route state.
+/// The custom Rustls/Hyper path cannot call Warp's private `call_with_addr`,
+/// so it places the same address in the request extensions instead.
+fn request_remote_addr()
+-> impl warp::Filter<Extract = (Option<std::net::SocketAddr>,), Error = std::convert::Infallible> + Clone
+{
+    warp::addr::remote()
+        .and(warp::ext::optional::<std::net::SocketAddr>())
+        .map(
+            |warp_addr: Option<std::net::SocketAddr>,
+             extension_addr: Option<std::net::SocketAddr>| {
+                warp_addr.or(extension_addr)
+            },
         )
-    })?;
-    let cert_items: Vec<rustls_pemfile::Item> =
-        rustls_pemfile::read_all(&mut std::io::BufReader::new(cert_file))
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("TLS certificate file '{cert_path}' is not valid PEM: {e}"))?;
-    if !cert_items
-        .iter()
-        .any(|item| matches!(item, rustls_pemfile::Item::X509Certificate(_)))
-    {
-        return Err(format!(
-            "TLS certificate file '{cert_path}' contains no certificates. Expected at least one PEM 'CERTIFICATE' block"
-        ));
-    }
-
-    let key_file = std::fs::File::open(key_path)
-        .map_err(|e| format!("Cannot open TLS private key file '{key_path}': {e}"))?;
-    let key_items: Vec<rustls_pemfile::Item> =
-        rustls_pemfile::read_all(&mut std::io::BufReader::new(key_file))
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("TLS private key file '{key_path}' is not valid PEM: {e}"))?;
-    if !key_items.iter().any(|item| {
-        matches!(
-            item,
-            rustls_pemfile::Item::Pkcs1Key(_)
-                | rustls_pemfile::Item::Pkcs8Key(_)
-                | rustls_pemfile::Item::Sec1Key(_)
-        )
-    }) {
-        return Err(format!(
-            "TLS private key file '{key_path}' contains no private key. Expected a PEM 'PRIVATE KEY', 'RSA PRIVATE KEY', or 'EC PRIVATE KEY' block"
-        ));
-    }
-
-    Ok(())
 }
 
 /// RAII guard for the interpreter's live recursion depth. Increments on
@@ -9800,7 +9775,7 @@ impl Interpreter {
                         })
                     })
                     .and(warp::body::stream())
-                    .and(warp::addr::remote())
+                    .and(request_remote_addr())
                     .and_then(
                         move |method: warp::http::Method,
                               path: warp::path::FullPath,
@@ -10222,28 +10197,57 @@ impl Interpreter {
                         },
                     };
 
-                    // Validate up front for actionable errors; warp would
-                    // otherwise surface a bad certificate as a generic
-                    // bind-time failure.
-                    if let Err(msg) = validate_tls_pem_files(&cert_path, &key_path) {
-                        return Err(RuntimeError::new(msg, *line, *column));
-                    }
+                    let tls_config = match tls::load_server_config(&cert_path, &key_path) {
+                        Ok(config) => config,
+                        Err(message) => {
+                            return Err(RuntimeError::new(message, *line, *column));
+                        }
+                    };
 
-                    // try_bind_with_graceful_shutdown is the only TlsServer
-                    // constructor that returns bind/TLS errors instead of
-                    // panicking inside the spawned task; the never-completing
-                    // signal keeps the server running until `close server`
-                    // aborts its task.
-                    match warp::serve(routes)
-                        .tls()
-                        .cert_path(&cert_path)
-                        .key_path(&key_path)
-                        .try_bind_with_graceful_shutdown(
-                            (bind_addr, port_num),
-                            std::future::pending::<()>(),
-                        ) {
-                        Ok((addr, server)) => {
-                            let server_handle = tokio::spawn(server);
+                    // Keep Warp's routing/filter contract while using the
+                    // patched Rustls stack. Hyper owns the listener and
+                    // connection lifecycle just as it did under Warp's legacy
+                    // TLS adapter; each accepted stream drives its handshake
+                    // independently, so a silent client cannot block accepts.
+                    match tls::SecuredIncoming::bind(
+                        std::net::SocketAddr::new(bind_addr, port_num),
+                        tls_config,
+                    ) {
+                        Ok((addr, incoming)) => {
+                            let filter_service = warp::service(routes);
+                            let make_service = warp::hyper::service::make_service_fn(
+                                move |connection: &tls::SecuredStream| {
+                                    let filter_service = filter_service.clone();
+                                    let remote_addr = connection.remote_addr();
+                                    async move {
+                                        Ok::<_, std::convert::Infallible>(
+                                            warp::hyper::service::service_fn(
+                                                move |mut request: warp::hyper::Request<
+                                                    warp::hyper::Body,
+                                                >| {
+                                                    request.extensions_mut().insert(remote_addr);
+                                                    let mut service = filter_service.clone();
+                                                    warp::hyper::service::Service::call(
+                                                        &mut service,
+                                                        request,
+                                                    )
+                                                },
+                                            ),
+                                        )
+                                    }
+                                },
+                            );
+                            let tracked_connections = tls::TrackedConnections::new();
+                            let server = warp::hyper::Server::builder(incoming)
+                                .executor(tracked_connections.executor())
+                                .serve(make_service)
+                                .with_graceful_shutdown(std::future::pending::<()>());
+                            let server_handle = tokio::spawn(async move {
+                                let _cancel_connections = tracked_connections.cancel_on_drop();
+                                if let Err(error) = server.await {
+                                    log::error!("Secure web server stopped: {error}");
+                                }
+                            });
 
                             let wfl_server = WflWebServer {
                                 request_receiver: request_receiver.clone(),

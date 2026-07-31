@@ -118,8 +118,7 @@ async fn test_plain_http_to_tls_port_fails() {
     let server_code = format!(
         r#"
         listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
-        wait for request comes in on secure_server as req with timeout 3000
-        respond to req with "unreachable"
+        wait for 2500 milliseconds
         close server secure_server
     "#
     );
@@ -147,12 +146,12 @@ async fn test_redirect_server_returns_301_with_location() {
     let https_port = 8213;
 
     // The redirect is answered natively by the server, so the program never
-    // sees a request; the timed-out wait just keeps the server alive long
-    // enough for the test to hit it.
+    // sees a request; a bounded delay keeps the server alive for the client
+    // without manufacturing a runtime timeout error.
     let server_code = format!(
         r#"
         listen on port {http_port} redirecting to port {https_port} as redirect_server
-        wait for request comes in on redirect_server as req with timeout 4000
+        wait for 2500 milliseconds
         close server redirect_server
     "#
     );
