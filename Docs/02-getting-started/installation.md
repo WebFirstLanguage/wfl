@@ -109,6 +109,35 @@ grep linux-x86_64 SHA256SUMS
 
 The two hashes must match. If they do not, do not install the archive.
 
+#### Verifying a pinned version
+
+**`SHA256SUMS` describes only the most recent publish.** It is rewritten by every
+nightly, so it is the right file to check `latest` against and the wrong file to
+check a pinned version against — the entry you pinned disappears from it as soon
+as a newer build lands, even though your tarball is immutable and still served.
+
+Every versioned artifact therefore also has its own checksum file, published once
+alongside it and never rewritten:
+
+```bash
+BASE=https://wfl.nyc3.cdn.digitaloceanspaces.com/releases
+TARBALL=wfl-26.7.59-linux-x86_64-579eb80.tar.gz   # the build you pinned
+
+curl -fLO "$BASE/$TARBALL"
+curl -fLO "$BASE/$TARBALL.sha256"
+sha256sum -c "$TARBALL.sha256"
+```
+
+`sha256sum -c` prints `OK` and exits 0 on a match, so this drops straight into a
+deployment script. The same `<artifact>.sha256` naming applies to the MSI and the
+VS Code extension (`wfl-<version>.msi.sha256`,
+`vscode-wfl-<version>.vsix.sha256`).
+
+Both files are served from the same host as the artifact, so they prove the
+download arrived intact — not that it came from us. Signed installers are a
+tracked follow-up; until then, treat the checksum as an integrity check, and
+record the expected hash yourself if you need to detect a change at the source.
+
 ### Step 2: Extract
 
 ```bash

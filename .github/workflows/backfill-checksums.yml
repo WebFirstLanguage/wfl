@@ -1,0 +1,62 @@
+name: Backfill Release Checksums
+
+# On-demand repair of the published-artifact checksum sidecars in the
+# DigitalOcean Spaces bucket.
+#
+# The nightly release job already runs this after every publish, so under normal
+# operation there is nothing for this workflow to do. It exists so the repair can
+# be run - or, with dry_run, inspected - without waiting for or forcing a
+# nightly build. The obvious use is the one-time pass over the artifacts that
+# were published before checksum sidecars existed (issue #662).
+#
+# The script only ever creates missing `<artifact>.sha256` keys. It never
+# rewrites an existing sidecar, never touches an artifact, a rolling pointer,
+# SHA256SUMS, or status.json, and is safe to run repeatedly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List the sidecars that are missing without uploading anything'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+# Shared with the nightly release job, so a backfill and a publish can never
+# write to the bucket at the same time. Without it, this run's bucket listing
+# could report a sidecar missing, the publisher could then create it, and this
+# run would overwrite it with a checksum computed from the bytes it read
+# earlier. Queue rather than cancel: neither side is safe to interrupt midway.
+concurrency:
+  group: spaces-publish
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    name: Backfill missing .sha256 sidecars
+    # I/O-bound, never CPU-bound. x86 rather than the cheaper ARM label only
+    # because this is the runner the nightly publish step already uses, so the
+    # AWS CLI is known to be preinstalled on it.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Backfill checksums
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          SPACES_BUCKET:         wfl
+          SPACES_ENDPOINT:       https://nyc3.digitaloceanspaces.com
+          AWS_DEFAULT_REGION:    nyc3
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ./scripts/backfill_spaces_checksums.sh --dry-run
+          else
+            ./scripts/backfill_spaces_checksums.sh
+          fi

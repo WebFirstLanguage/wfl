@@ -118,6 +118,54 @@ Utility script for branch synchronization.
 .\scripts\sync-branch.ps1
 ```
 
+## Release Publishing Scripts
+
+These run from `.github/workflows/nightly.yml` against the DigitalOcean Spaces
+bucket that backs <https://wfl.nyc3.cdn.digitaloceanspaces.com>, the canonical
+download location. Both need `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` for
+Spaces (`SPACES_BUCKET`, `SPACES_ENDPOINT` override the defaults) and `jq`.
+
+### `publish_spaces.sh`
+Uploads one nightly's artifacts. Immutable versioned objects go up first, each
+with an immutable `<artifact>.sha256` sidecar; the rolling `latest` pointers,
+`SHA256SUMS` and `status.json` follow only once every one of them succeeded, so a
+partial publish is never observable as a release and anything it left behind is
+unreferenced. Every object is then read back through the CDN and compared byte
+for byte against what was uploaded.
+
+Versioned keys are treated as write-once: re-publishing identical bytes is a
+no-op, and a build whose bytes differ from what is already published under the
+same key **aborts the publish** rather than replacing it. Re-running a publish
+that failed partway is therefore the supported way to finish it.
+
+**Usage:**
+```bash
+./scripts/publish_spaces.sh <artifact-dir> <version> <short-sha> <commit-sha> <branch>
+```
+
+### `backfill_spaces_checksums.sh`
+Creates the `<artifact>.sha256` sidecars for artifacts published before those
+existed. Idempotent and additive: it only ever creates missing `*.sha256` keys,
+never rewrites one, and never touches an artifact, a rolling pointer,
+`SHA256SUMS`, or `status.json`. Runs after every nightly publish, and on demand
+via the **Backfill Release Checksums** workflow.
+
+**Usage:**
+```bash
+./scripts/backfill_spaces_checksums.sh --dry-run   # report what is missing
+./scripts/backfill_spaces_checksums.sh             # repair it
+```
+
+### `test_publish_spaces.sh`
+Tests both of the above by running them against a recording stub of the AWS CLI,
+asserting the keys, bytes and cache headers they write. No credentials needed;
+runs in CI as the **Release Script Tests** job.
+
+**Usage:**
+```bash
+./scripts/test_publish_spaces.sh
+```
+
 ## Development Workflow
 
 ### Typical Development Cycle

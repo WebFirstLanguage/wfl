@@ -612,6 +612,16 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    # Serializes every writer of the Spaces bucket - this job, a second nightly
+    # run (a manual dispatch on a day the schedule already fired), and the
+    # on-demand backfill workflow, which shares this group name. The rolling
+    # pointers, SHA256SUMS and status.json are read-modify-write against a
+    # single set of keys, and two publishes interleaving can leave them
+    # describing different builds. Queue rather than cancel: a publish
+    # interrupted midway is exactly the state this ordering exists to avoid.
+    concurrency:
+      group: spaces-publish
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -677,6 +687,28 @@ jobs:
             "${{ needs.check-for-changes.outputs.short_sha }}" \
             "${{ github.sha }}" \
             "${{ github.ref_name }}"
+
+      # Artifacts published before the `.sha256` sidecars existed have no
+      # immutable checksum, so pinning one of them stopped being verifiable as
+      # soon as a newer nightly rewrote SHA256SUMS (issue #662). This repairs
+      # them in place. It is idempotent and additive - once every historical
+      # object has a sidecar, the step is a single list call - so it stays wired
+      # in rather than being run once and removed, and any future gap heals
+      # itself on the next nightly.
+      #
+      # It cannot invalidate the release that just published: it only ever
+      # creates missing `*.sha256` keys, and never rewrites an existing one. A
+      # failure here therefore means "history is still partly unrepaired", not
+      # "this release is bad", so it must not fail the release job.
+      - name: Backfill checksums for previously published artifacts
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          SPACES_BUCKET:         wfl
+          SPACES_ENDPOINT:       https://nyc3.digitaloceanspaces.com
+          AWS_DEFAULT_REGION:    nyc3
+        run: ./scripts/backfill_spaces_checksums.sh
 
       - name: Configure git identity
         run: |
