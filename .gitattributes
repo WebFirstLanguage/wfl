@@ -1,8 +1,0 @@
-# Archived content is pinned byte-for-byte by the sha256 entries in
-# Archive/manifest.json, and scripts/check_repo_hygiene.py hashes the file as it
-# sits in the working tree. Any end-of-line translation at checkout therefore
-# reports drift for every archived text file at once — which is exactly what
-# happened on the Windows CI runner, whose default core.autocrlf=true rewrote
-# every LF to CRLF. Archived files are immutable blobs, so check them out
-# verbatim on every platform.
-Archive/** -text

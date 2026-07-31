@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.x'
       - name: Checker unit tests (fixture trees)
@@ -213,13 +213,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # scripts/check_repo_hygiene.py needs tomllib (3.11+). The Windows
-      # runner's bundled `python` is older, so without this the working-tree
-      # hygiene step below fails with "Python 3.11+ with tomllib is required"
-      # no matter what the job actually tested.
-      - uses: actions/setup-python@v5
+      # The post-suite working-tree hygiene check needs Python 3.11+ (tomllib);
+      # the Windows runner's default python is older, so set it up explicitly.
+      - uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       # Reclaim runner disk before building: this job builds the (debuginfo-heavy)
       # release tree AND every integration test binary (`cargo test --test '*'`),
@@ -379,12 +377,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # See integration-tests: the working-tree hygiene step at the end of this
-      # job needs tomllib (Python 3.11+), which the Windows runner's bundled
-      # `python` does not have.
-      - uses: actions/setup-python@v5
+      # The post-suite working-tree hygiene check needs Python 3.11+ (tomllib);
+      # the Windows runner's default python is older, so set it up explicitly.
+      - uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       # Cache Cargo registry and target directory for faster builds
       - name: Cache Cargo registry and target directory
@@ -685,7 +682,7 @@ jobs:
           save-if: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
