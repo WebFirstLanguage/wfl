@@ -177,9 +177,39 @@ const TRANSACTION_CONTROL_KEYWORDS: &[&str] = &[
 /// construct that actually works. Only the *leading* keyword is inspected, so a
 /// column called `begin_at` or a string containing the word "commit" is
 /// untouched.
+///
+/// Leading comments are skipped first (see [`skip_leading_comments`]): a guard
+/// that stopped at the first non-alphabetic character would read an empty word
+/// from `-- go\nBEGIN` and wave it through, which is the case it exists to stop.
+/// Return `sql` with any leading whitespace and SQL comments removed, so the
+/// caller sees the first real token.
+///
+/// Handles both comment forms (`-- to end of line` and `/* … */`), repeated and
+/// interleaved. An unterminated block comment consumes the rest of the input and
+/// yields an empty string — the statement is then left to the database to
+/// reject, which is the right outcome for text that is not valid SQL anyway.
+fn skip_leading_comments(sql: &str) -> &str {
+    let mut rest = sql.trim_start();
+    loop {
+        if let Some(after) = rest.strip_prefix("--") {
+            // A line comment runs to the newline, or to the end of the input.
+            rest = match after.find('\n') {
+                Some(newline) => after[newline + 1..].trim_start(),
+                None => return "",
+            };
+        } else if let Some(after) = rest.strip_prefix("/*") {
+            rest = match after.find("*/") {
+                Some(end) => after[end + 2..].trim_start(),
+                None => return "",
+            };
+        } else {
+            return rest;
+        }
+    }
+}
+
 pub fn reject_transaction_control_sql(sql: &str) -> Result<(), String> {
-    let first_word: String = sql
-        .trim_start()
+    let first_word: String = skip_leading_comments(sql)
         .chars()
         .take_while(|c| c.is_ascii_alphabetic())
         .collect();

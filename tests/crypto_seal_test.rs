@@ -361,3 +361,55 @@ store plain as unseal of sealed and key
         .err()
         .expect("dropping the context on unseal must fail, not silently succeed");
 }
+
+/// A key or sealed value is untrusted text — it can come from a config file, a
+/// database row, or an HTTP request. Every malformed input must produce a
+/// catchable error, never a panic that takes down the process (and any server
+/// it is hosting) with it.
+///
+/// Multi-byte UTF-8 is the case that escaped: decoding hex by slicing the string
+/// at fixed two-byte offsets lands mid-character and panics on a `str` boundary
+/// check rather than failing closed like every other bad input.
+#[tokio::test]
+async fn a_non_ascii_key_is_refused_rather_than_panicking() {
+    // "€a" is 4 bytes, so an even-length check passes, but offset 2 is inside
+    // the 3-byte '€'.
+    let code = r#"
+store sealed as seal of "secret" and "€a"
+"#;
+    run_wfl(code)
+        .await
+        .err()
+        .expect("a non-ASCII key must be reported as a bad key, not panic");
+}
+
+#[tokio::test]
+async fn a_non_ascii_sealed_value_is_refused_rather_than_panicking() {
+    let code = format!(
+        r#"
+store key as "{KEY}"
+store plain as unseal of "wflseal1:€a" and key
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("a non-ASCII sealed value must be reported, not panic");
+}
+
+/// Hex is ASCII by definition, so a full-width or accented character anywhere in
+/// an otherwise well-formed value must be rejected too.
+#[tokio::test]
+async fn a_multibyte_character_inside_a_full_length_key_is_refused() {
+    // 62 ASCII hex characters plus a 2-byte 'é' — 64 bytes, 63 characters.
+    let key: String = "a".repeat(62) + "é";
+    let code = format!(
+        r#"
+store sealed as seal of "secret" and "{key}"
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("a multi-byte character inside a key must be reported, not panic");
+}

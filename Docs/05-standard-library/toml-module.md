@@ -16,7 +16,9 @@ WFL also has JSON functions with exactly the same shape (`parse_json`, `stringif
 | Boolean | Boolean (`yes` / `no`) |
 | Date, time, datetime | Text, in the format the file used |
 
-Dates and times come back as text rather than WFL date values. TOML distinguishes offset datetimes, local datetimes, local dates and local times, and collapsing those into one WFL type would lose information; keeping the original text keeps the round trip exact.
+Dates and times come back as **text**, in exactly the form the file used. TOML distinguishes offset datetimes, local datetimes, local dates and local times, and collapsing those into a single WFL date value would lose the distinction.
+
+The cost is that a date does not survive a *write* as a date. Reading `released = 2026-07-31` and writing it back produces `released = "2026-07-31"` — same characters, but now a TOML string rather than a TOML date. If a consumer of your file cares about the difference, read the value and construct the output yourself instead of round-tripping.
 
 ## Functions
 
@@ -153,7 +155,9 @@ Inside a *list* there is no way to leave a hole — dropping an entry would chan
 
 **Whole numbers stay integers.** A number with no fractional part is written as a TOML integer, so a config round-trips as `listen_port = 8080` rather than `listen_port = 8080.0`.
 
-**Writing is not editing.** Parsing and re-writing a file produces a valid, equivalent document, but not the same bytes: keys are sorted alphabetically and comments are dropped. If you need to preserve someone's hand-written file exactly, read it and write your own output elsewhere rather than round-tripping theirs.
+**Writing is not editing.** Parsing and re-writing a file produces a valid, equivalent document, but not the same bytes: keys are sorted alphabetically, comments are dropped, and dates become strings (see above). If you need to preserve someone's hand-written file exactly, read it and write your own output elsewhere rather than round-tripping theirs.
+
+**Very large integers lose precision.** WFL numbers are 64-bit floating point, which represents whole numbers exactly only up to 9,007,199,254,740,991 (2⁵³−1). A TOML integer above that is rounded on the way in — `9007199254740993` reads back as `9007199254740992` — so a parse-and-rewrite cycle can silently change it. This applies to every number in WFL, JSON included, not just TOML; if a config carries identifiers that large, keep them as quoted strings.
 
 ## Related
 

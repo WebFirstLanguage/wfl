@@ -269,3 +269,67 @@ store out as stringify_toml of config
     );
     assert_eq!(expect_text(&get_global(&interpreter, "out")), "");
 }
+
+/// TOML dates parse to text, and therefore write back as strings rather than
+/// dates. That is a real fidelity loss, so it is pinned here and stated in
+/// Docs/05-standard-library/toml-module.md rather than left for a user to
+/// discover from a config a downstream tool then rejects.
+#[tokio::test]
+async fn a_date_round_trips_as_text_not_as_a_toml_date() {
+    let interpreter = run_wfl(
+        r#"
+store parsed as parse_toml of "released = 2026-07-31
+"
+store rendered as stringify_toml of parsed
+"#,
+    )
+    .await
+    .expect("valid TOML");
+
+    assert_eq!(
+        expect_text(&get_global(&interpreter, "rendered")).trim(),
+        r#"released = "2026-07-31""#,
+        "the characters survive, but the TOML type becomes a string"
+    );
+}
+
+/// WFL numbers are f64, so TOML integers beyond 2^53 are rounded on the way in.
+/// Documented in the TOML page; asserted here so the boundary is not moved
+/// silently.
+#[tokio::test]
+async fn integers_within_exact_f64_range_survive_a_round_trip() {
+    let interpreter = run_wfl(
+        r#"
+store parsed as parse_toml of "id = 9007199254740991
+"
+store rendered as stringify_toml of parsed
+"#,
+    )
+    .await
+    .expect("valid TOML");
+
+    assert_eq!(
+        expect_text(&get_global(&interpreter, "rendered")).trim(),
+        "id = 9007199254740991",
+        "2^53 - 1 is exactly representable and must survive"
+    );
+}
+
+#[tokio::test]
+async fn integers_beyond_exact_f64_range_are_rounded() {
+    let interpreter = run_wfl(
+        r#"
+store parsed as parse_toml of "id = 9007199254740993
+"
+store rendered as stringify_toml of parsed
+"#,
+    )
+    .await
+    .expect("valid TOML");
+
+    assert_eq!(
+        expect_text(&get_global(&interpreter, "rendered")).trim(),
+        "id = 9007199254740992",
+        "beyond 2^53 the value is rounded — keep such ids as quoted strings"
+    );
+}

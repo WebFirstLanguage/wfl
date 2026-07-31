@@ -142,9 +142,13 @@ end try
 - **Reads see the block's own writes.** A `query` inside the block sees rows the
   block has inserted but not yet committed. Other connections do not see them
   until the block commits.
-- **Only errors roll back.** `break`, `continue` and `return` are ordinary ways
-  to leave a block, so they commit — the work inside finished. A rollback
-  happens when a statement fails.
+- **`break`, `continue` and `return` commit.** They are ordinary ways to leave a
+  block, so the work inside finished and is kept.
+- **Errors and `exit` roll back.** A failed statement rolls the block back, and
+  so does `exit`, which stops the program where it stands rather than finishing
+  the block. A transaction still open when the program ends rolls back for the
+  same reason — an abrupt stop discards the partial work rather than
+  half-committing it.
 
 ### Restrictions
 
@@ -171,9 +175,26 @@ nothing while the writes it was meant to discard survived. `BEGIN`, `COMMIT`,
 `ROLLBACK`, `START TRANSACTION`, `SAVEPOINT` and `RELEASE` are therefore
 rejected with an error naming the block syntax above.
 
-Only the leading keyword of a statement is checked, so ordinary SQL that merely
+Only the first real token of a statement is checked, so ordinary SQL that merely
 contains those words — a column named `begin_at`, a value of `'rollback plan'` —
-runs normally.
+runs normally. Leading comments are skipped before that token is read, so
+`-- set up\nBEGIN` is refused rather than slipping past.
+
+> **If this used to work for you, it worked by accident.** An in-memory SQLite
+> database (`sqlite::memory:`) only ever has one connection, so hand-written
+> transaction control did take effect there — and nowhere else. The same program
+> pointed at a file-backed or networked database silently lost the writes it
+> meant to roll back. That is why this is now an error everywhere rather than a
+> warning: the pattern's failure mode was to pass in development and corrupt data
+> in production. Replace it with the block above.
+
+### Transactions and concurrent handlers
+
+Under `main loop concurrently:` a transaction belongs to the handler that opened
+it. Two requests can hold their own transactions on the same database handle at
+the same time, and a handler that has no transaction of its own keeps taking a
+pooled connection as usual — it is never enrolled in someone else's transaction,
+and cannot have its writes committed or rolled back by another request.
 
 > `transaction` is not a reserved word. It is recognized only in
 > `in transaction on ...` and `end transaction`, so existing programs that use

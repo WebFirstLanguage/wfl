@@ -839,6 +839,8 @@ impl Drop for CallDepthGuard<'_> {
 /// that handler is actively being polled (see [`IsolatedHandler`]).
 #[derive(Default)]
 struct RunState {
+    /// This handler's transaction scope (see [`Interpreter::tx_scope`]).
+    tx_scope: u64,
     current_count: Option<f64>,
     in_count_loop: bool,
     call_depth: usize,
@@ -1455,6 +1457,20 @@ pub struct Interpreter {
     /// dedicated RAII counter means a caught `ResourceLimit` can never leave the
     /// enforcement depth under-counted, so catch-and-recurse stays bounded.
     call_depth: Cell<usize>,
+    /// Identifies the execution context ("who") that owns a transaction.
+    ///
+    /// Under `main loop concurrently:` every handler runs against the *same*
+    /// `IoClient` and can name the same global database handle. Keying open
+    /// transactions by handle alone would mean one handler's ordinary query
+    /// silently joined another handler's transaction — and got committed or
+    /// rolled back by it. Transactions are therefore keyed by (scope, handle).
+    ///
+    /// Swapped per poll by [`InstalledRunState`], exactly like the other
+    /// handler-local run state, so the value read here always belongs to the
+    /// handler currently executing. `0` is the serial/top-level scope.
+    tx_scope: Cell<u64>,
+    /// Source of unique [`Self::tx_scope`] ids for concurrent handlers.
+    next_tx_scope: Cell<u64>,
     /// Static methods execute against lexical environments that mirror shared
     /// container properties. This stack synchronizes those mirrors at nested
     /// call boundaries so a re-entrant static call sees mutations made by its
@@ -1852,6 +1868,11 @@ async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result
 }
 
 #[allow(dead_code)]
+/// An open transaction behind its own lock, so the transaction map's lock is
+/// never held across SQL I/O. `None` marks a handle reserved by an in-flight
+/// `begin` (see [`IoClient::db_transactions`]).
+type SharedTransaction = Arc<Mutex<Option<database::DbTransaction>>>;
+
 pub struct IoClient {
     /// Shared outbound HTTP client, built on first use.
     ///
@@ -1872,7 +1893,24 @@ pub struct IoClient {
     /// `db_handles`. While an entry is present, every `query`/`execute` on that
     /// handle runs on the transaction's pinned connection instead of taking a
     /// fresh one from the pool — which is the whole point of issue #664.
-    db_transactions: Mutex<HashMap<String, database::DbTransaction>>,
+    ///
+    /// Each transaction lives behind its **own** lock rather than inside the
+    /// map's. Statements within one transaction are necessarily serial (a
+    /// transaction owns a single connection), but holding the map's lock across
+    /// the SQL await would extend that to every database operation in the
+    /// program, so one slow statement would stall unrelated handles. Callers
+    /// therefore lock the map only long enough to clone the `Arc`.
+    ///
+    /// Keyed by `(scope, handle)` rather than handle alone: see
+    /// [`Interpreter::tx_scope`]. Two concurrent handlers naming the same global
+    /// database handle therefore get separate entries, and a handler with no
+    /// transaction of its own takes the pool as it always did.
+    ///
+    /// The slot is `Option` so a handle can be *reserved* under the map lock
+    /// before the `begin` round-trip completes: two concurrent begins on one
+    /// handle would otherwise both pass a `contains_key` check and the second
+    /// would silently replace — and drop — the first transaction.
+    db_transactions: Mutex<HashMap<(u64, String), SharedTransaction>>,
     /// Live outbound streaming response bodies, keyed by handle id
     /// ("httpstream1", ...). See [`StreamSlot`] / [`HttpStreamHandle`].
     ///
@@ -2474,8 +2512,13 @@ impl IoClient {
     /// Refuses while a transaction is open on the handle: closing the pool
     /// under an in-flight transaction would discard the work with no report of
     /// what happened to it.
-    async fn close_database(&self, handle_id: &str) -> Result<(), String> {
-        if self.db_transactions.lock().await.contains_key(handle_id) {
+    async fn close_database(&self, scope: u64, handle_id: &str) -> Result<(), String> {
+        if self
+            .db_transactions
+            .lock()
+            .await
+            .contains_key(&(scope, handle_id.to_string()))
+        {
             return Err(format!(
                 "Cannot close database '{handle_id}' while a transaction is open on it. \
                  Let the `in transaction on ...` block finish first — it commits at \
@@ -2494,33 +2537,68 @@ impl IoClient {
     }
 
     /// Open a transaction on `handle_id`, pinning one pooled connection to it.
-    async fn begin_transaction(&self, handle_id: &str) -> Result<(), String> {
+    async fn begin_transaction(&self, scope: u64, handle_id: &str) -> Result<(), String> {
         // Nesting would need savepoints, which are not implemented; say so
         // rather than quietly flattening the inner block into the outer one.
-        if self.db_transactions.lock().await.contains_key(handle_id) {
-            return Err(format!(
-                "A transaction is already open on database '{handle_id}'. Transaction \
-                 blocks cannot be nested on the same database — finish the current one \
-                 before starting another."
-            ));
-        }
+        // Reserve the handle and take the slot's lock *before* awaiting the
+        // database, so a concurrent begin on the same handle loses the race
+        // here rather than replacing a live transaction later.
+        let slot: SharedTransaction = {
+            let mut transactions = self.db_transactions.lock().await;
+            if transactions.contains_key(&(scope, handle_id.to_string())) {
+                return Err(format!(
+                    "A transaction is already open on database '{handle_id}'. Transaction \
+                     blocks cannot be nested on the same database — finish the current one \
+                     before starting another."
+                ));
+            }
+            let slot: SharedTransaction = Arc::new(Mutex::new(None));
+            transactions.insert((scope, handle_id.to_string()), Arc::clone(&slot));
+            slot
+        };
+        // Held across the begin, so a statement that arrives meanwhile waits for
+        // the transaction rather than seeing an empty slot and taking the pool.
+        let mut open = slot.lock().await;
 
-        let pool = self.get_database(handle_id).await?;
-        let tx = database::begin(&pool).await?;
-        self.db_transactions
-            .lock()
-            .await
-            .insert(handle_id.to_string(), tx);
-        Ok(())
+        // The reservation must not outlive a failed begin, or the handle would
+        // be stuck refusing every later transaction.
+        let pool = match self.get_database(handle_id).await {
+            Ok(pool) => pool,
+            Err(err) => {
+                self.db_transactions
+                    .lock()
+                    .await
+                    .remove(&(scope, handle_id.to_string()));
+                return Err(err);
+            }
+        };
+        match database::begin(&pool).await {
+            Ok(tx) => {
+                *open = Some(tx);
+                Ok(())
+            }
+            Err(err) => {
+                self.db_transactions
+                    .lock()
+                    .await
+                    .remove(&(scope, handle_id.to_string()));
+                Err(err)
+            }
+        }
     }
 
     /// Commit the open transaction on `handle_id`.
-    async fn commit_transaction(&self, handle_id: &str) -> Result<(), String> {
-        let tx = self
+    async fn commit_transaction(&self, scope: u64, handle_id: &str) -> Result<(), String> {
+        let slot = self
             .db_transactions
             .lock()
             .await
-            .remove(handle_id)
+            .remove(&(scope, handle_id.to_string()))
+            .ok_or_else(|| format!("No transaction is open on database '{handle_id}'"))?;
+        let tx = slot
+            .lock()
+            .await
+            .take()
             .ok_or_else(|| format!("No transaction is open on database '{handle_id}'"))?;
         database::commit(tx).await
     }
@@ -2529,8 +2607,16 @@ impl IoClient {
     ///
     /// A missing transaction is not an error here: this runs on the failure
     /// path, where the transaction may already have been resolved.
-    async fn rollback_transaction(&self, handle_id: &str) -> Result<(), String> {
-        let tx = self.db_transactions.lock().await.remove(handle_id);
+    async fn rollback_transaction(&self, scope: u64, handle_id: &str) -> Result<(), String> {
+        let slot = self
+            .db_transactions
+            .lock()
+            .await
+            .remove(&(scope, handle_id.to_string()));
+        let tx = match slot {
+            Some(slot) => slot.lock().await.take(),
+            None => None,
+        };
         match tx {
             Some(tx) => database::rollback(tx).await,
             None => Ok(()),
@@ -2541,13 +2627,22 @@ impl IoClient {
     /// when it has one.
     async fn db_query(
         &self,
+        scope: u64,
         handle_id: &str,
         sql: &str,
         params: &[database::SqlParam],
     ) -> Result<Value, String> {
-        {
-            let mut transactions = self.db_transactions.lock().await;
-            if let Some(tx) = transactions.get_mut(handle_id) {
+        // Lock the map only long enough to clone the handle's slot; the SQL
+        // below is awaited under the slot's own lock, never the map's.
+        let slot = self
+            .db_transactions
+            .lock()
+            .await
+            .get(&(scope, handle_id.to_string()))
+            .cloned();
+        if let Some(slot) = slot {
+            let mut open = slot.lock().await;
+            if let Some(tx) = open.as_mut() {
                 return database::run_query(database::DbTarget::Transaction(tx), sql, params).await;
             }
         }
@@ -2559,13 +2654,20 @@ impl IoClient {
     /// when it has one.
     async fn db_execute(
         &self,
+        scope: u64,
         handle_id: &str,
         sql: &str,
         params: &[database::SqlParam],
     ) -> Result<Value, String> {
-        {
-            let mut transactions = self.db_transactions.lock().await;
-            if let Some(tx) = transactions.get_mut(handle_id) {
+        let slot = self
+            .db_transactions
+            .lock()
+            .await
+            .get(&(scope, handle_id.to_string()))
+            .cloned();
+        if let Some(slot) = slot {
+            let mut open = slot.lock().await;
+            if let Some(tx) = open.as_mut() {
                 return database::run_execute(database::DbTarget::Transaction(tx), sql, params)
                     .await;
             }
@@ -4560,6 +4662,8 @@ impl Interpreter {
             current_block_overload_dups: RefCell::new(None),
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
+            tx_scope: Cell::new(0),
+            next_tx_scope: Cell::new(1),
             active_static_method_contexts: RefCell::new(Vec::new()),
             base_call_depth: 0,
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
@@ -5062,6 +5166,8 @@ impl Interpreter {
         );
         let depth = self.call_depth.replace(state.call_depth);
         state.call_depth = depth;
+        let scope = self.tx_scope.replace(state.tx_scope);
+        state.tx_scope = scope;
         std::mem::swap(&mut *self.call_stack.borrow_mut(), &mut state.call_stack);
         std::mem::swap(
             &mut *self.active_static_method_contexts.borrow_mut(),
@@ -5104,7 +5210,12 @@ impl Interpreter {
     /// context so captures, relative module paths, and cycle/import-depth
     /// checks behave as they would in the enclosing context (#642).
     fn fresh_handler_run_state(&self) -> RunState {
+        let scope = self.next_tx_scope.get();
+        self.next_tx_scope.set(scope.wrapping_add(1).max(1));
         RunState {
+            // A fresh scope per handler: its transactions are its own, and an
+            // unrelated handler naming the same database handle takes the pool.
+            tx_scope: scope,
             call_depth: self.call_depth.get(),
             capture_stack: io_capture::snapshot_stack(),
             current_source_file: self.current_source_file.borrow().clone(),
@@ -6321,6 +6432,83 @@ impl Interpreter {
         }
     }
 
+    /// Run an `in transaction on <db>: ... end transaction` block.
+    ///
+    /// Split out of [`Self::execute_statement`] and awaited behind a `Box::pin`
+    /// so its locals do not inflate that function's state machine for every
+    /// other statement kind — see the call site.
+    async fn execute_transaction_statement(
+        &self,
+        db: &Expression,
+        body: &[Statement],
+        line: usize,
+        column: usize,
+        env: Rc<RefCell<Environment>>,
+    ) -> Result<(Value, ControlFlow), RuntimeError> {
+        let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+        let handle = match &db_value {
+            Value::Text(s) => s.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Expected a database handle, got {db_value:?}"),
+                    line,
+                    column,
+                ));
+            }
+        };
+
+        self.io_client
+            .begin_transaction(self.tx_scope.get(), &handle)
+            .await
+            .map_err(|e| RuntimeError::new(e, line, column))?;
+
+        // Statements inside share the enclosing scope, like `try:`, so a
+        // variable set inside the block is still readable after it.
+        let outcome = self.execute_block(body, Rc::clone(&env)).await;
+
+        match outcome {
+            // `exit` stops the program where it stands rather than
+            // finishing the block, so its work is abandoned — matching
+            // what already happens when a program ends with a
+            // transaction still open. Committing a half-finished block
+            // on an abrupt stop is the surprise worth avoiding.
+            Ok((value, ControlFlow::Exit)) => {
+                self.io_client
+                    .rollback_transaction(self.tx_scope.get(), &handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, line, column))?;
+                Ok((value, ControlFlow::Exit))
+            }
+            Ok((value, control_flow)) => {
+                // The block finished without an error. `break`, `continue`
+                // and `return` are ordinary exits, not failures, so they
+                // commit too — the work inside completed.
+                self.io_client
+                    .commit_transaction(self.tx_scope.get(), &handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, line, column))?;
+                Ok((value, control_flow))
+            }
+            Err(err) => {
+                // Roll back and report the original failure. A rollback
+                // that itself fails is appended rather than replacing the
+                // cause, which is what the user actually needs to see.
+                match self
+                    .io_client
+                    .rollback_transaction(self.tx_scope.get(), &handle)
+                    .await
+                {
+                    Ok(()) => Err(err),
+                    Err(rollback_error) => Err(RuntimeError::new(
+                        format!("{} (rollback also failed: {rollback_error})", err.message),
+                        err.line,
+                        err.column,
+                    )),
+                }
+            }
+        }
+    }
+
     async fn execute_statement(
         &self,
         stmt: &Statement,
@@ -7237,7 +7425,10 @@ impl Interpreter {
                             Err(msg) => {
                                 // Don't leave an unreachable pool behind when
                                 // the variable binding fails.
-                                let _ = self.io_client.close_database(&handle).await;
+                                let _ = self
+                                    .io_client
+                                    .close_database(self.tx_scope.get(), &handle)
+                                    .await;
                                 Err(RuntimeError::new(msg, *line, *column))
                             }
                         }
@@ -7285,7 +7476,7 @@ impl Interpreter {
                 };
 
                 self.io_client
-                    .close_database(&handle)
+                    .close_database(self.tx_scope.get(), &handle)
                     .await
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
@@ -7297,52 +7488,13 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
-                let handle = match &db_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected a database handle, got {db_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                self.io_client
-                    .begin_transaction(&handle)
-                    .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
-
-                // Statements inside share the enclosing scope, like `try:`, so a
-                // variable set inside the block is still readable after it.
-                let outcome = self.execute_block(body, Rc::clone(&env)).await;
-
-                match outcome {
-                    Ok((value, control_flow)) => {
-                        // The block finished without an error. `break`, `continue`
-                        // and `return` are ordinary exits, not failures, so they
-                        // commit too — the work inside completed.
-                        self.io_client
-                            .commit_transaction(&handle)
-                            .await
-                            .map_err(|e| RuntimeError::new(e, *line, *column))?;
-                        Ok((value, control_flow))
-                    }
-                    Err(err) => {
-                        // Roll back and report the original failure. A rollback
-                        // that itself fails is appended rather than replacing the
-                        // cause, which is what the user actually needs to see.
-                        match self.io_client.rollback_transaction(&handle).await {
-                            Ok(()) => Err(err),
-                            Err(rollback_error) => Err(RuntimeError::new(
-                                format!("{} (rollback also failed: {rollback_error})", err.message),
-                                err.line,
-                                err.column,
-                            )),
-                        }
-                    }
-                }
+                // Boxed: `execute_statement` is a plain `async fn`, so every
+                // `.await` in every arm enlarges the single state machine that
+                // each level of statement recursion keeps on the stack. Holding
+                // this arm's work behind a pointer keeps deeply nested programs
+                // (and concurrent handlers, which recurse per request) clear of
+                // the stack ceiling.
+                Box::pin(self.execute_transaction_statement(db, body, *line, *column, env)).await
             }
             Statement::ReadFileStatement {
                 path,
@@ -13352,10 +13504,14 @@ impl Interpreter {
         // gets its own pinned connection rather than an arbitrary pooled one.
         match kind {
             crate::parser::ast::DatabaseQueryKind::Query => {
-                self.io_client.db_query(&handle, &sql_str, &params).await
+                self.io_client
+                    .db_query(self.tx_scope.get(), &handle, &sql_str, &params)
+                    .await
             }
             crate::parser::ast::DatabaseQueryKind::Execute => {
-                self.io_client.db_execute(&handle, &sql_str, &params).await
+                self.io_client
+                    .db_execute(self.tx_scope.get(), &handle, &sql_str, &params)
+                    .await
             }
         }
         .map_err(|e| RuntimeError::new(e, line, column))

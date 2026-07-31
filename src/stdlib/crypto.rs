@@ -1034,13 +1034,24 @@ const SEAL_TAG_LEN: usize = 16;
 const SEAL_KEY_LEN: usize = 32;
 
 /// Decode a hex string into bytes, or `None` if it is not valid hex.
+///
+/// Works over bytes rather than slicing the `str`. Keys and sealed values are
+/// untrusted text — they arrive from config files, database rows and HTTP
+/// requests — and slicing at fixed two-byte offsets lands inside a multi-byte
+/// character and panics. Every malformed input has to fail closed here, like
+/// the rest of this module, rather than take the process down.
 fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
+    let bytes = hex.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+    bytes
+        .chunks_exact(2)
+        .map(|pair| {
+            // Rejects any non-ASCII byte: hex is ASCII by definition.
+            let text = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(text, 16).ok()
+        })
         .collect()
 }
 

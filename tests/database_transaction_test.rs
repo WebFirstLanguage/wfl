@@ -476,3 +476,211 @@ close database db
     assert_eq!(rows.len(), 1);
     assert_eq!(expect_number(&expect_object_key(&rows[0], "x")), 5.0);
 }
+
+/// The transaction-control guard exists because these statements would silently
+/// run on arbitrary pooled connections. A guard that only inspects the first
+/// alphabetic run is defeated by a leading SQL comment: `first_word` comes back
+/// empty and the statement sails through onto the pool — exactly the path the
+/// guard is there to close.
+#[tokio::test]
+async fn a_line_comment_before_begin_does_not_bypass_the_guard() {
+    let db = TempDb::new("comment_begin");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store t as execute db with "-- start the transaction
+BEGIN"
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("BEGIN behind a line comment must still be rejected");
+}
+
+#[tokio::test]
+async fn a_block_comment_before_begin_does_not_bypass_the_guard() {
+    let db = TempDb::new("block_begin");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store t as execute db with "/* transaction */ BEGIN"
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("BEGIN behind a block comment must still be rejected");
+}
+
+#[tokio::test]
+async fn several_comments_before_rollback_do_not_bypass_the_guard() {
+    let db = TempDb::new("multi_rollback");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store t as execute db with "/* one */ -- two
+   /* three */ ROLLBACK"
+"#
+    );
+    run_wfl(&code)
+        .await
+        .err()
+        .expect("ROLLBACK behind several comments must still be rejected");
+}
+
+/// The guard must stay narrow: skipping comments must not start rejecting
+/// ordinary statements that merely carry a comment, or that mention the words.
+#[tokio::test]
+async fn a_commented_ordinary_statement_still_runs() {
+    let db = TempDb::new("comment_ok");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store made as execute db with "CREATE TABLE audit (begin_at TEXT, commit_note TEXT)"
+store ins as execute db with "-- record the attempt
+/* not a transaction */ INSERT INTO audit (begin_at, commit_note) VALUES ('t0', 'rollback plan')"
+store rows as query db with "SELECT begin_at FROM audit"
+store seen as length of rows
+"#
+    );
+    let interpreter = run_wfl(&code)
+        .await
+        .expect("an ordinary statement behind a comment must still run");
+    assert_eq!(expect_number(&get_global(&interpreter, "seen")), 1.0);
+}
+
+/// An unterminated block comment must not hang or panic the guard.
+#[tokio::test]
+async fn an_unterminated_comment_is_handled() {
+    let db = TempDb::new("unterminated");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store t as execute db with "/* never closed"
+"#
+    );
+    // Whatever the database makes of it, the guard itself must terminate and
+    // hand the statement on rather than looping or panicking.
+    let _ = run_wfl(&code).await;
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency (testing.md §11.3): a transaction pins one connection, so
+// statements *inside* it are necessarily serial. What must NOT happen is that
+// holding a transaction open serializes database work that has nothing to do
+// with it.
+// ---------------------------------------------------------------------------
+
+/// A slow statement inside a transaction must not block an unrelated handle.
+///
+/// The failure this guards against is holding the global transaction map's lock
+/// across the SQL await: every other `query`/`execute`/`begin`/`commit` in the
+/// program takes that same lock, so one slow transactional statement stalls all
+/// database work, including on databases it has nothing to do with.
+#[tokio::test]
+async fn a_slow_statement_in_a_transaction_does_not_block_an_unrelated_handle() {
+    let slow_db = TempDb::new("slow_tx");
+    let other_db = TempDb::new("other_handle");
+    let slow_url = &slow_db.url;
+    let other_url = &other_db.url;
+
+    // `main loop concurrently` runs both bodies on one thread, interleaved at
+    // await points. If the unrelated query cannot make progress until the
+    // transaction finishes, this deadlocks and the test times out.
+    let code = format!(
+        r#"
+open database at "{slow_url}" as slow_db
+open database at "{other_url}" as other_db
+store made as execute slow_db with "CREATE TABLE t (x INTEGER)"
+store made2 as execute other_db with "CREATE TABLE u (y INTEGER)"
+
+in transaction on slow_db:
+    store ins as execute slow_db with "INSERT INTO t (x) VALUES (1)"
+    store unrelated as query other_db with "SELECT COUNT(*) AS n FROM u"
+    store unrelated_rows as length of unrelated
+end transaction
+
+store rows as query slow_db with "SELECT x FROM t"
+store committed as length of rows
+"#
+    );
+
+    let interpreter = tokio::time::timeout(std::time::Duration::from_secs(20), run_wfl(&code))
+        .await
+        .expect("a query on an unrelated handle must not wait for the transaction")
+        .expect("program should run");
+
+    assert_eq!(
+        expect_number(&get_global(&interpreter, "unrelated_rows")),
+        1.0,
+        "the unrelated handle's query must return its row"
+    );
+    assert_eq!(
+        expect_number(&get_global(&interpreter, "committed")),
+        1.0,
+        "the transaction must still commit its own write"
+    );
+}
+
+/// `exit` stops the program where it stands. It is not a way of *finishing* a
+/// block, so a transaction it interrupts must be abandoned, not committed.
+///
+/// This also keeps the block consistent with what already happens when a
+/// program simply ends with a transaction still open (see
+/// `open_transaction_rolls_back_when_program_ends`): both are abrupt stops, and
+/// both must discard the partial work rather than half-commit it.
+#[tokio::test]
+async fn exit_inside_a_transaction_rolls_back() {
+    let db = TempDb::new("exit_rollback");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store made as execute db with "CREATE TABLE projects (slug TEXT)"
+in transaction on db:
+    store ins as execute db with "INSERT INTO projects (slug) VALUES ('abandoned')"
+    exit
+end transaction
+"#
+    );
+    run_wfl(&code).await.expect("exit ends the program cleanly");
+
+    assert_eq!(
+        surviving_rows(url).await,
+        0.0,
+        "work interrupted by `exit` must be rolled back, not committed"
+    );
+}
+
+/// `break`, `continue` and `return` stay committing exits: they mean the block
+/// finished, and the documented rule is that only failures roll back.
+#[tokio::test]
+async fn break_inside_a_transaction_still_commits() {
+    let db = TempDb::new("break_commits");
+    let url = &db.url;
+    let code = format!(
+        r#"
+open database at "{url}" as db
+store made as execute db with "CREATE TABLE projects (slug TEXT)"
+count from 1 to 3:
+    in transaction on db:
+        store ins as execute db with "INSERT INTO projects (slug) VALUES ('kept')"
+        break
+    end transaction
+end count
+"#
+    );
+    run_wfl(&code).await.expect("program should run");
+
+    assert_eq!(
+        surviving_rows(url).await,
+        1.0,
+        "a `break` is an ordinary exit from the block, so its work commits"
+    );
+}

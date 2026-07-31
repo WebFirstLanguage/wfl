@@ -9,11 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 - **Database transactions** (#664): `in transaction on db: ... end transaction`
   runs a group of statements on a single pooled connection, committing when the
-  block finishes and rolling back if anything inside it fails. Transaction blocks
-  cannot be nested on one database, and a database cannot be closed inside its
-  own transaction; both are reported rather than silently tolerated.
-  `transaction` is a positional marker word, not a reserved keyword, so programs
-  already using it as a variable name are unaffected.
+  block finishes and rolling back if anything inside it fails or if `exit` stops
+  the program mid-block. Transaction blocks cannot be nested on one database, and
+  a database cannot be closed inside its own transaction; both are reported
+  rather than silently tolerated. Under `main loop concurrently:` a transaction
+  belongs to the handler that opened it, so a concurrent handler using the same
+  database handle is never enrolled in it. `transaction` is a positional marker
+  word, not a reserved keyword, so programs already using it as a variable name
+  are unaffected.
 - **Authenticated encryption** (#665): `seal of <text> and <key>` and
   `unseal of <sealed> and <key>`, backed by XChaCha20-Poly1305. Keys are the
   64-hex-character values `secure_random_bytes of 32` already produced; nonces
@@ -38,11 +41,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `RELEASE` previously ran on arbitrary pooled connections, so a hand-written
   `BEGIN`/`ROLLBACK` sequence silently failed to cover the statements between
   them: the rollback undid nothing, the writes survived, and no error was
-  raised. In-memory SQLite hid this entirely because it is capped at one
-  connection. These statements now raise an error naming the transaction block.
-  Only the leading statement keyword is inspected, so ordinary SQL that merely
-  contains those words (a `begin_at` column, a `'rollback plan'` value) still
-  runs.
+  raised. These statements now raise an error naming the transaction block.
+  Leading SQL comments are skipped before the keyword is read, so
+  `-- go\nBEGIN` is caught too; only the first real token is inspected, so
+  ordinary SQL that merely contains those words (a `begin_at` column, a
+  `'rollback plan'` value) still runs.
+
+### Removed
+- **Hand-written transaction control through `query`/`execute` no longer runs,
+  including on `sqlite::memory:`** (#664). On pooled backends the pattern never
+  worked, but an in-memory SQLite database is capped at a single connection, so
+  there `BEGIN`/`COMMIT`/`ROLLBACK` through `execute` did genuinely take effect.
+  Programs relying on that — most likely tests and examples, which commonly use
+  `sqlite::memory:` — now raise an error and must use `in transaction on db:`
+  instead. This is deliberate rather than a deprecation: the same code silently
+  corrupts data the moment it is pointed at a file-backed or networked database,
+  so "works in development, loses writes in production" is the behaviour being
+  removed. The error names the replacement construct, and the fix is mechanical.
 
 - **Binding Repository Hygiene and Layout Policy** (`REPOSITORY_HYGIENE.md`,
   governance §3.8) with a machine-readable profile (`.repo-hygiene.toml`) and a

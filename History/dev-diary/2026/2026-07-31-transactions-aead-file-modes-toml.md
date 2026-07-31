@@ -67,11 +67,24 @@ rather than doing something surprising.
 
 The second half matters as much: `BEGIN`, `COMMIT`, `ROLLBACK`,
 `START TRANSACTION`, `SAVEPOINT` and `RELEASE` through `query`/`execute` now
-raise an error that names the block syntax. This is the only
-compatibility-adjacent change in the batch, and it is safe precisely because the
-old behavior did not work — no *working* program could depend on it. Only the
-leading statement keyword is inspected, so a column named `begin_at` or a value
-of `'rollback plan'` still runs; there is a test for exactly that.
+raise an error that names the block syntax. Only the first real token is
+inspected — leading comments are skipped first, so `-- go\nBEGIN` is caught —
+and a column named `begin_at` or a value of `'rollback plan'` still runs.
+
+I first wrote that this broke nothing, "because the old behavior did not work."
+Review pushed back, and review was right. In-memory SQLite is capped at one
+connection, so under `sqlite::memory:` the hand-written pattern *did* work; I
+confirmed it by building `main` and watching a rollback correctly discard its
+row. So this does remove working behaviour, on precisely the configuration most
+WFL tests and examples use.
+
+It ships as a hard error anyway, deliberately. The pattern is not a feature that
+happens to be unsupported elsewhere — it is a program that passes in development
+and silently loses writes the moment it meets a real database. Keeping it alive
+for a deprecation window would mean keeping the corruption alive too, and the
+only programs it can still "work" for are the ones most likely to be moved to a
+pooled backend later. The error names the replacement, and the rewrite is
+mechanical. Recorded in the changelog under Removed rather than buried in Fixed.
 
 ### `transaction` is not a keyword
 
@@ -220,3 +233,52 @@ and the raw-SQL rejection including the case it must *not* fire on.
   this environment's allowance. Building the test profile with
   `CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0` keeps `target/` small
   enough to hold both without touching the committed profile.
+
+## What review caught
+
+Three automated reviewers went over the PR. Most of what they raised was real,
+and two findings were more serious than anything I had found myself.
+
+**`hex_to_bytes` panicked on non-ASCII input.** It checked that the byte length
+was even and then sliced the `str` at fixed two-byte offsets, which lands inside
+a multi-byte character and panics on the boundary check. Keys and sealed values
+are exactly the untrusted text this module promises to fail closed on — they
+come from config files, database rows and HTTP requests — so a stored blob
+containing one accented character could take down a running server. Every other
+malformed input returned `None` and became a clean error; this one path escaped.
+Now decoded over bytes, with tests for a non-ASCII key, a non-ASCII sealed value,
+and a multi-byte character inside an otherwise well-formed key.
+
+**A transaction was owned by a database handle, not by the handler that opened
+it.** Under `main loop concurrently:` all handlers share one `IoClient` and can
+name the same global handle, so an unrelated request running an ordinary
+`execute` was silently enrolled in someone else's transaction — and its write got
+rolled back by that other request. Transactions are now keyed by
+`(scope, handle)`, where the scope is handler-local state swapped per poll by
+`InstalledRunState`, exactly like the existing count-loop and call-stack
+isolation. `tokio::task_local!` would not have worked: handlers are futures in a
+`FuturesUnordered` on one thread, not separate tasks. The test drives two real
+requests over a socket and asserts the bystander's row survives; with the scope
+key removed it fails, and both rows disappear.
+
+Also fixed: the transaction map's lock was held across the SQL `await`, so one
+slow statement serialized every database operation in the program — transactions
+now live behind their own per-handle lock, and the map's lock is held only long
+enough to clone an `Arc`. `begin` had a check-then-insert race that let a second
+concurrent begin replace and drop a live transaction; the handle is now reserved
+under one atomic step before the round-trip. A leading SQL comment defeated the
+transaction-control guard entirely (`-- go\nBEGIN` read as an empty first word).
+Two of the analyzer's three AST walkers had never been taught about the new
+statement, so a `random_seed` call inside a transaction block escaped the
+insecure-RNG security lint. And `exit` inside a block committed its partial work,
+which contradicted the rule that an abrupt stop discards it — it now rolls back.
+
+Two documentation claims did not survive checking either. TOML dates round-trip
+as *strings*, not dates, and integers above 2⁵³ are rounded by WFL's f64 numbers;
+I had written that the round trip was exact. Both are now stated plainly and
+pinned with tests.
+
+The pattern worth remembering: the findings I would not have reached on my own
+were all about what happens when two things run at once, or when input is
+hostile. Those are the parts where reading the code carefully is not the same as
+proving it.

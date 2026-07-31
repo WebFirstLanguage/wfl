@@ -131,6 +131,13 @@ const SECURITY_SENSITIVE_BUILTINS: &[&str] = &[
     "generate_csrf_token",
     "hmac_sha256",
     "wflmac256",
+    // Authenticated encryption. Their nonces come from the OS CSPRNG rather than
+    // the seedable generator, so `random_seed` does not actually weaken them —
+    // but the same is true of `secure_random_bytes`, which is on this list. A
+    // program that seeds the RNG and then encrypts secrets is signalling the
+    // pattern this lint exists to catch, whichever primitive it reaches for.
+    "seal",
+    "unseal",
 ];
 
 /// The two ingredients of the insecure-RNG-seeding lint found in a single
@@ -226,6 +233,14 @@ fn collect_calls_in_statement(stmt: &Statement, out: &mut Vec<CallSite>) {
             if let Some(else_block) = else_block {
                 collect_calls_in_statements(else_block, out);
             }
+        }
+        // A transaction block is an ordinary block as far as the call collector
+        // is concerned. Without this arm, the insecure-RNG-seeding lint cannot
+        // see calls inside one, and moving them into a transaction would be
+        // enough to evade a security check.
+        Statement::TransactionStatement { db, body, .. } => {
+            collect_calls_in_expression(db, out);
+            collect_calls_in_statements(body, out);
         }
         Statement::SingleLineIf {
             condition,
@@ -882,7 +897,8 @@ impl Analyzer {
             | Statement::ForEachLoop { body, .. }
             | Statement::CountLoop { body, .. }
             | Statement::MainLoop { body, .. }
-            | Statement::ForeverLoop { body, .. } => {
+            | Statement::ForeverLoop { body, .. }
+            | Statement::TransactionStatement { body, .. } => {
                 for stmt in body {
                     self.collect_variable_declarations(stmt, usages);
                 }
