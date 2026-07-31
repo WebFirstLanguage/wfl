@@ -330,4 +330,4 @@ integration, web, and documentation-example gates after focused tests pass.
 
 **Related:** [Compiler Internals](compiler-internals.md) |
 [Architecture Overview](architecture-overview.md) |
-[Testing Guide](../guides/testing-guide.md)
+[Testing Guide](../../Docs/guides/testing-guide.md)

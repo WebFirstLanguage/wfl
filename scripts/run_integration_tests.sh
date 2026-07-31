@@ -147,7 +147,11 @@ run_test_programs() {
     # regimes: docs_examples/ (validated by validate_docs_examples.py),
     # execute_pages/ and test_data/ (fixtures served/read by other tests).
     # error_examples/ programs are expected to exit nonzero.
-    mapfile -d '' wfl_file_list < <(find TestPrograms -name "*.wfl" \
+    # (while-read instead of mapfile: macOS ships bash 3.2)
+    wfl_file_list=()
+    while IFS= read -r -d '' wfl_path; do
+        wfl_file_list+=("$wfl_path")
+    done < <(find TestPrograms -name "*.wfl" \
         -not -path "TestPrograms/docs_examples/*" \
         -not -path "TestPrograms/execute_pages/*" \
         -not -path "TestPrograms/test_data/*" \

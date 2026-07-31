@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- **Binding Repository Hygiene and Layout Policy** (`REPOSITORY_HYGIENE.md`,
+  governance §3.8) with a machine-readable profile (`.repo-hygiene.toml`) and a
+  dependency-free checker (`scripts/check_repo_hygiene.py`) enforced as a
+  blocking `repo-hygiene` CI gate: root allowlist, forbidden/retired paths,
+  undeclared binaries, personal absolute paths, generated-file exceptions,
+  archive manifest checksums, experiment review expiry, product-version drift,
+  and post-suite working-tree cleanliness.
+
+### Changed
+- **Repository layout migrated to purpose-based top-level homes**: Dev Diary →
+  `History/dev-diary/<year>/`, contributor docs `Docs/development/` →
+  `Docs/contributing/`, active designs/plans → `Engineering/`, retired
+  material → `Archive/` (indexed by `Archive/manifest.json`), prototypes →
+  `experiments/` with tracked metadata, and legacy root/`Nexus/`/`syntax_test/`
+  probes converted into asserted `TestPrograms/{modules,constants,nexus}/`
+  tests and `tests/fixtures/` fixtures. `Tools/` split into `scripts/`,
+  `examples/tools/`, and the archive; `build_msi.ps1` →
+  `scripts/build_windows_installer.ps1`. Compiler dumps, generated reports,
+  merge remnants, an accidentally tracked 3.9 MB binary, and dead
+  `crates/wfl_core` were removed; `rustfmt.toml` (edition 2024) is the sole
+  formatting config. The integration runners now execute `TestPrograms/`
+  feature subdirectories. `bump_version.py` keeps both
+  `vscode-extension/package-lock.json` version fields in sync (fixing a live
+  drift), and version single-sourcing/packaging consolidation is tracked in
+  issue #670.
+
 ### Security
 - **MCP file resources are restricted to bounded WFL sources inside the configured
   workspace.** `resources/read` now canonicalizes file URIs, rejects traversal and

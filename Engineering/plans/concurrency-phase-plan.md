@@ -494,9 +494,9 @@ Update the progress tracker status for PR-<id> in this plan.
 ## Related docs
 
 - [Architecture overview](architecture-overview.md)
-- [Async programming (user)](../04-advanced-features/async-programming.md)
-- [Web servers (user)](../04-advanced-features/web-servers.md)
-- [WFL foundation](../wfl-foundation.md)
+- [Async programming (user)](../../Docs/04-advanced-features/async-programming.md)
+- [Web servers (user)](../../Docs/04-advanced-features/web-servers.md)
+- [WFL foundation](../../Docs/wfl-foundation.md)
 
 ---
 
