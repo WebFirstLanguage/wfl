@@ -1,0 +1,20 @@
+// Converted from legacy probe `Nexus/test_simple_call.wfl` (repository
+// hygiene migration): an action is a first-class value — it can be stored in
+// a variable and called through that variable with `of`.
+define action called sum_two needs a and b:
+    give back a plus b
+end action
+
+store direct as sum_two of 5 and 3
+store f as sum_two
+store through_variable as f of 10 and 20
+
+describe "actions as values":
+    test "direct of-call works":
+        expect direct to equal 8
+    end test
+
+    test "call through a variable works":
+        expect through_variable to equal 30
+    end test
+end describe

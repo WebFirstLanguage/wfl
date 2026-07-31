@@ -1,4 +1,0 @@
-timeout_seconds = 60
-logging_enabled = false
-debug_report_enabled = true
-log_level = info

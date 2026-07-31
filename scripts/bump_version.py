@@ -344,13 +344,35 @@ def update_vscode_extensions(version):
         semver_version = version
         
         pkg_data["version"] = semver_version
-        
+
         with open(pkg_file, "w") as f:
             json.dump(pkg_data, f, indent=2)
-        
+
         MODIFIED_FILES.append(pkg_file)
         updated = True
-    
+
+        # package-lock.json mirrors the version twice (top level and the ""
+        # root package entry); leaving it behind causes the version drift the
+        # repo-hygiene checker rejects.
+        lock_file = os.path.join(ext_dir, "package-lock.json")
+        if os.path.exists(lock_file):
+            print(f"Updating {lock_file}...")
+            with open(lock_file, "r") as f:
+                try:
+                    lock_data = json.load(f)
+                except json.JSONDecodeError:
+                    print(f"Warning: {lock_file} is not valid JSON, skipping")
+                    lock_data = None
+            if lock_data is not None:
+                lock_data["version"] = semver_version
+                root_pkg = lock_data.get("packages", {}).get("", None)
+                if root_pkg is not None:
+                    root_pkg["version"] = semver_version
+                with open(lock_file, "w") as f:
+                    json.dump(lock_data, f, indent=2)
+                    f.write("\n")
+                MODIFIED_FILES.append(lock_file)
+
     return updated
 
 def commit_changes(version, skip_git=False):

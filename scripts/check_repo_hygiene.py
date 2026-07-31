@@ -94,8 +94,11 @@ class Report:
         self.violations.append(f"HYGIENE: {rule}: {path}: {detail}")
 
     def emit(self):
-        for line in self.violations:
-            print(line)
+        try:
+            for line in self.violations:
+                print(line)
+        except BrokenPipeError:  # e.g. piped into `head`
+            pass
         return 1 if self.violations else 0
 
 
@@ -458,13 +461,22 @@ def run_working_tree(root, profile):
     untracked_ok = cfg.get("allowed-untracked-roots", [])
     ignored_ok = cfg.get("allowed-ignored-roots", [])
     out = git(root, "status", "--porcelain=v1", "--ignored", "-z")
-    for record in out.split(b"\0"):
+    records = out.split(b"\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
         if not record:
             continue
         entry = record.decode("utf-8", "surrogateescape")
         if len(entry) < 4:
             continue
         status, path = entry[:2], entry[3:]
+        # In -z format a rename/copy record is followed by a second
+        # NUL-terminated field carrying the original path — consume it so it
+        # is not misread as the next record.
+        if status[0] in "RC" or status[1] in "RC":
+            index += 1
         if status == "??":
             if not _allowed_by_roots(path, untracked_ok):
                 report.add("dirty-tree", path,
