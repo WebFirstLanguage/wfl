@@ -69,6 +69,24 @@ jobs:
       - name: Type-check fuzz targets against the current API
         run: cargo check --locked --manifest-path fuzz/Cargo.toml
 
+  # The release publishing scripts never run in PR CI - they only execute in the
+  # nightly job, against the live bucket, with credentials no PR has. A mistake
+  # in them is therefore invisible until it has already published (or failed to
+  # publish) a real release, which is how issue #662 shipped. These tests run
+  # the real scripts against a recording stub of the AWS CLI and assert the keys,
+  # bytes and cache headers they write.
+  release-scripts:
+    name: Release Script Tests
+    # Bash, jq and sha256sum over a handful of tiny files.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test publish/backfill scripts
+        run: ./scripts/test_publish_spaces.sh
+
   clippy-and-test:
     name: Build, Test, Clippy
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -579,7 +597,7 @@ jobs:
     # out to a locked `cargo check` on the fuzz crate - so this compiles and
     # needs the same 4 cores as fuzz-check. ARM: no x86 artifact produced.
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    needs: [fmt, fuzz-check, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
+    needs: [fmt, fuzz-check, release-scripts, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write

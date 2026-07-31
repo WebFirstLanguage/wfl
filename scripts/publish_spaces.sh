@@ -8,9 +8,18 @@
 #   releases/wfl-<version>-linux-x86_64-<sha>.tar.gz   immutable, versioned
 #   releases/wfl-<version>.msi                         immutable, versioned
 #   releases/vscode-wfl-<version>.vsix                 immutable, versioned
+#   releases/<any-of-the-above>.sha256                 immutable, versioned
 #   releases/wfl-latest-linux-x86_64.tar.gz            rolling pointer
-#   releases/SHA256SUMS                                checksums for this publish
+#   releases/SHA256SUMS                                checksums for THIS publish
 #   status.json                                        last-publish record
+#
+# Note the split between the two kinds of checksum. `SHA256SUMS` describes the
+# publish that wrote it and nothing else: it is rewritten every run, so a
+# consumer pinned to an older version finds their hash gone from it the moment a
+# newer nightly lands, even though the artifact they pinned is immutable and
+# still served. That is issue #662. The per-artifact `.sha256` sidecars exist so
+# a pinned build stays verifiable for as long as it stays downloadable - they
+# are written once, next to the object they describe, and never rewritten.
 #
 # Usage: publish_spaces.sh <artifact-dir> <version> <short-sha> <commit-sha> <branch>
 #
@@ -69,6 +78,11 @@ put() { # put <local-file> <remote-key> <content-type> <cache-control>
 
 sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
 
+# The sidecar carries sha256sum's own line format ("<hash>  <name>") rather than
+# a bare hash, so `sha256sum -c wfl-<version>....tar.gz.sha256` verifies the
+# download in place with no shell plumbing on the consumer's side.
+sha256_line_of() { ( cd "$(dirname "$1")" && sha256sum "$(basename "$1")" ); }
+
 find_one() { find "$ARTIFACT_DIR" -type f -name "$1" | head -1; }
 
 TARBALL="$(find_one 'wfl-*-linux-x86_64-*.tar.gz')"
@@ -84,6 +98,27 @@ PUBLISHED=()
 # at the end can compare what the CDN serves against the bytes we uploaded.
 PUBLISHED_PATHS=()
 
+# publish_immutable <local-file> <content-type>
+#
+# Uploads one versioned artifact plus the `.sha256` sidecar that keeps it
+# verifiable after this publish stops being the newest one, and records the line
+# in the SHA256SUMS for this run. The sidecar goes up in the same step as the
+# artifact and under the same `set -e`, so an artifact can never end up in the
+# bucket without the checksum that attests to it.
+publish_immutable() {
+  local f="$1" ct="$2" base
+  base="$(basename "$f")"
+
+  put "$f" "releases/$base" "$ct" "$IMMUTABLE"
+
+  sha256_line_of "$f" > "$WORK/$base.sha256"
+  put "$WORK/$base.sha256" "releases/$base.sha256" text/plain "$IMMUTABLE"
+
+  cat "$WORK/$base.sha256" >> "$WORK/SHA256SUMS"
+  PUBLISHED+=("$base")
+  PUBLISHED_PATHS+=("$f")
+}
+
 # ---------------------------------------------------------------------------
 # Phase 1: immutable, versioned objects.
 #
@@ -95,30 +130,21 @@ PUBLISHED_PATHS=()
 # ---------------------------------------------------------------------------
 if [ -n "$TARBALL" ]; then
   echo "Linux tarball: $TARBALL"
-  put "$TARBALL" "releases/$(basename "$TARBALL")" application/gzip "$IMMUTABLE"
-  ( cd "$(dirname "$TARBALL")" && sha256sum "$(basename "$TARBALL")" ) >> "$WORK/SHA256SUMS"
-  PUBLISHED+=("$(basename "$TARBALL")")
-  PUBLISHED_PATHS+=("$TARBALL")
+  publish_immutable "$TARBALL" application/gzip
 else
   echo "::warning::no Linux tarball found in $ARTIFACT_DIR"
 fi
 
 if [ -n "$MSI" ]; then
   echo "Windows MSI: $MSI"
-  put "$MSI" "releases/$(basename "$MSI")" application/x-msi "$IMMUTABLE"
-  ( cd "$(dirname "$MSI")" && sha256sum "$(basename "$MSI")" ) >> "$WORK/SHA256SUMS"
-  PUBLISHED+=("$(basename "$MSI")")
-  PUBLISHED_PATHS+=("$MSI")
+  publish_immutable "$MSI" application/x-msi
 else
   echo "::warning::no MSI found in $ARTIFACT_DIR"
 fi
 
 if [ -n "$VSIX" ]; then
   echo "VS Code extension: $VSIX"
-  put "$VSIX" "releases/$(basename "$VSIX")" application/octet-stream "$IMMUTABLE"
-  ( cd "$(dirname "$VSIX")" && sha256sum "$(basename "$VSIX")" ) >> "$WORK/SHA256SUMS"
-  PUBLISHED+=("$(basename "$VSIX")")
-  PUBLISHED_PATHS+=("$VSIX")
+  publish_immutable "$VSIX" application/octet-stream
 fi
 
 if [ "${#PUBLISHED[@]}" -eq 0 ]; then
@@ -188,6 +214,22 @@ for f in "${PUBLISHED_PATHS[@]}"; do
     exit 1
   fi
   echo "  ok ${CDN}/${key} sha256=${want}"
+
+  # The sidecar is the whole point of pinning a build, so an unreadable or
+  # mismatched one is a failed publish, not a warning. Both objects are
+  # immutable, so unlike the rolling keys below there is no cache window in
+  # which a correct publish could legitimately serve something else.
+  sidecar="${key}.sha256"
+  if ! curl -fsS --max-time 30 -o "$WORK/verify.sha256" "${CDN}/${sidecar}"; then
+    echo "::error::could not fetch ${CDN}/${sidecar} - the checksum sidecar is not publicly readable"
+    exit 1
+  fi
+  if [ "$(cat "$WORK/verify.sha256")" != "$(sha256_line_of "$f")" ]; then
+    echo "::error::${CDN}/${sidecar} does not describe the artifact we uploaded"
+    exit 1
+  fi
+  rm -f "$WORK/verify.sha256"
+  echo "  ok ${CDN}/${sidecar}"
 done
 
 # The rolling keys get a byte check only on their status code: they carry

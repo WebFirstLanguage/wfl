@@ -100,8 +100,10 @@ testable, documented, and operable* for **supported language behaviour**:
 - Release artifacts are produced by the nightly/release workflows (not from PR
   CI) and installable via the documented paths. Each publish writes a
   `SHA256SUMS` file next to the artifacts at
-  <https://wfl.nyc3.cdn.digitaloceanspaces.com/releases/>; signing the installers
-  remains a tracked Operations follow-up.
+  <https://wfl.nyc3.cdn.digitaloceanspaces.com/releases/>, describing that
+  publish only, plus an immutable `<artifact>.sha256` beside each versioned
+  object so a pinned build stays verifiable for as long as it stays
+  downloadable. Signing the installers remains a tracked Operations follow-up.
 
 Support **does not** extend to:
 
