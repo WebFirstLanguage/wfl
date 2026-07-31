@@ -112,12 +112,35 @@ case "$sub" in
         [ -f "$FAKE_BUCKET/$key" ] || { echo "fake aws: no such key: $key" >&2; exit 1; }
         cp "$FAKE_BUCKET/$key" "$dst" || exit 1
         printf 'GET\t%s\t\t\n' "$key" >> "$FAKE_LOG"
+        # Lets a test slip a concurrent publisher into the window between a
+        # backfill's download and its upload.
+        if [ -n "${FAKE_ON_GET_HOOK:-}" ]; then "$FAKE_ON_GET_HOOK" "$key"; fi
         ;;
     esac
     ;;
   s3api)
     op="${1:-}"; shift || true
-    [ "$op" = "list-objects-v2" ] || { echo "fake aws: unsupported: s3api $op" >&2; exit 64; }
+    case "$op" in
+      head-object)
+        key=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --key) key="$2"; shift 2 ;;
+            --bucket|--endpoint-url|--output) shift 2 ;;
+            --*) shift ;;
+            *) shift ;;
+          esac
+        done
+        if [ -f "$FAKE_BUCKET/$key" ]; then
+          jq -n --arg k "$key" '{ContentLength: 1, Key: $k}'
+          exit 0
+        fi
+        echo "fake aws: Not Found: $key" >&2
+        exit 254
+        ;;
+      list-objects-v2) : ;;
+      *) echo "fake aws: unsupported: s3api $op" >&2; exit 64 ;;
+    esac
     prefix=""
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -141,6 +164,11 @@ FAKE_AWS
   cat > "$bin/curl" <<'FAKE_CURL'
 #!/usr/bin/env bash
 # Serves the fake bucket over "HTTP": the CDN host maps onto $FAKE_BUCKET.
+#
+# FAKE_CURL_FLAKY_KEY / FAKE_CURL_FLAKY_TIMES simulate a CDN edge that has not
+# yet propagated a freshly uploaded key: the first N requests for that key fail
+# as if the object were not there yet, and the attempts are counted in
+# $FAKE_BUCKET/../flaky.count so a test can assert the retry actually happened.
 set -uo pipefail
 out=""; wfmt=""; fail=0; url=""
 while [ $# -gt 0 ]; do
@@ -155,6 +183,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 path="${url#*://}"; path="${path#*/}"
+if [ -n "${FAKE_CURL_FLAKY_KEY:-}" ] && [ "$path" = "$FAKE_CURL_FLAKY_KEY" ]; then
+  count_file="$(dirname "$FAKE_BUCKET")/flaky.count"
+  seen=0
+  [ -f "$count_file" ] && seen="$(cat "$count_file")"
+  if [ "$seen" -lt "${FAKE_CURL_FLAKY_TIMES:-1}" ]; then
+    echo "$((seen + 1))" > "$count_file"
+    [ -n "$wfmt" ] && printf '404'
+    [ "$fail" = "1" ] && exit 22
+    exit 0
+  fi
+fi
 if [ -f "$FAKE_BUCKET/$path" ]; then
   [ -n "$out" ] && cp "$FAKE_BUCKET/$path" "$out"
   [ -n "$wfmt" ] && printf '200'
@@ -284,6 +323,90 @@ assert_file_absent "$SB/bucket/releases/wfl-latest-linux-x86_64.tar.gz" \
   "rolling Linux pointer is not moved by a failed publish"
 assert_file_absent "$SB/bucket/status.json" \
   "status.json is not written by a failed publish"
+
+# The artifact itself may have landed before the sidecar failed. That object is
+# unreferenced - no pointer, no SHA256SUMS entry, no status.json - and the
+# publish is retryable, so the fix is that a re-run completes it rather than
+# tripping over its own leftovers. Assert exactly that, because a re-run that
+# refused to proceed would strand the release until someone deleted the object
+# by hand.
+run_publish "$SB" "26.7.61" "def5678"
+rc=$?
+assert_eq "0" "$rc" "re-running the publish after a sidecar failure succeeds ($SB/out)"
+assert_file_exists "$SB/bucket/releases/wfl-26.7.61-linux-x86_64-def5678.tar.gz.sha256" \
+  "the re-run completes the sidecar the failed publish left missing"
+assert_file_exists "$SB/bucket/releases/wfl-latest-linux-x86_64.tar.gz" \
+  "the re-run moves the rolling pointer"
+rm -rf "$SB"
+
+# A freshly created key can take a moment to be readable at a CDN edge. Failing
+# the whole release for that would be a false negative, and the release job's
+# success marker is written after this step, so a blip costs a re-run.
+echo "publish_spaces.sh: CDN verification tolerates a slow-propagating sidecar"
+SB="$(new_env)"
+make_artifacts "$SB" "26.7.62" "aaa1111"
+(
+  export FAKE_CURL_FLAKY_KEY="releases/wfl-26.7.62-linux-x86_64-aaa1111.tar.gz.sha256"
+  export FAKE_CURL_FLAKY_TIMES=2
+  run_publish "$SB" "26.7.62" "aaa1111"
+)
+rc=$?
+assert_eq "0" "$rc" "publish survives a sidecar that 404s twice before propagating ($SB/out)"
+assert_eq "2" "$(cat "$SB/flaky.count" 2>/dev/null || echo 0)" \
+  "the sidecar fetch was actually retried"
+
+# Tolerating a blip must not mean tolerating an absent object.
+: > "$SB/flaky.count"
+rm -rf "$SB/bucket" && mkdir -p "$SB/bucket"
+(
+  export FAKE_CURL_FLAKY_KEY="releases/wfl-26.7.62-linux-x86_64-aaa1111.tar.gz.sha256"
+  export FAKE_CURL_FLAKY_TIMES=99
+  run_publish "$SB" "26.7.62" "aaa1111"
+)
+rc=$?
+if [ "$rc" -ne 0 ]; then ok "publish still fails when the sidecar never becomes readable"; else
+  bad "publish still fails when the sidecar never becomes readable"; fi
+rm -rf "$SB"
+
+# `Cache-Control: immutable` governs caches, not bucket writes. A manual
+# dispatch with a version override, or a rebuild of a version whose artifacts
+# differ, would otherwise silently replace a published artifact - and because
+# artifact and sidecar are cached independently for a year, an edge could then
+# serve the old artifact beside the new checksum. That reads as tampering.
+echo "publish_spaces.sh: an immutable key is never replaced with different bytes"
+SB="$(new_env)"
+make_artifacts "$SB" "26.7.63" "bbb2222"
+run_publish "$SB" "26.7.63" "bbb2222"
+assert_eq "0" "$?" "first publish of 26.7.63 succeeds"
+
+# Same version, different bytes: the rebuild case.
+printf 'DIFFERENT tarball bytes\n' > "$SB/artifacts/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz"
+before="$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz")"
+before_sidecar="$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz.sha256")"
+: > "$SB/log"
+run_publish "$SB" "26.7.63" "bbb2222"
+rc=$?
+if [ "$rc" -ne 0 ]; then ok "publish refuses to overwrite a published artifact with different bytes"; else
+  bad "publish refuses to overwrite a published artifact with different bytes"; fi
+assert_eq "$before" "$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz")" \
+  "the published artifact is left byte-identical"
+assert_eq "$before_sidecar" "$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz.sha256")" \
+  "the published sidecar is left byte-identical"
+assert_contains "$(cat "$SB/out")" "refusing to overwrite" \
+  "the failure names what it refused to do"
+
+# Re-publishing identical bytes is the retry case, and must still work.
+make_artifacts "$SB" "26.7.63" "bbb2222"
+: > "$SB/log"
+run_publish "$SB" "26.7.63" "bbb2222"
+rc=$?
+assert_eq "0" "$rc" "re-publishing identical bytes succeeds ($SB/out)"
+assert_eq "0" "$(put_count "$SB" "releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz")" \
+  "re-publishing identical bytes does not rewrite the artifact"
+assert_eq "0" "$(put_count "$SB" "releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz.sha256")" \
+  "re-publishing identical bytes does not rewrite the sidecar"
+assert_file_exists "$SB/bucket/releases/wfl-latest-linux-x86_64.tar.gz" \
+  "re-publishing identical bytes still refreshes the rolling pointer"
 rm -rf "$SB"
 
 # ---------------------------------------------------------------------------
@@ -341,6 +464,34 @@ run_backfill "$SB"
 rc=$?
 assert_eq "0" "$rc" "second backfill run succeeds"
 assert_eq "0" "$(grep -c '^PUT' "$SB/log")" "second backfill run uploads nothing"
+rm -rf "$SB"
+
+# The bucket listing is a snapshot. A publish that lands between the snapshot and
+# the upload would otherwise have its sidecar replaced by one this run computed
+# from the bytes it downloaded earlier - and if the artifact was rebuilt in
+# between, that checksum describes bytes nobody can download any more.
+echo "backfill_spaces_checksums.sh: a sidecar published mid-run is not overwritten"
+SB="$(new_env)"
+KEY="releases/wfl-26.7.57-linux-x86_64-2d74737.tar.gz"
+put_object "$SB" "$KEY" "old linux bytes"
+cat > "$SB/concurrent-publisher.sh" <<EOF
+#!/usr/bin/env bash
+# Stands in for a nightly publish winning the race: the sidecar appears after
+# the backfill listed the bucket, while it is reading the artifact.
+[ "\$1" = "$KEY" ] || exit 0
+printf 'sidecar from the concurrent publisher' > "$SB/bucket/$KEY.sha256"
+EOF
+chmod +x "$SB/concurrent-publisher.sh"
+(
+  export FAKE_ON_GET_HOOK="$SB/concurrent-publisher.sh"
+  run_backfill "$SB"
+)
+rc=$?
+assert_eq "0" "$rc" "backfill succeeds when a publisher wins the race ($SB/out)"
+assert_eq "sidecar from the concurrent publisher" "$(cat "$SB/bucket/$KEY.sha256")" \
+  "the concurrently published sidecar is left intact"
+assert_eq "0" "$(put_count "$SB" "$KEY.sha256")" \
+  "the backfill uploads nothing over the concurrently published sidecar"
 rm -rf "$SB"
 
 echo "backfill_spaces_checksums.sh: --dry-run"
