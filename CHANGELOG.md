@@ -7,6 +7,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **Database transactions** (#664): `in transaction on db: ... end transaction`
+  runs a group of statements on a single pooled connection, committing when the
+  block finishes and rolling back if anything inside it fails. Transaction blocks
+  cannot be nested on one database, and a database cannot be closed inside its
+  own transaction; both are reported rather than silently tolerated.
+  `transaction` is a positional marker word, not a reserved keyword, so programs
+  already using it as a variable name are unaffected.
+- **Authenticated encryption** (#665): `seal of <text> and <key>` and
+  `unseal of <sealed> and <key>`, backed by XChaCha20-Poly1305. Keys are the
+  64-hex-character values `secure_random_bytes of 32` already produced; nonces
+  are generated internally per call and never exposed. An optional third
+  argument supplies associated data that binds a ciphertext to its context.
+  `unseal` fails closed and reports every failure identically.
+- **File permissions** (#666): `file_mode of <path>` returns a file's mode as
+  four octal digits, and `set_file_mode of <path> and "0600"` sets it, so a
+  program can both restrict a file holding a secret and verify that it is
+  restricted. Unix implements real POSIX semantics; on Windows, reading returns
+  a documented approximation and setting raises an explicit unsupported error
+  rather than silently doing nothing.
+- **TOML support** (#667): `parse_toml`, `stringify_toml` and
+  `stringify_toml_pretty`, mirroring the existing JSON functions. A TOML
+  document must be a table, and `nothing`-valued keys are omitted when writing
+  (TOML has no null); `nothing` inside a list is an error rather than a silent
+  drop.
+
+### Fixed
+- **Transaction control SQL sent through `query`/`execute` is now rejected**
+  (#664). `BEGIN`, `COMMIT`, `ROLLBACK`, `START TRANSACTION`, `SAVEPOINT` and
+  `RELEASE` previously ran on arbitrary pooled connections, so a hand-written
+  `BEGIN`/`ROLLBACK` sequence silently failed to cover the statements between
+  them: the rollback undid nothing, the writes survived, and no error was
+  raised. In-memory SQLite hid this entirely because it is capped at one
+  connection. These statements now raise an error naming the transaction block.
+  Only the leading statement keyword is inspected, so ordinary SQL that merely
+  contains those words (a `begin_at` column, a `'rollback plan'` value) still
+  runs.
+
 - **Binding Repository Hygiene and Layout Policy** (`REPOSITORY_HYGIENE.md`,
   governance §3.8) with a machine-readable profile (`.repo-hygiene.toml`) and a
   dependency-free checker (`scripts/check_repo_hygiene.py`) enforced as a

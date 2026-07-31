@@ -1,0 +1,111 @@
+// Authenticated encryption test suite (issue #665)
+//
+// `seal` and `unseal` are the recoverable counterpart to the hashing functions:
+// a stored API token has to be readable again, so a one-way hash cannot stand in.
+// These tests cover the round trip and, more importantly, that tampering fails.
+
+describe "Sealing and unsealing":
+
+    test "a sealed secret comes back unchanged":
+        store secret_key as secure_random_bytes of 32
+        store sealed as seal of "sk-live-provider-token" and secret_key
+        store plain as unseal of sealed and secret_key
+        expect plain to equal "sk-live-provider-token"
+    end test
+
+    test "a key from secure_random_bytes is directly usable":
+        store project_key as secure_random_bytes of 32
+        expect length of project_key to equal 64
+        store sealed as seal of "project secret" and project_key
+        store plain as unseal of sealed and project_key
+        expect plain to equal "project secret"
+    end test
+
+    test "the sealed value does not contain the plaintext":
+        store secret_key as secure_random_bytes of 32
+        store sealed as seal of "correct-horse-battery-staple" and secret_key
+        expect sealed to contain "wflseal1:"
+    end test
+
+    test "sealing the same text twice gives different results":
+        // A fresh nonce per seal, so identical plaintexts never look alike.
+        store secret_key as secure_random_bytes of 32
+        store first_seal as seal of "same message" and secret_key
+        store other_seal as seal of "same message" and secret_key
+        store are_identical as first_seal is other_seal
+        expect are_identical to be no
+    end test
+
+    test "unicode and empty text round-trip":
+        store secret_key as secure_random_bytes of 32
+        store empty_sealed as seal of "" and secret_key
+        store empty_plain as unseal of empty_sealed and secret_key
+        expect empty_plain to equal ""
+
+        store uni_sealed as seal of "cafe 🌍" and secret_key
+        store uni_plain as unseal of uni_sealed and secret_key
+        expect uni_plain to equal "cafe 🌍"
+    end test
+
+end describe
+
+describe "Sealing with a context":
+
+    test "a matching context unseals":
+        store secret_key as secure_random_bytes of 32
+        store sealed as seal of "provider token" and secret_key and "project:acme/api_key"
+        store plain as unseal of sealed and secret_key and "project:acme/api_key"
+        expect plain to equal "provider token"
+    end test
+
+    test "a different context does not unseal":
+        store secret_key as secure_random_bytes of 32
+        store sealed as seal of "provider token" and secret_key and "project:acme/api_key"
+        store refused as no
+        try:
+            store plain as unseal of sealed and secret_key and "project:evil/api_key"
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+    end test
+
+end describe
+
+describe "Unsealing fails closed":
+
+    test "the wrong key is refused":
+        store secret_key as secure_random_bytes of 32
+        store other_key as secure_random_bytes of 32
+        store sealed as seal of "top secret" and secret_key
+        store refused as no
+        try:
+            store plain as unseal of sealed and other_key
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+    end test
+
+    test "text that was never sealed is refused":
+        store secret_key as secure_random_bytes of 32
+        store refused as no
+        try:
+            store plain as unseal of "just some text a user typed" and secret_key
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+    end test
+
+    test "a key of the wrong length is refused":
+        store refused as no
+        try:
+            store sealed as seal of "secret" and "tooshort"
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+    end test
+
+end describe

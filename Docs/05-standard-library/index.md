@@ -2,7 +2,7 @@
 
 Built-in tools that use the same natural-language style as the rest of WFL—no separate package manager required for core work. See the [foundation principles](../wfl-foundation.md) on standard libraries and gradual learning.
 
-WFL includes a comprehensive standard library with 181+ built-in functions across 11 modules. Everything you need is included.
+WFL includes a comprehensive standard library with 181+ built-in functions across 12 modules. Everything you need is included.
 
 ## What's in the Standard Library?
 
@@ -15,7 +15,8 @@ WFL's standard library provides:
 - **[Filesystem Module](filesystem-module.md)** - File and directory operations
 - **[Time Module](time-module.md)** - Date and time handling
 - **[Random Module](random-module.md)** - Random number generation
-- **[Crypto Module](crypto-module.md)** - Password hashing, standard hashing/MAC, and experimental WFLHASH
+- **[Crypto Module](crypto-module.md)** - Password hashing, authenticated encryption, standard hashing/MAC, and experimental WFLHASH
+- **[TOML Module](toml-module.md)** - Reading and writing TOML configuration files
 - **[Pattern Module](pattern-module.md)** - Pattern matching utilities
 - **[Typechecker Module](typechecker-module.md)** - Type checking utilities
 

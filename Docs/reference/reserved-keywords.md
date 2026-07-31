@@ -100,13 +100,20 @@ A few words have special meaning in exactly one statement position but are **not
 - `key` - private key path marker in `secured with ... and key "key.pem"`
 - `redirecting` - redirect marker in `listen on port 8080 redirecting to port 8443 as server`
 - `content_type` - response content type marker in `respond to req with ... and content_type "text/html"`
+- `transaction` - transaction block marker in `in transaction on db:` and `end transaction`
 
 ```wfl
 // All perfectly valid — these words are not reserved:
 store key as "secret_key_456"
 store certificate as "diploma"
 store secured as yes
+store transaction as "TX-1094"
 ```
+
+`transaction` is recognized in exactly two positions: directly after a leading
+`in`, and directly after the `end` that closes the block. A statement beginning
+with `in` was always a parse error before, so nothing that used to be valid
+changed meaning.
 
 ### Why Some Keywords Appear in Multiple Lists
 
