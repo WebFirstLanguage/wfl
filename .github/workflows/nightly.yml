@@ -612,6 +612,16 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    # Serializes every writer of the Spaces bucket - this job, a second nightly
+    # run (a manual dispatch on a day the schedule already fired), and the
+    # on-demand backfill workflow, which shares this group name. The rolling
+    # pointers, SHA256SUMS and status.json are read-modify-write against a
+    # single set of keys, and two publishes interleaving can leave them
+    # describing different builds. Queue rather than cancel: a publish
+    # interrupted midway is exactly the state this ordering exists to avoid.
+    concurrency:
+      group: spaces-publish
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 

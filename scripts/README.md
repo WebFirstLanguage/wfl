@@ -129,8 +129,14 @@ Spaces (`SPACES_BUCKET`, `SPACES_ENDPOINT` override the defaults) and `jq`.
 Uploads one nightly's artifacts. Immutable versioned objects go up first, each
 with an immutable `<artifact>.sha256` sidecar; the rolling `latest` pointers,
 `SHA256SUMS` and `status.json` follow only once every one of them succeeded, so a
-partial publish is never observable as a release. Every object is then read back
-through the CDN and compared byte for byte against what was uploaded.
+partial publish is never observable as a release and anything it left behind is
+unreferenced. Every object is then read back through the CDN and compared byte
+for byte against what was uploaded.
+
+Versioned keys are treated as write-once: re-publishing identical bytes is a
+no-op, and a build whose bytes differ from what is already published under the
+same key **aborts the publish** rather than replacing it. Re-running a publish
+that failed partway is therefore the supported way to finish it.
 
 **Usage:**
 ```bash

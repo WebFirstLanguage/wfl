@@ -25,6 +25,15 @@ on:
 permissions:
   contents: read
 
+# Shared with the nightly release job, so a backfill and a publish can never
+# write to the bucket at the same time. Without it, this run's bucket listing
+# could report a sidecar missing, the publisher could then create it, and this
+# run would overwrite it with a checksum computed from the bytes it read
+# earlier. Queue rather than cancel: neither side is safe to interrupt midway.
+concurrency:
+  group: spaces-publish
+  cancel-in-progress: false
+
 jobs:
   backfill:
     name: Backfill missing .sha256 sidecars

@@ -186,7 +186,7 @@ path="${url#*://}"; path="${path#*/}"
 if [ -n "${FAKE_CURL_FLAKY_KEY:-}" ] && [ "$path" = "$FAKE_CURL_FLAKY_KEY" ]; then
   count_file="$(dirname "$FAKE_BUCKET")/flaky.count"
   seen=0
-  [ -f "$count_file" ] && seen="$(cat "$count_file")"
+  [ -s "$count_file" ] && seen="$(cat "$count_file")"
   if [ "$seen" -lt "${FAKE_CURL_FLAKY_TIMES:-1}" ]; then
     echo "$((seen + 1))" > "$count_file"
     [ -n "$wfmt" ] && printf '404'
@@ -356,7 +356,7 @@ assert_eq "2" "$(cat "$SB/flaky.count" 2>/dev/null || echo 0)" \
   "the sidecar fetch was actually retried"
 
 # Tolerating a blip must not mean tolerating an absent object.
-: > "$SB/flaky.count"
+rm -f "$SB/flaky.count"
 rm -rf "$SB/bucket" && mkdir -p "$SB/bucket"
 (
   export FAKE_CURL_FLAKY_KEY="releases/wfl-26.7.62-linux-x86_64-aaa1111.tar.gz.sha256"

@@ -41,7 +41,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --prefix)  PREFIX="${2:?--prefix needs a value}"; shift 2 ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    # Prints the whole header block rather than a hardcoded line range, which
+    # silently truncates the moment the header grows a line.
+    -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
 done
@@ -123,6 +125,20 @@ while IFS= read -r key; do
   fi
 
   ( cd "$WORK" && sha256sum "$base" ) > "$WORK/$base.sha256"
+
+  # The listing above is a snapshot. A publish can land between it and this
+  # upload - the on-demand workflow and the nightly can genuinely overlap - and
+  # the publisher's sidecar is the authoritative one: it describes the bytes it
+  # just uploaded, where this run's describes the bytes it read earlier. Never
+  # replace it. (The workflows also share a concurrency group, so this window is
+  # the residual case rather than the expected one.)
+  if aws s3api head-object --bucket "$BUCKET" --key "${key}.sha256" \
+        --endpoint-url "$ENDPOINT" >/dev/null 2>&1; then
+    echo "  ${key}.sha256 was published while this run was working; leaving it alone"
+    SKIPPED=$((SKIPPED + 1))
+    rm -f "$WORK/$base" "$WORK/$base.sha256"
+    continue
+  fi
 
   if ! aws s3 cp "$WORK/$base.sha256" "s3://${BUCKET}/${key}.sha256" \
         --endpoint-url "$ENDPOINT" \

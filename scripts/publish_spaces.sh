@@ -98,21 +98,80 @@ PUBLISHED=()
 # at the end can compare what the CDN serves against the bytes we uploaded.
 PUBLISHED_PATHS=()
 
+object_exists() { # object_exists <key>
+  aws s3api head-object \
+    --bucket "$BUCKET" --key "$1" --endpoint-url "$ENDPOINT" >/dev/null 2>&1
+}
+
+# published_sha256_of <key> -> the SHA-256 of what the bucket already holds under
+# that key, or the empty string if the key is not there.
+#
+# Prefers the key's own sidecar, which is a few dozen bytes, over re-downloading
+# the artifact. A sidecar that lies about its artifact would make this answer
+# wrong, but only in the direction of proceeding with an upload - and the CDN
+# round-trip at the end of this script re-checks the artifact bytes themselves,
+# so a wrong answer here cannot get past the publish.
+published_sha256_of() {
+  local key="$1"
+  if object_exists "${key}.sha256"; then
+    aws s3 cp "s3://${BUCKET}/${key}.sha256" "$WORK/existing.sha256" \
+      --endpoint-url "$ENDPOINT" --only-show-errors >/dev/null
+    cut -d' ' -f1 < "$WORK/existing.sha256"
+    rm -f "$WORK/existing.sha256"
+  elif object_exists "$key"; then
+    aws s3 cp "s3://${BUCKET}/${key}" "$WORK/existing.bin" \
+      --endpoint-url "$ENDPOINT" --only-show-errors >/dev/null
+    sha256_of "$WORK/existing.bin"
+    rm -f "$WORK/existing.bin"
+  fi
+}
+
 # publish_immutable <local-file> <content-type>
 #
 # Uploads one versioned artifact plus the `.sha256` sidecar that keeps it
 # verifiable after this publish stops being the newest one, and records the line
-# in the SHA256SUMS for this run. The sidecar goes up in the same step as the
-# artifact and under the same `set -e`, so an artifact can never end up in the
-# bucket without the checksum that attests to it.
+# in the SHA256SUMS for this run.
+#
+# Versioned keys are immutable, but `Cache-Control: immutable` is a promise to
+# caches - it does not stop a later `aws s3 cp` from replacing the object. A
+# manual dispatch with a version override, or a rebuild of a version whose
+# artifacts differ, would otherwise overwrite a build people have already
+# pinned. Worse, the artifact and its sidecar are cached independently for a
+# year, so an edge could serve the old artifact beside the new checksum and a
+# correct download would look tampered with. So: identical bytes are a no-op,
+# different bytes abort the publish, and only genuinely new keys are written.
+#
+# A retry after a partial failure therefore completes rather than trips over the
+# objects the previous attempt already landed. That matters because the sidecar
+# upload can fail *after* its artifact landed, leaving an object with no
+# checksum - unreferenced by any pointer, SHA256SUMS entry or status.json, since
+# those are only written once every immutable upload has succeeded, but present.
+# Re-running the publish is what completes it, and the nightly's backfill step
+# would also fill the sidecar in on the next run.
 publish_immutable() {
-  local f="$1" ct="$2" base
+  local f="$1" ct="$2" base want have
   base="$(basename "$f")"
+  want="$(sha256_of "$f")"
+  have="$(published_sha256_of "releases/$base")"
 
-  put "$f" "releases/$base" "$ct" "$IMMUTABLE"
+  if [ -n "$have" ] && [ "$have" != "$want" ]; then
+    echo "::error::refusing to overwrite releases/${base}: it is already published with different bytes (published ${have}, built ${want}). Versioned keys are immutable; publish this build under a new version."
+    exit 1
+  fi
 
   sha256_line_of "$f" > "$WORK/$base.sha256"
-  put "$WORK/$base.sha256" "releases/$base.sha256" text/plain "$IMMUTABLE"
+
+  if [ -z "$have" ]; then
+    put "$f" "releases/$base" "$ct" "$IMMUTABLE"
+  else
+    echo "  -> releases/$base already published with identical bytes; not rewriting"
+  fi
+
+  if ! object_exists "releases/$base.sha256"; then
+    put "$WORK/$base.sha256" "releases/$base.sha256" text/plain "$IMMUTABLE"
+  else
+    echo "  -> releases/$base.sha256 already published; not rewriting"
+  fi
 
   cat "$WORK/$base.sha256" >> "$WORK/SHA256SUMS"
   PUBLISHED+=("$base")
@@ -200,10 +259,27 @@ echo "Verifying public readability via CDN..."
 # For the artifacts, a 200 is not enough - it proves a key exists, not that the
 # bytes an installer downloads are the ones we built. Pull each immutable object
 # back through the CDN and compare its SHA-256 against the local file.
+# A key created seconds ago can take a moment to be readable at every edge, and
+# this check runs before the tag and GitHub release that mark the nightly as
+# done - so a propagation blip here costs a whole re-run. Retry a few times
+# before calling it a failed publish. A key that is genuinely not public stays a
+# failure; it just takes ~6 seconds longer to say so.
+fetch_cdn() { # fetch_cdn <key> <output-file> <max-time>
+  local key="$1" out="$2" maxtime="$3" attempt=1 delay=2
+  while :; do
+    if curl -fsS --max-time "$maxtime" -o "$out" "${CDN}/${key}"; then return 0; fi
+    if [ "$attempt" -ge 3 ]; then return 1; fi
+    echo "  ${CDN}/${key} not readable yet (attempt ${attempt}); retrying in ${delay}s"
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+
 for f in "${PUBLISHED_PATHS[@]}"; do
   key="releases/$(basename "$f")"
   want="$(sha256_of "$f")"
-  if ! curl -fsS --max-time 300 -o "$WORK/verify.bin" "${CDN}/${key}"; then
+  if ! fetch_cdn "$key" "$WORK/verify.bin" 300; then
     echo "::error::could not fetch ${CDN}/${key} - the object is not publicly readable"
     exit 1
   fi
@@ -220,7 +296,7 @@ for f in "${PUBLISHED_PATHS[@]}"; do
   # immutable, so unlike the rolling keys below there is no cache window in
   # which a correct publish could legitimately serve something else.
   sidecar="${key}.sha256"
-  if ! curl -fsS --max-time 30 -o "$WORK/verify.sha256" "${CDN}/${sidecar}"; then
+  if ! fetch_cdn "$sidecar" "$WORK/verify.sha256" 30; then
     echo "::error::could not fetch ${CDN}/${sidecar} - the checksum sidecar is not publicly readable"
     exit 1
   fi
