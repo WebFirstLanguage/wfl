@@ -70,9 +70,57 @@ use tokio::sync::{mpsc, oneshot};
 // Type alias for complex pending response type
 type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<HandlerReply>>>>;
 
-/// An open server response stream: the bounded body-chunk sender plus the
-/// running total of body bytes written (enforced against `max_response_bytes`).
-type ServerResponseStream = (mpsc::Sender<Vec<u8>>, usize);
+/// An open server response stream: the bounded body-chunk sender, the running
+/// total of body bytes written (enforced against `max_response_bytes`), and an
+/// optional oneshot that the transport fires when it has finished with the body.
+///
+/// The finished signal is how `close out` (and end-of-handler drain) wait for the
+/// terminating chunk to actually leave the process — dropping the sender only
+/// *signals* end-of-body; under load the warp/hyper connection task can still be
+/// flushing when the program returns and the runtime is dropped, which surfaces
+/// as a truncated chunked body on the client (#680).
+struct ServerResponseStream {
+    tx: mpsc::Sender<Vec<u8>>,
+    bytes_written: usize,
+    /// Taken and awaited by close/drain. `None` once already consumed, or when
+    /// the stream was closed via a sync Drop path that cannot await.
+    finished: Option<oneshot::Receiver<()>>,
+}
+
+/// Chunk body stream that notifies when hyper is done with it.
+///
+/// Dropped by the connection task after the response is fully written (or the
+/// client disconnects). That Drop is the acknowledgement `close out` awaits so
+/// the program does not finish before the terminating chunk is delivered.
+/// Public only because it appears on [`HandlerReply::Streaming`]; fields are
+/// private and construction stays inside the interpreter.
+pub struct NotifyingChunkStream {
+    rx: mpsc::Receiver<Vec<u8>>,
+    done: Option<oneshot::Sender<()>>,
+}
+
+impl futures_util::Stream for NotifyingChunkStream {
+    type Item = Result<Vec<u8>, std::io::Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.rx.poll_recv(cx) {
+            std::task::Poll::Ready(Some(chunk)) => std::task::Poll::Ready(Some(Ok(chunk))),
+            std::task::Poll::Ready(None) => std::task::Poll::Ready(None),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl Drop for NotifyingChunkStream {
+    fn drop(&mut self) {
+        if let Some(done) = self.done.take() {
+            let _ = done.send(());
+        }
+    }
+}
 
 /// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
 ///
@@ -102,6 +150,18 @@ const COOP_YIELD_STRIDE: u64 = 1024;
 /// client fills this and then backpressures the handler's `write` (it awaits a
 /// free slot) rather than letting queued chunks grow without bound.
 const RESPONSE_STREAM_BUFFER: usize = 64;
+
+/// How long `close out` / end-of-handler drain wait for the transport to finish
+/// the body after the sender is dropped (#680).
+///
+/// Short on purpose and **independent** of `web_server_response_timeout_seconds`
+/// (the write-path / admission bound, default 300s, with `0` = unbounded). Close
+/// only needs enough time for hyper to flush the terminating chunk under load;
+/// tying it to the write timeout would let a client that stops reading pin a
+/// serial `main loop` for up to five minutes. After this ceiling, close returns
+/// anyway — the sender is already dropped so the body will still end when the
+/// transport can flush or the connection is later torn down.
+const RESPONSE_STREAM_FINISH_WAIT: Duration = Duration::from_secs(2);
 
 /// Maximum number of `main loop concurrently:` iterations in flight at once. The
 /// transport already bounds the request *queue*; this bounds concurrent *handler*
@@ -169,16 +229,37 @@ pub struct WflHttpResponse {
 /// and whose body is fed chunk-by-chunk over a bounded channel by `write
 /// line|chunk`. A bounded channel gives backpressure: a slow client slows the
 /// handler's writes. Dropping the sender (handler end, `close`, or a caught
-/// error) closes the body stream and finalizes the response.
-#[derive(Debug)]
+/// error) closes the body stream and finalizes the response. The body stream
+/// notifies when the transport is finished with it so `close out` can await
+/// delivery (#680).
 pub enum HandlerReply {
     Buffered(WflHttpResponse),
     Streaming {
         status: u16,
         content_type: String,
         headers: HashMap<String, String>,
-        body: mpsc::Receiver<Vec<u8>>,
+        body: NotifyingChunkStream,
     },
+}
+
+impl std::fmt::Debug for HandlerReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HandlerReply::Buffered(response) => f.debug_tuple("Buffered").field(response).finish(),
+            HandlerReply::Streaming {
+                status,
+                content_type,
+                headers,
+                body: _,
+            } => f
+                .debug_struct("Streaming")
+                .field("status", status)
+                .field("content_type", content_type)
+                .field("headers", headers)
+                .field("body", &"<stream>")
+                .finish(),
+        }
+    }
 }
 
 /// Ensures an HTTP `respond` always resolves its request after the commit point.
@@ -923,6 +1004,14 @@ impl Drop for InstalledRunState<'_> {
 /// panic therefore surfaces as `Poll::Ready` and the swap-back still runs,
 /// leaving the interpreter's scratch fields restored for the next sibling.
 ///
+/// After the handler future completes, any still-open server response streams
+/// are drained **asynchronously** (drop sender + await transport finish) before
+/// this wrapper reports `Ready`. Without that step, a concurrent handler that
+/// streams without an explicit `close out` and then `break`s / `return`s would
+/// only nowait-close in [`Drop`], racing runtime teardown the same way the
+/// serial path did before #680. Cancellation (dropping this wrapper mid-flight)
+/// still falls back to sync nowait close.
+///
 /// The wrapper's output is `(inner_output, accepted_request)` so the concurrent
 /// loop can classify request-local vs structural failures after the handler's
 /// run state has been swapped out (and its pending list drained by `Drop`).
@@ -933,6 +1022,15 @@ struct IsolatedHandler<'a, T> {
     /// future while this handler's state is installed. Any RAII guards inside
     /// the future then unwind against their own call/static-context stacks.
     inner: Option<std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>>,
+    /// After `inner` completes: await body finish for streams the handler left
+    /// open. Polled without installing `RunState` (ids are already taken).
+    drain: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>>>,
+    /// Output of `inner`, held until `drain` completes. Boxed so this wrapper
+    /// stays `Unpin` regardless of `T` (required for `Pin::get_mut` in `poll`).
+    pending_output: Option<Box<(T, bool)>>,
+    /// Stream ids currently being drained (or waiting to start). Drop falls
+    /// back to nowait-close for these if the wrapper is cancelled mid-drain.
+    pending_finish_ids: Vec<String>,
 }
 
 impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
@@ -945,17 +1043,90 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
         // Every field is `Unpin` (`&`, `RunState`, and `Pin<Box<..>>`), so the
         // wrapper itself is `Unpin` and `get_mut` is sound.
         let this = self.get_mut();
-        let result = {
-            let _installed = InstalledRunState::new(this.interp, &mut this.state);
-            this.inner
+
+        // Phase 2: finish any open response bodies before reporting Ready so a
+        // concurrent Break/Exit/Return cannot tear down the runtime mid-flush.
+        if this.drain.is_some() {
+            match this
+                .drain
                 .as_mut()
-                .expect("isolated handler must not be polled after its inner future is dropped")
+                .expect("drain present")
                 .as_mut()
                 .poll(cx)
+            {
+                std::task::Poll::Ready(()) => {
+                    this.drain = None;
+                    this.pending_finish_ids.clear();
+                    return std::task::Poll::Ready(
+                        *this
+                            .pending_output
+                            .take()
+                            .expect("drained handler must retain its output"),
+                    );
+                }
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+            }
+        }
+
+        // Phase 1: run the handler body with its RunState installed.
+        let completed = {
+            let _installed = InstalledRunState::new(this.interp, &mut this.state);
+            let inner = this
+                .inner
+                .as_mut()
+                .expect("isolated handler must not be polled after its inner future is dropped");
+            match inner.as_mut().poll(cx) {
+                std::task::Poll::Pending => None,
+                std::task::Poll::Ready(value) => {
+                    // Capture while installed: `accepted_request` and open stream
+                    // ids live on the interpreter for this poll. Taking the ids
+                    // clears the list so swap-out parks an empty vec (Drop will
+                    // not double-close them via `state.open_response_streams`).
+                    let accepted = this.interp.accepted_request.get();
+                    let stream_ids =
+                        std::mem::take(&mut *this.interp.open_response_streams.borrow_mut());
+                    Some((value, accepted, stream_ids))
+                }
+            }
         };
-        match result {
-            std::task::Poll::Ready(value) => {
-                std::task::Poll::Ready((value, this.state.accepted_request))
+
+        let Some((value, accepted, stream_ids)) = completed else {
+            return std::task::Poll::Pending;
+        };
+
+        // Drop the completed inner future with RunState installed so any RAII
+        // guards still live at the top frame unwind against this handler.
+        if let Some(inner) = this.inner.take() {
+            let _installed = InstalledRunState::new(this.interp, &mut this.state);
+            drop(inner);
+        }
+
+        if stream_ids.is_empty() {
+            return std::task::Poll::Ready((value, accepted));
+        }
+
+        this.pending_output = Some(Box::new((value, accepted)));
+        this.pending_finish_ids = stream_ids.clone();
+        let interp = this.interp;
+        this.drain = Some(Box::pin(async move {
+            interp.close_response_streams(&stream_ids).await;
+        }));
+        match this
+            .drain
+            .as_mut()
+            .expect("drain just set")
+            .as_mut()
+            .poll(cx)
+        {
+            std::task::Poll::Ready(()) => {
+                this.drain = None;
+                this.pending_finish_ids.clear();
+                std::task::Poll::Ready(
+                    *this
+                        .pending_output
+                        .take()
+                        .expect("drained handler must retain its output"),
+                )
             }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
@@ -975,6 +1146,8 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
             let _installed = InstalledRunState::new(self.interp, &mut self.state);
             drop(inner);
         }
+        // Abandon an in-flight finish wait (cancellation path).
+        self.drain.take();
 
         // The handler is finished (normal return, error, panic contained by
         // `catch_unwind`, or cancellation as the loop tears down). After the
@@ -982,8 +1155,14 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
         // closed and any requests it dequeued but never answered. Close the
         // streams (finalizing the client's body) and 500 the unanswered requests,
         // so every exit path resolves the client instead of leaving it hanging.
-        self.interp
-            .close_response_streams(&self.state.open_response_streams);
+        //
+        // Sync nowait: Drop cannot await. Normal completion already awaited
+        // finish via `drain` and cleared these lists; this path covers
+        // cancellation and any streams still open when the wrapper is dropped
+        // mid-drain (senders not yet removed) or never drained.
+        let mut ids = std::mem::take(&mut self.state.open_response_streams);
+        ids.append(&mut self.pending_finish_ids);
+        self.interp.close_response_streams_nowait(&ids);
         self.interp
             .fail_unanswered_requests(&self.state.open_pending_requests);
         // Drop any outbound streams this handler still owns, cancelling their
@@ -1466,10 +1645,11 @@ pub struct Interpreter {
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
     pending_responses: Rc<RefCell<HashMap<String, PendingResponse>>>, // Pending responses (channel + admission slot) by request ID
     /// Open server response streams (`start streaming response`), keyed by
-    /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender
-    /// plus the running total of body bytes written, enforced against
-    /// `max_response_bytes` so a stream cannot bypass the buffered response
-    /// ceiling. `write line|chunk`/`flush` push to it, `close` drops it.
+    /// handle id ("respstream1", ...). Each holds the bounded body-chunk sender,
+    /// the running total of body bytes written (enforced against
+    /// `max_response_bytes`), and a oneshot the transport fires when it has
+    /// finished the body. `write line|chunk`/`flush` push chunks; `close`
+    /// drops the sender and awaits that finish signal (#680).
     server_response_streams: Rc<RefCell<HashMap<String, ServerResponseStream>>>,
     next_response_stream_id: std::cell::Cell<usize>,
     /// Handle ids of server response streams opened by the currently executing
@@ -5265,7 +5445,7 @@ impl Interpreter {
         }
         let map = self.server_response_streams.borrow();
         open.iter()
-            .filter_map(|id| map.get(id).map(|(tx, _)| tx.clone()))
+            .filter_map(|id| map.get(id).map(|stream| stream.tx.clone()))
             .collect()
     }
 
@@ -5346,11 +5526,19 @@ impl Interpreter {
         }
     }
 
-    /// Close (drop the sender for) each server response stream whose handle id is
-    /// in `ids`, ending its body so the client stops waiting. Idempotent — an id
-    /// already closed by an explicit `close out` (or a disconnect) is a no-op —
-    /// so it is safe to call over a handler's full opened-stream list on exit.
-    fn close_response_streams(&self, ids: &[String]) {
+    /// How long `close out` / end-of-handler drain will wait for the transport
+    /// to finish the body after the sender is dropped. See
+    /// [`RESPONSE_STREAM_FINISH_WAIT`] — a short fixed ceiling, not the write-
+    /// path timeout (so a non-reading client cannot pin a serial main loop).
+    fn response_stream_finish_timeout(&self) -> Duration {
+        RESPONSE_STREAM_FINISH_WAIT
+    }
+
+    /// Drop the body sender for each id (ending the stream) without waiting for
+    /// the transport to finish. Used only from `Drop` impls that cannot await.
+    /// Prefer [`Self::close_response_streams`] on every async path so the
+    /// terminating chunk is delivered before the program returns (#680).
+    fn close_response_streams_nowait(&self, ids: &[String]) {
         if ids.is_empty() {
             return;
         }
@@ -5360,12 +5548,314 @@ impl Interpreter {
         }
     }
 
+    /// Close each server response stream whose handle id is in `ids`: drop the
+    /// sender (ending the body) and await the transport's finished signal so the
+    /// terminating chunk has left the process before we return. Idempotent — an
+    /// id already closed by an explicit `close out` (or a disconnect) is a
+    /// no-op — so it is safe to call over a handler's full opened-stream list on
+    /// exit.
+    async fn close_response_streams(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut finished = Vec::new();
+        {
+            let mut map = self.server_response_streams.borrow_mut();
+            for id in ids {
+                if let Some(stream) = map.remove(id)
+                    && let Some(rx) = stream.finished
+                {
+                    finished.push(rx);
+                }
+                // Dropping `stream.tx` (via `stream` going out of scope) ends
+                // the body; the transport then fires `finished` on Drop of the
+                // body stream.
+            }
+        }
+        if finished.is_empty() {
+            return;
+        }
+        let timeout = self.response_stream_finish_timeout();
+        // Wait for every body in parallel so multi-stream handlers don't pay
+        // sequential timeouts, then bound the whole set.
+        let _ = tokio::time::timeout(
+            timeout,
+            futures_util::future::join_all(finished.into_iter().map(|rx| async move {
+                let _ = rx.await;
+            })),
+        )
+        .await;
+    }
+
     /// Drain and close every server response stream the current (serial) handler
     /// left open. Called at the end of each serial `main loop` iteration and at
-    /// program exit, mirroring the concurrent path's per-handler `Drop`.
-    fn close_open_response_streams(&self) {
+    /// program exit, mirroring the concurrent path's per-handler `Drop` — but
+    /// awaits body completion so a `break` right after the last chunk still
+    /// delivers a clean end-of-stream (#680).
+    async fn close_open_response_streams(&self) {
         let ids = std::mem::take(&mut *self.open_response_streams.borrow_mut());
-        self.close_response_streams(&ids);
+        self.close_response_streams(&ids).await;
+    }
+
+    /// `execute [wfl] file at <path> [with <request>] [and read output as <var>]`.
+    ///
+    /// Kept as its own async fn (and only `Box::pin`ned from
+    /// `_execute_statement`) so the nested lex→parse→analyze→interpret pipeline
+    /// is not part of the giant shared statement state machine. Nesting this
+    /// statement multiplies only this smaller future on the poll stack (#681).
+    async fn execute_wfl_file(
+        &self,
+        path: &Expression,
+        request: Option<&Expression>,
+        variable_name: Option<&str>,
+        line: usize,
+        column: usize,
+        env: Rc<RefCell<Environment>>,
+    ) -> Result<(Value, ControlFlow), RuntimeError> {
+        // Guard against a file that (directly or indirectly) executes itself,
+        // using the shared budget's execute-file depth ceiling.
+        if let Err(exceeded) = self.budget.check_execute_file_depth(self.execute_depth) {
+            return Err(self.budget_error(exceeded, line, column));
+        }
+
+        // Evaluate path expression to string
+        let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+        let path_str: String = match &path_value {
+            Value::Text(s) => s.to_string(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!(
+                        "Execute file path must be text, got {}",
+                        path_value.type_name()
+                    ),
+                    line,
+                    column,
+                ));
+            }
+        };
+
+        // Resolve relative to the current script's directory (like load module),
+        // mapping a missing file to FileNotFound so `when file not found` works
+        let opt_source = self.current_source_file.borrow().as_ref().cloned();
+        let joined = if let Some(source_path) = opt_source {
+            source_path
+                .parent()
+                .map(|dir| dir.join(&path_str))
+                .unwrap_or_else(|| PathBuf::from(&path_str))
+        } else {
+            let cwd = std::env::current_dir().map_err(|e| {
+                RuntimeError::new(
+                    format!("Cannot determine current directory: {e}"),
+                    line,
+                    column,
+                )
+            })?;
+            cwd.join(&path_str)
+        };
+        let map_io_error = |e: std::io::Error| {
+            let kind = match e.kind() {
+                std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
+                std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
+                _ => ErrorKind::General,
+            };
+            RuntimeError::with_kind(
+                format!("Cannot execute wfl file '{path_str}': {e}"),
+                line,
+                column,
+                kind,
+            )
+        };
+        let resolved_path = tokio::fs::canonicalize(&joined)
+            .await
+            .map_err(map_io_error)?;
+        // Read under the shared source-size ceiling (bounded read).
+        let content = self
+            .read_source_bounded(&resolved_path, line, column)
+            .await?;
+
+        // Evaluate the optional request context and extract the variables that
+        // `wait for request` defines, so the executed file sees the same names.
+        // Validate the shape upfront so a wrong object fails here with a clear
+        // message instead of as confusing undefined variable errors inside the
+        // executed file.
+        let request_vars: Vec<(String, Value)> = if let Some(request_expr) = request {
+            let request_value = self
+                .evaluate_expression(request_expr, Rc::clone(&env))
+                .await?;
+            match &request_value {
+                Value::Object(props) => {
+                    let props = props.borrow();
+                    let mut vars = Vec::new();
+                    for key in ["method", "path", "query", "client_ip", "body", "headers"] {
+                        let value = props.get(key).ok_or_else(|| {
+                            RuntimeError::new(
+                                format!(
+                                    "Execute file request context is missing '{key}' - pass the request object from 'wait for request'"
+                                ),
+                                line,
+                                column,
+                            )
+                        })?;
+                        let type_ok = match key {
+                            "headers" => matches!(value, Value::Object(_)),
+                            _ => matches!(value, Value::Text(_)),
+                        };
+                        if !type_ok {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Execute file request context field '{key}' must be {}, got {}",
+                                    if key == "headers" {
+                                        "an object"
+                                    } else {
+                                        "text"
+                                    },
+                                    value.type_name()
+                                ),
+                                line,
+                                column,
+                            ));
+                        }
+                        // Deep clone so the executed file cannot mutate the
+                        // parent's request data (e.g. the headers object)
+                        vars.push((key.to_string(), value.deep_clone()));
+                    }
+                    vars
+                }
+                _ => {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Execute file request context must be a request object, got {}",
+                            request_value.type_name()
+                        ),
+                        line,
+                        column,
+                    ));
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Parse the file; errors are catchable in the parent
+        use crate::lexer::lex_wfl_with_positions_checked;
+        use crate::parser::Parser;
+
+        // Lex under the shared run budget: a deadline / cancellation /
+        // operation breach during nested source loading surfaces as a
+        // typed, catchable runtime error instead of a truncated token
+        // stream that could execute as if it were the whole file.
+        let tokens = lex_wfl_with_positions_checked(&content)
+            .map_err(|exceeded| self.budget_error(exceeded, line, column))?;
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse().map_err(|errors| {
+            let first_error = errors.first();
+            RuntimeError::new(
+                format!(
+                    "Parse error in executed file '{}' (line {}, column {}): {}",
+                    resolved_path.display(),
+                    first_error.map(|e| e.line).unwrap_or(1),
+                    first_error.map(|e| e.column).unwrap_or(1),
+                    first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
+                ),
+                line,
+                column,
+            )
+        })?;
+
+        // Analyze semantics, seeding the injected request variable names.
+        // The type checker is intentionally skipped: main.rs treats type
+        // errors as warnings only, so a hard gate here would reject files
+        // that run fine standalone.
+        use crate::analyzer::Analyzer;
+
+        let mut seeded_vars: HashMap<String, (crate::parser::ast::Type, bool)> = HashMap::new();
+        for (name, value) in &request_vars {
+            seeded_vars.insert(name.clone(), (Self::infer_type_from_value(value), true));
+        }
+        let mut analyzer = Analyzer::with_parent_variables(seeded_vars);
+        if let Err(errors) = analyzer.analyze(&program) {
+            let first_error = errors.first();
+            return Err(RuntimeError::new(
+                format!(
+                    "Semantic error in executed file '{}': {}",
+                    resolved_path.display(),
+                    first_error.map(|e| e.to_string()).unwrap_or_default()
+                ),
+                line,
+                column,
+            ));
+        }
+
+        // Run the file in a fresh nested interpreter (own global env and
+        // stdlib, inherits the parent's config) with request context injected
+        let mut child = Interpreter::with_config(Arc::clone(&self.config));
+        child.set_source_file(resolved_path.clone());
+        child.execute_depth = self.execute_depth + 1;
+        // Share the parent's budget so the deadline, operation ceiling,
+        // and cancellation span the whole run — otherwise splitting work
+        // across `execute file` calls would reset them and evade the cap.
+        child.budget = Arc::clone(&self.budget);
+        // Seed the child's recursion accounting with the parent's live
+        // depth so the combined WFL call depth across nested `execute
+        // file` runs is bounded by `max_call_depth` (not multiplied per
+        // level), preventing native-stack overflow before the guard fires.
+        child.base_call_depth = self.call_depth.get();
+
+        {
+            let mut child_env = child.global_env().borrow_mut();
+            for (name, value) in request_vars {
+                if let Err(msg) = child_env.define(&name, value) {
+                    return Err(RuntimeError::new(msg, line, column));
+                }
+            }
+        }
+
+        // With an output clause, capture the child's display/print output;
+        // without one, child output flows to the current sink (stdout, or
+        // the parent's own capture buffer if the parent is being captured)
+        let capture_buffer = variable_name.map(|_| Rc::new(RefCell::new(String::new())));
+        // The child shares this budget, so the parent's active main-loop
+        // exemption (a depth counter, not a flag) naturally covers the
+        // child and the nested front end — `execute file` from inside a
+        // server's `main loop` handler inherits the exemption instead of
+        // spuriously timing out, and the RAII guard needs no save/restore.
+        let run_result = {
+            let _guard = capture_buffer
+                .as_ref()
+                .map(|buffer| io_capture::push_capture(Rc::clone(buffer)));
+            // Box::pin breaks the recursive future (this method awaits a full
+            // nested interpret), keeping the future finitely sized
+            Box::pin(child.interpret(&program)).await
+        };
+
+        if let Err(errors) = run_result {
+            let first = errors
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| RuntimeError::new("unknown error".to_string(), line, column));
+            // Position the error at the parent's execute statement, keep the
+            // child's error kind so typed `when` clauses still match
+            return Err(RuntimeError::with_kind(
+                format!(
+                    "Error in executed file '{}' (line {}): {}",
+                    resolved_path.display(),
+                    first.line,
+                    first.message
+                ),
+                line,
+                column,
+                first.kind,
+            ));
+        }
+
+        if let (Some(var_name), Some(buffer)) = (variable_name, capture_buffer) {
+            let output = buffer.borrow();
+            env.borrow_mut()
+                .define_direct(var_name, Value::Text(Arc::from(output.as_str())))
+                .map_err(|e| RuntimeError::new(e, line, column))?;
+        }
+
+        Ok((Value::Null, ControlFlow::None))
     }
 
     fn pending_response_disconnected_now(&self, request_id: &str) -> bool {
@@ -5491,7 +5981,10 @@ impl Interpreter {
             .filter(|id| !snapshot.response_streams.contains(*id))
             .cloned()
             .collect();
-        self.close_response_streams(&new_response_streams);
+        // Cancel path: drop senders immediately (client is already gone or the
+        // pre-commit work is abandoned). No finish wait — there is no successful
+        // body left to deliver.
+        self.close_response_streams_nowait(&new_response_streams);
         self.open_response_streams
             .borrow_mut()
             .retain(|id| snapshot.response_streams.contains(id));
@@ -5816,6 +6309,9 @@ impl Interpreter {
                     interp: self,
                     state: self.fresh_handler_run_state(),
                     inner: Some(Box::pin(handler)),
+                    drain: None,
+                    pending_output: None,
+                    pending_finish_ids: Vec::new(),
                 });
             }
 
@@ -6128,7 +6624,7 @@ impl Interpreter {
         // than only clearing the id lists — clearing alone would strand the
         // still-open sender/receiver in `server_response_streams` /
         // `pending_responses`, hanging the client and leaking the entry.
-        self.close_open_response_streams();
+        self.close_open_response_streams().await;
         self.fail_open_pending_requests();
         self.close_open_http_streams();
         // RAII: if THIS run's future is dropped/cancelled before its normal exit
@@ -6316,7 +6812,7 @@ impl Interpreter {
                 errors.push(err);
                 // A mid-run timeout is still an exit path: finalize any open
                 // top-level streams and unanswered requests before returning.
-                self.close_open_response_streams();
+                self.close_open_response_streams().await;
                 self.fail_open_pending_requests();
                 self.close_open_http_streams();
                 return Err(errors);
@@ -6401,7 +6897,7 @@ impl Interpreter {
         // never answered — on EVERY exit path (normal end, statement error, or a
         // failing `main`), so a script that exits without `close` still finalizes
         // the client's body rather than leaving it hanging until process death.
-        self.close_open_response_streams();
+        self.close_open_response_streams().await;
         self.fail_open_pending_requests();
         self.close_open_http_streams();
 
@@ -7289,8 +7785,10 @@ impl Interpreter {
                     // server response streams this iteration left open, and 500
                     // any request it dequeued but never answered — so a handler
                     // that forgets `close out`/`respond` never leaves the client
-                    // hanging or waiting out the request timeout.
-                    self.close_open_response_streams();
+                    // hanging or waiting out the request timeout. Awaits body
+                    // finish so a `break` right after the last chunk still
+                    // delivers a clean end-of-stream (#680).
+                    self.close_open_response_streams().await;
                     self.fail_open_pending_requests();
                     self.close_open_http_streams();
                     let result = result?;
@@ -7637,11 +8135,15 @@ impl Interpreter {
                                     "close", &id, *line, *column,
                                 ));
                             }
-                            // Dropping the sender ends the response body stream.
-                            self.server_response_streams.borrow_mut().remove(&id);
                             // Drop it from the handler's auto-close tracking so
-                            // the list stays bounded to actually-open streams.
+                            // the list stays bounded to actually-open streams
+                            // *before* awaiting finish (so a concurrent drain
+                            // cannot double-close).
                             self.open_response_streams.borrow_mut().retain(|s| s != &id);
+                            // Drop the sender (ends the body) and await the
+                            // transport finishing the body so the terminating
+                            // chunk is on the wire before we return (#680).
+                            self.close_response_streams(std::slice::from_ref(&id)).await;
                             Ok((Value::Null, ControlFlow::None))
                         } else {
                             Err(RuntimeError::new(
@@ -10306,22 +10808,15 @@ impl Interpreter {
                                             reply_builder = reply_builder.header(name, value);
                                         }
 
-                                        // Turn the chunk receiver into a body stream.
-                                        // When the client disconnects, hyper drops this
-                                        // body, dropping `body`, which makes the
-                                        // handler's next `write` fail (the interpreter
-                                        // observes the closed channel) — that is how a
-                                        // browser disconnect cancels the handler.
-                                        let stream = futures_util::stream::unfold(
-                                            body,
-                                            |mut rx| async move {
-                                                rx.recv()
-                                                    .await
-                                                    .map(|chunk| (Ok::<Vec<u8>, std::io::Error>(chunk), rx))
-                                            },
-                                        );
+                                        // `body` is a `NotifyingChunkStream`: when the
+                                        // client disconnects, hyper drops it (firing
+                                        // the finish oneshot and making the handler's
+                                        // next `write` fail); when the sender is
+                                        // closed cleanly, the stream ends and Drop
+                                        // still fires so `close out` can await
+                                        // delivery of the terminating chunk (#680).
                                         match reply_builder
-                                            .body(warp::hyper::Body::wrap_stream(stream))
+                                            .body(warp::hyper::Body::wrap_stream(body))
                                         {
                                             Ok(response) => Ok(response),
                                             Err(_) => Err(warp::reject::custom(ServerError(
@@ -11328,7 +11823,14 @@ impl Interpreter {
                     .await?;
 
                 // Commit: take the sender and hand the streaming head to the transport.
+                // The oneshot pairs `close out` with the transport finishing the
+                // body so the program does not return mid-flush (#680).
                 let (tx, rx) = mpsc::channel::<Vec<u8>>(RESPONSE_STREAM_BUFFER);
+                let (done_tx, done_rx) = oneshot::channel::<()>();
+                let body = NotifyingChunkStream {
+                    rx,
+                    done: Some(done_tx),
+                };
                 let mut completion = match self
                     .take_pending_response_completion(&request_id, *line, *column)
                     .await
@@ -11348,7 +11850,7 @@ impl Interpreter {
                                 status: status_code,
                                 content_type: content_type_str,
                                 headers: custom_headers,
-                                body: rx,
+                                body,
                             })
                             .is_err()
                         {
@@ -11380,9 +11882,14 @@ impl Interpreter {
                     self.next_response_stream_id.set(n + 1);
                     format!("respstream{n}")
                 };
-                self.server_response_streams
-                    .borrow_mut()
-                    .insert(handle_id.clone(), (tx, 0));
+                self.server_response_streams.borrow_mut().insert(
+                    handle_id.clone(),
+                    ServerResponseStream {
+                        tx,
+                        bytes_written: 0,
+                        finished: Some(done_rx),
+                    },
+                );
                 // Track it against the current handler so it is auto-closed if
                 // the handler ends without an explicit `close out`.
                 self.open_response_streams
@@ -11494,8 +12001,8 @@ impl Interpreter {
                 let sender = {
                     let mut map = self.server_response_streams.borrow_mut();
                     match map.get_mut(&handle_id) {
-                        Some((tx, bytes_written)) => {
-                            let new_total = bytes_written.saturating_add(incoming_len);
+                        Some(stream) => {
+                            let new_total = stream.bytes_written.saturating_add(incoming_len);
                             if new_total > max_response_bytes {
                                 let actual = new_total;
                                 // Drop the stream so the body ends rather than
@@ -11514,8 +12021,8 @@ impl Interpreter {
                                     *column,
                                 ));
                             }
-                            *bytes_written = new_total;
-                            Some(tx.clone())
+                            stream.bytes_written = new_total;
+                            Some(stream.tx.clone())
                         }
                         None => None,
                     }
@@ -12244,252 +12751,19 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Guard against a file that (directly or indirectly) executes
-                // itself, using the shared budget's execute-file depth ceiling.
-                if let Err(exceeded) = self.budget.check_execute_file_depth(self.execute_depth) {
-                    return Err(self.budget_error(exceeded, *line, *column));
-                }
-
-                // Evaluate path expression to string
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str: String = match &path_value {
-                    Value::Text(s) => s.to_string(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!(
-                                "Execute file path must be text, got {}",
-                                path_value.type_name()
-                            ),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                // Resolve relative to the current script's directory (like load module),
-                // mapping a missing file to FileNotFound so `when file not found` works
-                let opt_source = self.current_source_file.borrow().as_ref().cloned();
-                let joined = if let Some(source_path) = opt_source {
-                    source_path
-                        .parent()
-                        .map(|dir| dir.join(&path_str))
-                        .unwrap_or_else(|| PathBuf::from(&path_str))
-                } else {
-                    let cwd = std::env::current_dir().map_err(|e| {
-                        RuntimeError::new(
-                            format!("Cannot determine current directory: {e}"),
-                            *line,
-                            *column,
-                        )
-                    })?;
-                    cwd.join(&path_str)
-                };
-                let map_io_error = |e: std::io::Error| {
-                    let kind = match e.kind() {
-                        std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
-                        std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
-                        _ => ErrorKind::General,
-                    };
-                    RuntimeError::with_kind(
-                        format!("Cannot execute wfl file '{path_str}': {e}"),
-                        *line,
-                        *column,
-                        kind,
-                    )
-                };
-                let resolved_path = tokio::fs::canonicalize(&joined)
-                    .await
-                    .map_err(map_io_error)?;
-                // Read under the shared source-size ceiling (bounded read).
-                let content = self
-                    .read_source_bounded(&resolved_path, *line, *column)
-                    .await?;
-
-                // Evaluate the optional request context and extract the variables
-                // that `wait for request` defines, so the executed file sees the
-                // same names. Validate the shape upfront so a wrong object fails
-                // here with a clear message instead of as confusing undefined
-                // variable errors inside the executed file.
-                let request_vars: Vec<(String, Value)> = if let Some(request_expr) = request {
-                    let request_value = self
-                        .evaluate_expression(request_expr, Rc::clone(&env))
-                        .await?;
-                    match &request_value {
-                        Value::Object(props) => {
-                            let props = props.borrow();
-                            let mut vars = Vec::new();
-                            for key in ["method", "path", "query", "client_ip", "body", "headers"] {
-                                let value = props.get(key).ok_or_else(|| {
-                                    RuntimeError::new(
-                                        format!(
-                                            "Execute file request context is missing '{key}' - pass the request object from 'wait for request'"
-                                        ),
-                                        *line,
-                                        *column,
-                                    )
-                                })?;
-                                let type_ok = match key {
-                                    "headers" => matches!(value, Value::Object(_)),
-                                    _ => matches!(value, Value::Text(_)),
-                                };
-                                if !type_ok {
-                                    return Err(RuntimeError::new(
-                                        format!(
-                                            "Execute file request context field '{key}' must be {}, got {}",
-                                            if key == "headers" {
-                                                "an object"
-                                            } else {
-                                                "text"
-                                            },
-                                            value.type_name()
-                                        ),
-                                        *line,
-                                        *column,
-                                    ));
-                                }
-                                // Deep clone so the executed file cannot mutate the
-                                // parent's request data (e.g. the headers object)
-                                vars.push((key.to_string(), value.deep_clone()));
-                            }
-                            vars
-                        }
-                        _ => {
-                            return Err(RuntimeError::new(
-                                format!(
-                                    "Execute file request context must be a request object, got {}",
-                                    request_value.type_name()
-                                ),
-                                *line,
-                                *column,
-                            ));
-                        }
-                    }
-                } else {
-                    Vec::new()
-                };
-
-                // Parse the file; errors are catchable in the parent
-                use crate::lexer::lex_wfl_with_positions_checked;
-                use crate::parser::Parser;
-
-                // Lex under the shared run budget: a deadline / cancellation /
-                // operation breach during nested source loading surfaces as a
-                // typed, catchable runtime error instead of a truncated token
-                // stream that could execute as if it were the whole file.
-                let tokens = lex_wfl_with_positions_checked(&content)
-                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
-                let mut parser = Parser::new(&tokens);
-                let program = parser.parse().map_err(|errors| {
-                    let first_error = errors.first();
-                    RuntimeError::new(
-                        format!(
-                            "Parse error in executed file '{}' (line {}, column {}): {}",
-                            resolved_path.display(),
-                            first_error.map(|e| e.line).unwrap_or(1),
-                            first_error.map(|e| e.column).unwrap_or(1),
-                            first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
-                        ),
-                        *line,
-                        *column,
-                    )
-                })?;
-
-                // Analyze semantics, seeding the injected request variable names.
-                // The type checker is intentionally skipped: main.rs treats type
-                // errors as warnings only, so a hard gate here would reject files
-                // that run fine standalone.
-                use crate::analyzer::Analyzer;
-
-                let mut seeded_vars: HashMap<String, (crate::parser::ast::Type, bool)> =
-                    HashMap::new();
-                for (name, value) in &request_vars {
-                    seeded_vars.insert(name.clone(), (Self::infer_type_from_value(value), true));
-                }
-                let mut analyzer = Analyzer::with_parent_variables(seeded_vars);
-                if let Err(errors) = analyzer.analyze(&program) {
-                    let first_error = errors.first();
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Semantic error in executed file '{}': {}",
-                            resolved_path.display(),
-                            first_error.map(|e| e.to_string()).unwrap_or_default()
-                        ),
-                        *line,
-                        *column,
-                    ));
-                }
-
-                // Run the file in a fresh nested interpreter (own global env and
-                // stdlib, inherits the parent's config) with request context injected
-                let mut child = Interpreter::with_config(Arc::clone(&self.config));
-                child.set_source_file(resolved_path.clone());
-                child.execute_depth = self.execute_depth + 1;
-                // Share the parent's budget so the deadline, operation ceiling,
-                // and cancellation span the whole run — otherwise splitting work
-                // across `execute file` calls would reset them and evade the cap.
-                child.budget = Arc::clone(&self.budget);
-                // Seed the child's recursion accounting with the parent's live
-                // depth so the combined WFL call depth across nested `execute
-                // file` runs is bounded by `max_call_depth` (not multiplied per
-                // level), preventing native-stack overflow before the guard fires.
-                child.base_call_depth = self.call_depth.get();
-
-                {
-                    let mut child_env = child.global_env().borrow_mut();
-                    for (name, value) in request_vars {
-                        if let Err(msg) = child_env.define(&name, value) {
-                            return Err(RuntimeError::new(msg, *line, *column));
-                        }
-                    }
-                }
-
-                // With an output clause, capture the child's display/print output;
-                // without one, child output flows to the current sink (stdout, or
-                // the parent's own capture buffer if the parent is being captured)
-                let capture_buffer = variable_name
-                    .as_ref()
-                    .map(|_| Rc::new(RefCell::new(String::new())));
-                // The child shares this budget, so the parent's active main-loop
-                // exemption (a depth counter, not a flag) naturally covers the
-                // child and the nested front end — `execute file` from inside a
-                // server's `main loop` handler inherits the exemption instead of
-                // spuriously timing out, and the RAII guard needs no save/restore.
-                let run_result = {
-                    let _guard = capture_buffer
-                        .as_ref()
-                        .map(|buffer| io_capture::push_capture(Rc::clone(buffer)));
-                    // Box::pin breaks the recursive future (this statement awaits a
-                    // full nested interpret), keeping the future finitely sized
-                    Box::pin(child.interpret(&program)).await
-                };
-
-                if let Err(errors) = run_result {
-                    let first = errors.into_iter().next().unwrap_or_else(|| {
-                        RuntimeError::new("unknown error".to_string(), *line, *column)
-                    });
-                    // Position the error at the parent's execute statement, keep the
-                    // child's error kind so typed `when` clauses still match
-                    return Err(RuntimeError::with_kind(
-                        format!(
-                            "Error in executed file '{}' (line {}): {}",
-                            resolved_path.display(),
-                            first.line,
-                            first.message
-                        ),
-                        *line,
-                        *column,
-                        first.kind,
-                    ));
-                }
-
-                if let (Some(var_name), Some(buffer)) = (variable_name, capture_buffer) {
-                    let output = buffer.borrow();
-                    env.borrow_mut()
-                        .define_direct(var_name, Value::Text(Arc::from(output.as_str())))
-                        .map_err(|e| RuntimeError::new(e, *line, *column))?;
-                }
-
-                Ok((Value::Null, ControlFlow::None))
+                // Boxed out of `_execute_statement`'s shared state machine so the
+                // full lex→parse→analyze→interpret pipeline does not inflate every
+                // other statement's future (and so nested `execute file` depth is
+                // not multiplied by that giant enum on the native stack — #681).
+                Box::pin(self.execute_wfl_file(
+                    path,
+                    request.as_ref(),
+                    variable_name.as_deref(),
+                    *line,
+                    *column,
+                    env,
+                ))
+                .await
             }
             Statement::SpawnProcessStatement {
                 command,
@@ -15861,6 +16135,9 @@ mod concurrent_handler_classification_tests {
             interp: interpreter,
             state: RunState::fresh(interpreter.base_call_depth),
             inner: Some(Box::pin(one_yield_static_scope(interpreter, context))),
+            drain: None,
+            pending_output: None,
+            pending_finish_ids: Vec::new(),
         })
     }
 
@@ -16776,10 +17053,15 @@ mod response_disconnect_result_tests {
                 .try_send(vec![0])
                 .expect("fill response stream buffer");
         }
-        interpreter
-            .server_response_streams
-            .borrow_mut()
-            .insert(handle_id.to_string(), (sender, 0));
+        let (_done_tx, done_rx) = oneshot::channel();
+        interpreter.server_response_streams.borrow_mut().insert(
+            handle_id.to_string(),
+            ServerResponseStream {
+                tx: sender,
+                bytes_written: 0,
+                finished: Some(done_rx),
+            },
+        );
         interpreter
             .open_response_streams
             .borrow_mut()

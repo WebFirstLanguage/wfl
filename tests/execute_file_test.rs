@@ -395,24 +395,38 @@ async fn test_execute_file_child_error_mentions_child_path() {
     );
 }
 
-#[tokio::test]
-async fn test_execute_file_depth_limit_prevents_infinite_recursion() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    // self_exec.wfl executes itself forever; the depth guard must stop it
-    fs::write(
-        temp_dir.path().join("self_exec.wfl"),
-        "execute wfl file at \"self_exec.wfl\" and read output as nested_output\n",
-    )
-    .expect("Failed to write self-executing file");
+/// Depth-guard regression (#681). Nested `execute file` re-enters the full
+/// pipeline; on a default ~1 MB Windows test-thread stack that can overflow
+/// *before* `max_execute_file_depth` (4) fires. Run under the same large
+/// interpreter stack the CLI uses so the test asserts the promised depth error
+/// rather than a native stack overflow.
+#[test]
+fn test_execute_file_depth_limit_prevents_infinite_recursion() {
+    wfl::run_with_interpreter_stack(|| {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime for depth-limit test");
+        rt.block_on(async {
+            let temp_dir = TempDir::new().expect("Failed to create temp directory");
+            // self_exec.wfl executes itself forever; the depth guard must stop it
+            fs::write(
+                temp_dir.path().join("self_exec.wfl"),
+                "execute wfl file at \"self_exec.wfl\" and read output as nested_output\n",
+            )
+            .expect("Failed to write self-executing file");
 
-    let source = r#"execute wfl file at "self_exec.wfl" and read output as page_output"#;
-    let (result, _interpreter) = run_program_in_dir(&temp_dir, source).await;
-    let errors = result.expect_err("Expected depth limit error");
-    let message = &errors.first().expect("Expected at least one error").message;
-    assert!(
-        message.contains("depth"),
-        "Error should mention nesting depth, got: {message}"
-    );
+            let source = r#"execute wfl file at "self_exec.wfl" and read output as page_output"#;
+            let (result, _interpreter) = run_program_in_dir(&temp_dir, source).await;
+            let errors = result.expect_err("Expected depth limit error");
+            let message = &errors.first().expect("Expected at least one error").message;
+            assert!(
+                message.contains("Maximum execute file nesting depth"),
+                "Error should report the execute-file nesting guard, got: {message}"
+            );
+        });
+    })
+    .expect("reserve interpreter stack for depth-limit test");
 }
 
 // ---------------------------------------------------------------------------

@@ -67,6 +67,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   archive manifest checksums, experiment review expiry, product-version drift,
   and post-suite working-tree cleanliness.
 
+### Fixed
+- **Streaming responses no longer truncate when the program ends right after
+  `close out` (#680).** Close and end-of-handler drain now await the transport
+  finishing the body (not only dropping the chunk sender), so the terminating
+  chunk is delivered before the runtime is torn down. The finish wait is a
+  short fixed ceiling independent of `web_server_response_timeout_seconds`, so
+  a client that stops reading cannot pin a serial `main loop` for the full
+  write timeout. Concurrent (`main loop concurrently:`) handlers that stream
+  without an explicit close and then break/return await the same finish signal
+  before reporting complete.
+- **`execute file` depth guard and Windows integration-test stack (#681).** The
+  execute-file pipeline is boxed out of the shared statement state machine; the
+  depth-guard test runs on the large interpreter stack; Windows integration
+  tests default `RUST_MIN_STACK` to 8 MB.
+
 ### Changed
 - **Repository layout migrated to purpose-based top-level homes**: Dev Diary →
   `History/dev-diary/<year>/`, contributor docs `Docs/development/` →

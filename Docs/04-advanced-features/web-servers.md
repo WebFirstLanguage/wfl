@@ -545,7 +545,15 @@ close out
   > concatenate keep working.
 - `flush <out>` — advisory: yield so queued bytes are handed to the socket.
   (Chunks are already forwarded as you write them; hyper writes as it receives.)
-- `close <out>` — end the response body. Writing after `close` is an error.
+- `close <out>` — end the response body. Signals end-of-stream immediately
+  (stops accepting further chunks), then briefly waits for the transport to
+  finish delivering the body so a program that exits right after `close` does
+  not truncate the response. That finish wait is short and independent of
+  `web_server_response_timeout_seconds` (which bounds **writes** and request
+  admission, not close). If the client has stopped reading, `close` returns
+  when the short ceiling elapses rather than parking for the full write
+  timeout — important for a serial `main loop`, where one stalled close would
+  otherwise block every other request. Writing after `close` is an error.
 
 **Ownership:** a response stream belongs to the handler that started it. Under
 `main loop concurrently:`, `write`, `flush`, and `close` on a **live** stream
@@ -557,20 +565,24 @@ closed-stream error, while `close` is an idempotent no-op for any handler
 holding the stale handle.
 
 **Lifecycle & backpressure:** the body channel is bounded, so a slow client
-slows your `write` calls (backpressure) instead of buffering without bound. If
-the client disconnects, hyper drops the response body and your next `write` to
+slows your `write` calls (backpressure) instead of buffering without bound.
+Each `write` is also bounded by `web_server_response_timeout_seconds` so a
+connected client that stops reading cannot pin the handler forever. If the
+client disconnects, hyper drops the response body and your next `write` to
 that stream fails with a catchable error — use `try`/`catch` to detect it and
 stop producing (and `close` any upstream you are proxying).
 
 **Prefer an explicit `close out`** to finalize the response promptly — that is
-what signals the end of the body to the client, and doing it as soon as you are
-done frees the connection without waiting. As a safety net, the stream is also
-**closed automatically when the handler ends on any path** (normal return, a
-caught error, or a panic contained by `main loop concurrently:`), so a handler
-that forgets `close out` still finalizes the client's body rather than leaving
-it hanging. For long-lived handlers, still `close` as soon as you are finished —
-and put it in a `finally:` block if the handler can error partway through — so
-the client is not left waiting until the handler happens to return.
+what signals the end of the body to the client and briefly confirms delivery
+so exiting the program immediately afterwards does not lose the tail of the
+response. As a safety net, the stream is also **closed automatically when the
+handler ends on any path** (normal return, a caught error, or a panic
+contained by `main loop concurrently:`), with the same short finish wait, so a
+handler that forgets `close out` still finalizes the client's body rather than
+leaving it hanging. For long-lived handlers, still `close` as soon as you are
+finished — and put it in a `finally:` block if the handler can error partway
+through — so the client is not left waiting until the handler happens to
+return.
 
 **Proxying an upstream to the browser** — combine with the outbound streaming
 client ([Interoperability → Streaming a response
