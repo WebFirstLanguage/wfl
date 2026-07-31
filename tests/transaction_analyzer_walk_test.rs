@@ -98,6 +98,32 @@ end transaction
     );
 }
 
+/// The block *header* is walked too, not just the body.
+///
+/// `in transaction on <expr>:` takes a full primary expression — `call get_db`
+/// and `get_db of 1` both parse — so a security-sensitive call can sit in the
+/// header itself. This program is not meant to run; it exists so that the test
+/// fails if `collect_calls_in_statement` stops descending into the header, which
+/// is the one place the body walk cannot cover.
+#[test]
+fn calls_in_the_transaction_header_are_collected() {
+    let program = parse(
+        r#"
+store seeded as random_seed of 42
+in transaction on hash_password of "hunter2":
+    display "body"
+end transaction
+"#,
+    );
+    let found = rng_security_ingredients(&program);
+    assert!(found.seed_site.is_some(), "random_seed must be seen");
+    assert!(
+        found.security_site.is_some(),
+        "the only crypto call is in the transaction header, so this fails if the \
+         header expression is not walked"
+    );
+}
+
 /// The unused-variable walk must see declarations inside the block. Its failure
 /// mode is a false negative — a variable the block declares and nobody uses is
 /// simply never tracked, so it is never reported.
