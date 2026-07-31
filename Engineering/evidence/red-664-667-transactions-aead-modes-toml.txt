@@ -1,0 +1,28 @@
+Red evidence — WFL issues #664 / #665 / #666 / #667
+Recorded: 2026-07-31T06:52:40Z
+Base commit: 438780ae038608783c54fdc661273f040c4c58dd
+Toolchain:   cargo 1.94.1 (29ea6fb6a 2026-03-24)
+
+All four suites fail because the feature does not exist yet — not because
+of a broken test. The exact first-failure reason per suite:
+
+--- database_transaction_test
+    Unexpected token in expression: KeywordIn
+    test result: FAILED. 2 passed; 11 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+--- crypto_seal_test
+    Undefined variable 'seal'
+    test result: FAILED. 3 passed; 14 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+--- filesystem_mode_test
+    Undefined variable 'file_mode'
+    Undefined variable 'set_file_mode'
+    test result: FAILED. 2 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+--- toml_test
+    Undefined variable 'parse_toml'
+    test result: FAILED. 2 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+Tests that already pass do so only because the program errors out; they
+assert failure paths and are re-verified after Green to confirm they then
+pass for the right reason.

@@ -284,6 +284,17 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// `in transaction on <db>: ... end transaction`
+    ///
+    /// Runs `body` against a single connection held for the whole block, so the
+    /// statements inside it are atomic. Commits when the block finishes, rolls
+    /// back if anything inside it fails (issue #664).
+    TransactionStatement {
+        db: Expression,
+        body: Vec<Statement>,
+        line: usize,
+        column: usize,
+    },
     CreateDirectoryStatement {
         path: Expression,
         line: usize,

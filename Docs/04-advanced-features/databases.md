@@ -100,6 +100,108 @@ store row as rows[0]
 store new_id as row["id"]
 ```
 
+## Transactions
+
+Some changes only make sense together. Moving money between two accounts is two
+`UPDATE`s, and stopping halfway is worse than never starting. A transaction
+block makes a group of statements all-or-nothing:
+
+```wfl
+in transaction on db:
+    store debited as execute db with "UPDATE accounts SET balance = balance - 100 WHERE id = 1"
+    store credited as execute db with "UPDATE accounts SET balance = balance + 100 WHERE id = 2"
+end transaction
+```
+
+As everywhere else, `execute` is written as `store <name> as execute ...` — the
+result object is always bound, even when you do not need it.
+
+If both statements succeed, the block commits and the changes become permanent
+when it reaches `end transaction`. If anything inside fails, everything the
+block did is undone — including the statements that had already succeeded — and
+the error is reported as usual, so you can catch it:
+
+```wfl
+try:
+    in transaction on db:
+        store claimed as execute db with "INSERT INTO jobs (slug, status) VALUES (?, 'running')" and parameters [slug]
+        store counted as execute db with "UPDATE counters SET running = running + 1"
+    end transaction
+    display "Job claimed."
+when error:
+    display "Could not claim the job; nothing was changed."
+end try
+```
+
+### What the block guarantees
+
+- **One connection for the whole block.** `open database` maintains a pool of
+  connections, and outside a transaction each statement takes whichever one is
+  free. Inside the block, every statement runs on the same connection — that is
+  what makes the group atomic.
+- **Reads see the block's own writes.** A `query` inside the block sees rows the
+  block has inserted but not yet committed. Other connections do not see them
+  until the block commits.
+- **`break`, `continue` and `return` commit.** They are ordinary ways to leave a
+  block, so the work inside finished and is kept.
+- **Errors and `exit` roll back.** A failed statement rolls the block back, and
+  so does `exit`, which stops the program where it stands rather than finishing
+  the block. A transaction still open when the program ends rolls back for the
+  same reason — an abrupt stop discards the partial work rather than
+  half-committing it.
+
+### Restrictions
+
+**Transaction blocks cannot be nested on the same database.** Starting a second
+block on a database that already has one open is an error rather than a silent
+flattening of one into the other. Nested transactions require savepoints, which
+WFL does not currently expose.
+
+**A database cannot be closed inside its own transaction.** `close database`
+during an open block is an error; let the block finish first.
+
+### Do not send BEGIN or COMMIT through `query` or `execute`
+
+Writing transaction control as SQL does not work, and WFL now says so. Both
+statements are checked, not just `execute`:
+
+```wfl
+store t as execute db with "BEGIN"     // Error, with a pointer to the block syntax
+store r as query db with "COMMIT"      // Same error — `query` is checked too
+```
+
+The reason is the connection pool. `BEGIN`, the statements after it, and
+`COMMIT` would each take a different pooled connection, so the transaction would
+not cover the statements it appeared to wrap — a `ROLLBACK` would quietly undo
+nothing while the writes it was meant to discard survived. `BEGIN`, `COMMIT`,
+`ROLLBACK`, `START TRANSACTION`, `SAVEPOINT` and `RELEASE` are therefore
+rejected with an error naming the block syntax above.
+
+Only the first real token of a statement is checked, so ordinary SQL that merely
+contains those words — a column named `begin_at`, a value of `'rollback plan'` —
+runs normally. Leading comments are skipped before that token is read, so
+`-- set up\nBEGIN` is refused rather than slipping past.
+
+> **If this used to work for you, it worked by accident.** An in-memory SQLite
+> database (`sqlite::memory:`) only ever has one connection, so hand-written
+> transaction control did take effect there — and nowhere else. The same program
+> pointed at a file-backed or networked database silently lost the writes it
+> meant to roll back. That is why this is now an error everywhere rather than a
+> warning: the pattern's failure mode was to pass in development and corrupt data
+> in production. Replace it with the block above.
+
+### Transactions and concurrent handlers
+
+Under `main loop concurrently:` a transaction belongs to the handler that opened
+it. Two requests can hold their own transactions on the same database handle at
+the same time, and a handler that has no transaction of its own keeps taking a
+pooled connection as usual — it is never enrolled in someone else's transaction,
+and cannot have its writes committed or rolled back by another request.
+
+> `transaction` is not a reserved word. It is recognized only in
+> `in transaction on ...` and `end transaction`, so existing programs that use
+> `transaction` as a variable name keep working.
+
 ## Returning Results from Actions
 
 `query` and `execute` — with or without `and parameters [...]` — can be

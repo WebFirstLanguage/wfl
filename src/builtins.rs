@@ -53,10 +53,17 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "scrypt_verify",
     "pbkdf2_hash",
     "pbkdf2_verify",
+    // Authenticated encryption (implemented in stdlib/crypto.rs)
+    "seal",
+    "unseal",
     // JSON functions (implemented in stdlib/json.rs)
     "parse_json",
     "stringify_json",
     "stringify_json_pretty",
+    // TOML functions (implemented in stdlib/toml.rs)
+    "parse_toml",
+    "stringify_toml",
+    "stringify_toml_pretty",
     // Query and form parsing (implemented in stdlib/text.rs)
     "parse_query_string",
     "parse_cookies",
@@ -223,6 +230,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "path_extension",
     "path_stem",
     "file_size",
+    "file_mode",
+    "set_file_mode",
     "copy_file",
     "move_file",
     "remove_file",
@@ -273,6 +282,8 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     "scrypt_verify",
     "pbkdf2_hash",
     "pbkdf2_verify",
+    "seal",
+    "unseal",
     // Filesystem
     "list_dir",
     "glob",
@@ -289,6 +300,8 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     "path_extension",
     "path_stem",
     "file_size",
+    "file_mode",
+    "set_file_mode",
     "copy_file",
     "move_file",
     "remove_file",
@@ -298,6 +311,10 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     "parse_json",
     "stringify_json",
     "stringify_json_pretty",
+    // TOML
+    "parse_toml",
+    "stringify_toml",
+    "stringify_toml_pretty",
     // Math
     "abs",
     "round",
@@ -492,9 +509,18 @@ pub fn get_function_arity(name: &str) -> usize {
         "verify_password" | "argon2_verify" | "bcrypt_verify" | "scrypt_verify"
         | "pbkdf2_verify" => 2,
 
+        // === AUTHENTICATED ENCRYPTION ===
+        // (plaintext, key), with an optional third `context` argument — see
+        // `get_function_arity_range`.
+        "seal" | "unseal" => 2,
+
         // === JSON FUNCTIONS ===
         // Single argument functions
         "parse_json" | "stringify_json" | "stringify_json_pretty" => 1,
+
+        // === TOML FUNCTIONS ===
+        // Single argument functions
+        "parse_toml" | "stringify_toml" | "stringify_toml_pretty" => 1,
 
         // === QUERY AND FORM PARSING ===
         // Single argument functions
@@ -578,9 +604,11 @@ pub fn get_function_arity(name: &str) -> usize {
         "list_dir" | "path_basename" | "path_dirname" | "makedirs" | "file_mtime"
         | "path_exists" | "is_file" | "is_dir" | "read_file" | "file_exists" | "delete_file"
         | "create_directory" | "list_directory" | "is_directory" | "count_lines"
-        | "path_extension" | "path_stem" | "file_size" | "remove_file" | "remove_dir" => 1,
+        | "path_extension" | "path_stem" | "file_size" | "remove_file" | "remove_dir"
+        | "file_mode" => 1,
         // Two argument functions
-        "glob" | "rglob" | "path_join" | "write_file" | "copy_file" | "move_file" => 2,
+        "glob" | "rglob" | "path_join" | "write_file" | "copy_file" | "move_file"
+        | "set_file_mode" => 2,
 
         // === SPECIAL TEST FUNCTIONS ===
         "helper_function" | "nested_function" => 1,
@@ -611,6 +639,8 @@ pub fn get_function_arity_range(name: &str) -> (usize, Option<usize>) {
         "create_datetime" => (3, Some(6)),
         "timestamp" => (0, Some(1)),
         "remove_dir" => (1, Some(2)),
+        // The optional third argument is the associated-data context.
+        "seal" | "unseal" => (2, Some(3)),
         _ => {
             let arity = get_function_arity(name);
             (arity, Some(arity))

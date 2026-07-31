@@ -1,0 +1,111 @@
+// File permission test suite (issue #666)
+//
+// The point of these builtins is that a program can both restrict a file it
+// writes and check that it is restricted — "refuse to start if this config is
+// group- or world-readable" was impossible to express before.
+//
+// Writes go under target/test-artifacts/ per REPOSITORY_HYGIENE.md.
+//
+// `set_file_mode` implements real POSIX semantics on Unix and refuses loudly on
+// Windows, where modes do not map onto ACLs. This runs on both platforms, so it
+// probes once for support and then asserts whichever contract applies. The
+// per-platform detail is covered exhaustively by tests/filesystem_mode_test.rs.
+
+store artifact_dir as "target/test-artifacts/file_mode_test"
+store config_path as artifact_dir with "/config.toml"
+store probe_path as artifact_dir with "/probe.toml"
+
+create directory at artifact_dir
+create file at probe_path with "probe\n"
+
+store modes_supported as yes
+try:
+    set_file_mode of probe_path and "0600"
+when error:
+    change modes_supported to no
+end try
+
+describe "Reading a file's mode":
+
+    setup:
+        create directory at artifact_dir
+        create file at config_path with "token = \"secret\"\n"
+    end setup
+
+    test "file_mode returns four octal digits":
+        store mode as file_mode of config_path
+        expect length of mode to equal 4
+    end test
+
+    test "reading the mode of a missing file fails":
+        store failed as no
+        try:
+            store mode as file_mode of "target/test-artifacts/file_mode_test/nope.toml"
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+    end test
+
+end describe
+
+describe "Restricting a file to its owner":
+
+    setup:
+        create directory at artifact_dir
+        create file at config_path with "token = \"secret\"\n"
+    end setup
+
+    test "a file set to 0600 reads back as 0600":
+        check if modes_supported:
+            set_file_mode of config_path and "0600"
+            store mode as file_mode of config_path
+            expect mode to equal "0600"
+        otherwise:
+            // Windows: refused loudly, which is the documented contract there.
+            expect modes_supported to be no
+        end check
+    end test
+
+    test "a group-readable config is distinguishable from a locked-down one":
+        check if modes_supported:
+            set_file_mode of config_path and "0644"
+            store loose_mode as file_mode of config_path
+            store is_locked_down as loose_mode is "0600"
+            expect is_locked_down to be no
+
+            set_file_mode of config_path and "0600"
+            store tight_mode as file_mode of config_path
+            store now_locked_down as tight_mode is "0600"
+            expect now_locked_down to be yes
+        otherwise:
+            expect modes_supported to be no
+        end check
+    end test
+
+    test "three-digit and four-digit modes are both accepted":
+        check if modes_supported:
+            set_file_mode of config_path and "600"
+            store after_short as file_mode of config_path
+            expect after_short to equal "0600"
+
+            set_file_mode of config_path and "0640"
+            store after_long as file_mode of config_path
+            expect after_long to equal "0640"
+        otherwise:
+            expect modes_supported to be no
+        end check
+    end test
+
+    test "a malformed mode is rejected rather than masked":
+        // Rejected before the platform check, so this holds everywhere.
+        store failed as no
+        try:
+            set_file_mode of config_path and "rw-------"
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+    end test
+
+end describe

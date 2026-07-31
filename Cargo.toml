@@ -61,6 +61,9 @@ encoding_rs = "0.8.35"
 # and TLS backend; `tls-rustls` aliases the ring-backed rustls stack we used before.
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "tls-rustls", "sqlite", "mysql", "postgres", "chrono"] }
 serde_json = "1.0.150"
+# Backs the `parse_toml` / `stringify_toml` builtins, mirroring the serde_json-backed
+# JSON surface. Ships TOML 1.0 support (and reads the 1.1 spec additions).
+toml = "1.1.4"
 # Keep Warp 0.3.x for its stable routing/filter API, but do not enable its legacy
 # TLS adapter: that adapter pins rustls 0.22. WFL serves the same filters through
 # Tokio-Rustls 0.26 below, preserving secured-listener behavior on rustls 0.23.
@@ -88,6 +91,11 @@ argon2 = "0.5"
 scrypt = { version = "0.11", features = ["simple"] }
 pbkdf2 = { version = "0.12", features = ["simple"] }
 bcrypt = "0.19"
+# Authenticated encryption for the `seal`/`unseal` builtins. XChaCha20-Poly1305
+# specifically: its 192-bit nonce is wide enough that the implementation can mint
+# a fresh random nonce per seal without a counter, so callers never touch nonces
+# and cannot reuse one. `zeroize` wipes the expanded key on drop.
+chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
 # Force newer version to fix future incompatibility warning
 num-bigint-dig = "0.8.6"
 # Direct dep so the lib can expose `init_rustls_crypto_provider()` (called by

@@ -5,11 +5,23 @@
 //! - `store <name> as query <db> with <sql> [and parameters <list>]`
 //! - `store <name> as execute <db> with <sql> [and parameters <list>]`
 //! - `close database <db>`
+//! - `in transaction on <db>: ... end transaction`
+//!
+//! `transaction` is deliberately *not* a lexer keyword. It is recognized
+//! positionally — an identifier directly after a leading `in`, and after `end`
+//! closing the block — so existing programs that use `transaction` as an
+//! ordinary variable name keep working.
 
 use super::super::{ParseError, Parser, Statement};
+use super::StmtParser;
 use crate::lexer::token::Token;
 use crate::parser::ast::{DatabaseQueryKind, Expression};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
+
+/// True when `token` is the contextual word `transaction`.
+pub(crate) fn is_transaction_word(token: &Token) -> bool {
+    matches!(token, Token::Identifier(id) if id.eq_ignore_ascii_case("transaction"))
+}
 
 pub(crate) trait DatabaseParser<'a>: ExprParser<'a> {
     /// Parse `open database at <url> as <name>` with the `open` token already consumed
@@ -26,6 +38,11 @@ pub(crate) trait DatabaseParser<'a>: ExprParser<'a> {
 
     /// Parse `close database <db>` from the `close` keyword.
     fn parse_close_database_statement(&mut self) -> Result<Statement, ParseError>;
+
+    /// Parse `in transaction on <db>: ... end transaction` from the leading `in`.
+    fn parse_transaction_statement(&mut self) -> Result<Statement, ParseError>
+    where
+        Self: StmtParser<'a>;
 
     /// Detect whether the cursor is positioned on the value side of a database
     /// query/execute form: `query|execute <handle> with ...`. The three-token
@@ -158,6 +175,68 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
             db,
             line: close_token.line,
             column: close_token.column,
+        })
+    }
+
+    fn parse_transaction_statement(&mut self) -> Result<Statement, ParseError>
+    where
+        Self: StmtParser<'a>,
+    {
+        let in_token = self.bump_sync().unwrap(); // Consume "in"
+        self.bump_sync(); // Consume "transaction"
+
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'in transaction' — write `in transaction on <database>:`",
+        )?;
+
+        // A primary expression, not a full one: the general expression parser
+        // runs on past the `:` that closes the header.
+        let db = self.parse_primary_expression()?;
+
+        self.expect_token(
+            Token::Colon,
+            "Expected ':' after the database in `in transaction on <database>:`",
+        )?;
+        self.skip_eol();
+
+        let mut body = Vec::new();
+        while let Some(token) = self.cursor.peek() {
+            if matches!(token.token, Token::KeywordEnd) {
+                break;
+            }
+            if matches!(&token.token, Token::Eol) {
+                self.bump_sync();
+                continue;
+            }
+            body.push(self.parse_statement()?);
+        }
+
+        self.expect_token(
+            Token::KeywordEnd,
+            "Expected 'end transaction' to close the transaction block",
+        )?;
+
+        let closes_block = self
+            .cursor
+            .peek()
+            .is_some_and(|t| is_transaction_word(&t.token));
+        if closes_block {
+            self.bump_sync();
+        } else {
+            let message =
+                "Expected 'transaction' after 'end' to close the transaction block".to_string();
+            return match self.cursor.peek() {
+                Some(token) => Err(ParseError::from_token(message, token)),
+                None => Err(self.cursor.error(message)),
+            };
+        }
+
+        Ok(Statement::TransactionStatement {
+            db,
+            body,
+            line: in_token.line,
+            column: in_token.column,
         })
     }
 

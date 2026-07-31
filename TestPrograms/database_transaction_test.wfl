@@ -1,0 +1,147 @@
+// Transaction test suite (issue #664)
+//
+// These use a FILE-backed SQLite database on purpose. `open database` hands out
+// a pool of five connections and the defect in #664 was that each statement
+// took a different one; in-memory SQLite is capped at a single connection, so
+// an in-memory test cannot see the bug at all.
+//
+// The database lives under target/test-artifacts/ per REPOSITORY_HYGIENE.md.
+
+store artifact_dir as "target/test-artifacts/database_transaction_test"
+create directory at artifact_dir
+store db_url as "sqlite://" with artifact_dir with "/tx.db"
+
+describe "A transaction block is atomic":
+
+    test "work inside a failed block does not survive":
+        open database at db_url as db
+        store dropped as execute db with "DROP TABLE IF EXISTS rollback_case"
+        store made as execute db with "CREATE TABLE rollback_case (slug TEXT)"
+
+        store failed as no
+        try:
+            in transaction on db:
+                store ins as execute db with "INSERT INTO rollback_case (slug) VALUES ('should-vanish')"
+                store boom as execute db with "INSERT INTO no_such_table (x) VALUES (1)"
+            end transaction
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+
+        store rows as query db with "SELECT slug FROM rollback_case"
+        expect length of rows to equal 0
+        close database db
+    end test
+
+    test "work inside a finished block is committed":
+        open database at db_url as db
+        store dropped as execute db with "DROP TABLE IF EXISTS commit_case"
+        store made as execute db with "CREATE TABLE commit_case (slug TEXT)"
+
+        in transaction on db:
+            store a as execute db with "INSERT INTO commit_case (slug) VALUES ('kept-one')"
+            store b as execute db with "INSERT INTO commit_case (slug) VALUES ('kept-two')"
+        end transaction
+
+        store rows as query db with "SELECT slug FROM commit_case"
+        expect length of rows to equal 2
+        close database db
+    end test
+
+    test "an earlier write rolls back with a later failure":
+        open database at db_url as db
+        store dropped as execute db with "DROP TABLE IF EXISTS all_or_nothing"
+        store made as execute db with "CREATE TABLE all_or_nothing (slug TEXT UNIQUE)"
+        store seed as execute db with "INSERT INTO all_or_nothing (slug) VALUES ('taken')"
+
+        store failed as no
+        try:
+            in transaction on db:
+                store a as execute db with "INSERT INTO all_or_nothing (slug) VALUES ('new-one')"
+                store b as execute db with "INSERT INTO all_or_nothing (slug) VALUES ('taken')"
+            end transaction
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+
+        store rows as query db with "SELECT slug FROM all_or_nothing"
+        expect length of rows to equal 1
+        close database db
+    end test
+
+    test "a read inside the block sees the block's own writes":
+        open database at db_url as db
+        store dropped as execute db with "DROP TABLE IF EXISTS read_own_writes"
+        store made as execute db with "CREATE TABLE read_own_writes (slug TEXT)"
+
+        in transaction on db:
+            store ins as execute db with "INSERT INTO read_own_writes (slug) VALUES ('pending')"
+            store rows as query db with "SELECT slug FROM read_own_writes"
+            store seen as length of rows
+        end transaction
+        expect seen to equal 1
+
+        close database db
+    end test
+
+end describe
+
+describe "Transaction control SQL is refused":
+
+    test "a raw BEGIN through execute is an error":
+        open database at db_url as db
+        store refused as no
+        try:
+            store t as execute db with "BEGIN"
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+        close database db
+    end test
+
+    test "a raw ROLLBACK through execute is an error":
+        open database at db_url as db
+        store refused as no
+        try:
+            store t as execute db with "ROLLBACK"
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+        close database db
+    end test
+
+    test "ordinary SQL that merely mentions those words still runs":
+        open database at db_url as db
+        store dropped as execute db with "DROP TABLE IF EXISTS audit"
+        store made as execute db with "CREATE TABLE audit (begin_at TEXT, commit_note TEXT)"
+        store ins as execute db with "INSERT INTO audit (begin_at, commit_note) VALUES ('t0', 'rollback plan')"
+        store rows as query db with "SELECT begin_at, commit_note FROM audit"
+        expect length of rows to equal 1
+        close database db
+    end test
+
+end describe
+
+describe "Transaction misuse is reported":
+
+    test "nesting a transaction on the same database is an error":
+        open database at db_url as db
+        store refused as no
+        try:
+            in transaction on db:
+                in transaction on db:
+                    store noop as query db with "SELECT 1 AS one"
+                end transaction
+            end transaction
+        when error:
+            change refused to yes
+        end try
+        expect refused to be yes
+        close database db
+    end test
+
+end describe

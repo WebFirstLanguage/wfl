@@ -491,7 +491,8 @@ fn check_nesting_depth(
         }
         Statement::WhileLoop { body, .. }
         | Statement::ForEachLoop { body, .. }
-        | Statement::CountLoop { body, .. } => {
+        | Statement::CountLoop { body, .. }
+        | Statement::TransactionStatement { body, .. } => {
             for stmt in body {
                 check_nesting_depth(stmt, current_depth + 1, max_depth, diagnostics, file_id);
             }

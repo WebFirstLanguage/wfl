@@ -1774,6 +1774,14 @@ impl Analyzer {
             Statement::CloseDatabaseStatement { db, .. } => {
                 self.analyze_expression(db);
             }
+            Statement::TransactionStatement { db, body, .. } => {
+                self.analyze_expression(db);
+                // The block introduces no bindings of its own; statements inside
+                // it see and extend the enclosing scope, like `try:`.
+                for statement in body {
+                    self.analyze_statement(statement);
+                }
+            }
             Statement::HttpGetStatement { variable_name, .. } => {
                 let symbol = Symbol {
                     name: variable_name.clone(),

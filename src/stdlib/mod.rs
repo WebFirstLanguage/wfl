@@ -11,6 +11,7 @@ pub mod pattern_test;
 pub mod random;
 pub mod text;
 pub mod time;
+pub mod toml;
 pub mod typechecker;
 pub mod web;
 
@@ -27,5 +28,6 @@ pub fn register_stdlib(env: &mut Environment) {
     list::register_list(env);
     pattern::register(env);
     time::register_time(env);
+    toml::register_toml(env);
     web::register_web(env);
 }

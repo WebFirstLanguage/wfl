@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-WFL's standard library provides 181+ built-in functions organized into 11 modules. Everything you need is already included—no package managers, no external dependencies.
+WFL's standard library provides 181+ built-in functions organized into 12 modules. Everything you need is already included—no package managers, no external dependencies.
 
 ## Library Architecture
 
@@ -22,8 +22,10 @@ Standard Library (181+ functions)
 │   └── Date and time handling
 ├── Random Module (6 functions)
 │   └── Random number generation
-├── Crypto Module (20 functions)
-│   └── Password hashing, auth/session primitives, hashing & MAC
+├── Crypto Module (22 functions)
+│   └── Password hashing, authenticated encryption, auth/session primitives, hashing & MAC
+├── TOML Module (3 functions)
+│   └── Reading and writing TOML configuration files
 ├── Pattern Module (3 functions)
 │   └── Pattern matching utilities
 └── Typechecker Module
@@ -140,6 +142,7 @@ store upper as touppercase of "text"
 - Directories: list, create, check existence
 - Paths: extension, basename, dirname, join
 - Information: exists, size, type
+- Permissions: `file_mode`, `set_file_mode`
 
 ### Temporal (Time)
 - Current: `current time`, `current date`, `datetime_now`
@@ -155,8 +158,13 @@ store upper as touppercase of "text"
 
 ### Security (Crypto)
 - Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2)
+- Authenticated encryption: `seal`, `unseal` (XChaCha20-Poly1305) — for secrets you must read back
 - Standard hashing/MAC: `sha256`, `hmac_sha256`
 - WFLHASH (experimental): `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256` — dual-hash with `sha256` for production
+
+### Configuration (TOML)
+- Reading: `parse_toml`
+- Writing: `stringify_toml`, `stringify_toml_pretty`
 
 ### Validation (Pattern)
 - Matching: pattern matching, finding, replacing
@@ -286,7 +294,7 @@ Use whichever reads most naturally in your code!
 
 In this overview, you learned:
 
-✅ **Library organization** - 11 modules by functionality
+✅ **Library organization** - 12 modules by functionality
 ✅ **Function count** - 181+ built-in functions
 ✅ **Naming conventions** - Natural language names
 ✅ **Syntax patterns** - Consistent `of` and `and` usage

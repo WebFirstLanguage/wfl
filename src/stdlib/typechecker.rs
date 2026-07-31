@@ -16,6 +16,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_list(analyzer);
     register_pattern(analyzer);
     register_json(analyzer);
+    register_toml(analyzer);
     register_web(analyzer);
     register_crypto(analyzer);
     register_filesystem(analyzer);
@@ -345,6 +346,21 @@ fn register_json(analyzer: &mut Analyzer) {
     }
 }
 
+fn register_toml(analyzer: &mut Analyzer) {
+    register(analyzer, &["parse_toml"], vec![Type::Text], Type::Any);
+
+    // Only a table, unlike JSON. `wfl_to_toml_document` rejects anything else at
+    // runtime because there is no valid TOML document whose top level is a list
+    // or a scalar, so accepting them here would type-check a call that is
+    // guaranteed to fail. Scalars and lists remain valid *inside* a table.
+    register(
+        analyzer,
+        &["stringify_toml", "stringify_toml_pretty"],
+        vec![map(Type::Text, Type::Any)],
+        Type::Text,
+    );
+}
+
 fn register_web(analyzer: &mut Analyzer) {
     register(
         analyzer,
@@ -399,6 +415,16 @@ fn register_crypto(analyzer: &mut Analyzer) {
         analyzer,
         &["secure_random_bytes"],
         vec![Type::Number],
+        Type::Text,
+    );
+    // `seal of plaintext and key`, optionally `and context`.
+    register_same_result_overloads(
+        analyzer,
+        &["seal", "unseal"],
+        [
+            vec![Type::Text, Type::Text],
+            vec![Type::Text, Type::Text, Type::Text],
+        ],
         Type::Text,
     );
     register(
@@ -473,6 +499,13 @@ fn register_filesystem(analyzer: &mut Analyzer) {
         &["copy_file", "move_file"],
         vec![Type::Text, Type::Text],
         Type::Nothing,
+    );
+    register(analyzer, &["file_mode"], vec![Type::Text], Type::Text);
+    register(
+        analyzer,
+        &["set_file_mode"],
+        vec![Type::Text, Type::Text],
+        Type::Text,
     );
     register_same_result_overloads(
         analyzer,

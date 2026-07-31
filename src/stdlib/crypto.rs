@@ -1,4 +1,4 @@
-use super::helpers::{check_arg_count, expect_number, expect_text};
+use super::helpers::{check_arg_count, check_arg_range, expect_number, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -13,7 +13,7 @@ use scrypt::Scrypt;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Maximum input size for wflhash functions (100MB)
 pub const MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
@@ -999,6 +999,228 @@ pub fn native_verify_password(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(verify_any_password(&password, &stored)))
 }
 
+// ============================================================================
+// Authenticated encryption — `seal` / `unseal` (issue #665)
+//
+// Everything else in this module is one-way: hashes, MACs, password KDFs. That
+// is right for verifying a password, and useless for storing an API token that
+// has to be sent upstream again later. `seal` is the missing half — the thing a
+// key minted by `secure_random_bytes of 32` is actually *for*.
+//
+// XChaCha20-Poly1305 specifically. Its 192-bit nonce is wide enough that a
+// freshly generated random nonce per message is safe without any counter or
+// state, which lets the implementation own nonce handling completely. Nonce
+// reuse is the sharpest edge in any AEAD API, and a natural-language surface is
+// the last place a user should be managing one by hand — so `seal` takes a
+// plaintext and a key, and nothing else.
+//
+// The sealed value is `wflseal1:` followed by hex of nonce ‖ ciphertext ‖ tag.
+// Self-describing (so a reader can tell what it is holding), versioned (so the
+// algorithm can change later without ambiguity), and hex to match
+// `secure_random_bytes`, which is where the key comes from.
+// ============================================================================
+
+/// Prefix identifying version 1 of the sealed-blob format:
+/// XChaCha20-Poly1305, 24-byte nonce prepended to the ciphertext.
+const SEAL_V1_PREFIX: &str = "wflseal1:";
+
+/// XChaCha20-Poly1305 nonce length in bytes.
+const SEAL_NONCE_LEN: usize = 24;
+
+/// Poly1305 authentication tag length in bytes.
+const SEAL_TAG_LEN: usize = 16;
+
+/// Key length in bytes; 64 hex characters, exactly `secure_random_bytes of 32`.
+const SEAL_KEY_LEN: usize = 32;
+
+/// Decode a hex string into bytes, or `None` if it is not valid hex.
+///
+/// Works over bytes rather than slicing the `str`. Keys and sealed values are
+/// untrusted text — they arrive from config files, database rows and HTTP
+/// requests — and slicing at fixed two-byte offsets lands inside a multi-byte
+/// character and panics. Every malformed input has to fail closed here, like
+/// the rest of this module, rather than take the process down.
+fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
+    let bytes = hex.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return None;
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|pair| {
+            // Rejects any non-ASCII byte: hex is ASCII by definition.
+            let text = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(text, 16).ok()
+        })
+        .collect()
+}
+
+/// Decode and validate a sealing key, with a message that points at the way to
+/// make a valid one.
+fn parse_seal_key(func_name: &str, key_text: &str) -> Result<Zeroizing<Vec<u8>>, RuntimeError> {
+    let bytes = hex_to_bytes(key_text).filter(|b| b.len() == SEAL_KEY_LEN);
+
+    match bytes {
+        Some(bytes) => Ok(Zeroizing::new(bytes)),
+        None => Err(RuntimeError::new(
+            format!(
+                "{func_name}: the key must be {} hex characters ({SEAL_KEY_LEN} bytes). \
+                 Generate one with `secure_random_bytes of {SEAL_KEY_LEN}`.",
+                SEAL_KEY_LEN * 2
+            ),
+            0,
+            0,
+        )),
+    }
+}
+
+/// Encrypt text so it can be stored at rest and read back later.
+///
+/// Usage: `seal of plaintext and key`
+///        `seal of plaintext and key and context`
+///
+/// The optional context (associated data) is authenticated but not encrypted,
+/// and binds the ciphertext to where it lives: a blob sealed with one context
+/// will not unseal under another.
+/// Read the optional third argument as associated data.
+///
+/// An empty context is refused rather than treated as "no context". Passing the
+/// argument at all means the caller intends to bind this value to something, and
+/// `context.as_deref().unwrap_or("")` would otherwise make `""` and an absent
+/// argument the same associated data — so a context read from a config key that
+/// turned out to be missing would silently produce an *unbound* ciphertext while
+/// the author believed it was bound. Better to say so.
+fn seal_context(func_name: &str, args: &[Value]) -> Result<Option<Arc<str>>, RuntimeError> {
+    match args.get(2) {
+        Some(value) => {
+            let context = expect_text(value)?;
+            if context.is_empty() {
+                return Err(RuntimeError::new(
+                    format!(
+                        "{func_name}: the context must not be empty. Leave the argument out \
+                         entirely to seal without a context, or pass the value this secret \
+                         belongs to (for example \"project:acme/api_key\")."
+                    ),
+                    0,
+                    0,
+                ));
+            }
+            Ok(Some(context))
+        }
+        None => Ok(None),
+    }
+}
+
+pub fn native_seal(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+    use rand::Rng;
+
+    check_arg_range("seal", &args, 2, 3)?;
+
+    let plaintext = expect_text(&args[0])?;
+    let key_text = expect_text(&args[1])?;
+    let context = seal_context("seal", &args)?;
+
+    let key = parse_seal_key("seal", &key_text)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|_| RuntimeError::new("seal: failed to initialize cipher".to_string(), 0, 0))?;
+
+    // Fresh random nonce per message, from the OS CSPRNG. With a 192-bit nonce
+    // the chance of a repeat is negligible, which is the whole reason for
+    // choosing XChaCha20 over a 96-bit-nonce AEAD here.
+    // Same CSPRNG `secure_random_bytes` draws the key from.
+    let mut nonce_bytes = [0u8; SEAL_NONCE_LEN];
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = XNonce::from(nonce_bytes);
+
+    let payload = Payload {
+        msg: plaintext.as_bytes(),
+        aad: context.as_deref().unwrap_or("").as_bytes(),
+    };
+
+    let ciphertext = cipher
+        .encrypt(&nonce, payload)
+        .map_err(|_| RuntimeError::new("seal: encryption failed".to_string(), 0, 0))?;
+
+    let mut blob = Vec::with_capacity(SEAL_NONCE_LEN + ciphertext.len());
+    blob.extend_from_slice(&nonce_bytes);
+    blob.extend_from_slice(&ciphertext);
+
+    let sealed = format!("{SEAL_V1_PREFIX}{}", bytes_to_hex(&blob));
+
+    nonce_bytes.zeroize();
+    Ok(Value::Text(Arc::from(sealed)))
+}
+
+/// Decrypt a value produced by `seal`.
+///
+/// Usage: `unseal of sealed and key`
+///        `unseal of sealed and key and context`
+///
+/// Fails closed. A wrong key, a modified byte anywhere in the blob, a truncated
+/// blob, and a mismatched context all produce the same error — distinguishing
+/// between them would turn this into an oracle for an attacker holding the
+/// ciphertext.
+pub fn native_unseal(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+
+    check_arg_range("unseal", &args, 2, 3)?;
+
+    let sealed = expect_text(&args[0])?;
+    let key_text = expect_text(&args[1])?;
+    let context = seal_context("unseal", &args)?;
+
+    let key = parse_seal_key("unseal", &key_text)?;
+
+    // A single error for every failure below this point.
+    let failed = || {
+        RuntimeError::new(
+            "unseal: could not open this value. The key may be wrong, the context may not \
+             match, or the sealed value may have been modified or truncated."
+                .to_string(),
+            0,
+            0,
+        )
+    };
+
+    let body = sealed.strip_prefix(SEAL_V1_PREFIX).ok_or_else(|| {
+        RuntimeError::new(
+            format!(
+                "unseal: this is not a sealed value. Expected text beginning with \
+                 '{SEAL_V1_PREFIX}', as produced by `seal`."
+            ),
+            0,
+            0,
+        )
+    })?;
+
+    let blob = hex_to_bytes(body).ok_or_else(failed)?;
+    if blob.len() < SEAL_NONCE_LEN + SEAL_TAG_LEN {
+        return Err(failed());
+    }
+
+    let (nonce_bytes, ciphertext) = blob.split_at(SEAL_NONCE_LEN);
+    let nonce = XNonce::try_from(nonce_bytes).map_err(|_| failed())?;
+
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|_| RuntimeError::new("unseal: failed to initialize cipher".to_string(), 0, 0))?;
+
+    let payload = Payload {
+        msg: ciphertext,
+        aad: context.as_deref().unwrap_or("").as_bytes(),
+    };
+
+    let plaintext = Zeroizing::new(cipher.decrypt(&nonce, payload).map_err(|_| failed())?);
+
+    // WFL text is UTF-8; a blob that decrypts to non-text was not produced by
+    // `seal` on a WFL string, so it is treated as a failure like any other.
+    let text = std::str::from_utf8(&plaintext).map_err(|_| failed())?;
+
+    Ok(Value::Text(Arc::from(text)))
+}
+
 /// Register all crypto functions in the environment
 pub fn register_crypto(env: &mut Environment) {
     env.define_native("wflhash256", native_wflhash256);
@@ -1023,6 +1245,9 @@ pub fn register_crypto(env: &mut Environment) {
     env.define_native("scrypt_verify", native_scrypt_verify);
     env.define_native("pbkdf2_hash", native_pbkdf2_hash);
     env.define_native("pbkdf2_verify", native_pbkdf2_verify);
+    // Authenticated encryption
+    env.define_native("seal", native_seal);
+    env.define_native("unseal", native_unseal);
 }
 
 #[cfg(test)]

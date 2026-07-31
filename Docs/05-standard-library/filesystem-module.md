@@ -442,6 +442,93 @@ display "File size: " with round of kb with " KB"
 
 ---
 
+### file_mode
+
+**Purpose:** Read a file's permission mode. Use this to check that a file holding a secret is actually restricted — the check that lets a program refuse to start when its config is readable by everyone.
+
+**Signature:**
+```wfl
+file_mode of <path>
+```
+
+**Parameters:**
+- `path` (Text): File path
+
+**Returns:** Text — four octal digits, such as `"0600"` or `"0644"`
+
+**Raises:** An error if the file does not exist.
+
+**Example:**
+```wfl
+store mode as file_mode of "settings.toml"
+display "Config permissions: " with mode
+
+check if mode is not "0600":
+    display "Refusing to start: settings.toml is readable by other users."
+    display "Run: set_file_mode of \"settings.toml\" and \"0600\""
+otherwise:
+    display "Config is owner-only. Continuing."
+end check
+```
+
+**On Windows** the returned value is an approximation. Windows uses ACLs rather than POSIX modes, and the only thing visible at this level is the read-only attribute, so `file_mode` returns `"0444"` for a read-only file and `"0666"` otherwise. Treat it as a rough indicator there, not as a security check.
+
+**Use Cases:**
+- Refusing to start when a credentials file is group- or world-readable
+- Auditing the files a program has written
+- Confirming that a `set_file_mode` call did what you expected
+
+---
+
+### set_file_mode
+
+**Purpose:** Restrict (or open up) a file's permissions. Use this immediately after writing a file that contains a secret.
+
+**Signature:**
+```wfl
+set_file_mode of <path> and <mode>
+```
+
+**Parameters:**
+- `path` (Text): File path
+- `mode` (Text): Three or four octal digits — `"0600"` and `"600"` are both accepted
+
+**Returns:** Text — the mode that was applied, as four octal digits
+
+**Raises:** An error if the file does not exist, if the mode is not valid octal, or if the platform does not support file modes.
+
+**Example:**
+```wfl
+// Write a config holding an API key, then lock it down before anything else runs
+open file at "settings.toml" for writing as settings_file
+wait for write content "api_key = \"sk-live-abc123\"\n" into settings_file
+close file settings_file
+
+set_file_mode of "settings.toml" and "0600"
+
+store mode as file_mode of "settings.toml"
+display "settings.toml is now " with mode        // Output: settings.toml is now 0600
+```
+
+Common modes:
+
+| Mode | Meaning |
+| --- | --- |
+| `"0600"` | Owner can read and write; nobody else can read it. Use for anything secret. |
+| `"0644"` | Owner can write; everyone can read. Fine for ordinary data files. |
+| `"0700"` | Owner can read, write and run. Use for scripts only you should run. |
+
+**Malformed modes are refused, not guessed at.** `"rw-------"`, `"0999"` and `"0o600"` all raise an error rather than being reinterpreted as some other mode. Silently landing on a more permissive mode than the author intended is exactly the failure this function exists to prevent.
+
+**On Windows** this raises a clear "not supported" error rather than doing nothing. File modes do not map onto Windows ACLs, and quietly succeeding would leave a program believing it had protected a file that it had not. Restrict the file through Windows' own access control instead.
+
+**Use Cases:**
+- Locking down a config file that holds an API key or password
+- Making a generated key file owner-only
+- Setting up a directory of credentials with predictable permissions
+
+---
+
 ### count_lines
 
 **Purpose:** Count lines in a text file.

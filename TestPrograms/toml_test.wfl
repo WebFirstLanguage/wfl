@@ -1,0 +1,139 @@
+// TOML test suite (issue #667)
+//
+// Mirrors the JSON surface: parse_toml / stringify_toml / stringify_toml_pretty.
+// The motivating case is reading a config file whose format is fixed by a spec
+// that says TOML.
+
+describe "Reading a config":
+
+    test "scalars come through with the right types":
+        store config_text as "title = \"my project\"
+listen_port = 8080
+debug_mode = true
+ratio = 0.25
+"
+        store config as parse_toml of config_text
+        expect config["title"] to equal "my project"
+        expect config["listen_port"] to equal 8080
+        expect config["debug_mode"] to be yes
+        expect config["ratio"] to equal 0.25
+    end test
+
+    test "nested tables become nested objects":
+        store config_text as "[database]
+host = \"localhost\"
+
+[database.tls]
+enabled = true
+"
+        store config as parse_toml of config_text
+        store db_section as config["database"]
+        expect db_section["host"] to equal "localhost"
+        store tls_section as db_section["tls"]
+        expect tls_section["enabled"] to be yes
+    end test
+
+    test "arrays become lists":
+        store config_text as "hosts = [\"a\", \"b\", \"c\"]
+"
+        store config as parse_toml of config_text
+        store hosts as config["hosts"]
+        expect length of hosts to equal 3
+        expect hosts[0] to equal "a"
+        expect hosts[2] to equal "c"
+    end test
+
+    test "arrays of tables become lists of objects":
+        store config_text as "[[project]]
+slug = \"alpha\"
+
+[[project]]
+slug = \"beta\"
+"
+        store config as parse_toml of config_text
+        store projects as config["project"]
+        expect length of projects to equal 2
+        store second_project as projects[1]
+        expect second_project["slug"] to equal "beta"
+    end test
+
+    test "an empty document is an empty table":
+        store config as parse_toml of ""
+        store rendered as stringify_toml of config
+        expect rendered to equal ""
+    end test
+
+end describe
+
+describe "Rejecting bad input":
+
+    test "malformed TOML raises an error":
+        store failed as no
+        try:
+            store config as parse_toml of "[unclosed"
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+    end test
+
+    test "duplicate keys are an error, not last-wins":
+        store failed as no
+        try:
+            store config as parse_toml of "a = 1
+a = 2
+"
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+    end test
+
+end describe
+
+describe "Writing a config":
+
+    test "a config survives a round trip":
+        store config_text as "name = \"wfl\"
+listen_port = 8080
+debug_mode = false
+"
+        store config as parse_toml of config_text
+        store rendered as stringify_toml of config
+        store reparsed as parse_toml of rendered
+        expect reparsed["name"] to equal "wfl"
+        expect reparsed["listen_port"] to equal 8080
+        expect reparsed["debug_mode"] to be no
+    end test
+
+    test "whole numbers stay integers rather than becoming decimals":
+        store config as parse_toml of "listen_port = 8080
+"
+        store rendered as stringify_toml of config
+        expect rendered to contain "listen_port = 8080"
+    end test
+
+    test "nested structure survives pretty printing":
+        store config_text as "[server_config]
+host = \"localhost\"
+ports = [1, 2]
+"
+        store config as parse_toml of config_text
+        store rendered as stringify_toml_pretty of config
+        store reparsed as parse_toml of rendered
+        store section as reparsed["server_config"]
+        expect section["host"] to equal "localhost"
+        expect length of section["ports"] to equal 2
+    end test
+
+    test "a top-level list is not a TOML document":
+        store failed as no
+        try:
+            store rendered as stringify_toml of [1 and 2 and 3]
+        when error:
+            change failed to yes
+        end try
+        expect failed to be yes
+    end test
+
+end describe

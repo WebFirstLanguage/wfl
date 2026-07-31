@@ -7,6 +7,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **Database transactions** (#664): `in transaction on db: ... end transaction`
+  runs a group of statements on a single pooled connection, committing when the
+  block finishes and rolling back if anything inside it fails or if `exit` stops
+  the program mid-block. Transaction blocks cannot be nested on one database, and
+  a database cannot be closed inside its own transaction; both are reported
+  rather than silently tolerated. Under `main loop concurrently:` a transaction
+  belongs to the handler that opened it, so a concurrent handler using the same
+  database handle is never enrolled in it. `transaction` is a positional marker
+  word, not a reserved keyword, so programs already using it as a variable name
+  are unaffected.
+- **Authenticated encryption** (#665): `seal of <text> and <key>` and
+  `unseal of <sealed> and <key>`, backed by XChaCha20-Poly1305. Keys are the
+  64-hex-character values `secure_random_bytes of 32` already produced; nonces
+  are generated internally per call and never exposed. An optional third
+  argument supplies associated data that binds a ciphertext to its context.
+  `unseal` fails closed and reports every failure identically.
+- **File permissions** (#666): `file_mode of <path>` returns a file's mode as
+  four octal digits, and `set_file_mode of <path> and "0600"` sets it, so a
+  program can both restrict a file holding a secret and verify that it is
+  restricted. Unix implements real POSIX semantics; on Windows, reading returns
+  a documented approximation and setting raises an explicit unsupported error
+  rather than silently doing nothing.
+- **TOML support** (#667): `parse_toml`, `stringify_toml` and
+  `stringify_toml_pretty`, mirroring the existing JSON functions. A TOML
+  document must be a table, and `nothing`-valued keys are omitted when writing
+  (TOML has no null); `nothing` inside a list is an error rather than a silent
+  drop.
+
+### Fixed
+- **Transaction control SQL sent through `query`/`execute` is now rejected**
+  (#664). `BEGIN`, `COMMIT`, `ROLLBACK`, `START TRANSACTION`, `SAVEPOINT` and
+  `RELEASE` previously ran on arbitrary pooled connections, so a hand-written
+  `BEGIN`/`ROLLBACK` sequence silently failed to cover the statements between
+  them: the rollback undid nothing, the writes survived, and no error was
+  raised. These statements now raise an error naming the transaction block.
+  Leading SQL comments are skipped before the keyword is read, so
+  `-- go\nBEGIN` is caught too; only the first real token is inspected, so
+  ordinary SQL that merely contains those words (a `begin_at` column, a
+  `'rollback plan'` value) still runs.
+
+### Removed
+- **Hand-written transaction control through `query`/`execute` no longer runs,
+  including on `sqlite::memory:`** (#664). On pooled backends the pattern never
+  worked, but an in-memory SQLite database is capped at a single connection, so
+  there `BEGIN`/`COMMIT`/`ROLLBACK` through `execute` did genuinely take effect.
+  Programs relying on that — most likely tests and examples, which commonly use
+  `sqlite::memory:` — now raise an error and must use `in transaction on db:`
+  instead. This is deliberate rather than a deprecation: the same code silently
+  corrupts data the moment it is pointed at a file-backed or networked database,
+  so "works in development, loses writes in production" is the behaviour being
+  removed. The error names the replacement construct, and the fix is mechanical.
+
 - **Binding Repository Hygiene and Layout Policy** (`REPOSITORY_HYGIENE.md`,
   governance §3.8) with a machine-readable profile (`.repo-hygiene.toml`) and a
   dependency-free checker (`scripts/check_repo_hygiene.py`) enforced as a

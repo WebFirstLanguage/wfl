@@ -543,6 +543,107 @@ display "New session id: " with session_id
 - Password salts (pair with [`pbkdf2_hmac_sha256`](#pbkdf2_hmac_sha256))
 - Session identifiers and cookies
 - CSRF tokens, password-reset tokens, API keys
+- Sealing keys (pair with [`seal`](#seal) — use exactly `secure_random_bytes of 32`)
+
+---
+
+### seal
+
+**Purpose:** Encrypt text so it can be stored at rest and read back later. Use this for secrets your program must recover — an API token it will send upstream, a saved provider key, session material.
+
+> **Hashing is not a substitute here.** `hash_password` and `sha256` are one-way by design: they let you *verify* a value you are given, never recover it. A stored API key has to be sent to the service later, so it must be recoverable. That is what `seal` is for, and it is the one case where a hash cannot stand in.
+
+**Signature:**
+```wfl
+seal of <plaintext> and <key>
+seal of <plaintext> and <key> and <context>
+```
+
+**Parameters:**
+- `plaintext` (Text): The secret to protect
+- `key` (Text): A 64-character hex key — exactly what `secure_random_bytes of 32` returns
+- `context` (Text, optional): Associated data that binds this ciphertext to where it lives. It must not be empty — leave the argument out entirely to seal without one.
+
+**Returns:** Text — a sealed value beginning with `wflseal1:`
+
+**Example:**
+```wfl
+store project_key as secure_random_bytes of 32
+store sealed as seal of "sk-live-provider-token" and project_key
+display sealed                       // wflseal1:9f2c... (varies every time)
+
+store token as unseal of sealed and project_key
+display token                        // sk-live-provider-token
+```
+
+Sealing the same text twice never produces the same result — each call generates a fresh nonce internally. That is deliberate: reusing a nonce is the one mistake that breaks this kind of encryption outright, so WFL owns nonce handling rather than asking you to manage it.
+
+**Binding a secret to its context.** The optional third argument is authenticated but not encrypted. It ties the ciphertext to a place, so a value lifted out of one record cannot be replayed into another:
+
+```wfl
+store project_key as secure_random_bytes of 32
+store api_token as "sk-live-provider-token"
+
+store sealed as seal of api_token and project_key and "project:acme/api_key"
+store token as unseal of sealed and project_key and "project:acme/api_key"
+display token                        // sk-live-provider-token
+
+// The same ciphertext under another project's context is refused.
+try:
+    store stolen as unseal of sealed and project_key and "project:evil/api_key"
+    display "This should not be reachable"
+when error:
+    display "Refused — this value belongs to another project"
+end try
+```
+
+An **empty** context is an error rather than a synonym for "no context". Passing
+the argument means you intend to bind the value to something, so a context built
+from a config key that turned out to be missing is reported instead of quietly
+producing an unbound ciphertext.
+
+**Use Cases:**
+- API tokens and provider keys written to a config file
+- Any credential that has to be read back, not merely checked
+
+---
+
+### unseal
+
+**Purpose:** Recover the text a `seal` call protected.
+
+**Signature:**
+```wfl
+unseal of <sealed> and <key>
+unseal of <sealed> and <key> and <context>
+```
+
+**Parameters:**
+- `sealed` (Text): A value produced by `seal`
+- `key` (Text): The same key used to seal it
+- `context` (Text, optional): The same context used to seal it, if one was used
+
+**Returns:** Text — the original plaintext
+
+**Raises:** An error if anything is wrong — the wrong key, a modified or truncated sealed value, or a context that does not match. All of these report the same message on purpose: telling an attacker *which* part failed would help them work toward a valid one.
+
+**Example:**
+```wfl
+store config_key as secure_random_bytes of 32
+store sealed as seal of "database password" and config_key
+
+// Anything tampered with fails rather than returning garbage.
+store recovered as ""
+try:
+    change recovered to unseal of sealed and config_key
+when error:
+    display "This value could not be opened — refusing to continue"
+end try
+```
+
+**Keep the key somewhere the sealed value is not.** Sealing a secret and storing the key beside it in the same file protects nothing. The key belongs in the environment, a key manager, or a file the program reads separately — ideally one restricted with [`set_file_mode`](filesystem-module.md#set_file_mode).
+
+**Algorithm:** XChaCha20-Poly1305, from the reviewed RustCrypto implementation. Its 192-bit nonce is wide enough that a randomly generated nonce per message is safe without any counter, which is why WFL can keep nonces out of the API entirely. The sealed format is versioned (`wflseal1:`) so the algorithm can change in future without ambiguity about what an old stored value contains.
 
 ---
 
