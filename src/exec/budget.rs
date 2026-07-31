@@ -86,8 +86,10 @@ pub struct BudgetLimits {
     /// `max_import_depth`.
     pub max_import_depth: usize,
     /// Maximum `execute file` nesting depth. Kept small because each level
-    /// re-enters the whole interpreter recursively. Mapped from `.wflcfg`
-    /// `max_execute_file_depth`.
+    /// re-enters the whole interpreter pipeline. The CLI (and
+    /// `run_with_interpreter_stack`) give the run enough native stack for the
+    /// guard to fire as a clean error; bare embedders on a ~1 MB stack can
+    /// overflow first (#681). Mapped from `.wflcfg` `max_execute_file_depth`.
     pub max_execute_file_depth: usize,
     /// Maximum pattern-VM transitions per match attempt (ReDoS guard). Mapped
     /// from `.wflcfg` `max_pattern_steps`.

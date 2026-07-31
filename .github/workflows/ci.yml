@@ -276,6 +276,13 @@ jobs:
       - name: Run Integration Gate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        # Nested `execute file` (and other deep interpreter futures) need more
+        # than the default ~1 MB Windows test-thread stack; without this the
+        # depth-guard test overflows natively before max_execute_file_depth
+        # can fire (#681). 8 MB matches a typical Linux default and is well
+        # under the CLI's dedicated interpreter stack.
+        env:
+          RUST_MIN_STACK: '8388608'
         run: ./scripts/run_integration_tests.ps1
 
       # Validate that documentation examples still parse/analyze/lint against the
