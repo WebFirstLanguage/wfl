@@ -382,3 +382,82 @@ async fn test_body_is_complete_when_program_ends_immediately_after_close() {
     });
     join_server(server).await;
 }
+
+/// Concurrent counterpart to #680: a `main loop concurrently:` handler that
+/// streams without an explicit `close out` and then `break`s must still deliver
+/// a complete body. Stream ids live on the handler's isolated RunState, so the
+/// top-level serial drain never sees them — finish must be awaited before the
+/// IsolatedHandler reports Ready, not only fire-and-forget in Drop.
+#[tokio::test]
+async fn test_concurrent_handler_body_is_complete_without_explicit_close_on_break() {
+    let port = common::free_tcp_port();
+
+    let code = format!(
+        r#"
+        listen on port {port} as srv
+        main loop concurrently:
+            wait for request comes in on srv as req with timeout 30000
+            start streaming response to req with status 200 and content type "text/plain" as out
+            write chunk "COMPLETE" to out
+            break
+        end loop
+    "#
+    );
+
+    let (done_tx, done_rx) =
+        tokio::sync::oneshot::channel::<Result<(), Vec<(ErrorKind, String)>>>();
+    let server = std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("server runtime");
+        rt.block_on(async {
+            let tokens = lex_wfl_with_positions(&code);
+            let program = Parser::new(&tokens).parse().expect("parse");
+            let mut interp = Interpreter::new();
+            let result = match interp.interpret(&program).await {
+                Ok(_) => Ok(()),
+                Err(errors) => Err(errors
+                    .into_iter()
+                    .map(|error| (error.kind, error.message))
+                    .collect()),
+            };
+            let _ = done_tx.send(result);
+        });
+    });
+
+    wait_for_server(port).await;
+
+    let mut resp = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/"))
+        .send()
+        .await
+        .expect("request send");
+    assert_eq!(resp.status().as_u16(), 200);
+
+    let mut body = String::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match resp.chunk().await {
+                Ok(Some(bytes)) => body.push_str(&String::from_utf8_lossy(&bytes)),
+                Ok(None) => break,
+                Err(error) => {
+                    panic!("concurrent stream transport failed instead of ending cleanly: {error}")
+                }
+            }
+        }
+    })
+    .await
+    .expect("concurrent streaming body stalled");
+
+    assert_eq!(
+        body, "COMPLETE",
+        "concurrent handler must deliver the full body when it breaks without close out"
+    );
+
+    let interpreter_result = tokio::time::timeout(Duration::from_secs(3), done_rx)
+        .await
+        .expect("interpreter did not finish after concurrent break")
+        .expect("interpreter result sender dropped");
+    interpreter_result.unwrap_or_else(|errors| {
+        panic!("concurrent stream-break program must finish successfully, got {errors:?}")
+    });
+    join_server(server).await;
+}

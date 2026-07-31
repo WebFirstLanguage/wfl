@@ -63,6 +63,18 @@ Embedders that drive `Interpreter` without a large stack remain at risk for
 deep recursion of any kind; the existing `run_with_interpreter_stack` docs and
 the configuration note for `max_execute_file_depth` call that out.
 
+## Concurrent path follow-up
+
+A review found the same race on `main loop concurrently:`: stream ids live on
+the handler's isolated `RunState`, so the top-level serial drain never sees them.
+`IsolatedHandler` Drop only nowait-closed. Fix: after the handler future
+completes, take any still-open response-stream ids and await
+`close_response_streams` **before** reporting `Ready` (Break/Exit/Return). Drop
+still nowait-closes on cancellation mid-flight.
+
+Regression:
+`test_concurrent_handler_body_is_complete_without_explicit_close_on_break`.
+
 ## Verification
 
 - `cargo test --test response_stream_backpressure_test --test execute_file_test`

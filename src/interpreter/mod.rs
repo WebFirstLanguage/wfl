@@ -996,6 +996,14 @@ impl Drop for InstalledRunState<'_> {
 /// panic therefore surfaces as `Poll::Ready` and the swap-back still runs,
 /// leaving the interpreter's scratch fields restored for the next sibling.
 ///
+/// After the handler future completes, any still-open server response streams
+/// are drained **asynchronously** (drop sender + await transport finish) before
+/// this wrapper reports `Ready`. Without that step, a concurrent handler that
+/// streams without an explicit `close out` and then `break`s / `return`s would
+/// only nowait-close in [`Drop`], racing runtime teardown the same way the
+/// serial path did before #680. Cancellation (dropping this wrapper mid-flight)
+/// still falls back to sync nowait close.
+///
 /// The wrapper's output is `(inner_output, accepted_request)` so the concurrent
 /// loop can classify request-local vs structural failures after the handler's
 /// run state has been swapped out (and its pending list drained by `Drop`).
@@ -1006,6 +1014,15 @@ struct IsolatedHandler<'a, T> {
     /// future while this handler's state is installed. Any RAII guards inside
     /// the future then unwind against their own call/static-context stacks.
     inner: Option<std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>>,
+    /// After `inner` completes: await body finish for streams the handler left
+    /// open. Polled without installing `RunState` (ids are already taken).
+    drain: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>>>,
+    /// Output of `inner`, held until `drain` completes. Boxed so this wrapper
+    /// stays `Unpin` regardless of `T` (required for `Pin::get_mut` in `poll`).
+    pending_output: Option<Box<(T, bool)>>,
+    /// Stream ids currently being drained (or waiting to start). Drop falls
+    /// back to nowait-close for these if the wrapper is cancelled mid-drain.
+    pending_finish_ids: Vec<String>,
 }
 
 impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
@@ -1018,17 +1035,90 @@ impl<'a, T> std::future::Future for IsolatedHandler<'a, T> {
         // Every field is `Unpin` (`&`, `RunState`, and `Pin<Box<..>>`), so the
         // wrapper itself is `Unpin` and `get_mut` is sound.
         let this = self.get_mut();
-        let result = {
-            let _installed = InstalledRunState::new(this.interp, &mut this.state);
-            this.inner
+
+        // Phase 2: finish any open response bodies before reporting Ready so a
+        // concurrent Break/Exit/Return cannot tear down the runtime mid-flush.
+        if this.drain.is_some() {
+            match this
+                .drain
                 .as_mut()
-                .expect("isolated handler must not be polled after its inner future is dropped")
+                .expect("drain present")
                 .as_mut()
                 .poll(cx)
+            {
+                std::task::Poll::Ready(()) => {
+                    this.drain = None;
+                    this.pending_finish_ids.clear();
+                    return std::task::Poll::Ready(
+                        *this
+                            .pending_output
+                            .take()
+                            .expect("drained handler must retain its output"),
+                    );
+                }
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+            }
+        }
+
+        // Phase 1: run the handler body with its RunState installed.
+        let completed = {
+            let _installed = InstalledRunState::new(this.interp, &mut this.state);
+            let inner = this
+                .inner
+                .as_mut()
+                .expect("isolated handler must not be polled after its inner future is dropped");
+            match inner.as_mut().poll(cx) {
+                std::task::Poll::Pending => None,
+                std::task::Poll::Ready(value) => {
+                    // Capture while installed: `accepted_request` and open stream
+                    // ids live on the interpreter for this poll. Taking the ids
+                    // clears the list so swap-out parks an empty vec (Drop will
+                    // not double-close them via `state.open_response_streams`).
+                    let accepted = this.interp.accepted_request.get();
+                    let stream_ids =
+                        std::mem::take(&mut *this.interp.open_response_streams.borrow_mut());
+                    Some((value, accepted, stream_ids))
+                }
+            }
         };
-        match result {
-            std::task::Poll::Ready(value) => {
-                std::task::Poll::Ready((value, this.state.accepted_request))
+
+        let Some((value, accepted, stream_ids)) = completed else {
+            return std::task::Poll::Pending;
+        };
+
+        // Drop the completed inner future with RunState installed so any RAII
+        // guards still live at the top frame unwind against this handler.
+        if let Some(inner) = this.inner.take() {
+            let _installed = InstalledRunState::new(this.interp, &mut this.state);
+            drop(inner);
+        }
+
+        if stream_ids.is_empty() {
+            return std::task::Poll::Ready((value, accepted));
+        }
+
+        this.pending_output = Some(Box::new((value, accepted)));
+        this.pending_finish_ids = stream_ids.clone();
+        let interp = this.interp;
+        this.drain = Some(Box::pin(async move {
+            interp.close_response_streams(&stream_ids).await;
+        }));
+        match this
+            .drain
+            .as_mut()
+            .expect("drain just set")
+            .as_mut()
+            .poll(cx)
+        {
+            std::task::Poll::Ready(()) => {
+                this.drain = None;
+                this.pending_finish_ids.clear();
+                std::task::Poll::Ready(
+                    *this
+                        .pending_output
+                        .take()
+                        .expect("drained handler must retain its output"),
+                )
             }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
@@ -1048,6 +1138,8 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
             let _installed = InstalledRunState::new(self.interp, &mut self.state);
             drop(inner);
         }
+        // Abandon an in-flight finish wait (cancellation path).
+        self.drain.take();
 
         // The handler is finished (normal return, error, panic contained by
         // `catch_unwind`, or cancellation as the loop tears down). After the
@@ -1055,12 +1147,14 @@ impl<'a, T> Drop for IsolatedHandler<'a, T> {
         // closed and any requests it dequeued but never answered. Close the
         // streams (finalizing the client's body) and 500 the unanswered requests,
         // so every exit path resolves the client instead of leaving it hanging.
-        // Sync path: Drop cannot await the transport finish signal. Ending the
-        // body by dropping the sender is still correct; a concurrent main loop
-        // that exits immediately after the last handler may still race under
-        // load (serial `close out` / end-of-iteration drain await instead).
-        self.interp
-            .close_response_streams_nowait(&self.state.open_response_streams);
+        //
+        // Sync nowait: Drop cannot await. Normal completion already awaited
+        // finish via `drain` and cleared these lists; this path covers
+        // cancellation and any streams still open when the wrapper is dropped
+        // mid-drain (senders not yet removed) or never drained.
+        let mut ids = std::mem::take(&mut self.state.open_response_streams);
+        ids.append(&mut self.pending_finish_ids);
+        self.interp.close_response_streams_nowait(&ids);
         self.interp
             .fail_unanswered_requests(&self.state.open_pending_requests);
         // Drop any outbound streams this handler still owns, cancelling their
@@ -5999,6 +6093,9 @@ impl Interpreter {
                     interp: self,
                     state: self.fresh_handler_run_state(),
                     inner: Some(Box::pin(handler)),
+                    drain: None,
+                    pending_output: None,
+                    pending_finish_ids: Vec::new(),
                 });
             }
 
@@ -15724,6 +15821,9 @@ mod concurrent_handler_classification_tests {
             interp: interpreter,
             state: RunState::fresh(interpreter.base_call_depth),
             inner: Some(Box::pin(one_yield_static_scope(interpreter, context))),
+            drain: None,
+            pending_output: None,
+            pending_finish_ids: Vec::new(),
         })
     }
 
