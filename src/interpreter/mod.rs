@@ -151,11 +151,17 @@ const COOP_YIELD_STRIDE: u64 = 1024;
 /// free slot) rather than letting queued chunks grow without bound.
 const RESPONSE_STREAM_BUFFER: usize = 64;
 
-/// Fallback ceiling for awaiting transport body finish after `close out` when
-/// `web_server_response_timeout_seconds` is `0` (disabled / unbounded on the
-/// write path). Close still needs a finite wait so a stuck connection cannot
-/// pin the handler forever; this is independent of the write-path sentinel.
-const RESPONSE_STREAM_FINISH_FALLBACK_SECS: u64 = 30;
+/// How long `close out` / end-of-handler drain wait for the transport to finish
+/// the body after the sender is dropped (#680).
+///
+/// Short on purpose and **independent** of `web_server_response_timeout_seconds`
+/// (the write-path / admission bound, default 300s, with `0` = unbounded). Close
+/// only needs enough time for hyper to flush the terminating chunk under load;
+/// tying it to the write timeout would let a client that stops reading pin a
+/// serial `main loop` for up to five minutes. After this ceiling, close returns
+/// anyway — the sender is already dropped so the body will still end when the
+/// transport can flush or the connection is later torn down.
+const RESPONSE_STREAM_FINISH_WAIT: Duration = Duration::from_secs(2);
 
 /// Maximum number of `main loop concurrently:` iterations in flight at once. The
 /// transport already bounds the request *queue*; this bounds concurrent *handler*
@@ -5304,18 +5310,11 @@ impl Interpreter {
     }
 
     /// How long `close out` / end-of-handler drain will wait for the transport
-    /// to finish the body after the sender is dropped. Uses the configured
-    /// response-write timeout when set; otherwise
-    /// [`RESPONSE_STREAM_FINISH_FALLBACK_SECS`] — a fixed safety ceiling, not
-    /// the write-path's "0 = unbounded" meaning, so a stuck connection cannot
-    /// pin the handler forever.
+    /// to finish the body after the sender is dropped. See
+    /// [`RESPONSE_STREAM_FINISH_WAIT`] — a short fixed ceiling, not the write-
+    /// path timeout (so a non-reading client cannot pin a serial main loop).
     fn response_stream_finish_timeout(&self) -> Duration {
-        let secs = self.config.web_server_response_timeout_seconds;
-        if secs == 0 {
-            Duration::from_secs(RESPONSE_STREAM_FINISH_FALLBACK_SECS)
-        } else {
-            Duration::from_secs(secs)
-        }
+        RESPONSE_STREAM_FINISH_WAIT
     }
 
     /// Drop the body sender for each id (ending the stream) without waiting for

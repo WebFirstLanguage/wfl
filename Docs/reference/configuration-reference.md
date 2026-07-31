@@ -565,7 +565,7 @@ Maximum time, in seconds, the transport waits for a handler to answer an accepte
 - **Default:** `300`
 - **Example:** `web_server_response_timeout_seconds = 30`
 
-A value of `0` disables the timeout (including the streaming-write bound above). The in-flight request cap (`web_server_request_queue_bound`) is enforced globally across every `listen` server via one shared budget, and a request's slot is held from the moment its body starts streaming until the handler responds, this timeout fires, or the client disconnects.
+A value of `0` disables the timeout (including the streaming-write bound above). It does **not** control how long `close out` (or the automatic end-of-handler stream drain) waits for the transport to finish the body: that finish wait is a short, fixed runtime ceiling independent of this setting, so a non-reading client cannot hold a serial `main loop` for the full write-timeout duration just by stalling at close. The in-flight request cap (`web_server_request_queue_bound`) is enforced globally across every `listen` server via one shared budget, and a request's slot is held from the moment its body starts streaming until the handler responds, this timeout fires, or the client disconnects.
 
 #### `outbound_stream_max_seconds`
 

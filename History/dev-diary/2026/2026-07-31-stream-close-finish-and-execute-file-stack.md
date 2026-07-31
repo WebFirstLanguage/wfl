@@ -75,6 +75,18 @@ still nowait-closes on cancellation mid-flight.
 Regression:
 `test_concurrent_handler_body_is_complete_without_explicit_close_on_break`.
 
+## Finish-wait ceiling (not the write timeout)
+
+An early version of the close-await used `web_server_response_timeout_seconds`
+(default 300s, or 30s when `0`) as the finish ceiling. That fixed the
+truncation race but let a client that stops reading pin a serial `main loop`
+at `close out` / end-of-iteration drain for minutes — and the docs still said
+close returned immediately / that `0` disabled all waiting.
+
+Fix: finish wait is a short fixed `RESPONSE_STREAM_FINISH_WAIT` (2s),
+independent of the write-path timeout. Docs for streaming close and
+`web_server_response_timeout_seconds` now describe that split accurately.
+
 ## Verification
 
 - `cargo test --test response_stream_backpressure_test --test execute_file_test`
