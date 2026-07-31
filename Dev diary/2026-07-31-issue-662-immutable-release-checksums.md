@@ -129,7 +129,11 @@ in `ci.yml`.
   change.
 - The backfill has to be run once against the live bucket to repair the
   artifacts published before this change. Until it runs, those artifacts remain
-  in the state #662 describes.
+  in the state #662 describes. The scope is small and known: Spaces publishing
+  began with 26.7.57, so the pass covers 26.7.57, 26.7.58 and 26.7.59 — nine
+  objects, none of which had a sidecar when this was written (verified by
+  probing the CDN for each `<artifact>.sha256`). Anything published from now on
+  gets its sidecar at publish time.
 - A checksum served from the same host as the artifact demonstrates transport
   integrity, not authenticity. Signing remains a tracked Operations follow-up,
   and the install docs now say so plainly rather than implying more than the
