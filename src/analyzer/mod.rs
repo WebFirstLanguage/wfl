@@ -362,6 +362,13 @@ pub struct Analyzer {
     /// surfaced as a warning rather than a fatal error or silent suppression.
     warnings: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
+    /// Bindings introduced by `store new constant`. `SymbolKind::Variable {
+    /// mutable: false }` cannot stand in for this: action and container-method
+    /// parameters, loop variables, `try`/`when` error bindings, predefined
+    /// globals, and REPL parent-scope variables are all registered immutable
+    /// without being constants. Keyed by binding rather than by name so a
+    /// constant shadowed in an inner scope is not mistaken for the outer one.
+    constant_bindings: std::collections::HashSet<SymbolBindingKey>,
     containers: HashMap<String, ContainerInfo>,
     events: HashMap<String, EventInfo>,
     current_container: Option<String>,
@@ -649,6 +656,7 @@ impl Analyzer {
             errors: Vec::new(),
             warnings: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
+            constant_bindings: std::collections::HashSet::new(),
             containers: HashMap::new(),
             events: HashMap::new(),
             current_container: None,
@@ -725,6 +733,7 @@ impl Analyzer {
         self.errors.clear();
         self.warnings.clear();
         self.action_parameters.clear();
+        self.constant_bindings.clear();
         self.containers.clear();
         self.events.clear();
         self.current_container = None;
@@ -946,7 +955,12 @@ impl Analyzer {
                 if !is_property_assignment {
                     match self.current_scope.define(symbol) {
                         Err(error) => self.errors.push(error),
-                        Ok(()) => self.update_action_alias(name, value),
+                        Ok(()) => {
+                            if *is_constant && let Some(key) = self.get_symbol_binding_key(name) {
+                                self.constant_bindings.insert(key);
+                            }
+                            self.update_action_alias(name, value)
+                        }
                     }
                 }
             }
@@ -1066,6 +1080,7 @@ impl Analyzer {
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 let mut defined_in_then = Vec::new();
+                let then_scope_id = then_scope.id;
 
                 for (name, symbol) in &then_scope.symbols {
                     if outer_scope.resolve(name).is_none() {
@@ -1078,6 +1093,7 @@ impl Analyzer {
                 }
 
                 let mut defined_in_else = Vec::new();
+                let mut else_scope_id = None;
                 if let Some(else_stmts) = else_block {
                     let outer_scope_for_else = std::mem::take(&mut self.current_scope);
                     self.enter_child_scope(outer_scope_for_else.clone());
@@ -1089,6 +1105,7 @@ impl Analyzer {
                     self.join_flow_branches(&[flow_then.clone(), flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
+                    else_scope_id = Some(else_scope.id);
 
                     for (name, symbol) in &else_scope.symbols {
                         if outer_scope_for_else.resolve(name).is_none() {
@@ -1128,6 +1145,8 @@ impl Analyzer {
                             }
                             if let Err(error) = self.current_scope.define(merged) {
                                 self.errors.push(error);
+                            } else {
+                                self.promote_constant_marker(name, then_scope_id, else_scope_id);
                             }
                         }
                     }
@@ -1149,6 +1168,7 @@ impl Analyzer {
                 let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
+                let then_scope_id = then_scope.id;
                 let defined_in_then: Vec<_> = then_scope
                     .symbols
                     .iter()
@@ -1160,6 +1180,7 @@ impl Analyzer {
                 }
 
                 let mut defined_in_else = Vec::new();
+                let mut else_scope_id = None;
                 if let Some(else_stmt) = else_stmt {
                     let outer_scope_for_else = std::mem::take(&mut self.current_scope);
                     self.enter_child_scope(outer_scope_for_else.clone());
@@ -1169,6 +1190,7 @@ impl Analyzer {
                     self.join_flow_branches(&[flow_then, flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
+                    else_scope_id = Some(else_scope.id);
                     defined_in_else = else_scope
                         .symbols
                         .iter()
@@ -1204,6 +1226,8 @@ impl Analyzer {
                             }
                             if let Err(error) = self.current_scope.define(merged) {
                                 self.errors.push(error);
+                            } else {
+                                self.promote_constant_marker(&name, then_scope_id, else_scope_id);
                             }
                         }
                     }
@@ -2435,6 +2459,8 @@ impl Analyzer {
                         *line,
                         *column,
                     ));
+                } else {
+                    self.report_constant_mutation(list_name, *line, *column);
                 }
             }
 
@@ -2451,6 +2477,8 @@ impl Analyzer {
                         *line,
                         *column,
                     ));
+                } else {
+                    self.report_constant_mutation(list_name, *line, *column);
                 }
             }
 
@@ -2465,7 +2493,13 @@ impl Analyzer {
                     *column,
                 ));
             }
-            Statement::ClearListStatement { .. } => {}
+            Statement::ClearListStatement {
+                list_name,
+                line,
+                column,
+            } => {
+                self.report_constant_mutation(list_name, *line, *column);
+            }
 
             Statement::EventDefinition {
                 name,
@@ -3549,6 +3583,22 @@ impl Analyzer {
             if let Some(state) = self.action_aliases.remove(old_binding) {
                 self.action_aliases.insert(new_binding.clone(), state);
             }
+            // A constant declared inside a promoted scope keeps its constness
+            // under the parent key, so a later `add`/`remove`/`clear` still
+            // resolves to a tracked constant.
+            //
+            // No WFL program reaches this today: the only caller is the
+            // `try`/`when` path, and a binding declared inside a try statement
+            // does not survive it — even when declared on every path, a later
+            // reference reports `Variable '<name>' is not defined` rather than
+            // resolving to a promoted key (pinned by
+            // `try_scoped_declarations_do_not_escape_the_statement`). It is
+            // kept so `constant_bindings` does not silently diverge from the
+            // four alias maps migrated for these same keys around it; the
+            // branch-merge path that IS reachable is `promote_constant_marker`.
+            if self.constant_bindings.remove(old_binding) {
+                self.constant_bindings.insert(new_binding.clone());
+            }
             for frame in &mut self.alias_mutation_frames {
                 if frame.remove(old_binding) {
                     frame.insert(new_binding.clone());
@@ -4603,6 +4653,60 @@ impl Analyzer {
             return self.is_container_property(container_name, name);
         }
         false
+    }
+
+    /// Report a mutation of an immutable binding through one of the bare-name
+    /// mutation statements (`add ... to`, `remove ... from`, `clear`). These
+    /// parse to their own statement kinds rather than `Assignment` — `add 10 to
+    /// MAX_SIZE` becomes an `AddToListStatement` because the target's type is
+    /// unknown at parse time — so they need the same constness check the
+    /// assignment path performs (issue #671).
+    ///
+    /// Callers reach this only on the defined-target branch, so a name can
+    /// never draw both this report and `Variable '<name>' is not defined`.
+    ///
+    /// The test is `constant_bindings` membership, not `mutable: false`: action
+    /// and container-method parameters, loop variables, and REPL parent-scope
+    /// variables are all immutable symbols that are not constants, and
+    /// appending to a list parameter (`add "x" to list_param`) has always been
+    /// legal.
+    /// Carry a constant marker across a branch merge. A binding created on both
+    /// arms of a `check`/`if` is re-defined into the parent scope under a new
+    /// binding key, so its `constant_bindings` entry has to follow it — without
+    /// this the symbol stays `mutable: false` (so `change` still reports) while
+    /// `add`/`remove`/`clear` silently stop reporting, reintroducing #671 one
+    /// scope up. Mirrors the `mutable: then && else` merge: a name that was
+    /// constant on either arm stays constant.
+    fn promote_constant_marker(
+        &mut self,
+        name: &str,
+        then_scope_id: u64,
+        else_scope_id: Option<u64>,
+    ) {
+        let was_constant = std::iter::once(then_scope_id)
+            .chain(else_scope_id)
+            .any(|scope_id| {
+                self.constant_bindings.contains(&SymbolBindingKey {
+                    scope_id,
+                    name: name.to_string(),
+                })
+            });
+        if was_constant && let Some(key) = self.get_symbol_binding_key(name) {
+            self.constant_bindings.insert(key);
+        }
+    }
+
+    fn report_constant_mutation(&mut self, name: &str, line: usize, column: usize) {
+        let is_constant = self
+            .get_symbol_binding_key(name)
+            .is_some_and(|key| self.constant_bindings.contains(&key));
+        if is_constant {
+            self.errors.push(SemanticError::new(
+                format!("Cannot modify constant '{name}' - constants are immutable once defined"),
+                line,
+                column,
+            ));
+        }
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {

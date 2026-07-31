@@ -1,0 +1,19 @@
+// CI-SKIP: intentional error example — must fail semantic analysis (asserted by validate_docs_examples.py)
+// Constants: the mutation forms that are rejected before the program runs
+// Source: Docs/03-language-basics/variables-and-types.md#constants
+// `push with <list> and <value>` is deliberately absent — it is not yet
+// checked against constants (issue #673).
+
+store new constant MAX_SIZE as 100
+
+change MAX_SIZE to 200        // ERROR: Cannot modify constant 'MAX_SIZE'
+add 10 to MAX_SIZE            // ERROR: Cannot modify constant 'MAX_SIZE'
+subtract 5 from MAX_SIZE      // ERROR: Cannot modify constant 'MAX_SIZE'
+multiply MAX_SIZE by 2        // ERROR: Cannot modify constant 'MAX_SIZE'
+divide MAX_SIZE by 2          // ERROR: Cannot modify constant 'MAX_SIZE'
+
+store new constant ALLOWED_ROLES as ["admin" and "editor"]
+
+add "guest" to ALLOWED_ROLES  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+remove "editor" from ALLOWED_ROLES  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+clear ALLOWED_ROLES           // ERROR: Cannot modify constant 'ALLOWED_ROLES'
