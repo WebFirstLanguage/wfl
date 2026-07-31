@@ -483,6 +483,162 @@ pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
+// ============================================================================
+// File permissions (issue #666)
+//
+// A program that writes a secret needs two things: to restrict the file, and to
+// *verify* it is restricted. The second half is what makes "refuse to start if
+// this config is group-readable" expressible; without it the security property
+// depends on how the process happened to be launched (a umask in a service
+// unit), which the program itself cannot see.
+//
+// Unix gets real POSIX semantics. Windows has no equivalent — its ACLs do not
+// map onto a mode — so reading returns a documented approximation and writing
+// raises an explicit error. A loud "not supported here" is far better than a
+// silent no-op that leaves the caller believing the file is protected.
+// ============================================================================
+
+/// Format a raw permission bit set as the 4-character octal string WFL uses.
+fn format_mode(bits: u32) -> String {
+    format!("{:04o}", bits & 0o7777)
+}
+
+/// Parse a WFL mode string (`"0600"` or `"600"`) into permission bits.
+///
+/// Deliberately strict: anything that is not 3 or 4 octal digits is rejected
+/// rather than masked, because silently reinterpreting `"rw-------"` or
+/// `"0999"` as *some* mode is how a file ends up more permissive than the
+/// author believed.
+fn parse_mode(func_name: &str, raw: &str) -> Result<u32, RuntimeError> {
+    let trimmed = raw.trim();
+    let is_octal_digits = !trimmed.is_empty()
+        && trimmed.len() <= 4
+        && trimmed.chars().all(|c| ('0'..='7').contains(&c));
+
+    if !is_octal_digits || trimmed.len() < 3 {
+        return Err(RuntimeError::new(
+            format!(
+                "{func_name}: '{raw}' is not a valid file mode. \
+                 Expected 3 or 4 octal digits, such as \"0600\" (owner read/write only) \
+                 or \"0644\"."
+            ),
+            0,
+            0,
+        ));
+    }
+
+    u32::from_str_radix(trimmed, 8).map_err(|_| {
+        RuntimeError::new(
+            format!("{func_name}: '{raw}' is not a valid file mode"),
+            0,
+            0,
+        )
+    })
+}
+
+/// Read a file's permission mode.
+///
+/// Usage: `file_mode of path` → e.g. `"0600"`
+///
+/// On Windows the returned value is an approximation derived from the read-only
+/// attribute (`"0444"` when read-only, `"0666"` otherwise) — see the module
+/// documentation.
+pub fn native_file_mode(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("file_mode", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("File does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    let metadata = fs::metadata(path).map_err(|e| {
+        RuntimeError::new(
+            format!("Failed to read permissions for '{path_str}': {e}"),
+            0,
+            0,
+        )
+    })?;
+
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        format_mode(metadata.permissions().mode())
+    };
+
+    #[cfg(not(unix))]
+    let mode = {
+        // Approximation: Windows exposes only a read-only flag at this level.
+        if metadata.permissions().readonly() {
+            "0444".to_string()
+        } else {
+            "0666".to_string()
+        }
+    };
+
+    Ok(Value::Text(Arc::from(mode)))
+}
+
+/// Set a file's permission mode.
+///
+/// Usage: `set_file_mode of path and "0600"`
+///
+/// Unix only. On other platforms this raises an error rather than silently
+/// doing nothing, so a program never believes it protected a file that it did
+/// not.
+pub fn native_set_file_mode(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("set_file_mode", &args, 2)?;
+
+    let path_str = expect_text(&args[0])?;
+    let mode_str = expect_text(&args[1])?;
+    let path = Path::new(path_str.as_ref());
+
+    // Validate the mode before touching the filesystem, so a bad mode string is
+    // reported the same way whether or not the file happens to exist.
+    let bits = parse_mode("set_file_mode", mode_str.as_ref())?;
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("File does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::Permissions::from_mode(bits);
+        fs::set_permissions(path, permissions).map_err(|e| {
+            RuntimeError::new(
+                format!("Failed to set permissions on '{path_str}': {e}"),
+                0,
+                0,
+            )
+        })?;
+        Ok(Value::Text(Arc::from(format_mode(bits))))
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = bits;
+        Err(RuntimeError::new(
+            format!(
+                "set_file_mode is not supported on Windows: file modes are a POSIX concept \
+                 and do not map onto Windows ACLs. Restrict '{path_str}' through the \
+                 filesystem's own access control instead."
+            ),
+            0,
+            0,
+        ))
+    }
+}
+
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
     env.define_native("list_dir", native_list_dir);
     env.define_native("glob", native_glob);
@@ -505,6 +661,8 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
     // Documented alias of remove_file
     env.define_native("delete_file", native_remove_file);
     env.define_native("remove_dir", native_remove_dir);
+    env.define_native("file_mode", native_file_mode);
+    env.define_native("set_file_mode", native_set_file_mode);
 }
 
 #[cfg(test)]
