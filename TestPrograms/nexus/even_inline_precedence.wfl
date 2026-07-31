@@ -1,0 +1,22 @@
+// Converted from legacy probe `Nexus/test_inline_even.wfl` (repository
+// hygiene migration). The probe assumed `divided by` truncates like integer
+// division, making `((n divided by 2) times 2) is equal to n` a parity test.
+// WFL division is exact, so the expression is an identity for every number —
+// this test pins that semantic so nobody reintroduces the misconception.
+// Real parity checks use `modulo`.
+store odd_identity as (1 divided by 2) times 2
+store even_identity as (2 divided by 2) times 2
+store odd_parity as 5 modulo 2
+store even_parity as 4 modulo 2
+
+describe "division is exact, parity needs modulo":
+    test "divide-then-multiply is an identity even for odd numbers":
+        expect odd_identity to equal 1
+        expect even_identity to equal 2
+    end test
+
+    test "modulo distinguishes parity":
+        expect odd_parity to equal 1
+        expect even_parity to equal 0
+    end test
+end describe

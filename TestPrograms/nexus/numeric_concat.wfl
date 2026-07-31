@@ -1,0 +1,23 @@
+// Converted from legacy probe `Nexus/test_concat.wfl` (repository hygiene
+// migration): `with` concatenation coerces numbers to text in expression
+// position. (The legacy probe wrote a log file into the working directory;
+// file-append coverage lives in the file_io TestPrograms, so this test keeps
+// only the concatenation behavior and writes nothing.)
+store num as 9
+store simple as "Test 1: Simple string"
+store with_number as "Test 2: Number is " with num
+store complex as "Test 3: Expected 9, got " with num with " - done"
+
+describe "text concatenation with numbers":
+    test "plain string passes through":
+        expect simple to equal "Test 1: Simple string"
+    end test
+
+    test "number variable is coerced into the text":
+        expect with_number to equal "Test 2: Number is 9"
+    end test
+
+    test "multiple with-segments concatenate in order":
+        expect complex to equal "Test 3: Expected 9, got 9 - done"
+    end test
+end describe

@@ -41,7 +41,9 @@ build/
 # =============================================================================
 
 # Visual Studio Code
-.vscode/
+# (`.vscode/*` not `.vscode/`: git cannot re-include files below an ignored
+# directory, so the negations only work with the contents-glob form)
+.vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
@@ -76,7 +78,9 @@ tramp
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon?
+# The macOS Finder icon file is literally "Icon\r". The old `Icon?` glob also
+# swallowed the tracked `icons/` directory on case-insensitive filesystems.
+Icon[\r]
 ._*
 
 # Windows
@@ -152,4 +156,20 @@ bugreport/
 .env.test.local
 .env.production.local
 
-.claude/settings.local.json
+# Local agent settings are per-machine state, wherever they appear
+**/.claude/settings.local.json
+
+# =============================================================================
+# Repository hygiene (REPOSITORY_HYGIENE.md)
+# =============================================================================
+
+# Compiler dumps and merge remnants must never be tracked
+*.ast.txt
+*.lex.txt
+*.orig
+*.rej
+
+# Regenerated docs-validation state (mutable cache + report)
+TestPrograms/docs_examples/_meta/validation_cache.json
+TestPrograms/docs_examples/VALIDATION_REPORT.md
+/validation_report.json

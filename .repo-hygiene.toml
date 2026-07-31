@@ -1,0 +1,239 @@
+# Machine-readable enforcement profile for REPOSITORY_HYGIENE.md.
+#
+# The prose policy at the repository root is authoritative; this file records
+# the allowlists and approved exceptions that scripts/check_repo_hygiene.py
+# enforces. Every exception here exists by Maintainer approval — do not widen
+# an allowlist to make a violation go away; fix the placement instead.
+
+schema = 1
+
+[root]
+# Every tracked file that may sit directly at the repository root.
+allowed-files = [
+    ".build_meta.json",     # transitional version mirror — see [[generated]]
+    ".gitignore",
+    ".repo-hygiene.toml",
+    ".wflcfg",              # default config: packaged by the MSI, documented example
+    "AGENTS.md",
+    "AI_POLICY.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "CREDITS.md",
+    "Cargo.lock",
+    "Cargo.toml",
+    "GOVERNANCE.md",
+    "LICENSE",
+    "README.md",
+    "REPOSITORY_HYGIENE.md",
+    "SECURITY.md",
+    "build.rs",
+    "context7.json",        # Context7 documentation-index configuration
+    "rustfmt.toml",
+    "testing.md",
+    "wix.toml",             # transitional cargo-wix input — see follow-up issue
+]
+# Every tracked directory that may sit directly at the repository root.
+allowed-dirs = [
+    ".cargo",
+    ".claude",
+    ".cursor",
+    ".github",
+    ".jules",
+    "Archive",
+    "Docs",
+    "Engineering",
+    "History",
+    "TestPrograms",
+    "benches",
+    "examples",
+    "experiments",
+    "fuzz",
+    "icons",
+    "scripts",
+    "src",
+    "tests",
+    "vscode-extension",
+    "wfl-lsp",
+    "wix",
+]
+
+[forbidden]
+# Tracked files may never carry these suffixes (build output, dumps,
+# merge remnants, packages) unless listed in `allowed` below.
+suffixes = [".ast.txt", ".lex.txt", ".orig", ".rej", ".vsix", ".log", ".exe", ".msi"]
+# Base names that are local/ephemeral state and must never be tracked.
+names = ["settings.local.json", "Thumbs.db", ".DS_Store"]
+# Transitional exceptions to the suffix rules (each needs a [[generated]] record).
+allowed = ["vscode-extension/vscode-wfl-0.1.0.vsix"]
+# Paths retired by the migration; their reappearance is a regression.
+retired-paths = [
+    ".rustfmt.toml",
+    "Dev diary",
+    "Docs/Archive",
+    "Docs/TODO.md",
+    "Docs/development",
+    "Docs/superpowers",
+    "LabsTest",
+    "Nexus",
+    "Tools",
+    "Webserver_test",
+    "blog_server.wfl",
+    "blog_server_minimal.wfl",
+    "bug.md",
+    "build_msi.ps1",
+    "compare_search_full_clean",
+    "crates",
+    "debug_split.wfl",
+    "docs_code_blocks_report.json",
+    "google_index.html",
+    "syntax_test",
+    "test_container.wfl",
+    "test_export_validation.wfl",
+    "test_fix_verification.wfl",
+    "test_include.wfl",
+    "test_load_module.wfl",
+    "test_main_fix.wfl",
+    "test_rust_files",
+    "validation_report.json",
+    "wflhashreview.md",
+    "wflhashreview2.md",
+    "TestPrograms/docs_examples/_meta/validation_cache.json",
+    "TestPrograms/docs_examples/VALIDATION_REPORT.md",
+]
+
+[personal-paths]
+# Generic placeholder usernames that documentation may legitimately use in
+# example paths. Real usernames in tracked content are a violation.
+placeholder-users = [
+    "...",
+    "Alice",
+    "USERNAME",
+    "YourName",
+    "example",
+    "john",
+    "runner",
+    "user",
+    "username",
+    "you",
+    "yourname",
+]
+# Files approved to contain personal-looking absolute paths (portability
+# fixtures: the checker's own tests embed one on purpose).
+allowed-files = ["tests/tooling/test_check_repo_hygiene.py"]
+
+[binaries]
+# Tracked binary assets must be declared here; everything else must be text.
+allowed = [
+    "icons/wfl.png",
+    "vscode-extension/vscode-wfl-0.1.0.vsix",
+]
+# Text files above max-size-kb must be declared. Large single-module sources
+# predate the policy; shrinking them is refactoring work, not hygiene work.
+max-size-kb = 400
+size-allowed = [
+    "src/interpreter/mod.rs",
+    "src/typechecker/mod.rs",
+]
+
+# ---------------------------------------------------------------------------
+# Tracked generated files. Each is an approved exception, not a default.
+# ---------------------------------------------------------------------------
+
+[[generated]]
+path = "src/version.rs"
+generator = "scripts/bump_version.py"
+consumer = "runtime version reporting; CI version extraction in ci.yml/versioning.yml"
+owner = "Brad"
+justification = "Transitional product-version mirror pending single-source consolidation onto Cargo.toml (tracked follow-up issue #670). The version-drift rule keeps it honest."
+drift-check = "python3 scripts/check_repo_hygiene.py --mode static (version-drift rule)"
+regeneration = "python3 scripts/bump_version.py --skip-bump --update-all"
+
+[[generated]]
+path = ".build_meta.json"
+generator = "scripts/bump_version.py"
+consumer = ".github/workflows/nightly.yml version read"
+owner = "Brad"
+justification = "Transitional version metadata pending single-source consolidation onto Cargo.toml (tracked follow-up issue #670)."
+drift-check = "python3 scripts/check_repo_hygiene.py --mode static (version-drift rule)"
+regeneration = "python3 scripts/bump_version.py --skip-bump --update-all"
+
+[[generated]]
+path = "vscode-extension/vscode-wfl-0.1.0.vsix"
+generator = "vsce package (vscode-extension/)"
+consumer = "scripts/install_vscode_extension.ps1 (MSI optional-extension custom action)"
+owner = "Brad"
+justification = "Pinned package the installer consumes until packaging stages a fresh VSIX under target/package/windows/ (tracked follow-up issue #670); deleting it first would break the MSI custom action."
+drift-check = "none — pinned artifact; retired together with the packaging consolidation"
+regeneration = "cd vscode-extension && npm ci && npx vsce package --out vscode-wfl-0.1.0.vsix"
+
+# ---------------------------------------------------------------------------
+# Product-version agreement. Root Cargo.toml is canonical; every other source
+# is a format-specific mirror that must agree. wfl-lsp is independently
+# versioned and deliberately absent.
+# ---------------------------------------------------------------------------
+
+[version]
+[[version.sources]]
+file = "Cargo.toml"
+kind = "cargo-package"
+
+[[version.sources]]
+file = "Cargo.lock"
+kind = "cargo-lock-wfl"
+
+[[version.sources]]
+file = "src/version.rs"
+kind = "rust-const"
+
+[[version.sources]]
+file = ".build_meta.json"
+kind = "build-meta-json"
+
+[[version.sources]]
+file = "wix.toml"
+kind = "wix-toml"
+
+[[version.sources]]
+file = "vscode-extension/package.json"
+kind = "npm-package"
+
+[[version.sources]]
+file = "vscode-extension/package-lock.json"
+kind = "npm-lock"
+
+[archive]
+root = "Archive"
+manifest = "Archive/manifest.json"
+
+[experiments]
+root = "experiments"
+
+[formatting]
+rustfmt = "rustfmt.toml"
+
+[working-tree]
+# Where builds, tests, and generators may create files. Anything new outside
+# these roots after a gated suite is littering.
+allowed-untracked-roots = ["target/"]
+allowed-ignored-roots = [
+    ".claude/settings.local.json",
+    ".env",
+    ".vscode/",
+    "TestPrograms/docs_examples/VALIDATION_REPORT.md",
+    "TestPrograms/docs_examples/_meta/validation_cache.json",
+    "combined/",
+    "scripts/__pycache__/",
+    "scripts/docs/__pycache__/",
+    "scripts/metrics/__pycache__/",
+    "tests/tooling/__pycache__/",
+    "fuzz/artifacts/",
+    "fuzz/corpus/",
+    "fuzz/target/",
+    "target/",
+    "vscode-extension/.vscode-test/",
+    "vscode-extension/dist/",
+    "vscode-extension/node_modules/",
+    "vscode-extension/out/",
+]

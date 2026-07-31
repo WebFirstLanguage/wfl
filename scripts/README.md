@@ -219,4 +219,36 @@ When adding new scripts:
 
 - [CLAUDE.md](../CLAUDE.md) - Development guidelines
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution guidelines
-- [Docs/development/](../Docs/development/) - Development documentation
+- [Docs/contributing/](../Docs/contributing/) - Development documentation
+
+## Repository Hygiene
+
+### `check_repo_hygiene.py`
+Enforcement arm of the root `REPOSITORY_HYGIENE.md` policy (profile:
+`.repo-hygiene.toml`). Dependency-free, Python 3.11+.
+
+**Usage:**
+```bash
+python3 scripts/check_repo_hygiene.py --mode static        # tracked-tree rules
+python3 scripts/check_repo_hygiene.py --mode working-tree  # post-suite cleanliness
+```
+
+Unit tests: `python3 -m unittest discover -s tests/tooling`.
+
+## Packaging
+
+### `build_windows_installer.ps1`
+Canonical Windows MSI entry point (moved from root `build_msi.ps1`). Builds
+the release binary if needed, syncs the wix version, and runs cargo-wix.
+`-BumpVersion` increments the build number first; `-OutputDir <dir>` overrides
+the MSI output location.
+
+## Metrics and Docs Tooling
+
+### `metrics/generate_rust_loc_report.py`
+Rust line-of-code report generator (moved from `Tools/rust_loc_counter.py`).
+Write output under `target/reports/` — reports are not tracked.
+
+### `docs/combine_markdown.py`
+Combines `Docs/` markdown files into a single document (moved from
+`Tools/wfl_md_combiner.py`). Output belongs under `target/reports/`.

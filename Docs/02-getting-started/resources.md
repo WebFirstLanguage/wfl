@@ -38,11 +38,11 @@ The main navigation page for all WFL documentation.
 
 ### Development Resources
 
-- **[Building from Source](../development/building-from-source.md)** - Compile WFL yourself
-- **[Contributing Guide](../development/contributing-guide.md)** - Help improve WFL
-- **[Architecture Overview](../development/architecture-overview.md)** - How WFL works
-- **[LSP Integration](../development/lsp-integration.md)** - Language Server details
-- **[MCP Integration](../development/mcp-integration.md)** - AI assistant integration
+- **[Building from Source](../contributing/building-from-source.md)** - Compile WFL yourself
+- **[Contributing Guide](../contributing/contributing-guide.md)** - Help improve WFL
+- **[Architecture Overview](../contributing/architecture-overview.md)** - How WFL works
+- **[LSP Integration](../contributing/lsp-integration.md)** - Language Server details
+- **[MCP Integration](../contributing/mcp-integration.md)** - AI assistant integration
 
 ---
 
@@ -101,7 +101,7 @@ info@logbie.com
 
 Want to help improve WFL?
 
-**[Contributing Guide →](../development/contributing-guide.md)**
+**[Contributing Guide →](../contributing/contributing-guide.md)**
 
 Ways to contribute:
 - 🐛 Report bugs
@@ -391,7 +391,7 @@ Check what's new:
 ### Dev Diary
 
 Follow development progress:
-**`Dev diary/` directory** in the repository
+**`History/dev-diary/<year>/` directory** in the repository
 
 ---
 
@@ -414,7 +414,7 @@ Follow development progress:
 - Email: info@logbie.com
 
 **Contribute:**
-- [Contributing Guide](../development/contributing-guide.md)
+- [Contributing Guide](../contributing/contributing-guide.md)
 - [GitHub Repository](https://github.com/WebFirstLanguage/wfl)
 
 ---

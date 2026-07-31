@@ -3,3 +3,11 @@
 allow_shell_execution = true
 shell_execution_mode = sanitized
 warn_on_shell_execution = false
+
+# Config discovery is closest-wins, so this file shadows the root .wflcfg for
+# every TestPrograms run: repeat the no-littering switches here. Crash reports
+# and execution logs are written next to the program, which the working-tree
+# hygiene gate rejects (REPOSITORY_HYGIENE.md §5) — intentional-error programs
+# would drop *_debug.txt files on every suite run.
+debug_report_enabled = false
+execution_logging = false

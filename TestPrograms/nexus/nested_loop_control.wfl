@@ -1,0 +1,29 @@
+// Converted from legacy probe `Nexus/test_nested_loops.wfl` (repository
+// hygiene migration): `break` inside a nested loop exits only the inner
+// loop — the outer loop must complete all of its iterations.
+store outer_iterations as 0
+store inner_visits as 0
+store outer_i as 1
+repeat while outer_i is less than or equal to 3:
+    store inner_i as 1
+    repeat while inner_i is less than or equal to 3:
+        add 1 to inner_visits
+        check if inner_i is equal to 2:
+            break
+        end check
+        change inner_i to inner_i plus 1
+    end repeat
+    add 1 to outer_iterations
+    change outer_i to outer_i plus 1
+end repeat
+
+describe "nested loop break":
+    test "outer loop is not terminated by the inner break":
+        expect outer_iterations to equal 3
+    end test
+
+    test "inner loop stops at the break each round":
+        // 2 visits per outer round (inner_i = 1, then break at 2), 3 rounds
+        expect inner_visits to equal 6
+    end test
+end describe

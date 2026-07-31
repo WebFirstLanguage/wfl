@@ -1,0 +1,16 @@
+// Converted from legacy probe `Nexus/test_action_syntax.wfl` (repository
+// hygiene migration): a user-defined action with two parameters is called
+// with `of A and B`. (The probe's other spelling, `with (A) and (B)`, is not
+// a call in expression position today — `and` binds as logical-and — so it is
+// deliberately not asserted here.)
+define action called add_numbers with parameters a and b:
+    give back a plus b
+end action
+
+store result as add_numbers of 10 and 20
+
+describe "multi-parameter action calls":
+    test "of-call passes both arguments":
+        expect result to equal 30
+    end test
+end describe

@@ -11,7 +11,8 @@ governance suite below.
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 | [AI_POLICY.md](AI_POLICY.md) | AI-assisted work is welcome |
 | [SECURITY.md](SECURITY.md) | Private vulnerability reporting |
-| [Docs/development/contributing-guide.md](Docs/development/contributing-guide.md) | Fork, TDD, fmt/clippy/test, docs validation |
+| [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Where content belongs; what may be tracked; approved output roots |
+| [Docs/contributing/contributing-guide.md](Docs/contributing/contributing-guide.md) | Fork, TDD, fmt/clippy/test, docs validation |
 | [Docs/06-best-practices/collaboration-guide.md](Docs/06-best-practices/collaboration-guide.md) | PR template, reviews, commits |
 | [Docs/wfl-foundation.md](Docs/wfl-foundation.md) | Design principles |
 
@@ -34,7 +35,7 @@ You do **not** need to be a formal Contributor to help. From a fork you can:
 1. Fork https://github.com/WebFirstLanguage/wfl  
 2. Create a branch: `git checkout -b feature/my-change`  
 3. Follow TDD and quality gates in the
-   [contributing guide](Docs/development/contributing-guide.md)  
+   [contributing guide](Docs/contributing/contributing-guide.md)  
 4. Open a pull request with a clear description  
 
 ### Non-negotiable project rules (summary)

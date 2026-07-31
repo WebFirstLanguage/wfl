@@ -11,7 +11,8 @@ repository so contributors have a single source of truth.
 | [AI_POLICY.md](AI_POLICY.md) | AI-assisted work is welcome; anti-discrimination |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute and apply for Contributor status |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting and supported versions |
-| [Docs/development/contributing-guide.md](Docs/development/contributing-guide.md) | Day-to-day development workflow |
+| [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Binding repository hygiene and layout policy (§3.8) |
+| [Docs/contributing/contributing-guide.md](Docs/contributing/contributing-guide.md) | Day-to-day development workflow |
 | [Docs/wfl-foundation.md](Docs/wfl-foundation.md) | 19 guiding principles and the No-Unlearning Invariant |
 | [LICENSE](LICENSE) | Apache License 2.0 |
 
@@ -73,7 +74,7 @@ Community input is valued and routinely sought through:
 
 - GitHub Issues and Discussions  
 - Pull request review comments  
-- Design notes and Dev Diary entries under `Dev diary/`  
+- Design notes and Dev Diary entries under `History/dev-diary/<year>/`  
 
 Input is advisory unless a Maintainer adopts it. Silence is not consent for
 breaking changes; Maintainers still own the compatibility bar.
@@ -123,7 +124,7 @@ docs in the **same change**:
 - Keyword references when keywords change (`Docs/reference/keyword-reference.md`
   and `Docs/reference/reserved-keywords.md` together)  
 - Working examples (preferably under `TestPrograms/`, validated)  
-- A `Dev diary/` entry for non-trivial features or behavior changes  
+- A `History/dev-diary/<year>/` entry for non-trivial features or behavior changes  
 - Stale docs and examples must be fixed or removed — no contradictions left behind  
 
 Doc code examples must be validated (MCP tools and/or
@@ -145,7 +146,7 @@ cargo test --all --verbose
 
 Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `perf:`,
 `chore:`) are required. See
-[Docs/development/contributing-guide.md](Docs/development/contributing-guide.md)
+[Docs/contributing/contributing-guide.md](Docs/contributing/contributing-guide.md)
 and [Docs/06-best-practices/collaboration-guide.md](Docs/06-best-practices/collaboration-guide.md).
 
 ### 3.6 Security and secrets
@@ -163,6 +164,18 @@ and [Docs/06-best-practices/collaboration-guide.md](Docs/06-best-practices/colla
 - Supported security versions are listed in [SECURITY.md](SECURITY.md).  
 - Maintainers cut releases; Contributors do not publish project releases unless
   explicitly delegated.
+
+### 3.8 Repository hygiene and layout
+
+[REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) is the binding Repository
+Hygiene and Layout Policy. It defines where every class of repository content
+belongs (`Docs/`, `Engineering/`, `History/`, `Archive/`, and the product
+directories), what may be tracked versus what must remain ephemeral, approved
+output roots for tests and tools, the archive manifest, and the exceptions
+process. The machine-readable profile is `.repo-hygiene.toml`;
+`scripts/check_repo_hygiene.py` enforces the policy as a blocking CI gate.
+Widening an allowlist to silence a violation without Maintainer approval is
+itself a policy violation.
 
 ---
 
@@ -239,13 +252,13 @@ Apache-2.0 terms.
 | Asset | Owner / steward |
 |---|---|
 | GitHub org `WebFirstLanguage` | Logbie LLC / Maintainers |
-| Package / registry designs (future; prior art archived under `Docs/Archive/wflpkg/`) | Maintainers; supply-chain and trust-root decisions are Maintainer-only |
+| Package / registry designs (future; prior art archived under `Archive/retired-systems/wflpkg/`) | Maintainers; supply-chain and trust-root decisions are Maintainer-only |
 | Domain and brand references | Logbie LLC |
 | Signing keys, release credentials | Maintainers only |
 
 WFL has no package manager. The `wflpkg` implementation was removed before the
 first release candidate and the system is being redesigned from scratch; its
-design documents are archived, unimplemented, under `Docs/Archive/wflpkg/`.
+design documents are archived, unimplemented, under `Archive/retired-systems/wflpkg/`.
 Those archived documents — and any future ones — may describe registry
 **governance risk** (longevity, key custody, transparency logs), but they do
 not transfer authority away from Maintainers unless this document is amended.

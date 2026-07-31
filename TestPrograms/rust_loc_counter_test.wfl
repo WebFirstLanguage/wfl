@@ -8,14 +8,14 @@ display "=== Test Files Creation ==="
 
 // Create test directory for sample Rust files
 try:
-    makedirs of "test_rust_files"
+    makedirs of "target/test-artifacts/rust_loc_counter/test_rust_files"
     display "✓ Created test directory"
 when error:
     display "Test directory already exists or creation failed"
 end try
 
 // Create test .rs file with different line types
-open file at "test_rust_files/sample.rs" for writing as test_file
+open file at "target/test-artifacts/rust_loc_counter/test_rust_files/sample.rs" for writing as test_file
 wait for write content "// Single line comment
 fn main() {
     println!(\"Hello, world!\");  // Inline comment
@@ -42,8 +42,8 @@ close file test_file
 display "✓ Created sample.rs test file"
 
 // Create another test file for directory statistics  
-makedirs of "test_rust_files/subdir"
-open file at "test_rust_files/subdir/lib.rs" for writing as lib_file
+makedirs of "target/test-artifacts/rust_loc_counter/test_rust_files/subdir"
+open file at "target/test-artifacts/rust_loc_counter/test_rust_files/subdir/lib.rs" for writing as lib_file
 wait for write content "//! Documentation comment
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
@@ -67,7 +67,7 @@ display "=== Testing rust_loc_counter action (EXPECTED TO FAIL) ==="
 
 // Test the main rust_loc_counter action
 try:
-    store result as run_rust_loc_counter with "./test_rust_files"
+    store result as run_rust_loc_counter with "target/test-artifacts/rust_loc_counter/test_rust_files"
     check if result contains "Total files processed":
         display "✓ Found total files count"
     otherwise:

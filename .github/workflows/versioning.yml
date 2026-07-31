@@ -32,6 +32,12 @@ jobs:
       - name: Bump version
         run: python scripts/bump_version.py --update-all
 
+      # This workflow writes directly to the repository, so it must prove
+      # hygiene and version agreement itself, immediately before pushing
+      # (REPOSITORY_HYGIENE.md §8).
+      - name: Static hygiene and version check before push
+        run: python scripts/check_repo_hygiene.py --mode static
+
       - name: Push changes
         if: ${{ success() }}
         run: |

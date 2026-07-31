@@ -26,7 +26,7 @@ fragments) and do NOT fail the run.
 
 With --audit, ERROR/PASS results are further grouped into finer categories
 (DOC_SYNTAX, PLACEHOLDER, FRAGMENT, NEEDS_MODULE, LANG_GAP, ...) and written as
-a Markdown report (the same format as TestPrograms/docs_examples/DOC_CODE_AUDIT.md),
+a Markdown report (write it under target/reports/docs-audit/; a historical snapshot lives at Archive/reports/DOC_CODE_AUDIT.md),
 so that report is reproducible from this script alone.
 """
 

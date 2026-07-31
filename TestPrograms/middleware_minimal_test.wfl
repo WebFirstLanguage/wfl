@@ -1,10 +1,11 @@
 // Minimal Middleware Test
+makedirs "target/test-artifacts/web"
 // Reproduces the exact structure that's causing parsing issues
 
 display "=== Minimal Middleware Test ==="
 
 store server_port as 8080
-store log_file as "test.log"
+store log_file as "target/test-artifacts/web/middleware_min.log"
 
 try:
     display "Starting server setup..."

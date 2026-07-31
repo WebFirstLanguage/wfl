@@ -218,7 +218,10 @@ mod file_io_error_handling_tests {
 
     #[tokio::test]
     async fn test_use_closed_file_handle_error() {
-        let test_files = ["closed_handle_test.txt"];
+        // The rejected write-after-close currently also drops a stray "file1"
+        // in the working directory; clean it up so the repo-hygiene
+        // working-tree gate stays green.
+        let test_files = ["closed_handle_test.txt", "file1"];
         cleanup_test_files(&test_files);
 
         // Try to use a file handle after closing it

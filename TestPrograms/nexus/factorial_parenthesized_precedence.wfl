@@ -1,0 +1,18 @@
+// Converted from legacy probe `Nexus/test_factorial_parens.wfl` (repository
+// hygiene migration): the fully parenthesized recursive form must agree with
+// the inline form in factorial_inline_precedence.wfl.
+define action called factorial needs n:
+    check if n is equal to 0:
+        give back 1
+    otherwise:
+        give back n times (factorial of (n minus 1))
+    end check
+end action
+
+store result as factorial of 5
+
+describe "recursive call with explicit parentheses":
+    test "factorial of 5 via parenthesized expression":
+        expect result to equal 120
+    end test
+end describe

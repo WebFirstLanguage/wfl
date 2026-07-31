@@ -524,7 +524,11 @@ def main():
 
     # Generate report
     if args.report:
-        report_file = repo_root / "validation_report.json"
+        # Reports are ephemeral output and belong under target/reports/
+        # (REPOSITORY_HYGIENE.md §5), never at the repository root.
+        report_dir = repo_root / "target" / "reports" / "docs-validation"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_file = report_dir / "validation_report.json"
         generate_report(passed, failed, report_file)
 
     # Summary
