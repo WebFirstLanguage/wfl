@@ -1,4 +1,4 @@
-# WFL Integration Test Runner (PowerShell)
+﻿# WFL Integration Test Runner (PowerShell)
 # Ensures release binary is built before running integration tests
 
 param(

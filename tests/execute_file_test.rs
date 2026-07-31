@@ -421,8 +421,8 @@ fn test_execute_file_depth_limit_prevents_infinite_recursion() {
             let errors = result.expect_err("Expected depth limit error");
             let message = &errors.first().expect("Expected at least one error").message;
             assert!(
-                message.contains("depth"),
-                "Error should mention nesting depth, got: {message}"
+                message.contains("Maximum execute file nesting depth"),
+                "Error should report the execute-file nesting guard, got: {message}"
             );
         });
     })

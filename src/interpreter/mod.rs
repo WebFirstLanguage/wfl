@@ -151,6 +151,12 @@ const COOP_YIELD_STRIDE: u64 = 1024;
 /// free slot) rather than letting queued chunks grow without bound.
 const RESPONSE_STREAM_BUFFER: usize = 64;
 
+/// Fallback ceiling for awaiting transport body finish after `close out` when
+/// `web_server_response_timeout_seconds` is `0` (disabled / unbounded on the
+/// write path). Close still needs a finite wait so a stuck connection cannot
+/// pin the handler forever; this is independent of the write-path sentinel.
+const RESPONSE_STREAM_FINISH_FALLBACK_SECS: u64 = 30;
+
 /// Maximum number of `main loop concurrently:` iterations in flight at once. The
 /// transport already bounds the request *queue*; this bounds concurrent *handler*
 /// execution so a burst cannot spawn unbounded cooperative tasks. Requests
@@ -5205,12 +5211,14 @@ impl Interpreter {
 
     /// How long `close out` / end-of-handler drain will wait for the transport
     /// to finish the body after the sender is dropped. Uses the configured
-    /// response-write timeout when set; otherwise a fixed safety ceiling so a
-    /// stuck connection cannot pin the handler forever.
+    /// response-write timeout when set; otherwise
+    /// [`RESPONSE_STREAM_FINISH_FALLBACK_SECS`] — a fixed safety ceiling, not
+    /// the write-path's "0 = unbounded" meaning, so a stuck connection cannot
+    /// pin the handler forever.
     fn response_stream_finish_timeout(&self) -> Duration {
         let secs = self.config.web_server_response_timeout_seconds;
         if secs == 0 {
-            Duration::from_secs(30)
+            Duration::from_secs(RESPONSE_STREAM_FINISH_FALLBACK_SECS)
         } else {
             Duration::from_secs(secs)
         }
@@ -5260,12 +5268,13 @@ impl Interpreter {
         let timeout = self.response_stream_finish_timeout();
         // Wait for every body in parallel so multi-stream handlers don't pay
         // sequential timeouts, then bound the whole set.
-        let wait_all = async {
-            for rx in finished {
+        let _ = tokio::time::timeout(
+            timeout,
+            futures_util::future::join_all(finished.into_iter().map(|rx| async move {
                 let _ = rx.await;
-            }
-        };
-        let _ = tokio::time::timeout(timeout, wait_all).await;
+            })),
+        )
+        .await;
     }
 
     /// Drain and close every server response stream the current (serial) handler
