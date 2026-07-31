@@ -8,8 +8,10 @@ Welcome to the complete documentation for the WebFirst Language (WFL)! This is y
 > 🧪 **The code in these docs is tested.** Every runnable `wfl` example is executed
 > against the release binary by [`scripts/test_docs_code_blocks.py`](../scripts/test_docs_code_blocks.py)
 > — placeholder templates, illustrative fragments, and long-running server demos
-> are classified rather than run; the current state is tracked in
-> [`DOC_CODE_AUDIT.md`](../TestPrograms/docs_examples/DOC_CODE_AUDIT.md).
+> are classified rather than run. Generate a fresh audit with
+> `python3 scripts/test_docs_code_blocks.py --audit target/reports/docs-audit/DOC_CODE_AUDIT.md`
+> (reports are ephemeral output per [REPOSITORY_HYGIENE.md](../REPOSITORY_HYGIENE.md);
+> a historical snapshot is archived at `Archive/reports/DOC_CODE_AUDIT.md`).
 > New here? Start with the output-verified [Friendly WFL Tour](../TestPrograms/docs_examples/tour/README.md).
 
 ---
@@ -223,15 +225,15 @@ Guidelines for quality, security, performance, and collaboration — aligned wit
 - **[Error Codes](reference/error-codes.md)** - Understanding errors
 - **[Supported Platforms & Support Boundaries](reference/supported-platforms.md)** - Support tiers, platform matrix, toolchain/runtime requirements, and what "supported" covers
 
-### Development
+### Contributing
 
-- **[Development index](development/index.md)** - Overview of contributor docs
-- **[Building from Source](development/building-from-source.md)** - Compile WFL
-- **[Contributing Guide](development/contributing-guide.md)** - Day-to-day contribution workflow
-- **[Architecture Overview](development/architecture-overview.md)** - How WFL works
-- **[LSP Integration](development/lsp-integration.md)** - Language Server details
-- **[MCP Integration](development/mcp-integration.md)** - AI assistant integration
-- **[Compiler Internals](development/compiler-internals.md)** - Deep dive
+- **[Contributing index](contributing/index.md)** - Overview of contributor docs (active designs live in `Engineering/`, history in `History/`, retired material in `Archive/` — see [REPOSITORY_HYGIENE.md](../REPOSITORY_HYGIENE.md))
+- **[Building from Source](contributing/building-from-source.md)** - Compile WFL
+- **[Contributing Guide](contributing/contributing-guide.md)** - Day-to-day contribution workflow
+- **[Architecture Overview](contributing/architecture-overview.md)** - How WFL works
+- **[LSP Integration](contributing/lsp-integration.md)** - Language Server details
+- **[MCP Integration](contributing/mcp-integration.md)** - AI assistant integration
+- **[Compiler Internals](contributing/compiler-internals.md)** - Deep dive
 
 ---
 
@@ -539,7 +541,7 @@ Every code example is tested with the WFL compiler to ensure accuracy!
 - **[Installation](02-getting-started/installation.md)** - Get started in 5 minutes
 - **[Language Basics](03-language-basics/index.md)** - Core concepts
 - **[TestPrograms](../TestPrograms/)** - 90+ example programs
-- **[Contributing](development/contributing-guide.md)** - Workflow + [root CONTRIBUTING.md](../CONTRIBUTING.md)
+- **[Contributing](contributing/contributing-guide.md)** - Workflow + [root CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ### Policy Documents
 

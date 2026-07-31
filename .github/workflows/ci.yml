@@ -30,6 +30,30 @@ permissions:
   contents: read
 
 jobs:
+  # Enforces REPOSITORY_HYGIENE.md (profile: .repo-hygiene.toml): first the
+  # checker's own unit tests against fixture trees, then static mode over the
+  # real tracked tree — root allowlist, forbidden/retired paths, undeclared
+  # binaries, personal paths, generated-file exceptions, archive checksums,
+  # experiment expiry, and product-version drift. Runs on both OSes because
+  # path and file-content handling differ. Blocking: bump-version depends on
+  # it, and any violation fails PR CI.
+  repo-hygiene:
+    name: Repository Hygiene
+    strategy:
+      matrix:
+        os: [blacksmith-2vcpu-ubuntu-2404-arm, blacksmith-4vcpu-windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Checker unit tests (fixture trees)
+        run: python -m unittest discover -s tests/tooling -v
+      - name: Static hygiene check (tracked tree)
+        run: python scripts/check_repo_hygiene.py --mode static
+
   fmt:
     name: Check formatting
     # `cargo fmt --check` parses and prints. It is setup- and I/O-bound and
@@ -273,6 +297,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/run_web_tests.ps1
+
+      # After every suite above: the checkout must be clean outside the
+      # approved output roots (REPOSITORY_HYGIENE.md §5). A test or tool that
+      # littered the source tree fails here, on the OS where it littered.
+      - name: Working-tree hygiene check (Unix)
+        if: runner.os != 'Windows'
+        run: python3 scripts/check_repo_hygiene.py --mode working-tree
+
+      - name: Working-tree hygiene check (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/check_repo_hygiene.py --mode working-tree
 
   # Database integration tests against live PostgreSQL and MariaDB servers.
   # SQLite database tests need no services and already run everywhere via
@@ -589,6 +624,16 @@ jobs:
             exit 1
           }
 
+      # The recursive program sweep above must leave the checkout clean outside
+      # the approved output roots (REPOSITORY_HYGIENE.md §5).
+      - name: Working-tree hygiene check (Unix)
+        if: runner.os != 'Windows'
+        run: python3 scripts/check_repo_hygiene.py --mode working-tree
+
+      - name: Working-tree hygiene check (Windows)
+        if: runner.os == 'Windows'
+        run: python scripts/check_repo_hygiene.py --mode working-tree
+
   # Version bumping only happens after ALL checks pass — including fuzz-check,
   # so API drift that breaks the fuzz targets blocks the post-merge version bump.
   bump-version:
@@ -597,7 +642,7 @@ jobs:
     # out to a locked `cargo check` on the fuzz crate - so this compiles and
     # needs the same 4 cores as fuzz-check. ARM: no x86 artifact produced.
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    needs: [fmt, fuzz-check, release-scripts, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
+    needs: [repo-hygiene, fmt, fuzz-check, release-scripts, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
@@ -633,6 +678,11 @@ jobs:
 
       - name: Bump version
         run: python scripts/bump_version.py --update-all
+
+      # This job writes directly to main, so it must prove hygiene and version
+      # agreement itself, immediately before pushing (REPOSITORY_HYGIENE.md §8).
+      - name: Static hygiene and version check before push
+        run: python scripts/check_repo_hygiene.py --mode static
 
       - name: Push changes
         if: success()

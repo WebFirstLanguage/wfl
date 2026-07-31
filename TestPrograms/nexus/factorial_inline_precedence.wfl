@@ -1,0 +1,19 @@
+// Converted from legacy probe `Nexus/test_factorial_inline.wfl` (repository
+// hygiene migration): a recursive of-call whose argument is an inline
+// subtraction — `factorial of n minus 1` — binds the arithmetic to the
+// argument, so the recursion terminates and computes 5! = 120.
+define action called factorial needs n:
+    check if n is equal to 0:
+        give back 1
+    otherwise:
+        give back n times factorial of n minus 1
+    end check
+end action
+
+store result as factorial of 5
+
+describe "recursive call with inline argument arithmetic":
+    test "factorial of 5 via inline expression":
+        expect result to equal 120
+    end test
+end describe

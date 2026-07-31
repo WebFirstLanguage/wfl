@@ -204,7 +204,7 @@ Compiler catches type errors before runtime.
 - Examples
 - Tests
 
-**[Contributing guide →](../development/contributing-guide.md)**
+**[Contributing guide →](../contributing/contributing-guide.md)**
 
 ---
 

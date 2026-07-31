@@ -1,13 +1,17 @@
 ---
-description: 
-globs: 
+description: WFL repository rules (adapter to canonical root policy)
+globs:
 alwaysApply: true
 ---
 
-- Always first read the readme.md it will conatin information for project documentation
-- make sure we update readme.md with any new information.
-- all documentation is in the Docs folder off the main project root 
-- all componets must be documented (ex parder, lexar, bytecode etc)
-- Read the todo.md and implementation_progress_{Todays_date}.md files to see where we are at. this is a living document and should be updated as needed. thease will be located in the Docs folder as well
-- all test programs in the "test programs" test directory must pass without any errors or warnings, any issues must be fixed (and documented) regardless off weather or not they are in scope
--if we implement something in the parser also update the bytecode as well
+Canonical instructions live at the repository root — read them instead of
+relying on this file, and do not let this file override them:
+
+- `AGENTS.md` — shared agent instructions (project structure, build/test
+  commands, syntax pitfalls)
+- `GOVERNANCE.md`, `testing.md` (binding TDD/testing policy),
+  `REPOSITORY_HYGIENE.md` (placement/output policy), `AI_POLICY.md`,
+  `CONTRIBUTING.md`, `SECURITY.md`
+- `Docs/README.md` — documentation map; docs ship with the feature
+
+Cursor-specific deltas only below this line. There are currently none.

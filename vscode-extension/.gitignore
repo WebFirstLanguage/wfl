@@ -1,1 +1,6 @@
-node_modules/\n.vscode-test/\nout/\n*.vsix
+node_modules/
+.vscode-test/
+out/
+dist/
+*.vsix
+!vscode-wfl-0.1.0.vsix

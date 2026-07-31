@@ -1,0 +1,25 @@
+// Converted from legacy root probe `test_load_module.wfl` (repository hygiene
+// migration). The legacy probe expected `load module from` to expose the
+// module's container — but load-module semantics are deliberately isolating:
+// the file runs in its own scope and shares nothing with the caller (the
+// interpreter's diagnostic says to use `include from` for sharing, which
+// include_container.wfl covers). This test pins the isolation as a negative
+// assertion so a silent semantics change cannot slip through.
+load module from "../../tests/fixtures/modules/person_container.wfl"
+
+store leaked as no
+try:
+    create new Person as bob:
+        name is "Bob"
+        age is 42
+    end
+    change leaked to yes
+catch:
+    change leaked to no
+end try
+
+describe "load module isolation":
+    test "loaded module's container does not leak into the caller":
+        expect leaked to equal no
+    end test
+end describe

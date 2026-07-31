@@ -1,0 +1,12 @@
+// Converted from legacy probe `syntax_test/test_deprecated_constant.wfl`
+// (repository hygiene migration): the older `create new constant` spelling is
+// deprecated but must keep working — backward compatibility is sacred
+// (GOVERNANCE.md). If this test starts failing, the documented deprecation
+// path applies, not silent removal.
+create new constant PI as 3.14159
+
+describe "deprecated constant syntax compatibility":
+    test "create new constant still defines a usable constant":
+        expect PI to equal 3.14159
+    end test
+end describe

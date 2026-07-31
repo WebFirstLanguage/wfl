@@ -178,7 +178,13 @@ $TestTimeout = 30
 if (-not (Test-Path "TestPrograms")) {
     Write-Host "[WARNING] TestPrograms directory not found, skipping WFL program tests" -ForegroundColor Yellow
 } else {
-    $wflFiles = Get-ChildItem -Path "TestPrograms" -Filter "*.wfl" -ErrorAction SilentlyContinue
+    # The gated set is TestPrograms/*.wfl plus feature subdirectories
+    # (REPOSITORY_HYGIENE.md). Excluded subtrees with their own regimes:
+    # docs_examples/ (validate_docs_examples.py), execute_pages/ and
+    # test_data/ (fixtures consumed by other tests). error_examples/
+    # programs are expected to exit nonzero.
+    $wflFiles = Get-ChildItem -Path "TestPrograms" -Filter "*.wfl" -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '[\\/]TestPrograms[\\/](docs_examples|execute_pages|test_data)[\\/]' }
     if ($wflFiles.Count -eq 0) {
         Write-Host "[WARNING] No WFL test programs found in TestPrograms/" -ForegroundColor Yellow
     } else {
@@ -225,7 +231,8 @@ if (-not (Test-Path "TestPrograms")) {
             $null = $process.Handle
             $completed = $process.WaitForExit($TestTimeout * 1000)
 
-            $isExpectedFail = $ExpectedFailTests -contains $wflFile.Name
+            $isExpectedFail = ($ExpectedFailTests -contains $wflFile.Name) -or
+                ($wflFile.FullName -match '[\\/]TestPrograms[\\/]error_examples[\\/]')
 
             if (-not $completed) {
                 # Test timed out

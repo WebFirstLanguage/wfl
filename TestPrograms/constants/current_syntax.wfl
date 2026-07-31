@@ -1,0 +1,17 @@
+// Converted from legacy probe `syntax_test/test_new_constant.wfl` (repository
+// hygiene migration): the current `store new constant` syntax defines usable,
+// arithmetic-capable constants.
+store new constant PI as 3.14159
+store new constant E as 2.71828
+store sum as PI + E
+
+describe "current constant syntax":
+    test "constants hold their values":
+        expect PI to equal 3.14159
+        expect E to equal 2.71828
+    end test
+
+    test "constants participate in arithmetic":
+        expect sum to equal 5.85987
+    end test
+end describe

@@ -1,0 +1,11 @@
+// Converted from legacy probe `Nexus/test_zero_concat.wfl` (repository
+// hygiene migration): regression check that concatenating the number zero
+// does not drop or blank the value.
+store total_odds as 0
+store message as "Loop continue/skip test (expected 9, got " with total_odds with "): FAIL"
+
+describe "concatenating zero":
+    test "zero renders as 0 in concatenation":
+        expect message to equal "Loop continue/skip test (expected 9, got 0): FAIL"
+    end test
+end describe

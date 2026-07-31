@@ -1,0 +1,25 @@
+// Converted from legacy probe `syntax_test/test_variables_vs_constants.wfl`
+// (repository hygiene migration): every mutation form works on a regular
+// variable while a constant defined alongside it is untouched. The mutation
+// *rejection* half of the legacy probe lives in
+// tests/fixtures/diagnostics/constant_immutability.wfl with an exit-status
+// asserting Rust test.
+store regular_var as 10
+store new constant MY_CONSTANT as 20
+
+change regular_var to 15
+add 5 to regular_var
+subtract 2 from regular_var
+multiply regular_var by 2
+divide regular_var by 2
+
+describe "mutable variables next to constants":
+    test "every mutation form applied to the variable":
+        // 15 -> +5=20 -> -2=18 -> *2=36 -> /2=18
+        expect regular_var to equal 18
+    end test
+
+    test "the constant is unaffected":
+        expect MY_CONSTANT to equal 20
+    end test
+end describe

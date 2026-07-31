@@ -196,7 +196,7 @@ end action
 For significant changes, create Dev Diary entry:
 
 ```
-Dev diary/
+History/dev-diary/2026/
   2026-01-09-added-email-validation.md
 ```
 

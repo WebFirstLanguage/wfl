@@ -21,6 +21,12 @@ jobs:
           components: rustfmt
       - name: Apply rustfmt
         run: cargo fmt --all
+      # This workflow pushes directly to the branch, so it must prove hygiene
+      # itself immediately before committing (REPOSITORY_HYGIENE.md §8).
+      # rustfmt only rewrites tracked Rust sources, so static mode is the
+      # relevant gate here.
+      - name: Static hygiene check before push
+        run: python3 scripts/check_repo_hygiene.py --mode static
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:

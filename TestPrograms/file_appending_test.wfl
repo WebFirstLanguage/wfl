@@ -1,4 +1,5 @@
 // File Appending Test
+makedirs "target/test-artifacts/file_io"
 // Tests the "for appending" file mode
 
 display "=== File Appending Test ==="
@@ -6,7 +7,7 @@ display "Testing file opening for appending mode"
 display ""
 
 // Test data
-store log_file as "test_append.log"
+store log_file as "target/test-artifacts/file_io/test_append.log"
 store log_entry1 as "First log entry"
 store log_entry2 as "Second log entry"
 

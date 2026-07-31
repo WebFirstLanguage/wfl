@@ -603,9 +603,25 @@ async fn run() -> io::Result<()> {
             Ok(())
         }
 
+        // Dumps are ephemeral reports, so they go under target/reports/dumps/
+        // rather than beside the source file (REPOSITORY_HYGIENE.md §5 —
+        // writing next to the source litters the checkout, and dumps embed
+        // absolute paths that must never end up tracked).
+        fn dump_output_path(file_path: &str, suffix: &str) -> String {
+            let dump_dir = std::path::Path::new("target/reports/dumps");
+            let _ = fs::create_dir_all(dump_dir);
+            let flat_name = file_path
+                .trim_start_matches("./")
+                .replace(['/', '\\', ':'], "_");
+            dump_dir
+                .join(format!("{flat_name}{suffix}"))
+                .to_string_lossy()
+                .into_owned()
+        }
+
         // Handle lexer dump
         if lex_dump {
-            let lex_output_path = format!("{file_path}.lex.txt");
+            let lex_output_path = dump_output_path(&file_path, ".lex.txt");
 
             // Format lexer output
             let mut lex_output = String::new();
@@ -630,7 +646,7 @@ async fn run() -> io::Result<()> {
 
         // Handle AST dump
         if ast_dump {
-            let ast_output_path = format!("{file_path}.ast.txt");
+            let ast_output_path = dump_output_path(&file_path, ".ast.txt");
 
             // Parse tokens into AST
             match Parser::new(&tokens_with_pos).parse() {

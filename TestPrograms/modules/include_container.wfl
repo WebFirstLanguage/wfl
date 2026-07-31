@@ -1,0 +1,16 @@
+// Converted from legacy root probe `test_include.wfl` (repository hygiene
+// migration): asserts that a container included from a fixture module can be
+// instantiated and its properties read.
+include from "../../tests/fixtures/modules/person_container.wfl"
+
+create new Person as alice:
+    name is "Alice"
+    age is 30
+end
+
+describe "include container":
+    test "included container instantiates with its properties":
+        expect alice.name to equal "Alice"
+        expect alice.age to equal 30
+    end test
+end describe
