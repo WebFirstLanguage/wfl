@@ -121,14 +121,21 @@ end for
     );
 }
 
-/// A constant declared inside a scope that is later promoted into its parent
-/// keeps its constness under the parent binding key. Without the migration in
-/// `pop_scope_promoting_except`, `change` still reports (it reads the symbol's
-/// `mutable` flag, which survives promotion) while `add`/`remove`/`clear`
-/// silently stop reporting — reintroducing #671 one scope up.
+/// A constant created on both arms of a `check` is re-defined into the parent
+/// scope under a new binding key by `promote_constant_marker`. Without that
+/// migration `change` still reports (it reads the symbol's `mutable` flag,
+/// which survives the merge) while `add`/`remove`/`clear` silently stop
+/// reporting — reintroducing #671 one scope up.
+///
+/// This covers the branch-merge path only. The other migration site,
+/// `pop_scope_promoting_except`, is not reachable from WFL source: a binding
+/// declared inside a `try`/`catch` does not survive the statement at all — even
+/// when declared on every path, a later reference reports
+/// `Variable '<name>' is not defined` rather than resolving to a promoted key.
+/// See the comment on that migration in `src/analyzer/mod.rs`.
 #[test]
 fn constants_promoted_out_of_a_branch_are_still_constants() {
-    let source = r#"
+    let scalar = r#"
 check if yes:
     store new constant LIMIT as 10
 otherwise:
@@ -144,13 +151,91 @@ PLACEHOLDER
         "multiply LIMIT by 2",
         "divide LIMIT by 2",
     ] {
-        let reports = constant_mutation_reports(&source.replace("PLACEHOLDER", mutation));
+        let reports = constant_mutation_reports(&scalar.replace("PLACEHOLDER", mutation));
         assert_eq!(
             reports.len(),
             1,
             "`{mutation}` on a promoted constant should be reported once: {reports:?}"
         );
     }
+
+    // The list forms exercise the same merge through the other two bare-name
+    // statements, which have no `Assignment` fallback to catch them.
+    let list = r#"
+check if yes:
+    store new constant ROLES as ["admin"]
+otherwise:
+    store new constant ROLES as ["editor"]
+end check
+PLACEHOLDER
+"#;
+
+    for mutation in [
+        "add \"guest\" to ROLES",
+        "remove \"admin\" from ROLES",
+        "clear ROLES",
+    ] {
+        let reports = constant_mutation_reports(&list.replace("PLACEHOLDER", mutation));
+        assert_eq!(
+            reports.len(),
+            1,
+            "`{mutation}` on a promoted constant list should be reported once: {reports:?}"
+        );
+    }
+}
+
+/// A binding declared inside a `try`/`catch` does not escape the statement, so
+/// the `pop_scope_promoting_except` constant migration cannot be reached from
+/// WFL source today. Pin that premise: if try-scoping ever changes so these
+/// bindings do survive, this test fails and the migration needs real coverage.
+#[test]
+fn try_scoped_declarations_do_not_escape_the_statement() {
+    let tokens = lex_wfl_with_positions(
+        r#"
+try:
+    store new constant LIMIT as 3
+catch:
+    store new constant LIMIT as 5
+end try
+add 1 to LIMIT
+"#,
+    );
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("program should parse");
+    let messages = match Analyzer::new().analyze(&program) {
+        Ok(()) => Vec::new(),
+        Err(errors) => errors.into_iter().map(|e| e.message).collect::<Vec<_>>(),
+    };
+
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("'LIMIT' is not defined")),
+        "a try-scoped declaration must not escape the statement: {messages:?}"
+    );
+}
+
+/// An outer constant stays a constant across an intervening `try`, which is the
+/// case that would break if the try analysis clobbered `constant_bindings`.
+#[test]
+fn outer_constants_survive_an_intervening_try() {
+    let reports = constant_mutation_reports(
+        r#"
+store new constant OUTER as 1
+try:
+    display "attempting"
+catch:
+    display "failed"
+end try
+add 1 to OUTER
+"#,
+    );
+
+    assert_eq!(
+        reports.len(),
+        1,
+        "an outer constant must still be reported after a try: {reports:?}"
+    );
 }
 
 /// Container-method parameters and container properties are registered

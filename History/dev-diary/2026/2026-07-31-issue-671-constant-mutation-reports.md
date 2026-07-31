@@ -158,14 +158,33 @@ full-suite and `TestPrograms/` runs caught.
 pinned `>= 4` reports with a comment pointing at this issue; it is now an exact
 `== 5`.
 
-Also run: `cargo test --all --no-fail-fast` (150 test binaries, all green),
+Also run: `cargo test --all --no-fail-fast` (151 test binaries, all green),
 `cargo clippy --all-targets --all-features -- -D warnings`, `cargo fmt --all --
---check`, all 111 non-skipped `TestPrograms/` programs against the release
-binary, and `python scripts/validate_docs_examples.py` (21/21).
+--check`, the CI program sweep over `TestPrograms/` against the release binary
+(142 passed, 0 failed, 49 skipped), `python scripts/validate_docs_examples.py`
+(21/21), and `python3 -m unittest discover -s tests/tooling` (33 passed).
 
-Risk class: **R1**. The change adds a diagnostic in the analyzer front end. It
-touches backward compatibility only in the constant-list case argued above; it
-involves no concurrency, lifecycle, untrusted input, or crypto.
+Risk class: **R3**. The first draft said R1 on the grounds that this only adds a
+front-end diagnostic — but the same document records a real behavior change
+(`add`/`remove`/`clear` on a constant list moves from silently allowed to
+rejected at analysis time), and `testing.md` §5 puts **backward compatibility**
+in R3 outright, with the class never to be lowered to dodge a gate. R3 is the
+correct classification and R1 was wrong.
+
+The R3 evidence is the backward-compatibility trigger rather than §11.3: this
+change involves no concurrency, cancellation, lifecycle, streaming, untrusted
+input, or crypto, so those risk-triggered tests do not apply. What does apply is
+failure-path and negative coverage, which is present:
+
+- Negative assertions that the new check does not over-report —
+  `mutable_targets_are_still_accepted`,
+  `list_parameters_and_loop_variables_are_not_constants`,
+  `container_members_are_not_constants`.
+- A compatibility sweep of every shipped program (all non-skipped
+  `TestPrograms/`, plus the docs examples) against the release binary, which is
+  what caught the action-parameter over-report before it could ship.
+- `outer_constants_survive_an_intervening_try`, pinning that unrelated scope
+  handling does not silently drop a constant marker.
 
 ## Documentation
 

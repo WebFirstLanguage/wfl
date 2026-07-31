@@ -3577,9 +3577,17 @@ impl Analyzer {
             }
             // A constant declared inside a promoted scope keeps its constness
             // under the parent key, so a later `add`/`remove`/`clear` still
-            // resolves to a tracked constant. Without this the binding is
-            // still `mutable: false` — so `change` reports — while the
-            // bare-name mutation statements silently stop reporting.
+            // resolves to a tracked constant.
+            //
+            // No WFL program reaches this today: the only caller is the
+            // `try`/`when` path, and a binding declared inside a try statement
+            // does not survive it — even when declared on every path, a later
+            // reference reports `Variable '<name>' is not defined` rather than
+            // resolving to a promoted key (pinned by
+            // `try_scoped_declarations_do_not_escape_the_statement`). It is
+            // kept so `constant_bindings` does not silently diverge from the
+            // four alias maps migrated for these same keys around it; the
+            // branch-merge path that IS reachable is `promote_constant_marker`.
             if self.constant_bindings.remove(old_binding) {
                 self.constant_bindings.insert(new_binding.clone());
             }
