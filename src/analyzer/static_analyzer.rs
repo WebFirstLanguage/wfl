@@ -1130,6 +1130,12 @@ impl Analyzer {
             Statement::CloseDatabaseStatement { db, .. } => {
                 self.mark_used_in_expression(db, usages);
             }
+            Statement::TransactionStatement { db, body, .. } => {
+                self.mark_used_in_expression(db, usages);
+                for statement in body {
+                    self.mark_used_variables(statement, usages);
+                }
+            }
             Statement::ExecuteFileStatement {
                 path,
                 request,

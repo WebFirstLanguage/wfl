@@ -514,6 +514,17 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 Token::KeywordRemove => self.parse_remove_from_list_statement(),
                 Token::KeywordClear => self.parse_clear_list_statement(),
                 Token::KeywordTry => self.parse_try_statement(),
+                // `in transaction on <db>:` is the only statement that starts
+                // with `in`; anything else beginning with `in` was already a
+                // parse error, so this claims no previously valid syntax.
+                Token::KeywordIn
+                    if self
+                        .cursor
+                        .peek_next()
+                        .is_some_and(|t| crate::parser::stmt::is_transaction_word(&t.token)) =>
+                {
+                    self.parse_transaction_statement()
+                }
                 Token::KeywordRepeat => self.parse_repeat_statement(),
                 Token::KeywordExit => self.parse_exit_statement(),
                 Token::KeywordPush => self.parse_push_statement(),

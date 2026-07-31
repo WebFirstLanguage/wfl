@@ -5850,6 +5850,28 @@ impl TypeChecker {
                     );
                 }
             }
+            Statement::TransactionStatement {
+                db,
+                body,
+                line: _line,
+                column: _column,
+            } => {
+                let db_type = self.infer_expression_type(db);
+                if db_type != Type::Custom("Database".to_string())
+                    && !self.is_gradual_type(&db_type)
+                {
+                    self.type_error(
+                        "Expected a Database connection".to_string(),
+                        Some(Type::Custom("Database".to_string())),
+                        Some(db_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                // Like `try:`, the block shares the enclosing scope and
+                // introduces no bindings of its own.
+                self.check_statement_block(body);
+            }
             Statement::CreateDirectoryStatement {
                 path,
                 line: _line,

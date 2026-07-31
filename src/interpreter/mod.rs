@@ -1190,6 +1190,7 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("DatabaseQueryStatement '{variable_name}'")
         }
         Statement::CloseDatabaseStatement { .. } => "CloseDatabaseStatement".to_string(),
+        Statement::TransactionStatement { .. } => "TransactionStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
@@ -1867,6 +1868,11 @@ pub struct IoClient {
     next_process_id: Mutex<usize>,
     db_handles: Mutex<HashMap<String, database::DbPool>>,
     next_db_id: Mutex<usize>,
+    /// Transactions currently open, keyed by the same handle id as
+    /// `db_handles`. While an entry is present, every `query`/`execute` on that
+    /// handle runs on the transaction's pinned connection instead of taking a
+    /// fresh one from the pool — which is the whole point of issue #664.
+    db_transactions: Mutex<HashMap<String, database::DbTransaction>>,
     /// Live outbound streaming response bodies, keyed by handle id
     /// ("httpstream1", ...). See [`StreamSlot`] / [`HttpStreamHandle`].
     ///
@@ -2429,6 +2435,7 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
+            db_transactions: Mutex::new(HashMap::new()),
             stream_handles: Arc::new(std::sync::Mutex::new(StreamRegistry::default())),
             next_stream_id: Mutex::new(1),
             #[cfg(test)]
@@ -2463,7 +2470,19 @@ impl IoClient {
     }
 
     /// Close a database pool and drop its handle.
+    ///
+    /// Refuses while a transaction is open on the handle: closing the pool
+    /// under an in-flight transaction would discard the work with no report of
+    /// what happened to it.
     async fn close_database(&self, handle_id: &str) -> Result<(), String> {
+        if self.db_transactions.lock().await.contains_key(handle_id) {
+            return Err(format!(
+                "Cannot close database '{handle_id}' while a transaction is open on it. \
+                 Let the `in transaction on ...` block finish first — it commits at \
+                 `end transaction`, or rolls back if something inside it fails."
+            ));
+        }
+
         let pool = self
             .db_handles
             .lock()
@@ -2472,6 +2491,87 @@ impl IoClient {
             .ok_or_else(|| format!("Invalid or closed database handle: {handle_id}"))?;
         database::close(pool).await;
         Ok(())
+    }
+
+    /// Open a transaction on `handle_id`, pinning one pooled connection to it.
+    async fn begin_transaction(&self, handle_id: &str) -> Result<(), String> {
+        // Nesting would need savepoints, which are not implemented; say so
+        // rather than quietly flattening the inner block into the outer one.
+        if self.db_transactions.lock().await.contains_key(handle_id) {
+            return Err(format!(
+                "A transaction is already open on database '{handle_id}'. Transaction \
+                 blocks cannot be nested on the same database — finish the current one \
+                 before starting another."
+            ));
+        }
+
+        let pool = self.get_database(handle_id).await?;
+        let tx = database::begin(&pool).await?;
+        self.db_transactions
+            .lock()
+            .await
+            .insert(handle_id.to_string(), tx);
+        Ok(())
+    }
+
+    /// Commit the open transaction on `handle_id`.
+    async fn commit_transaction(&self, handle_id: &str) -> Result<(), String> {
+        let tx = self
+            .db_transactions
+            .lock()
+            .await
+            .remove(handle_id)
+            .ok_or_else(|| format!("No transaction is open on database '{handle_id}'"))?;
+        database::commit(tx).await
+    }
+
+    /// Roll back the open transaction on `handle_id`.
+    ///
+    /// A missing transaction is not an error here: this runs on the failure
+    /// path, where the transaction may already have been resolved.
+    async fn rollback_transaction(&self, handle_id: &str) -> Result<(), String> {
+        let tx = self.db_transactions.lock().await.remove(handle_id);
+        match tx {
+            Some(tx) => database::rollback(tx).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Run a row-returning statement, routed to the handle's open transaction
+    /// when it has one.
+    async fn db_query(
+        &self,
+        handle_id: &str,
+        sql: &str,
+        params: &[database::SqlParam],
+    ) -> Result<Value, String> {
+        {
+            let mut transactions = self.db_transactions.lock().await;
+            if let Some(tx) = transactions.get_mut(handle_id) {
+                return database::run_query(database::DbTarget::Transaction(tx), sql, params).await;
+            }
+        }
+        let pool = self.get_database(handle_id).await?;
+        database::run_query(database::DbTarget::Pool(&pool), sql, params).await
+    }
+
+    /// Run a non-returning statement, routed to the handle's open transaction
+    /// when it has one.
+    async fn db_execute(
+        &self,
+        handle_id: &str,
+        sql: &str,
+        params: &[database::SqlParam],
+    ) -> Result<Value, String> {
+        {
+            let mut transactions = self.db_transactions.lock().await;
+            if let Some(tx) = transactions.get_mut(handle_id) {
+                return database::run_execute(database::DbTarget::Transaction(tx), sql, params)
+                    .await;
+            }
+        }
+        let pool = self.get_database(handle_id).await?;
+        database::run_execute(database::DbTarget::Pool(&pool), sql, params).await
     }
 
     #[allow(dead_code)]
@@ -6286,6 +6386,7 @@ impl Interpreter {
             Statement::OpenDatabaseStatement { line, column, .. } => (*line, *column),
             Statement::DatabaseQueryStatement { line, column, .. } => (*line, *column),
             Statement::CloseDatabaseStatement { line, column, .. } => (*line, *column),
+            Statement::TransactionStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
@@ -7189,6 +7290,59 @@ impl Interpreter {
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::TransactionStatement {
+                db,
+                body,
+                line,
+                column,
+            } => {
+                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+                let handle = match &db_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected a database handle, got {db_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                self.io_client
+                    .begin_transaction(&handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // Statements inside share the enclosing scope, like `try:`, so a
+                // variable set inside the block is still readable after it.
+                let outcome = self.execute_block(body, Rc::clone(&env)).await;
+
+                match outcome {
+                    Ok((value, control_flow)) => {
+                        // The block finished without an error. `break`, `continue`
+                        // and `return` are ordinary exits, not failures, so they
+                        // commit too — the work inside completed.
+                        self.io_client
+                            .commit_transaction(&handle)
+                            .await
+                            .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                        Ok((value, control_flow))
+                    }
+                    Err(err) => {
+                        // Roll back and report the original failure. A rollback
+                        // that itself fails is appended rather than replacing the
+                        // cause, which is what the user actually needs to see.
+                        match self.io_client.rollback_transaction(&handle).await {
+                            Ok(()) => Err(err),
+                            Err(rollback_error) => Err(RuntimeError::new(
+                                format!("{} (rollback also failed: {rollback_error})", err.message),
+                                err.line,
+                                err.column,
+                            )),
+                        }
+                    }
+                }
             }
             Statement::ReadFileStatement {
                 path,
@@ -13194,18 +13348,14 @@ impl Interpreter {
             None => Vec::new(),
         };
 
-        let pool = self
-            .io_client
-            .get_database(&handle)
-            .await
-            .map_err(|e| RuntimeError::new(e, line, column))?;
-
+        // Routed through the IoClient so an open transaction on this handle
+        // gets its own pinned connection rather than an arbitrary pooled one.
         match kind {
             crate::parser::ast::DatabaseQueryKind::Query => {
-                database::run_query(&pool, &sql_str, &params).await
+                self.io_client.db_query(&handle, &sql_str, &params).await
             }
             crate::parser::ast::DatabaseQueryKind::Execute => {
-                database::run_execute(&pool, &sql_str, &params).await
+                self.io_client.db_execute(&handle, &sql_str, &params).await
             }
         }
         .map_err(|e| RuntimeError::new(e, line, column))

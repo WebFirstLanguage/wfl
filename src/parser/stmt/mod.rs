@@ -24,7 +24,7 @@ pub(crate) use actions::ActionParser;
 pub(crate) use collections::CollectionParser;
 pub(crate) use containers::ContainerParser;
 pub(crate) use control_flow::ControlFlowParser;
-pub(crate) use database::DatabaseParser;
+pub(crate) use database::{DatabaseParser, is_transaction_word};
 pub(crate) use errors::ErrorHandlingParser;
 pub(crate) use io::IoParser;
 pub(crate) use module::ModuleParser;

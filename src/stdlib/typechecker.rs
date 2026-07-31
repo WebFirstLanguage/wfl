@@ -16,6 +16,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_list(analyzer);
     register_pattern(analyzer);
     register_json(analyzer);
+    register_toml(analyzer);
     register_web(analyzer);
     register_crypto(analyzer);
     register_filesystem(analyzer);
@@ -345,6 +346,29 @@ fn register_json(analyzer: &mut Analyzer) {
     }
 }
 
+fn register_toml(analyzer: &mut Analyzer) {
+    register(analyzer, &["parse_toml"], vec![Type::Text], Type::Any);
+
+    // Mirrors the JSON value set. TOML has no null, but `nothing` is accepted
+    // here because a table simply omits those keys (see stdlib::toml).
+    let toml_values = [
+        Type::Nothing,
+        Type::Boolean,
+        Type::Number,
+        Type::Text,
+        list(Type::Any),
+        map(Type::Text, Type::Any),
+    ];
+    for value_type in toml_values {
+        register(
+            analyzer,
+            &["stringify_toml", "stringify_toml_pretty"],
+            vec![value_type],
+            Type::Text,
+        );
+    }
+}
+
 fn register_web(analyzer: &mut Analyzer) {
     register(
         analyzer,
@@ -399,6 +423,16 @@ fn register_crypto(analyzer: &mut Analyzer) {
         analyzer,
         &["secure_random_bytes"],
         vec![Type::Number],
+        Type::Text,
+    );
+    // `seal of plaintext and key`, optionally `and context`.
+    register_same_result_overloads(
+        analyzer,
+        &["seal", "unseal"],
+        [
+            vec![Type::Text, Type::Text],
+            vec![Type::Text, Type::Text, Type::Text],
+        ],
         Type::Text,
     );
     register(
@@ -473,6 +507,13 @@ fn register_filesystem(analyzer: &mut Analyzer) {
         &["copy_file", "move_file"],
         vec![Type::Text, Type::Text],
         Type::Nothing,
+    );
+    register(analyzer, &["file_mode"], vec![Type::Text], Type::Text);
+    register(
+        analyzer,
+        &["set_file_mode"],
+        vec![Type::Text, Type::Text],
+        Type::Text,
     );
     register_same_result_overloads(
         analyzer,

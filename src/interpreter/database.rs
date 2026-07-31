@@ -37,6 +37,27 @@ pub enum DbPool {
     Sqlite(sqlx::SqlitePool),
 }
 
+/// An open transaction holding one connection out of a [`DbPool`] for its
+/// whole lifetime (issue #664).
+///
+/// `Pool::begin` hands back an owned `Transaction<'static, DB>`, so the
+/// interpreter can park one of these in a map keyed by database handle and run
+/// every statement inside `in transaction on db:` against it. Dropping it
+/// without committing rolls back, which is what makes an abandoned transaction
+/// safe rather than a leaked half-write.
+pub enum DbTransaction {
+    Postgres(sqlx::Transaction<'static, sqlx::Postgres>),
+    MySql(sqlx::Transaction<'static, sqlx::MySql>),
+    Sqlite(sqlx::Transaction<'static, sqlx::Sqlite>),
+}
+
+/// Where a statement runs: straight against the pool (any free connection), or
+/// against the single connection an open transaction is holding.
+pub enum DbTarget<'a> {
+    Pool(&'a DbPool),
+    Transaction(&'a mut DbTransaction),
+}
+
 /// An owned, Send-safe SQL bind parameter converted from a WFL `Value`.
 #[derive(Debug, Clone)]
 pub enum SqlParam {
@@ -130,52 +151,97 @@ pub async fn connect(url: &str) -> Result<DbPool, String> {
     }
 }
 
+/// Statement keywords that open, close, or checkpoint a transaction.
+///
+/// See [`reject_transaction_control_sql`].
+const TRANSACTION_CONTROL_KEYWORDS: &[&str] = &[
+    "begin",
+    "commit",
+    "rollback",
+    "start",
+    "savepoint",
+    "release",
+    "end",
+];
+
+/// Reject transaction-control SQL sent through `query`/`execute` (issue #664).
+///
+/// Each `query`/`execute` takes whichever pooled connection happens to be free,
+/// so a hand-written `BEGIN` … `ROLLBACK` sequence lands on *different*
+/// connections and the rollback silently does nothing — the writes it was meant
+/// to undo survive, with no error anywhere. That is a data-integrity failure
+/// that looks exactly like success, and it is invisible under in-memory SQLite
+/// (capped at one connection) where most tests run.
+///
+/// Rather than keep failing silently, refuse the statement and name the
+/// construct that actually works. Only the *leading* keyword is inspected, so a
+/// column called `begin_at` or a string containing the word "commit" is
+/// untouched.
+pub fn reject_transaction_control_sql(sql: &str) -> Result<(), String> {
+    let first_word: String = sql
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
+
+    if first_word.is_empty() {
+        return Ok(());
+    }
+
+    let lowered = first_word.to_ascii_lowercase();
+    if TRANSACTION_CONTROL_KEYWORDS.contains(&lowered.as_str()) {
+        return Err(format!(
+            "'{first_word}' controls a transaction, and sending it through query/execute does \
+             not work: each statement runs on its own pooled connection, so the transaction \
+             would not cover the statements you meant it to. Use a transaction block instead:\n\
+             \n    in transaction on db:\n        execute db with \"...\"\n    end transaction\n\
+             \nThe block holds one connection for its whole body, commits when it finishes, \
+             and rolls back if anything inside it fails."
+        ));
+    }
+
+    Ok(())
+}
+
 /// Run a row-returning statement; rows become a list of objects keyed by
 /// column name.
-pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<Value, String> {
-    let rows: Vec<Value> = match pool {
-        DbPool::Sqlite(pool) => {
-            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
-            // runtime SQL text (see the module docs for the safety contract).
+pub async fn run_query(
+    target: DbTarget<'_>,
+    sql: &str,
+    params: &[SqlParam],
+) -> Result<Value, String> {
+    reject_transaction_control_sql(sql)?;
+
+    // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our runtime SQL
+    // text (see the module docs for the safety contract).
+    macro_rules! fetch {
+        ($executor:expr, $bind:ident, $to_value:ident) => {{
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
-                query = bind_sqlite(query, param);
+                query = $bind(query, param);
             }
             let rows = query
-                .fetch_all(pool)
+                .fetch_all($executor)
                 .await
                 .map_err(|e| format!("Query failed: {e}"))?;
             rows.iter()
-                .map(sqlite_row_to_value)
-                .collect::<Result<_, _>>()?
+                .map($to_value)
+                .collect::<Result<Vec<Value>, String>>()?
+        }};
+    }
+
+    let rows: Vec<Value> = match target {
+        DbTarget::Pool(DbPool::Sqlite(pool)) => fetch!(pool, bind_sqlite, sqlite_row_to_value),
+        DbTarget::Pool(DbPool::Postgres(pool)) => fetch!(pool, bind_postgres, pg_row_to_value),
+        DbTarget::Pool(DbPool::MySql(pool)) => fetch!(pool, bind_mysql, mysql_row_to_value),
+        DbTarget::Transaction(DbTransaction::Sqlite(tx)) => {
+            fetch!(&mut **tx, bind_sqlite, sqlite_row_to_value)
         }
-        DbPool::Postgres(pool) => {
-            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
-            // runtime SQL text (see the module docs for the safety contract).
-            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-            for param in params {
-                query = bind_postgres(query, param);
-            }
-            let rows = query
-                .fetch_all(pool)
-                .await
-                .map_err(|e| format!("Query failed: {e}"))?;
-            rows.iter().map(pg_row_to_value).collect::<Result<_, _>>()?
+        DbTarget::Transaction(DbTransaction::Postgres(tx)) => {
+            fetch!(&mut **tx, bind_postgres, pg_row_to_value)
         }
-        DbPool::MySql(pool) => {
-            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
-            // runtime SQL text (see the module docs for the safety contract).
-            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-            for param in params {
-                query = bind_mysql(query, param);
-            }
-            let rows = query
-                .fetch_all(pool)
-                .await
-                .map_err(|e| format!("Query failed: {e}"))?;
-            rows.iter()
-                .map(mysql_row_to_value)
-                .collect::<Result<_, _>>()?
+        DbTarget::Transaction(DbTransaction::MySql(tx)) => {
+            fetch!(&mut **tx, bind_mysql, mysql_row_to_value)
         }
     };
 
@@ -185,46 +251,46 @@ pub async fn run_query(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<
 /// Run a non-returning statement; the result is an object with
 /// `affected_rows` and `last_insert_id` (nothing on PostgreSQL — use
 /// `RETURNING` there instead).
-pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Result<Value, String> {
-    let (affected_rows, last_insert_id): (u64, Option<i64>) = match pool {
-        DbPool::Sqlite(pool) => {
-            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
-            // runtime SQL text (see the module docs for the safety contract).
+pub async fn run_execute(
+    target: DbTarget<'_>,
+    sql: &str,
+    params: &[SqlParam],
+) -> Result<Value, String> {
+    reject_transaction_control_sql(sql)?;
+
+    // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our runtime SQL
+    // text (see the module docs for the safety contract).
+    macro_rules! run {
+        ($executor:expr, $bind:ident, $last_id:expr) => {{
             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
             for param in params {
-                query = bind_sqlite(query, param);
+                query = $bind(query, param);
             }
             let result = query
-                .execute(pool)
+                .execute($executor)
                 .await
                 .map_err(|e| format!("Execute failed: {e}"))?;
-            (result.rows_affected(), Some(result.last_insert_rowid()))
+            #[allow(clippy::redundant_closure_call)]
+            (result.rows_affected(), $last_id(&result))
+        }};
+    }
+
+    let sqlite_id = |r: &sqlx::sqlite::SqliteQueryResult| Some(r.last_insert_rowid());
+    let mysql_id = |r: &sqlx::mysql::MySqlQueryResult| Some(r.last_insert_id() as i64);
+    let pg_id = |_: &sqlx::postgres::PgQueryResult| None;
+
+    let (affected_rows, last_insert_id): (u64, Option<i64>) = match target {
+        DbTarget::Pool(DbPool::Sqlite(pool)) => run!(pool, bind_sqlite, sqlite_id),
+        DbTarget::Pool(DbPool::Postgres(pool)) => run!(pool, bind_postgres, pg_id),
+        DbTarget::Pool(DbPool::MySql(pool)) => run!(pool, bind_mysql, mysql_id),
+        DbTarget::Transaction(DbTransaction::Sqlite(tx)) => {
+            run!(&mut **tx, bind_sqlite, sqlite_id)
         }
-        DbPool::Postgres(pool) => {
-            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
-            // runtime SQL text (see the module docs for the safety contract).
-            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-            for param in params {
-                query = bind_postgres(query, param);
-            }
-            let result = query
-                .execute(pool)
-                .await
-                .map_err(|e| format!("Execute failed: {e}"))?;
-            (result.rows_affected(), None)
+        DbTarget::Transaction(DbTransaction::Postgres(tx)) => {
+            run!(&mut **tx, bind_postgres, pg_id)
         }
-        DbPool::MySql(pool) => {
-            // `AssertSqlSafe`: opt out of sqlx's `SqlSafeStr` gate for our
-            // runtime SQL text (see the module docs for the safety contract).
-            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-            for param in params {
-                query = bind_mysql(query, param);
-            }
-            let result = query
-                .execute(pool)
-                .await
-                .map_err(|e| format!("Execute failed: {e}"))?;
-            (result.rows_affected(), Some(result.last_insert_id() as i64))
+        DbTarget::Transaction(DbTransaction::MySql(tx)) => {
+            run!(&mut **tx, bind_mysql, mysql_id)
         }
     };
 
@@ -243,6 +309,51 @@ pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Resul
     );
 
     Ok(Value::Object(Rc::new(RefCell::new(object))))
+}
+
+/// Take one connection out of the pool and open a transaction on it.
+pub async fn begin(pool: &DbPool) -> Result<DbTransaction, String> {
+    match pool {
+        DbPool::Sqlite(pool) => pool
+            .begin()
+            .await
+            .map(DbTransaction::Sqlite)
+            .map_err(|e| format!("Failed to start transaction: {e}")),
+        DbPool::Postgres(pool) => pool
+            .begin()
+            .await
+            .map(DbTransaction::Postgres)
+            .map_err(|e| format!("Failed to start transaction: {e}")),
+        DbPool::MySql(pool) => pool
+            .begin()
+            .await
+            .map(DbTransaction::MySql)
+            .map_err(|e| format!("Failed to start transaction: {e}")),
+    }
+}
+
+/// Commit a transaction, returning its connection to the pool.
+pub async fn commit(tx: DbTransaction) -> Result<(), String> {
+    match tx {
+        DbTransaction::Sqlite(tx) => tx.commit().await,
+        DbTransaction::Postgres(tx) => tx.commit().await,
+        DbTransaction::MySql(tx) => tx.commit().await,
+    }
+    .map_err(|e| format!("Failed to commit transaction: {e}"))
+}
+
+/// Roll a transaction back, returning its connection to the pool.
+///
+/// Dropping a `DbTransaction` without calling this also rolls back; this exists
+/// so the interpreter can report a rollback that itself fails, rather than
+/// discarding it silently.
+pub async fn rollback(tx: DbTransaction) -> Result<(), String> {
+    match tx {
+        DbTransaction::Sqlite(tx) => tx.rollback().await,
+        DbTransaction::Postgres(tx) => tx.rollback().await,
+        DbTransaction::MySql(tx) => tx.rollback().await,
+    }
+    .map_err(|e| format!("Failed to roll back transaction: {e}"))
 }
 
 /// Close the pool, ending all connections.
