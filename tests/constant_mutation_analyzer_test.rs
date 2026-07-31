@@ -89,6 +89,13 @@ clear FIXED_LIST
 /// as immutable symbols in the analyzer even though they are not constants.
 /// Appending to a list parameter has always been legal (`TestPrograms/
 /// test_create_list_expression.wfl` relies on it) and must stay legal.
+///
+/// Each mutation below targets the parameter or loop variable itself, not some
+/// other collection it is merely a value in. Only the bare-name statements this
+/// change touches are exercised: `change`/`subtract`/`multiply`/`divide` desugar
+/// to `Assignment`, whose long-standing `mutable: false` check already reports
+/// these same bindings as constants — a pre-existing message wart that is out of
+/// scope here and must not be mistaken for a regression from this test.
 #[test]
 fn list_parameters_and_loop_variables_are_not_constants() {
     let reports = constant_mutation_reports(
@@ -100,9 +107,10 @@ define action called process_list with parameters list_param:
     give back list_param
 end action
 
-store gathered as []
-for each entry in [1 and 2]:
-    add entry to gathered
+for each entry in [[1] and [2]]:
+    add 3 to entry
+    remove 1 from entry
+    clear entry
 end for
 "#,
     );
@@ -111,6 +119,38 @@ end for
         reports.is_empty(),
         "parameters and loop variables must not be reported as constants: {reports:?}"
     );
+}
+
+/// A constant declared inside a scope that is later promoted into its parent
+/// keeps its constness under the parent binding key. Without the migration in
+/// `pop_scope_promoting_except`, `change` still reports (it reads the symbol's
+/// `mutable` flag, which survives promotion) while `add`/`remove`/`clear`
+/// silently stop reporting — reintroducing #671 one scope up.
+#[test]
+fn constants_promoted_out_of_a_branch_are_still_constants() {
+    let source = r#"
+check if yes:
+    store new constant LIMIT as 10
+otherwise:
+    store new constant LIMIT as 20
+end check
+PLACEHOLDER
+"#;
+
+    for mutation in [
+        "change LIMIT to 5",
+        "add 1 to LIMIT",
+        "subtract 1 from LIMIT",
+        "multiply LIMIT by 2",
+        "divide LIMIT by 2",
+    ] {
+        let reports = constant_mutation_reports(&source.replace("PLACEHOLDER", mutation));
+        assert_eq!(
+            reports.len(),
+            1,
+            "`{mutation}` on a promoted constant should be reported once: {reports:?}"
+        );
+    }
 }
 
 /// Container-method parameters and container properties are registered

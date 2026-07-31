@@ -1080,6 +1080,7 @@ impl Analyzer {
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 let mut defined_in_then = Vec::new();
+                let then_scope_id = then_scope.id;
 
                 for (name, symbol) in &then_scope.symbols {
                     if outer_scope.resolve(name).is_none() {
@@ -1092,6 +1093,7 @@ impl Analyzer {
                 }
 
                 let mut defined_in_else = Vec::new();
+                let mut else_scope_id = None;
                 if let Some(else_stmts) = else_block {
                     let outer_scope_for_else = std::mem::take(&mut self.current_scope);
                     self.enter_child_scope(outer_scope_for_else.clone());
@@ -1103,6 +1105,7 @@ impl Analyzer {
                     self.join_flow_branches(&[flow_then.clone(), flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
+                    else_scope_id = Some(else_scope.id);
 
                     for (name, symbol) in &else_scope.symbols {
                         if outer_scope_for_else.resolve(name).is_none() {
@@ -1142,6 +1145,8 @@ impl Analyzer {
                             }
                             if let Err(error) = self.current_scope.define(merged) {
                                 self.errors.push(error);
+                            } else {
+                                self.promote_constant_marker(name, then_scope_id, else_scope_id);
                             }
                         }
                     }
@@ -1163,6 +1168,7 @@ impl Analyzer {
                 let flow_then = self.take_flow_branch(&flow_entry);
 
                 let then_scope = std::mem::take(&mut self.current_scope);
+                let then_scope_id = then_scope.id;
                 let defined_in_then: Vec<_> = then_scope
                     .symbols
                     .iter()
@@ -1174,6 +1180,7 @@ impl Analyzer {
                 }
 
                 let mut defined_in_else = Vec::new();
+                let mut else_scope_id = None;
                 if let Some(else_stmt) = else_stmt {
                     let outer_scope_for_else = std::mem::take(&mut self.current_scope);
                     self.enter_child_scope(outer_scope_for_else.clone());
@@ -1183,6 +1190,7 @@ impl Analyzer {
                     self.join_flow_branches(&[flow_then, flow_else]);
 
                     let else_scope = std::mem::take(&mut self.current_scope);
+                    else_scope_id = Some(else_scope.id);
                     defined_in_else = else_scope
                         .symbols
                         .iter()
@@ -1218,6 +1226,8 @@ impl Analyzer {
                             }
                             if let Err(error) = self.current_scope.define(merged) {
                                 self.errors.push(error);
+                            } else {
+                                self.promote_constant_marker(&name, then_scope_id, else_scope_id);
                             }
                         }
                     }
@@ -3565,6 +3575,14 @@ impl Analyzer {
             if let Some(state) = self.action_aliases.remove(old_binding) {
                 self.action_aliases.insert(new_binding.clone(), state);
             }
+            // A constant declared inside a promoted scope keeps its constness
+            // under the parent key, so a later `add`/`remove`/`clear` still
+            // resolves to a tracked constant. Without this the binding is
+            // still `mutable: false` — so `change` reports — while the
+            // bare-name mutation statements silently stop reporting.
+            if self.constant_bindings.remove(old_binding) {
+                self.constant_bindings.insert(new_binding.clone());
+            }
             for frame in &mut self.alias_mutation_frames {
                 if frame.remove(old_binding) {
                     frame.insert(new_binding.clone());
@@ -4636,6 +4654,32 @@ impl Analyzer {
     /// variables are all immutable symbols that are not constants, and
     /// appending to a list parameter (`add "x" to list_param`) has always been
     /// legal.
+    /// Carry a constant marker across a branch merge. A binding created on both
+    /// arms of a `check`/`if` is re-defined into the parent scope under a new
+    /// binding key, so its `constant_bindings` entry has to follow it — without
+    /// this the symbol stays `mutable: false` (so `change` still reports) while
+    /// `add`/`remove`/`clear` silently stop reporting, reintroducing #671 one
+    /// scope up. Mirrors the `mutable: then && else` merge: a name that was
+    /// constant on either arm stays constant.
+    fn promote_constant_marker(
+        &mut self,
+        name: &str,
+        then_scope_id: u64,
+        else_scope_id: Option<u64>,
+    ) {
+        let was_constant = std::iter::once(then_scope_id)
+            .chain(else_scope_id)
+            .any(|scope_id| {
+                self.constant_bindings.contains(&SymbolBindingKey {
+                    scope_id,
+                    name: name.to_string(),
+                })
+            });
+        if was_constant && let Some(key) = self.get_symbol_binding_key(name) {
+            self.constant_bindings.insert(key);
+        }
+    }
+
     fn report_constant_mutation(&mut self, name: &str, line: usize, column: usize) {
         let is_constant = self
             .get_symbol_binding_key(name)

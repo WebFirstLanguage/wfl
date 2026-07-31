@@ -207,9 +207,11 @@ end
 
 ## Constants
 
-Declare a real constant with `store new constant` — WFL then rejects every
-attempt to modify it — and **use SCREAMING_SNAKE_CASE** so the name itself says
-“do not reassign”:
+Declare a real constant with `store new constant` — WFL then rejects `change`,
+`add`, `subtract`, `multiply`, `divide`, `remove`, and `clear` against it (see
+[Variables and Types — Constants](../03-language-basics/variables-and-types.md#constants)
+for the one form that is not yet checked) — and **use SCREAMING_SNAKE_CASE** so
+the name itself says “do not reassign”:
 
 ```wfl
 store new constant MAX_USERS as 100

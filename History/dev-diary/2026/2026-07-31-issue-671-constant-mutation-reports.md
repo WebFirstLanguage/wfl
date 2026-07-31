@@ -184,10 +184,51 @@ Two validated examples were added and registered in the docs-examples manifest:
 (error example, expected to fail semantic analysis with `Cannot modify
 constant`).
 
-## Follow-up not taken
+## What review caught
+
+Three findings from PR review were real and are fixed here.
+
+**The docs overclaimed.** The first draft said WFL "refuses to modify" a
+constant and that "every mutation form is rejected before the program runs" —
+false while `push` remains unchecked, exactly the kind of thing CLAUDE.md's
+"Docs Must Be Honest" rule exists to stop. Both pages now enumerate the forms
+that *are* checked and carry an explicit known-gap callout pointing at #673,
+plus a note that constants fix the binding and not the contents reached through
+an alias.
+
+**The constant marker was lost across a branch merge.** A constant declared in
+both arms of a `check` is re-defined into the parent scope by the `IfStatement`
+and `SingleLineIf` arms, under a new binding key — so `constant_bindings` lost
+track of it. The symbol keeps `mutable: false`, so `change` still reported while
+`add`/`remove`/`clear` went silent: #671 all over again, one scope up. The
+merge now carries the marker with the binding, mirroring the existing
+`mutable: then && else` rule (constant on either arm ⇒ constant after). Verified
+before the fix: `add 1 to LIMIT` after such a branch escaped analysis entirely
+and was only caught at runtime — and for a constant *list* it would not have
+been caught at all. `pop_scope_promoting_except` migrates the marker too,
+alongside the alias state it already moved.
+
+**A negative test did not test what it claimed.** The loop-variable case used
+`add entry to gathered`, where the loop variable is the *value* and `gathered`
+is the target — it proved nothing about loop bindings. Rewritten so the loop
+variable is the mutation target. That immediately surfaced something worth
+recording: `subtract 1 from entry` and `multiply entry by 2` on a loop variable
+*do* report "Cannot modify constant", because they desugar to `Assignment`,
+whose long-standing `mutable: false` check treats loop variables and parameters
+as constants. That is pre-existing and out of scope here — the same message wart
+noted above — so the test now covers only the bare-name statements this change
+touches.
+
+## Follow-ups not taken
 
 `push with <list> and <value>` takes an arbitrary *expression* for its target
 rather than a bare name, so it does not share the statement shape fixed here and
 still mutates a constant list without complaint. Closing that needs the analyzer
 to resolve write-targets through expressions, which is a larger change than this
-issue calls for.
+issue calls for. Filed as **#673**, and now called out in the constants
+documentation so no reader is told a guarantee the language does not provide.
+
+The `Assignment` path reporting "Cannot modify constant 'p'" for action
+parameters and loop variables — which are immutable but not constants — is a
+misleading message that predates this change. Worth a separate issue; not
+touched here.
