@@ -652,7 +652,7 @@ Maximum nesting depth of `load module` / `include from`. Circular imports are al
 
 #### `max_execute_file_depth`
 
-Maximum nesting depth of `execute file` runs. Kept small because each level re-enters the whole interpreter recursively.
+Maximum nesting depth of `execute file` runs. Kept small because each level re-enters the whole interpreter pipeline (lex → parse → analyze → interpret). The CLI runs the interpreter on a dedicated large stack so the depth guard can fire as a clean error before a native stack overflow; library embedders should use `wfl::run_with_interpreter_stack` (or an equivalent large stack) for the same guarantee.
 
 - **Type:** Integer (at least 1)
 - **Default:** `4`

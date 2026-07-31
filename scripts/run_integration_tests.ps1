@@ -130,6 +130,17 @@ if ($TestOnly) {
 # Run integration tests
 Write-Host "[INFO] Running integration tests..." -ForegroundColor Blue
 
+# Nested `execute file` multiplies interpreter futures on the native stack.
+# Windows defaults test threads to ~1 MB, which overflows before the depth
+# guard (max_execute_file_depth = 4) can fire (#681). Prefer an explicit
+# caller-set value; otherwise give Windows 8 MB (typical Linux default).
+if (-not $env:RUST_MIN_STACK) {
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $env:RUST_MIN_STACK = "8388608"
+        Write-Host "[INFO] RUST_MIN_STACK defaulted to 8388608 for Windows test threads (#681)" -ForegroundColor Blue
+    }
+}
+
 Write-Host "[INFO] Running split functionality tests..." -ForegroundColor Blue
 & cargo test --test split_functionality --verbose
 if ($LASTEXITCODE -ne 0) {
