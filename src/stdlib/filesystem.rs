@@ -499,6 +499,11 @@ pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 // ============================================================================
 
 /// Format a raw permission bit set as the 4-character octal string WFL uses.
+///
+/// Unix-only: both call sites live behind `#[cfg(unix)]`, because Windows has
+/// no mode bits to format. Without this gate the function is dead code on
+/// Windows and `cargo clippy -- -D warnings` fails the nightly build.
+#[cfg(unix)]
 fn format_mode(bits: u32) -> String {
     format!("{:04o}", bits & 0o7777)
 }
