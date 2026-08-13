@@ -330,6 +330,371 @@ display "should not get here"
     );
 }
 
+// === Static/runtime parity for extends-chain names (PR #686 review) ===
+
+#[test]
+fn interface_extending_unknown_interface_fails_at_runtime() {
+    let program = r#"
+create interface Child extends NotAnInterface:
+    requires action ping
+end
+
+create container Widget implements Child:
+    property id: Number
+
+    action ping:
+        display "pong"
+    end
+end
+
+display "should not get here"
+"#;
+    let output = run_wfl_program(program, "iface_extends_unknown_runtime");
+    assert!(
+        !output.status.success(),
+        "an interface extending an undefined name must fail when implemented"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("NotAnInterface"),
+        "error should name the unknown parent interface; got: {stderr}"
+    );
+}
+
+#[test]
+fn typechecker_reports_unknown_extended_interface() {
+    // The static check must not silently skip extends-chain names the way it
+    // does for direct `implements` entries (those are reported separately):
+    // runtime rejects this program, so `wfl --analyze`-level tooling must too.
+    use wfl::typechecker::TypeChecker;
+
+    let source = r#"
+create interface Child extends NotAnInterface:
+    requires action ping
+end
+
+create container Widget implements Child:
+    property id: Number
+
+    action ping:
+        display "pong"
+    end
+end
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("test program should parse");
+    let diagnostics = TypeChecker::new()
+        .check_types(&program)
+        .expect_err("extending an undefined interface must be a static error")
+        .into_diagnostics();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|error| error.message.contains("NotAnInterface")),
+        "expected a diagnostic naming the unknown parent interface: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn typechecker_reports_non_interface_extended_name() {
+    use wfl::typechecker::TypeChecker;
+
+    let source = r#"
+create container NotReallyAnInterface:
+    property id: Number
+end
+
+create interface Child extends NotReallyAnInterface:
+    requires action ping
+end
+
+create container Widget implements Child:
+    property id: Number
+
+    action ping:
+        display "pong"
+    end
+end
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("test program should parse");
+    let diagnostics = TypeChecker::new()
+        .check_types(&program)
+        .expect_err("extending a container instead of an interface must be a static error")
+        .into_diagnostics();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|error| error.message.contains("NotReallyAnInterface")
+                && error.message.contains("not an interface")),
+        "expected a diagnostic naming the non-interface parent: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn typechecker_skips_conformance_when_parent_chain_unresolvable() {
+    // A container whose extends-parent the analyzer cannot resolve (e.g. a
+    // parent supplied by `include from`) must not produce a false "missing
+    // required action" diagnostic — the parent may well provide the action.
+    // The unresolved parent itself is already reported separately.
+    use wfl::typechecker::TypeChecker;
+
+    let source = r#"
+create interface Greeter:
+    requires action greet
+end
+
+create container Employee extends UnresolvableParent implements Greeter:
+    property job_title: Text
+end
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("test program should parse");
+    let diagnostics = match TypeChecker::new().check_types(&program) {
+        Ok(()) => Vec::new(),
+        Err(e) => e.into_diagnostics(),
+    };
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|error| error.message.contains("does not satisfy interface")),
+        "an unresolvable parent chain must suppress conformance diagnostics, got: {diagnostics:?}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|error| error.message.contains("UnresolvableParent")),
+        "the unresolved parent itself should still be reported: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn typechecker_reports_interface_return_type_mismatch() {
+    use wfl::typechecker::TypeChecker;
+
+    let source = r#"
+create interface Measurable:
+    requires action get_area: Number
+end
+
+create container Card implements Measurable:
+    property label: Text
+
+    action get_area: Text
+        return label
+    end
+end
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("test program should parse");
+    let diagnostics = TypeChecker::new()
+        .check_types(&program)
+        .expect_err("a matching-arity action with an incompatible return type must be a static error")
+        .into_diagnostics();
+    assert!(
+        diagnostics.iter().any(|error| {
+            error.message.contains("get_area") && error.message.contains("return")
+        }),
+        "expected a return-type conformance diagnostic for get_area: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn static_action_does_not_satisfy_interface() {
+    // Interface contracts are instance contracts: a static action with the
+    // right name must not satisfy `requires action`.
+    let program = r#"
+create interface Drawable:
+    requires action draw
+end
+
+create container Chart implements Drawable:
+    property title: Text
+
+    static action draw:
+        display "static draw"
+    end
+end
+
+display "should not get here"
+"#;
+    let output = run_wfl_program(program, "iface_static_not_satisfying");
+    assert!(
+        !output.status.success(),
+        "a static action must not satisfy an instance interface requirement"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("draw"),
+        "error should name the missing instance action; got: {stderr}"
+    );
+}
+
+#[test]
+fn implementing_a_container_instead_of_an_interface_fails_at_runtime() {
+    let program = r#"
+create container NotAnInterface:
+    property id: Number
+end
+
+create container Widget implements NotAnInterface:
+    property id: Number
+end
+
+display "should not get here"
+"#;
+    let output = run_wfl_program(program, "iface_not_an_interface");
+    assert!(
+        !output.status.success(),
+        "implementing a non-interface must fail"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("is not an interface"),
+        "error should explain the target is not an interface; got: {stderr}"
+    );
+}
+
+#[test]
+fn typed_parameter_and_return_type_colon_boundary() {
+    // Pin the colon grammar for interface signatures: the first colon after a
+    // parameter name annotates the parameter; a further colon sets the
+    // required return type.
+    let source = r#"
+create interface Sizer:
+    requires action set_size needs value: Number
+    requires action scaled_size needs factor: Number: Number
+end
+"#;
+    let program = parse(source).expect("both colon forms should parse");
+    let stmt = program
+        .statements
+        .iter()
+        .find(|s| matches!(s, Statement::InterfaceDefinition { .. }))
+        .expect("expected an InterfaceDefinition statement");
+    if let Statement::InterfaceDefinition {
+        required_actions, ..
+    } = stmt
+    {
+        let set_size = required_actions
+            .iter()
+            .find(|a| a.name == "set_size")
+            .expect("set_size signature");
+        assert_eq!(set_size.parameters.len(), 1);
+        assert!(
+            set_size.parameters[0].param_type.is_some(),
+            "first colon annotates the parameter"
+        );
+        assert!(
+            set_size.return_type.is_none(),
+            "no second colon means no required return type"
+        );
+
+        let scaled = required_actions
+            .iter()
+            .find(|a| a.name == "scaled_size")
+            .expect("scaled_size signature");
+        assert_eq!(scaled.parameters.len(), 1);
+        assert!(scaled.parameters[0].param_type.is_some());
+        assert!(
+            scaled.return_type.is_some(),
+            "second colon sets the required return type"
+        );
+    }
+}
+
+#[test]
+fn unterminated_interface_body_reports_real_position() {
+    let source = "create interface Broken:\n    requires action draw\n";
+    let errors = parse(source).expect_err("missing 'end' must be a parse error");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.line > 0 && e.message.contains("interface body")),
+        "the unterminated-body diagnostic should carry a real source position: {errors:?}"
+    );
+}
+
+// === Fixer round-trip (PR #686 review): --fix output must re-parse ===
+
+#[test]
+fn fixer_roundtrip_preserves_interface_bodies() {
+    use wfl::fixer::CodeFixer;
+
+    let source = r#"create interface Drawable:
+    requires action draw
+    requires action get_area: Number
+    requires action resize needs w: Number, h: Number
+end
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("interface body should parse");
+
+    let (fixed_code, _) = CodeFixer::new().fix(&program, source);
+
+    let fixed_tokens = lex_wfl_with_positions(&fixed_code);
+    let mut fixed_parser = Parser::new(&fixed_tokens);
+    let reparsed = fixed_parser
+        .parse()
+        .unwrap_or_else(|e| panic!("fixer output must re-parse, got {e:?}\noutput:\n{fixed_code}"));
+
+    let stmt = reparsed
+        .statements
+        .iter()
+        .find(|s| matches!(s, Statement::InterfaceDefinition { .. }))
+        .expect("re-parsed program should still contain the interface");
+    if let Statement::InterfaceDefinition {
+        required_actions, ..
+    } = stmt
+    {
+        assert_eq!(
+            required_actions.len(),
+            3,
+            "all required actions must survive the fix round-trip:\n{fixed_code}"
+        );
+        let resize = required_actions
+            .iter()
+            .find(|a| a.name == "resize")
+            .expect("resize survives round-trip");
+        assert_eq!(resize.parameters.len(), 2);
+        let get_area = required_actions
+            .iter()
+            .find(|a| a.name == "get_area")
+            .expect("get_area survives round-trip");
+        assert!(get_area.return_type.is_some());
+    }
+}
+
+#[test]
+fn fixer_roundtrip_preserves_bare_interfaces() {
+    use wfl::fixer::CodeFixer;
+
+    let source = "create interface Marker\n";
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("bare interface should parse");
+
+    let (fixed_code, _) = CodeFixer::new().fix(&program, source);
+
+    let fixed_tokens = lex_wfl_with_positions(&fixed_code);
+    let mut fixed_parser = Parser::new(&fixed_tokens);
+    let reparsed = fixed_parser.parse().unwrap_or_else(|e| {
+        panic!("fixer output for a bare interface must re-parse, got {e:?}\noutput:\n{fixed_code}")
+    });
+    assert!(
+        reparsed
+            .statements
+            .iter()
+            .any(|s| matches!(s, Statement::InterfaceDefinition { .. })),
+        "bare interface must survive the fix round-trip:\n{fixed_code}"
+    );
+}
+
 #[test]
 fn bare_interface_accepts_any_implementer_at_runtime() {
     // Backward compatibility: existing programs use `create interface X` with
