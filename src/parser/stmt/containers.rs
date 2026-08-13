@@ -1,8 +1,8 @@
 //! Container (OOP) statement parsing
 
 use super::super::{
-    Argument, EventDefinition, ParseError, Parser, PropertyDefinition, PropertyInitializer,
-    Statement, Type, Visibility,
+    ActionSignature, Argument, EventDefinition, ParseError, Parser, PropertyDefinition,
+    PropertyInitializer, Statement, Type, Visibility,
 };
 use super::actions::colon_type_from_token;
 use super::{ActionParser, StmtParser};
@@ -15,6 +15,7 @@ pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
         Self: StmtParser<'a>;
 
     fn parse_interface_definition(&mut self) -> Result<Statement, ParseError>;
+    fn parse_interface_body(&mut self) -> Result<Vec<ActionSignature>, ParseError>;
     fn parse_container_instantiation(&mut self) -> Result<Statement, ParseError>;
     fn parse_event_definition(&mut self) -> Result<Statement, ParseError>;
     fn parse_event_trigger(&mut self) -> Result<Statement, ParseError>;
@@ -184,14 +185,164 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
             ));
         };
 
-        // For now, just create a simple interface definition
+        // Optional 'extends' with one or more parent interfaces
+        let mut extends = Vec::new();
+        if let Some(token) = self.cursor.peek()
+            && token.token == Token::KeywordExtends
+        {
+            let extends_token = self.bump_sync().unwrap(); // Consume 'extends'
+            loop {
+                if let Some(token) = self.cursor.peek() {
+                    if let Token::Identifier(id) = &token.token {
+                        extends.push(id.clone());
+                        self.bump_sync(); // Consume the identifier
+                        if let Some(next_token) = self.cursor.peek()
+                            && next_token.token == Token::Comma
+                        {
+                            self.bump_sync(); // Consume comma
+                            continue;
+                        }
+                        break;
+                    } else {
+                        return Err(ParseError::from_token(
+                            "Expected interface name after 'extends'".to_string(),
+                            token,
+                        ));
+                    }
+                } else {
+                    return Err(ParseError::from_token(
+                        "Expected interface name after 'extends'".to_string(),
+                        extends_token,
+                    ));
+                }
+            }
+        }
+
+        // A bare 'create interface Name' (no colon) stays valid as an empty
+        // contract for backward compatibility. A colon opens a body of
+        // 'requires action ...' signatures terminated by 'end'.
+        let mut required_actions = Vec::new();
+        if let Some(token) = self.cursor.peek()
+            && token.token == Token::Colon
+        {
+            self.bump_sync(); // Consume ':'
+            required_actions = self.parse_interface_body()?;
+        }
+
         Ok(Statement::InterfaceDefinition {
             name,
-            extends: Vec::new(),
-            required_actions: Vec::new(),
+            extends,
+            required_actions,
             line,
             column,
         })
+    }
+
+    fn parse_interface_body(&mut self) -> Result<Vec<ActionSignature>, ParseError> {
+        let mut required_actions = Vec::new();
+
+        loop {
+            let Some(token) = self.cursor.peek() else {
+                return Err(ParseError::from_span(
+                    "Unexpected end of input in interface body".to_string(),
+                    crate::diagnostics::Span { start: 0, end: 0 },
+                    0,
+                    0,
+                ));
+            };
+
+            match &token.token {
+                Token::KeywordEnd => {
+                    self.bump_sync(); // Consume 'end'
+                    break;
+                }
+                Token::Eol => {
+                    self.bump_sync(); // Skip Eol between requirements
+                    continue;
+                }
+                Token::KeywordRequires => {
+                    let requires_token = self.bump_sync().unwrap(); // Consume 'requires'
+                    let line = requires_token.line;
+                    let column = requires_token.column;
+
+                    self.expect_token(
+                        Token::KeywordAction,
+                        "Expected 'action' after 'requires' in interface body",
+                    )?;
+
+                    let name = if let Some(token) = self.cursor.peek() {
+                        if let Token::Identifier(id) = &token.token {
+                            self.bump_sync(); // Consume the identifier
+                            id.clone()
+                        } else {
+                            return Err(ParseError::from_token(
+                                "Expected action name after 'requires action'".to_string(),
+                                token,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::from_token(
+                            "Expected action name after 'requires action'".to_string(),
+                            requires_token,
+                        ));
+                    };
+
+                    let mut parameters = Vec::new();
+                    if let Some(token) = self.cursor.peek()
+                        && matches!(&token.token, Token::KeywordNeeds | Token::KeywordWith)
+                    {
+                        self.bump_sync(); // Consume 'needs' / 'with'
+                        parameters = self.parse_parameter_list()?;
+                    }
+
+                    // Optional return type: 'requires action get_area: Number'
+                    let return_type = if let Some(token) = self.cursor.peek()
+                        && token.token == Token::Colon
+                    {
+                        self.bump_sync(); // Consume ':'
+                        if let Some(type_token) = self.cursor.peek() {
+                            if let Some(parsed) = colon_type_from_token(&type_token.token) {
+                                self.bump_sync(); // Consume type name
+                                Some(parsed)
+                            } else {
+                                return Err(ParseError::from_token(
+                                    "Expected type name after ':' in interface action signature"
+                                        .to_string(),
+                                    type_token,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::from_token(
+                                "Expected type name after ':' in interface action signature"
+                                    .to_string(),
+                                requires_token,
+                            ));
+                        }
+                    } else {
+                        None
+                    };
+
+                    required_actions.push(ActionSignature {
+                        name,
+                        parameters,
+                        return_type,
+                        line,
+                        column,
+                    });
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        format!(
+                            "Unexpected token in interface body: {:?}. Interface bodies contain 'requires action <name>' signatures.",
+                            token.token
+                        ),
+                        token,
+                    ));
+                }
+            }
+        }
+
+        Ok(required_actions)
     }
 
     fn parse_container_instantiation(&mut self) -> Result<Statement, ParseError> {

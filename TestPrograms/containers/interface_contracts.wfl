@@ -1,0 +1,136 @@
+// Interface contract test - interfaces with required actions are enforced
+// when a container definition claims to implement them.
+
+display "=== Interface Contract Test ==="
+
+// === Interface with a body: required actions ===
+create interface Drawable:
+    requires action draw
+    requires action get_area: Number
+end
+
+create container Rectangle implements Drawable:
+    property width: Number
+    property height: Number
+
+    action draw:
+        display "Drawing rectangle: " with width with " x " with height
+    end
+
+    action get_area: Number
+        return width times height
+    end
+end
+
+create new Rectangle as rect:
+    width is 10
+    height is 5
+end
+
+rect.draw()
+store area as rect.get_area()
+check if area is equal to 50:
+    display "PASS: area is 50"
+otherwise:
+    display "FAIL: area is " with area
+end check
+
+// === Interface extends: requirements accumulate ===
+create interface Shape extends Drawable:
+    requires action describe_shape: Text
+end
+
+create container Square implements Shape:
+    property side: Number
+
+    action draw:
+        display "Drawing square: " with side
+    end
+
+    action get_area: Number
+        return side times side
+    end
+
+    action describe_shape: Text
+        return "a square with side " with side
+    end
+end
+
+create new Square as sq:
+    side is 4
+end
+
+sq.draw()
+store sq_desc as sq.describe_shape()
+display "Square says: " with sq_desc
+check if sq.get_area() is equal to 16:
+    display "PASS: square area is 16"
+otherwise:
+    display "FAIL: square area is " with sq.get_area()
+end check
+
+// === Required action with parameters ===
+create interface Resizable:
+    requires action resize needs w: Number, h: Number
+end
+
+create container Panel implements Resizable:
+    property width: Number
+    property height: Number
+
+    action resize needs w: Number, h: Number:
+        store width as w
+        store height as h
+        display "Panel resized to " with width with " x " with height
+    end
+end
+
+create new Panel as panel:
+    width is 1
+    height is 1
+end
+
+panel.resize(20, 30)
+
+// === Inherited methods satisfy interface requirements ===
+create interface Greeter:
+    requires action greet
+end
+
+create container Person:
+    property name: Text
+
+    action greet:
+        display "Hello, I am " with name
+    end
+end
+
+create container Employee extends Person implements Greeter:
+    property job_title: Text
+end
+
+create new Employee as bob:
+    name is "Bob"
+    job_title is "Developer"
+end
+
+bob.greet()
+
+// === Bare interface: empty contract (backward compatible marker) ===
+create interface Marker
+
+create container Anything implements Marker:
+    property id: Number
+
+    action ping:
+        display "pong"
+    end
+end
+
+create new Anything as thing:
+    id is 1
+end
+
+thing.ping()
+
+display "=== Interface Contract Test Completed ==="

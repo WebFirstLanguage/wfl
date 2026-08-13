@@ -1,0 +1,7 @@
+create interface Drawable:
+    requires action draw
+end
+
+create container Circle implements Drawable:
+    property radius: Number
+end

@@ -72,7 +72,10 @@ display ""
 
 // === Interface Implementation ===
 display "3. Interface Implementation Test"
-create interface Drawable
+create interface Drawable:
+    requires action draw
+    requires action get_area: Number
+end
 
 create container Rectangle implements Drawable:
     property width: Number

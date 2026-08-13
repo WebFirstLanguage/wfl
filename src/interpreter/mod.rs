@@ -10055,6 +10055,19 @@ impl Interpreter {
                     container_events.insert(event.name.clone(), container_event);
                 }
 
+                // Enforce interface contracts before the definition becomes
+                // visible: a container that claims 'implements X' must provide
+                // every action X (and anything X extends) requires.
+                Self::validate_interface_conformance(
+                    &env,
+                    name,
+                    extends.as_ref(),
+                    &container_methods,
+                    implements,
+                    *line,
+                    *column,
+                )?;
+
                 let container_def = ContainerDefinitionValue {
                     name: name.clone(),
                     extends: extends.clone(),
@@ -15331,6 +15344,111 @@ impl Interpreter {
                 Rc::ptr_eq(&context.env, &defining_scope)
                     && context.property_owners.contains_key(name)
             })
+    }
+
+    /// Validate that a container provides every action required by the
+    /// interfaces it claims to implement. Requirements accumulate through
+    /// interface `extends` chains, and a requirement may be satisfied by a
+    /// method inherited through the container's own `extends` chain. An
+    /// interface with no body (`create interface Name`) is an empty contract
+    /// that every container satisfies.
+    fn validate_interface_conformance(
+        env: &Rc<RefCell<Environment>>,
+        container_name: &str,
+        container_extends: Option<&String>,
+        container_methods: &HashMap<String, ContainerMethodValue>,
+        implements: &[String],
+        line: usize,
+        column: usize,
+    ) -> Result<(), RuntimeError> {
+        // Resolve an instance method's parameter count: the container's own
+        // methods first, then the parent chain (bounded against definition
+        // cycles, which the environment cannot otherwise rule out).
+        let find_method_param_count = |method_name: &str| -> Option<usize> {
+            if let Some(method) = container_methods.get(method_name) {
+                return Some(method.params.len());
+            }
+            let mut parent_name = container_extends.cloned();
+            let mut visited_parents = HashSet::new();
+            while let Some(name) = parent_name {
+                if !visited_parents.insert(name.clone()) {
+                    return None;
+                }
+                let parent = match env.borrow().get(&name) {
+                    Some(Value::ContainerDefinition(definition)) => definition,
+                    _ => return None,
+                };
+                if let Some(method) = parent.methods.get(method_name) {
+                    return Some(method.params.len());
+                }
+                parent_name = parent.extends.clone();
+            }
+            None
+        };
+
+        for interface_name in implements {
+            let mut pending = vec![interface_name.clone()];
+            let mut visited = HashSet::new();
+            while let Some(current_name) = pending.pop() {
+                if !visited.insert(current_name.clone()) {
+                    continue;
+                }
+                let interface = match env.borrow().get(&current_name) {
+                    Some(Value::InterfaceDefinition(definition)) => definition,
+                    Some(_) => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Container '{container_name}' implements '{current_name}', but '{current_name}' is not an interface"
+                            ),
+                            line,
+                            column,
+                        ));
+                    }
+                    None => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Interface '{current_name}' not found for container '{container_name}'"
+                            ),
+                            line,
+                            column,
+                        ));
+                    }
+                };
+
+                for parent in &interface.extends {
+                    pending.push(parent.clone());
+                }
+
+                for (action_name, signature) in &interface.required_actions {
+                    match find_method_param_count(action_name) {
+                        None => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Container '{container_name}' does not satisfy interface '{}': missing required action '{action_name}'",
+                                    interface.name
+                                ),
+                                line,
+                                column,
+                            ));
+                        }
+                        Some(count) if count != signature.params.len() => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' takes {count} parameter(s) but the interface requires {}",
+                                    interface.name,
+                                    signature.params.len()
+                                ),
+                                line,
+                                column,
+                            ));
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn resolve_static_property(

@@ -6439,6 +6439,7 @@ impl TypeChecker {
                         );
                     }
                 }
+                self.check_interface_conformance(_name, implements, *line, *column);
 
                 for property in properties.iter().chain(static_properties.iter()) {
                     if let Some(default_expr) = &property.default_value {
@@ -10042,6 +10043,79 @@ impl TypeChecker {
     ) {
         self.errors
             .push(TypeError::new(message, expected, found, line, column));
+    }
+
+    /// Statically verify that a container provides every action required by
+    /// the interfaces it implements (including requirements accumulated
+    /// through interface `extends` chains). A requirement may be satisfied by
+    /// an inherited method from the container's own `extends` chain. Mirrors
+    /// the interpreter's runtime enforcement so tooling surfaces the breach
+    /// before execution.
+    fn check_interface_conformance(
+        &mut self,
+        container_name: &str,
+        implements: &[String],
+        line: usize,
+        column: usize,
+    ) {
+        use std::collections::HashSet;
+
+        // Resolve a method's parameter count through the container chain.
+        let find_method_param_count = |analyzer: &Analyzer, method_name: &str| -> Option<usize> {
+            let mut current = Some(container_name.to_string());
+            let mut visited = HashSet::new();
+            while let Some(name) = current {
+                if !visited.insert(name.clone()) {
+                    return None;
+                }
+                let container = analyzer.get_container(&name)?;
+                if let Some(method) = container.methods.get(method_name) {
+                    return Some(method.parameters.len());
+                }
+                current = container.extends.clone();
+            }
+            None
+        };
+
+        // Collect diagnostics first so the analyzer borrow does not overlap
+        // the mutable self borrow that type_error needs.
+        let mut diagnostics = Vec::new();
+        for interface_name in implements {
+            let mut pending = vec![interface_name.clone()];
+            let mut visited = HashSet::new();
+            while let Some(current_name) = pending.pop() {
+                if !visited.insert(current_name.clone()) {
+                    continue;
+                }
+                // Unknown names were already reported by the caller's
+                // interface-existence check; skip silently here.
+                let Some(interface) = self.analyzer.get_interface(&current_name) else {
+                    continue;
+                };
+                pending.extend(interface.extends.iter().cloned());
+
+                for (action_name, signature) in &interface.required_actions {
+                    match find_method_param_count(&self.analyzer, action_name) {
+                        None => diagnostics.push(format!(
+                            "Container '{container_name}' does not satisfy interface '{}': missing required action '{action_name}'",
+                            interface.name
+                        )),
+                        Some(count) if count != signature.parameters.len() => {
+                            diagnostics.push(format!(
+                                "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' takes {count} parameter(s) but the interface requires {}",
+                                interface.name,
+                                signature.parameters.len()
+                            ))
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
+        }
+
+        for message in diagnostics {
+            self.type_error(message, None, None, line, column);
+        }
     }
 
     /// Recreate a value that the interpreter binds while executing a statement.

@@ -1,0 +1,26 @@
+create interface Drawable:
+    requires action draw
+    requires action get_area: Number
+end
+
+create container Rectangle implements Drawable:
+    property width: Number
+    property height: Number
+
+    action draw:
+        display "Drawing rectangle: " with width with " x " with height
+    end
+
+    action get_area: Number
+        return width times height
+    end
+end
+
+create new Rectangle as rect:
+    width is 10
+    height is 5
+end
+
+rect.draw()
+store area as rect.get_area()
+display "Area: " with area

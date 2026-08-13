@@ -505,5 +505,80 @@
       "main-loop"
     ],
     "description": "Concurrent request handling with main loop concurrently."
+  },
+  "docs_examples/containers/basic_container_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#basic-container",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "properties",
+      "actions"
+    ],
+    "doc_purpose": "Demonstrates defining a container, creating an instance, and calling an action"
+  },
+  "docs_examples/containers/interfaces_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#interfaces",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "interfaces",
+      "requires"
+    ],
+    "doc_purpose": "Demonstrates an interface contract with required actions satisfied by an implementing container"
+  },
+  "docs_examples/containers/interface_missing_action_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#contracts-are-enforced",
+    "type": "error_example",
+    "validate_layers": [
+      1,
+      2,
+      5
+    ],
+    "expected_exit_code": 1,
+    "expected_error_pattern": "does not satisfy interface",
+    "tags": [
+      "containers",
+      "oop",
+      "interfaces",
+      "error"
+    ],
+    "doc_purpose": "Shows that a container missing a required interface action is rejected at runtime"
+  },
+  "docs_examples/containers/task_manager_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#complete-example-task-manager",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "lists",
+      "complete-example"
+    ],
+    "doc_purpose": "Complete task manager example combining containers, lists, and actions"
   }
 }

@@ -1,0 +1,71 @@
+create container Task:
+    property description: Text
+    property completed: Boolean
+    property priority: Number
+
+    action mark_complete:
+        store completed as yes
+        display "✓ Completed: " with description
+    end
+
+    action set_priority needs level: Number:
+        store priority as level
+    end
+
+    action to_string: Text
+        store mark as "☐"
+        check if completed is yes:
+            change mark to "✓"
+        end check
+        return mark with " " with description with " (P" with priority with ")"
+    end
+end
+
+create container TaskList:
+    property tasks: List
+
+    action add_task needs task: Task:
+        push with tasks and task
+    end
+
+    action show_all:
+        display "=== Task List ==="
+        for each task in tasks:
+            store task_str as task.to_string()
+            display task_str
+        end for
+    end
+
+    action complete_first:
+        check if length of tasks is greater than 0:
+            store first_task as tasks[0]
+            first_task.mark_complete()
+        end check
+    end
+end
+
+// Usage
+create new Task as task1:
+    description is "Learn WFL"
+    completed is no
+    priority is 1
+end
+
+create new Task as task2:
+    description is "Build web server"
+    completed is no
+    priority is 2
+end
+
+create new TaskList as my_tasks:
+    tasks is []
+end
+
+my_tasks.add_task(task1)
+my_tasks.add_task(task2)
+my_tasks.show_all()
+
+my_tasks.complete_first()
+
+display ""
+my_tasks.show_all()
