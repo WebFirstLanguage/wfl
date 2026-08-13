@@ -77,3 +77,35 @@ the error a breach produces, interface inheritance, and marker interfaces.
 The keyword references had two stale examples (`define interface called
 Runnable:`, `requires method run`) that matched no grammar past or present;
 both now show the real forms.
+
+## Review follow-up (same day)
+
+Automated reviewers on PR #686 surfaced real gaps, fixed red-first in a
+follow-up commit:
+
+- **Fixer round-trip** — `wfl --lint --fix --in-place` rewrote interface
+  declarations into a grammar the parser rejects (`with a as T and b as T`,
+  `returns`, `end interface`); the fixer now emits the shipped grammar and
+  spells bare interfaces without a body.
+- **Static/runtime parity on extends chains** — the type checker silently
+  skipped unknown or non-interface names reached through interface `extends`,
+  so `create interface Child extends NotAnInterface` passed static checks and
+  only failed at runtime. It reports them now.
+- **No false positives on unresolvable parents** — a container whose
+  `extends` parent the analyzer cannot see (e.g. from `include from`) no
+  longer draws a bogus "missing required action" diagnostic; conformance
+  defers to the runtime check, which resolves parents from the live
+  environment.
+- **Return-type conformance** — `requires action get_area: Number` is now
+  checked statically against the implementing action's declared or inferred
+  return type (Unknown/Any stay permissive, per gradual typing).
+- **Diagnostics** — chain errors name the interface the container actually
+  implements; an unterminated interface body reports a real position instead
+  of 0:0.
+- **Manifest schema** — `expected_failure_layer` now admits 5 (runtime), and
+  the enforcement error example declares it.
+
+Deliberately not changed: the analyzer's interface registry is keyed by name
+(not lexical binding), matching the existing container registry; a nested
+shadowing interface could confuse static diagnostics, but the runtime check
+scopes correctly. A scoped registry for both is a candidate follow-up.

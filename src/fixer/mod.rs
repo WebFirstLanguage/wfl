@@ -722,41 +722,48 @@ impl CodeFixer {
                     output.push_str(&extends.join(", "));
                 }
 
-                output.push_str(":\n");
+                // A bare interface (no requirements) is spelled without a
+                // colon or 'end' — the parser only opens a body after ':'.
+                if required_actions.is_empty() {
+                    output.push('\n');
+                    summary.lines_reformatted += 1;
+                } else {
+                    output.push_str(":\n");
 
-                // Format required actions
-                for action in required_actions {
-                    output.push_str(&format!("{indent}    "));
-                    output.push_str("requires action ");
-                    output.push_str(&action.name);
+                    // Format required actions in the grammar the parser
+                    // accepts: 'requires action <name> [needs a: T, b: T]
+                    // [: ReturnType]'.
+                    for action in required_actions {
+                        output.push_str(&format!("{indent}    "));
+                        output.push_str("requires action ");
+                        output.push_str(&action.name);
 
-                    // Format parameters
-                    if !action.parameters.is_empty() {
-                        output.push_str(" with ");
-                        for (i, param) in action.parameters.iter().enumerate() {
-                            if i > 0 {
-                                output.push_str(" and ");
-                            }
-                            output.push_str(&param.name);
-                            if let Some(param_type) = &param.param_type {
-                                output.push_str(" as ");
-                                output.push_str(&self.format_type(param_type));
+                        if !action.parameters.is_empty() {
+                            output.push_str(" needs ");
+                            for (i, param) in action.parameters.iter().enumerate() {
+                                if i > 0 {
+                                    output.push_str(", ");
+                                }
+                                output.push_str(&param.name);
+                                if let Some(param_type) = &param.param_type {
+                                    output.push_str(": ");
+                                    output.push_str(&self.format_type(param_type));
+                                }
                             }
                         }
+
+                        if let Some(return_type) = &action.return_type {
+                            output.push_str(": ");
+                            output.push_str(&self.format_type(return_type));
+                        }
+
+                        output.push('\n');
                     }
 
-                    // Format return type
-                    if let Some(return_type) = &action.return_type {
-                        output.push_str(" returns ");
-                        output.push_str(&self.format_type(return_type));
-                    }
-
-                    output.push('\n');
+                    output.push_str(&indent);
+                    output.push_str("end\n");
+                    summary.lines_reformatted += 1;
                 }
-
-                output.push_str(&indent);
-                output.push_str("end interface\n");
-                summary.lines_reformatted += 1;
             }
             Statement::EventDefinition {
                 name, parameters, ..

@@ -493,7 +493,9 @@ end
     let program = parser.parse().expect("test program should parse");
     let diagnostics = TypeChecker::new()
         .check_types(&program)
-        .expect_err("a matching-arity action with an incompatible return type must be a static error")
+        .expect_err(
+            "a matching-arity action with an incompatible return type must be a static error",
+        )
         .into_diagnostics();
     assert!(
         diagnostics.iter().any(|error| {

@@ -65,9 +65,9 @@
         },
         "expected_failure_layer": {
           "type": "integer",
-          "description": "For error_example type: which layer should fail (1-4)",
+          "description": "For error_example type: which layer should fail (1-5; 5 = runtime execution)",
           "minimum": 1,
-          "maximum": 4
+          "maximum": 5
         },
         "expected_error_pattern": {
           "type": "string",
@@ -560,7 +560,8 @@
       "interfaces",
       "error"
     ],
-    "doc_purpose": "Shows that a container missing a required interface action is rejected at runtime"
+    "doc_purpose": "Shows that a container missing a required interface action is rejected at runtime",
+    "expected_failure_layer": 5
   },
   "docs_examples/containers/task_manager_01.wfl": {
     "doc_section": "Docs/04-advanced-features/containers-oop.md#complete-example-task-manager",

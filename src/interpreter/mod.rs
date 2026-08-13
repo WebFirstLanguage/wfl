@@ -15387,18 +15387,26 @@ impl Interpreter {
         };
 
         for interface_name in implements {
-            let mut pending = vec![interface_name.clone()];
+            // (name, reached-through-extends): parent interfaces are named in
+            // errors together with the interface the container actually
+            // implements, so the message doesn't claim a direct 'implements'.
+            let mut pending = vec![(interface_name.clone(), false)];
             let mut visited = HashSet::new();
-            while let Some(current_name) = pending.pop() {
+            while let Some((current_name, inherited)) = pending.pop() {
                 if !visited.insert(current_name.clone()) {
                     continue;
                 }
+                let via = if inherited {
+                    format!(" (required through interface '{interface_name}')")
+                } else {
+                    String::new()
+                };
                 let interface = match env.borrow().get(&current_name) {
                     Some(Value::InterfaceDefinition(definition)) => definition,
                     Some(_) => {
                         return Err(RuntimeError::new(
                             format!(
-                                "Container '{container_name}' implements '{current_name}', but '{current_name}' is not an interface"
+                                "Container '{container_name}' requires '{current_name}'{via}, but '{current_name}' is not an interface"
                             ),
                             line,
                             column,
@@ -15407,7 +15415,7 @@ impl Interpreter {
                     None => {
                         return Err(RuntimeError::new(
                             format!(
-                                "Interface '{current_name}' not found for container '{container_name}'"
+                                "Interface '{current_name}' not found for container '{container_name}'{via}"
                             ),
                             line,
                             column,
@@ -15416,7 +15424,7 @@ impl Interpreter {
                 };
 
                 for parent in &interface.extends {
-                    pending.push(parent.clone());
+                    pending.push((parent.clone(), true));
                 }
 
                 for (action_name, signature) in &interface.required_actions {

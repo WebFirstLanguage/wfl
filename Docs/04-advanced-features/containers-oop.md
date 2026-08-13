@@ -290,6 +290,15 @@ A required action with parameters must be implemented with the same number of
 parameters. A requirement may also be satisfied by an action inherited from a
 parent container (`extends`).
 
+Two details of the contract:
+
+- **Interface contracts are instance contracts.** A `static action` with the
+  right name does not satisfy `requires action` — the requirement must be met
+  by a regular (instance) action.
+- **Required return types are checked statically.** If an interface declares
+  `requires action get_area: Number` and the implementing action returns
+  `Text`, the static checker reports the mismatch before the program runs.
+
 ### Interface Inheritance
 
 Interfaces can extend other interfaces; the requirements accumulate:

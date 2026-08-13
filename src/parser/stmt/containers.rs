@@ -15,7 +15,12 @@ pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
         Self: StmtParser<'a>;
 
     fn parse_interface_definition(&mut self) -> Result<Statement, ParseError>;
-    fn parse_interface_body(&mut self) -> Result<Vec<ActionSignature>, ParseError>;
+    fn parse_interface_body(
+        &mut self,
+        interface_name: &str,
+        header_line: usize,
+        header_column: usize,
+    ) -> Result<Vec<ActionSignature>, ParseError>;
     fn parse_container_instantiation(&mut self) -> Result<Statement, ParseError>;
     fn parse_event_definition(&mut self) -> Result<Statement, ParseError>;
     fn parse_event_trigger(&mut self) -> Result<Statement, ParseError>;
@@ -226,7 +231,7 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
             && token.token == Token::Colon
         {
             self.bump_sync(); // Consume ':'
-            required_actions = self.parse_interface_body()?;
+            required_actions = self.parse_interface_body(&name, line, column)?;
         }
 
         Ok(Statement::InterfaceDefinition {
@@ -238,18 +243,27 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         })
     }
 
-    fn parse_interface_body(&mut self) -> Result<Vec<ActionSignature>, ParseError> {
+    fn parse_interface_body(
+        &mut self,
+        interface_name: &str,
+        header_line: usize,
+        header_column: usize,
+    ) -> Result<Vec<ActionSignature>, ParseError> {
         let mut required_actions = Vec::new();
+        let mut last_position = (header_line, header_column);
 
         loop {
             let Some(token) = self.cursor.peek() else {
                 return Err(ParseError::from_span(
-                    "Unexpected end of input in interface body".to_string(),
+                    format!(
+                        "Unexpected end of input in interface body: interface '{interface_name}' is missing 'end'"
+                    ),
                     crate::diagnostics::Span { start: 0, end: 0 },
-                    0,
-                    0,
+                    last_position.0,
+                    last_position.1,
                 ));
             };
+            last_position = (token.line, token.column);
 
             match &token.token {
                 Token::KeywordEnd => {

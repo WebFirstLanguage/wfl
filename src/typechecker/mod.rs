@@ -6439,7 +6439,6 @@ impl TypeChecker {
                         );
                     }
                 }
-                self.check_interface_conformance(_name, implements, *line, *column);
 
                 for property in properties.iter().chain(static_properties.iter()) {
                     if let Some(default_expr) = &property.default_value {
@@ -6584,6 +6583,11 @@ impl TypeChecker {
                         }
                     }
                 }
+
+                // Conformance runs after the return-type refinement above so
+                // unannotated methods are checked against their real inferred
+                // return types rather than the provisional Unknown.
+                self.check_interface_conformance(_name, implements, *line, *column);
 
                 // Runtime returns the newly registered container definition.
                 self.current_statement_completion = Type::Container(_name.clone());
@@ -10060,54 +10064,108 @@ impl TypeChecker {
     ) {
         use std::collections::HashSet;
 
-        // Resolve a method's parameter count through the container chain.
-        let find_method_param_count = |analyzer: &Analyzer, method_name: &str| -> Option<usize> {
+        /// How a required action resolved against the container chain.
+        enum MethodLookup {
+            Found {
+                param_count: usize,
+                return_type: Type,
+            },
+            Missing,
+            /// A parent in the container's `extends` chain is invisible to
+            /// the analyzer (e.g. supplied by `include from`); conformance
+            /// cannot be decided statically, so no diagnostic is emitted —
+            /// the runtime check remains authoritative.
+            ChainUnresolved,
+        }
+
+        let find_method = |analyzer: &Analyzer, method_name: &str| -> MethodLookup {
             let mut current = Some(container_name.to_string());
             let mut visited = HashSet::new();
             while let Some(name) = current {
                 if !visited.insert(name.clone()) {
-                    return None;
+                    // Definition cycle: reported by the inheritance checks.
+                    return MethodLookup::Missing;
                 }
-                let container = analyzer.get_container(&name)?;
+                let Some(container) = analyzer.get_container(&name) else {
+                    return MethodLookup::ChainUnresolved;
+                };
                 if let Some(method) = container.methods.get(method_name) {
-                    return Some(method.parameters.len());
+                    return MethodLookup::Found {
+                        param_count: method.parameters.len(),
+                        return_type: method.return_type.clone(),
+                    };
                 }
                 current = container.extends.clone();
             }
-            None
+            MethodLookup::Missing
         };
 
         // Collect diagnostics first so the analyzer borrow does not overlap
         // the mutable self borrow that type_error needs.
         let mut diagnostics = Vec::new();
         for interface_name in implements {
-            let mut pending = vec![interface_name.clone()];
+            // (name, reached-through-extends) — direct `implements` entries
+            // have their existence reported by the caller already; names
+            // reached through interface `extends` chains are validated here.
+            let mut pending = vec![(interface_name.clone(), false)];
             let mut visited = HashSet::new();
-            while let Some(current_name) = pending.pop() {
+            while let Some((current_name, inherited)) = pending.pop() {
                 if !visited.insert(current_name.clone()) {
                     continue;
                 }
-                // Unknown names were already reported by the caller's
-                // interface-existence check; skip silently here.
                 let Some(interface) = self.analyzer.get_interface(&current_name) else {
+                    if inherited {
+                        if self.analyzer.get_symbol(&current_name).is_some() {
+                            diagnostics.push(format!(
+                                "Container '{container_name}' requires '{current_name}' through interface '{interface_name}', but '{current_name}' is not an interface"
+                            ));
+                        } else {
+                            diagnostics.push(format!(
+                                "Interface '{current_name}' not found for container '{container_name}' (required through interface '{interface_name}')"
+                            ));
+                        }
+                    }
                     continue;
                 };
-                pending.extend(interface.extends.iter().cloned());
+                pending.extend(
+                    interface
+                        .extends
+                        .iter()
+                        .map(|parent| (parent.clone(), true)),
+                );
 
                 for (action_name, signature) in &interface.required_actions {
-                    match find_method_param_count(&self.analyzer, action_name) {
-                        None => diagnostics.push(format!(
+                    match find_method(&self.analyzer, action_name) {
+                        MethodLookup::Missing => diagnostics.push(format!(
                             "Container '{container_name}' does not satisfy interface '{}': missing required action '{action_name}'",
                             interface.name
                         )),
-                        Some(count) if count != signature.parameters.len() => {
+                        MethodLookup::Found { param_count, .. }
+                            if param_count != signature.parameters.len() =>
+                        {
                             diagnostics.push(format!(
-                                "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' takes {count} parameter(s) but the interface requires {}",
+                                "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' takes {param_count} parameter(s) but the interface requires {}",
                                 interface.name,
                                 signature.parameters.len()
                             ))
                         }
-                        Some(_) => {}
+                        MethodLookup::Found { return_type, .. } => {
+                            // Compare return types only when both sides are
+                            // concrete — Unknown (no annotation / unrefined)
+                            // and Any stay permissive, matching the
+                            // gradual-typing rules.
+                            let required_return = &signature.return_type;
+                            if !matches!(required_return, Type::Unknown | Type::Any)
+                                && !matches!(return_type, Type::Unknown | Type::Any)
+                                && !self.are_types_compatible(required_return, &return_type)
+                            {
+                                diagnostics.push(format!(
+                                    "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' returns {return_type} but the interface requires {required_return}",
+                                    interface.name
+                                ));
+                            }
+                        }
+                        MethodLookup::ChainUnresolved => {}
                     }
                 }
             }
