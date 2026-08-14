@@ -1,0 +1,247 @@
+// Container events end to end (issue #685).
+//
+// Events used to be half-wired: `event` and `trigger` parsed, but a handler
+// could never be written or run, so a `trigger` that did nothing still looked
+// successful. Every test below asserts an observable effect of a handler
+// having run — a list the handler pushes to — rather than that the program
+// merely survived the trigger.
+
+describe "Container events":
+
+    test "a handler registered on an instance runs when the event is triggered":
+        create container Button:
+            property label: Text
+            event on_click
+            action click:
+                trigger on_click
+            end
+        end
+
+        create new Button as btn:
+            label is "Submit"
+        end
+
+        store clicks as []
+        on on_click of btn:
+            push with clicks and "clicked"
+        end on
+
+        btn.click()
+        expect length of clicks to equal 1
+    end test
+
+    test "an event that is never triggered runs nothing":
+        create container Toggle:
+            event on_flip
+            action flip:
+                trigger on_flip
+            end
+        end
+
+        create new Toggle as tog:
+        end
+
+        store flips as []
+        on on_flip of tog:
+            push with flips and "flipped"
+        end on
+
+        expect length of flips to equal 0
+    end test
+
+    test "trigger arguments bind to the event's needs parameters":
+        create container Slider:
+            event on_change needs old_value: Number, new_value: Number
+            action set_to needs v: Number:
+                trigger on_change with 10 and v
+            end
+        end
+
+        create new Slider as s:
+        end
+
+        store changes as []
+        on on_change of s:
+            push with changes and new_value
+            push with changes and old_value
+        end on
+
+        s.set_to(42)
+        expect length of changes to equal 2
+        expect changes[0] to equal 42
+        expect changes[1] to equal 10
+    end test
+
+    test "every registered handler runs, in registration order":
+        create container Bell:
+            event ring
+            action strike:
+                trigger ring
+            end
+        end
+
+        create new Bell as b:
+        end
+
+        store rings as []
+        on ring of b:
+            push with rings and "first"
+        end on
+        on ring of b:
+            push with rings and "second"
+        end on
+
+        b.strike()
+        expect length of rings to equal 2
+        expect rings[0] to equal "first"
+        expect rings[1] to equal "second"
+    end test
+
+    test "each trigger dispatches the handler exactly once":
+        create container Bell:
+            event ring
+            action strike:
+                trigger ring
+            end
+        end
+
+        create new Bell as b:
+        end
+
+        store rings as []
+        on ring of b:
+            push with rings and "ding"
+        end on
+
+        b.strike()
+        b.strike()
+        b.strike()
+        expect length of rings to equal 3
+    end test
+
+    test "handlers belong to one instance, not to the whole container":
+        create container Bell:
+            event ring
+            action strike:
+                trigger ring
+            end
+        end
+
+        create new Bell as loud:
+        end
+        create new Bell as quiet:
+        end
+
+        store rings as []
+        on ring of loud:
+            push with rings and "loud"
+        end on
+
+        quiet.strike()
+        expect length of rings to equal 0
+
+        loud.strike()
+        expect length of rings to equal 1
+    end test
+
+    test "an extending container inherits its parent's events":
+        create container Base:
+            event started
+            action begin:
+                trigger started
+            end
+        end
+
+        create container Derived extends Base:
+            action go:
+                trigger started
+            end
+        end
+
+        create new Derived as d:
+        end
+
+        store starts as []
+        on started of d:
+            push with starts and "started"
+        end on
+
+        d.begin()
+        d.go()
+        expect length of starts to equal 2
+    end test
+
+    test "a handler sees the scope it was registered in":
+        create container Bell:
+            event ring
+            action strike:
+                trigger ring
+            end
+        end
+
+        create new Bell as b:
+        end
+
+        store greeting as "hello"
+        store heard as []
+        on ring of b:
+            push with heard and greeting
+        end on
+
+        b.strike()
+        expect heard[0] to equal "hello"
+    end test
+
+    test "the bare on-form attaches to a top-level event":
+        event data_ready needs payload: Text
+
+        store received as []
+        on data_ready:
+            push with received and payload
+        end on
+
+        trigger data_ready with "the goods"
+        expect received[0] to equal "the goods"
+    end test
+
+    test "a parameter with no trigger argument binds to nothing":
+        event tick needs n: Number
+
+        store seen as []
+        on tick:
+            push with seen and n
+        end on
+
+        trigger tick
+        expect length of seen to equal 1
+        expect seen[0] to be nothing
+    end test
+
+    test "a handler registered during dispatch runs on the next trigger":
+        create container Bell:
+            event ring
+            action strike:
+                trigger ring
+            end
+        end
+
+        create new Bell as b:
+        end
+
+        store rings as []
+        on ring of b:
+            push with rings and "outer"
+            on ring of b:
+                push with rings and "added later"
+            end on
+        end on
+
+        b.strike()
+        expect length of rings to equal 1
+
+        b.strike()
+        // The second strike runs both the original and the added handler.
+        expect length of rings to equal 3
+    end test
+
+end describe
