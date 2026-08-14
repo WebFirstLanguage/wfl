@@ -5,38 +5,8 @@
 // blob, or a mismatched context must all be rejected, and rejected the same way,
 // so `unseal` never becomes an oracle that distinguishes one failure from another.
 
-use wfl::interpreter::Interpreter;
-use wfl::interpreter::value::Value;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
-
-async fn run_wfl(code: &str) -> Result<Interpreter, String> {
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let ast = parser.parse().map_err(|e| format!("Parse error: {e:?}"))?;
-
-    let mut interpreter = Interpreter::new();
-    interpreter
-        .interpret(&ast)
-        .await
-        .map_err(|e| format!("Runtime error: {e:?}"))?;
-    Ok(interpreter)
-}
-
-fn get_global(interpreter: &Interpreter, name: &str) -> Value {
-    interpreter
-        .global_env()
-        .borrow()
-        .get(name)
-        .unwrap_or_else(|| panic!("Variable '{name}' not found"))
-}
-
-fn expect_text(value: &Value) -> String {
-    match value {
-        Value::Text(t) => t.to_string(),
-        other => panic!("Expected text, got {other:?}"),
-    }
-}
+mod common;
+use common::{expect_text, get_global, run_wfl};
 
 /// A valid 32-byte key as 64 hex characters — the shape `secure_random_bytes of 32` returns.
 const KEY: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";

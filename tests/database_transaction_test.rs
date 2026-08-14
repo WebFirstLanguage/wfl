@@ -8,39 +8,10 @@
 // production. Every atomicity assertion here therefore runs against a temp file.
 
 use std::path::{Path, PathBuf};
-use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
 
-/// Run WFL code and return the interpreter for inspecting globals.
-async fn run_wfl(code: &str) -> Result<Interpreter, String> {
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let ast = parser.parse().map_err(|e| format!("Parse error: {e:?}"))?;
-
-    let mut interpreter = Interpreter::new();
-    interpreter
-        .interpret(&ast)
-        .await
-        .map_err(|e| format!("Runtime error: {e:?}"))?;
-    Ok(interpreter)
-}
-
-fn get_global(interpreter: &Interpreter, name: &str) -> Value {
-    interpreter
-        .global_env()
-        .borrow()
-        .get(name)
-        .unwrap_or_else(|| panic!("Variable '{name}' not found"))
-}
-
-fn expect_number(value: &Value) -> f64 {
-    match value {
-        Value::Number(n) => *n,
-        other => panic!("Expected number, got {other:?}"),
-    }
-}
+mod common;
+use common::{expect_number, get_global, run_wfl};
 
 fn expect_list(value: &Value) -> Vec<Value> {
     match value {
