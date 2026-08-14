@@ -5,6 +5,7 @@ use super::StmtParser;
 use super::database::DatabaseParser;
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
+use crate::parser::ast::ExitScope;
 use crate::parser::expr::ExprParser;
 
 /// Maps a token in type position (`x as <type>`, `returns <type>`) to its
@@ -641,15 +642,28 @@ impl<'a> ActionParser<'a> for Parser<'a> {
     fn parse_exit_statement(&mut self) -> Result<Statement, ParseError> {
         let exit_token = self.bump_sync().unwrap(); // Consume "exit"
 
-        // Check for "loop" after "exit"
-        if let Some(token) = self.cursor.peek()
-            && let Token::Identifier(id) = &token.token
-            && id.to_lowercase() == "loop"
-        {
-            self.bump_sync(); // Consume "loop"
+        // `exit loop` leaves the enclosing loop(s) (as does a bare `exit`);
+        // `exit program` terminates the program. `loop` may arrive as its own
+        // keyword token or as a plain identifier depending on context.
+        let mut scope = ExitScope::Loop;
+        if let Some(token) = self.cursor.peek() {
+            match &token.token {
+                Token::KeywordLoop => {
+                    self.bump_sync(); // Consume "loop"
+                }
+                Token::Identifier(id) if id.to_lowercase() == "loop" => {
+                    self.bump_sync(); // Consume "loop"
+                }
+                Token::Identifier(id) if id.to_lowercase() == "program" => {
+                    self.bump_sync(); // Consume "program"
+                    scope = ExitScope::Program;
+                }
+                _ => {}
+            }
         }
 
         Ok(Statement::ExitStatement {
+            scope,
             line: exit_token.line,
             column: exit_token.column,
         })

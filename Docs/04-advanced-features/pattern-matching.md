@@ -288,6 +288,51 @@ otherwise:
 end check
 ```
 
+## Replacing Matches
+
+`replace ... with ... in ...` returns a new text with every match replaced:
+
+```wfl
+create pattern separator:
+    "-" or "_"
+end pattern
+
+store raw as "first-name_last"
+store cleaned as replace separator with " " in raw
+display cleaned
+```
+
+**Output:**
+```
+first name last
+```
+
+**Syntax:**
+```wfl
+replace <pattern or text> with <replacement> in <text>
+```
+
+The thing being replaced may be a pattern *or* a plain text, which is matched
+verbatim — the same statement whether you have grown into patterns yet or not:
+
+```wfl
+store greeting as "hello world world"
+display replace "world" with "there" in greeting
+```
+
+**Output:**
+```
+hello there there
+```
+
+Matches are replaced left to right and never overlap; the original text is
+unchanged, so store the result if you need it. A pattern that matches nothing
+returns the text as-is.
+
+The replacement text is inserted literally. Referring to a capture group from
+the replacement is not supported yet — build the result with `find all` and
+text concatenation when you need that.
+
 ## Real-World Patterns
 
 ### Email Validation

@@ -57,6 +57,32 @@ count from <start> to <end> by <step>:
 end count
 ```
 
+The step is a *distance*, so it is always a positive number: a downward loop
+(`count from 10 down to 1 by 2`) subtracts it. A step of `0` or a negative step
+could never reach the end value, so it is reported as an error instead of
+looping forever. A loop whose range is already empty never runs its body, so
+its step is never used and never checked — `count from 5 to 1` does nothing,
+whatever step you give it.
+
+A step also has to be big enough to actually move the counter. Past about 9
+quadrillion, numbers lose the precision to add 1 to them, so
+`count from 100000000000000000 to 100000000000000100 by 1` would sit on the
+same value forever. WFL reports that instead of running it.
+
+### How Many Times a Count Loop May Run
+
+As many times as you ask it to. A count loop has no built-in trip limit —
+`count from 1 to 20000` runs 20,000 times, exactly like the equivalent
+`repeat while` or `for each`. A loop that never finishes is stopped by the
+execution timeout (`timeout_seconds` in `.wflcfg`, 60 seconds by default),
+which is the same protection every other loop form gets.
+
+One exception is worth knowing if you write servers: inside a `main loop` the
+execution timeout is suspended, because a server must not time out on its own
+uptime. Every loop form is unbounded there, count loops included, so a loop
+inside a request handler is only as bounded as the values you give it. Keep
+handler loop ranges under your own control rather than a caller's.
+
 ### Count Examples
 
 **Count to 100 by tens:**
@@ -268,7 +294,7 @@ end repeat
 
 ### Break (Exit Loop)
 
-Exit a loop early (if supported):
+Exit a loop early:
 
 ```wfl
 count from 1 to 100:
@@ -281,9 +307,35 @@ end count
 display "Loop exited at 5"
 ```
 
+`exit loop` (or a bare `exit`) does the same thing, except that it leaves
+*every* enclosing loop rather than only the innermost one:
+
+```wfl
+count from 1 to 3 as row:
+    count from 1 to 3 as col:
+        display row with "," with col
+        check if col is equal to 2:
+            exit loop  // leaves both loops
+        end check
+    end count
+end count
+
+display "Done"
+```
+
+**Output:**
+```
+1,1
+1,2
+Done
+```
+
+To stop the whole program rather than a loop, use `exit program` — see
+[Stopping the Program](control-flow.md#stopping-the-program).
+
 ### Continue (Skip)
 
-Skip to the next iteration (if supported):
+Skip to the next iteration:
 
 ```wfl
 count from 1 to 10:

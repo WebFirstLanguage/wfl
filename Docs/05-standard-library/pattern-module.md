@@ -152,6 +152,53 @@ end for
 
 ---
 
+### pattern_replace
+
+**Purpose:** Replace every match of a pattern with a replacement text.
+
+**Signature:**
+```wfl
+replace <pattern> with <replacement> in <text>
+```
+
+**Parameters:**
+- `pattern` (Pattern or Text): What to look for. A compiled pattern, or a
+  literal text matched verbatim (see [replace in the Text module](text-module.md#replace))
+- `replacement` (Text): What each match becomes
+- `text` (Text): Text to search
+
+**Returns:** Text - a new text; the original is unchanged
+
+**Example:**
+```wfl
+create pattern spaces:
+    one or more whitespace
+end pattern
+
+store messy as "too   many    spaces"
+store tidy as replace spaces with " " in messy
+display tidy
+```
+
+**Output:**
+```
+too many spaces
+```
+
+Every match is replaced, left to right, and the scan resumes after each match
+— matches never overlap. A pattern that matches nothing returns the text
+unchanged.
+
+**Use Cases:**
+- Normalize whitespace or separators
+- Redact matched text
+- Rewrite formats in place
+
+**Note:** The replacement is inserted literally; there is no syntax yet for
+referring to a capture group from the replacement text.
+
+---
+
 ## Pattern in Conditions
 
 The most common usage is in conditionals:
