@@ -110,6 +110,11 @@ jobs:
           persist-credentials: false
       - name: Test publish/backfill scripts
         run: ./scripts/test_publish_spaces.sh
+      # Same reasoning for the version-bump push: it only ever runs on pushes to
+      # main, writing directly to main, so its retry path is untestable in PR CI
+      # unless it is exercised here against a real local remote.
+      - name: Test version-bump push script
+        run: ./scripts/test_push_version_bump.sh
 
   clippy-and-test:
     name: Build, Test, Clippy
@@ -701,29 +706,13 @@ jobs:
       - name: Static hygiene and version check before push
         run: python scripts/check_repo_hygiene.py --mode static
 
+      # The retry loop lives in a script so it can be tested (see
+      # scripts/test_push_version_bump.sh, run by the `release-scripts` job).
+      # Each retry re-bumps onto the new tip and re-runs the hygiene check
+      # above against that new tree before pushing it.
       - name: Push changes
         if: success()
-        run: |
-          set -eu
-          BRANCH="${{ github.ref_name }}"
-          # The bump commit must fast-forward main. When another commit lands on
-          # main during this run (concurrent merges), the first push is rejected
-          # as non-fast-forward. Re-base the bump onto the new tip and retry.
-          # Because two concurrent runs can compute the same next version, we
-          # reset to the fresh tip and re-run the bump so the version is derived
-          # from the true current version instead of replaying a stale bump.
-          for attempt in 1 2 3 4 5; do
-            if git push origin HEAD:"$BRANCH"; then
-              echo "Pushed version bump on attempt $attempt"
-              exit 0
-            fi
-            echo "Push rejected on attempt $attempt (main advanced); re-bumping from latest tip..."
-            git fetch origin "$BRANCH"
-            git reset --hard "origin/$BRANCH"
-            python scripts/bump_version.py --update-all
-          done
-          echo "::error::Failed to push version bump after 5 attempts (main kept advancing)."
-          exit 1
+        run: ./scripts/push_version_bump.sh "${{ github.ref_name }}"
 
       - name: Tag the new version
         if: success()

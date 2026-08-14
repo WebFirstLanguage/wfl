@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Push the post-merge version-bump commit to a branch, re-bumping on rejection.
 #
-# Extracted verbatim from the `bump-version` job in .github/workflows/ci.yml so
-# the retry behaviour can be tested (inline workflow shell cannot be).
+# Extracted from the `bump-version` job in .github/workflows/ci.yml so the retry
+# behaviour can be tested (inline workflow shell cannot be).
 #
 # Usage: scripts/push_version_bump.sh <branch>
 #
@@ -34,6 +34,18 @@ for attempt in 1 2 3 4 5; do
   git reset --hard "origin/$BRANCH"
   # shellcheck disable=SC2086  # intentional word splitting: command + args
   $BUMP_CMD
+  # The re-bump produced a new commit on a new tree - whatever landed on
+  # `$BRANCH` concurrently, plus a fresh bump. The check the job ran before the
+  # first attempt says nothing about that tree, so hygiene and version agreement
+  # must be re-proven here, immediately before this push
+  # (REPOSITORY_HYGIENE.md §8).
+  # shellcheck disable=SC2086  # intentional word splitting: command + args
+  if ! $HYGIENE_CMD; then
+    # Abort rather than retry: retrying past a violation would defeat the gate.
+    # This leaves the branch un-bumped, which the next push to it recovers.
+    echo "::error::Static hygiene check failed on the re-bumped tree (attempt $attempt); refusing to push."
+    exit 1
+  fi
 done
 echo "::error::Failed to push version bump after 5 attempts (main kept advancing)."
 exit 1
