@@ -45,7 +45,12 @@ optimization — revert it.
    config, and `.repo-hygiene.toml` also go in the report's "Proposals for
    Brad" section instead of being applied. **Test-profile tuning
    (`[profile.test]`) is an ordinary candidate** — see the playbook's rules,
-   including the readable-panic check.
+   including the readable-panic check. One carve-out: when an accepted
+   candidate renames or moves test targets (e.g. suite consolidation), the
+   **mechanical** updates to references to those target names — in
+   `testing.md`, `scripts/`, and CI workflow files — are part of that same
+   candidate, because the gates cannot stay green without them. Substantive
+   CI changes (new jobs, runners, tools) remain proposals.
 6. **Hygiene:** all measurement scratch and reports go under
    `target/reports/test-shrink/` or the session temp dir — never into the tree.
 
@@ -57,7 +62,8 @@ optimization — revert it.
    ```
 2. **Green baseline.** Run the full gate once:
    `cargo test --all`, then `cargo build --release` and
-   `./scripts/run_integration_tests.sh`. If anything is red **stop** — report
+   `./scripts/run_integration_tests.sh` (`.ps1` on Windows — wherever this
+   skill says `.sh`, use the platform's variant). If anything is red **stop** — report
    the failure instead of optimizing on a broken base. Shrinking on red makes
    it impossible to tell whether a shrink broke something.
 3. **Working branch.** Do this work on a dedicated branch (or the branch the
@@ -73,7 +79,7 @@ way at the end):
 
 | Metric | How |
 |---|---|
-| Test source size | `wc -l tests/**/*.rs` total; `du -sh tests/` |
+| Test source size | `find tests -name '*.rs' -print0 \| xargs -0 wc -l \| tail -1`; `du -sh tests/` (not a bare `tests/**/*.rs` glob — without globstar it silently skips the top-level files, which is most of the suite) |
 | Fixture size | `du -sh tests/fixtures/` |
 | Debug/output volume | `cargo test --all 2>&1 \| wc -c` (bytes the suite prints) |
 | On-disk artifacts | `du -sh target/test-artifacts/` before vs after a run; list any stray files a run drops elsewhere (hygiene violations — fix on sight) |
@@ -145,9 +151,12 @@ For each candidate, in order:
    exercise (fixtures, harness, binary invocation), also rerun
    `./scripts/run_integration_tests.sh`.
 4. **Keep or revert.** Green → commit (one candidate, one commit, message
-   states the measured saving). Anything red or reviewer-rejected →
-   `git checkout -- .` / `git restore` back to the last commit. Never carry a
-   broken candidate forward while starting the next one.
+   states the measured saving). Anything red or reviewer-rejected → restore
+   tracked files (`git restore --staged --worktree -- .`) **and** delete any
+   files the attempt created with `git clean -fd` scoped to the paths the
+   candidate touched (e.g. `git clean -fd -- tests/`) — `git restore` alone
+   leaves new untracked files behind, silently polluting the next attempt.
+   Never carry a broken candidate forward while starting the next one.
 
 Stop the loop when: the worklist is empty, **or** the last 3 candidates were
 all rejected/reverted, **or** remaining candidates are estimated under ~1% of

@@ -58,6 +58,16 @@ order, and treats its claims as hypotheses to verify and measure.
 
 ## Notes
 
+- Also on this branch: `IDEA.md` (root, present since the initial commit; the
+  WFL language definition consumed by Hermes) was added to the root
+  allowlist in `.repo-hygiene.toml` at the maintainer's direction —
+  `REPOSITORY_HYGIENE.md` §9 names that file as the record of approved
+  exceptions. This unblocks the previously-failing hygiene gate.
+- Bot-review fixes folded in after PR #691 feedback: scoped `git clean` on
+  revert (untracked leftovers), `find`-based line counting (globstar trap),
+  corrected `[profile.test]`/`[profile.dev.package]` guidance (strip-vs-debug
+  conflict, dependency profile), a rule-5 carve-out for mechanical
+  test-target-name updates during consolidation, and `.ps1` variant notes.
 - No product code changed; this is tooling/process only.
 - The agents are written to be reusable by other orchestration loops, not
   just test-shrink.

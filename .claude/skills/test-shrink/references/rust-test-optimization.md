@@ -40,7 +40,10 @@ One binary, one link, same tests. Migration notes for this repo:
   attributes that must move or become `#[allow]` on the module.
 - `cargo test --test <old_name>` granularity is lost; the equivalent is
   `cargo test --test suite <module_name>::` filter strings. Update any docs or
-  scripts that name individual test targets (`testing.md`, CI, this skill).
+  scripts that name individual test targets (`testing.md`, `scripts/`, CI,
+  this skill) **in the same candidate** — SKILL.md rule 5's carve-out permits
+  these mechanical reference updates, since the gates can't stay green
+  without them.
 - The existing `tests/common/` sharing mechanism becomes a plain module of the
   suite — usually *simpler* after consolidation.
 - Verify with `cargo test --all` after each batch: the same test count must
@@ -53,9 +56,11 @@ before/after `du -sh target/debug/deps` and suite wall time.
 
 ## 2. Profile tuning for test builds — in-scope, with care
 
-`cargo test` builds in the dev profile: `opt-level = 0`, full debug info.
-Full debug symbols across ~146 (or even 1) test binaries are most of the disk
-cost; `opt-level = 0` makes interpreter-heavy tests slow at runtime.
+`cargo test` builds test targets with the `test` profile (which inherits
+`dev` by default — `opt-level = 0`, full debug info) and builds dependencies
+with the `dev` profile. Full debug symbols across ~146 (or even 1) test
+binaries are most of the disk cost; `opt-level = 0` makes interpreter-heavy
+tests slow at runtime.
 
 Candidate settings (verify against current Cargo docs, then measure):
 
@@ -63,10 +68,12 @@ Candidate settings (verify against current Cargo docs, then measure):
 [profile.test]
 opt-level = 1          # cheap runtime win for interpreter-heavy tests
 debug = 1              # line-tables-only: keeps usable panics/backtraces
-strip = "debuginfo"    # shrink test binaries on disk
+# Do NOT combine with `strip = "debuginfo"` — stripping removes the same
+# line tables `debug = 1` exists to keep, and panics go unreadable. If disk
+# is the priority, pick `strip` and full `debug = false` deliberately instead.
 
-# Optimize heavy dependencies harder while keeping WFL code fast to compile:
-[profile.test.package."*"]  # or name specific heavy deps (tokio, sqlx, …)
+# Dependencies are built with the dev profile, so tune heavy deps there:
+[profile.dev.package."*"]  # or name specific heavy deps (tokio, sqlx, …)
 opt-level = 2
 ```
 
