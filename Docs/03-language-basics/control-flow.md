@@ -523,6 +523,51 @@ end check
 
 This is automatic and helps performance!
 
+## Stopping the Program
+
+`exit program` stops the whole program where it stands, with a successful
+status:
+
+```wfl
+store name as "world"
+
+check if name is equal to "":
+    display "Please give me a name."
+    exit program
+end check
+
+display "Hello, " with name
+```
+
+It works anywhere — at top level, inside a loop, inside an action, or inside a
+`try` block — and nothing after it runs:
+
+```wfl
+define action called require with parameters value and message:
+    check if value is equal to "":
+        display message
+        exit program
+    end check
+end action
+
+store user_name as ""
+call require with user_name and "usage: greet <name>"
+display "Hello, " with user_name
+```
+
+Because stopping is not a failure, a `when error:` handler never catches
+`exit program`. A `finally:` block still runs, so cleanup is not skipped.
+
+**`exit program` vs `exit loop`:**
+
+| Spelling | What it leaves |
+|---|---|
+| `break` | The innermost loop |
+| `exit loop` (or bare `exit`) | Every enclosing loop |
+| `exit program` | The program |
+
+To stop with a *failure* status instead, raise an error rather than exiting.
+
 ## Common Mistakes
 
 ### Forgetting `end check`

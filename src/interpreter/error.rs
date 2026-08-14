@@ -14,6 +14,12 @@ pub enum ErrorKind {
     /// Catchable like any other error, but the concurrent `main loop` treats it
     /// as a normal handler outcome, not a structural failure.
     Cancelled,
+    /// Not a failure: an `exit program` statement asking the run to stop where
+    /// it stands. It travels as an error so it unwinds blocks, loops and
+    /// action calls alike, but it is deliberately **not** catchable by
+    /// `when error` and never reaches the user as a diagnostic — the top of
+    /// the run turns it back into a successful finish.
+    ExitProgram,
     FileNotFound,
     PermissionDenied,
     ProcessNotFound,
@@ -48,6 +54,23 @@ impl RuntimeError {
             kind,
         }
     }
+
+    /// The sentinel raised by `exit program`. See [`ErrorKind::ExitProgram`]:
+    /// it unwinds like an error but finishes the run successfully.
+    pub fn exit_program(line: usize, column: usize) -> Self {
+        RuntimeError {
+            message: "exit program".to_string(),
+            line,
+            column,
+            kind: ErrorKind::ExitProgram,
+        }
+    }
+
+    /// True for the `exit program` sentinel, which must never be caught by
+    /// `when error`, rewrapped by an include/module frame, or reported.
+    pub fn is_exit_program(&self) -> bool {
+        matches!(self.kind, ErrorKind::ExitProgram)
+    }
 }
 
 impl fmt::Display for RuntimeError {
@@ -58,6 +81,7 @@ impl fmt::Display for RuntimeError {
             ErrorKind::Timeout => "[Timeout] ",
             ErrorKind::ResourceLimit => "[Resource limit] ",
             ErrorKind::Cancelled => "[Cancelled] ",
+            ErrorKind::ExitProgram => "[Exit program] ",
             ErrorKind::FileNotFound => "[File not found] ",
             ErrorKind::PermissionDenied => "[Permission denied] ",
             ErrorKind::ProcessNotFound => "[Process not found] ",

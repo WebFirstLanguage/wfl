@@ -177,9 +177,7 @@ fn count_loop_rejects_a_step_that_never_reaches_the_end() {
     // Removing the trip cap must not turn a typo into a 60-second hang: a step
     // that cannot advance the counter toward the end value is refused up front
     // with a diagnostic that names the problem.
-    let (out, code) = run_src(
-        "count from 1 to 10 by 0:\n    display \"tick\"\nend count\n",
-    );
+    let (out, code) = run_src("count from 1 to 10 by 0:\n    display \"tick\"\nend count\n");
     assert_ne!(code, Some(0), "a zero step must be an error: {out}");
     assert!(
         out.to_lowercase().contains("step"),
@@ -198,7 +196,10 @@ fn count_loop_rejects_a_step_that_never_reaches_the_end() {
 #[test]
 fn exit_program_stops_the_program_at_top_level() {
     let (out, code) = run_src("display \"before\"\nexit program\ndisplay \"after\"\n");
-    assert!(out.contains("before"), "statements before it still run: {out}");
+    assert!(
+        out.contains("before"),
+        "statements before it still run: {out}"
+    );
     assert!(!out.contains("after"), "nothing after it runs: {out}");
     assert_eq!(code, Some(0), "a normal exit is status 0: {out}");
 }
@@ -217,7 +218,10 @@ fn exit_program_stops_the_program_from_inside_a_loop() {
     assert!(out.contains("tick 1"), "the loop starts: {out}");
     assert!(out.contains("tick 2"), "the deciding trip runs: {out}");
     assert!(!out.contains("tick 3"), "later trips do not run: {out}");
-    assert!(!out.contains("after"), "code after the loop does not run: {out}");
+    assert!(
+        !out.contains("after"),
+        "code after the loop does not run: {out}"
+    );
     assert_eq!(code, Some(0), "a normal exit is status 0: {out}");
 }
 
@@ -232,7 +236,10 @@ fn exit_program_stops_the_program_from_inside_an_action() {
          call bail\n\
          display \"after\"\n",
     );
-    assert!(out.contains("before"), "statements before it still run: {out}");
+    assert!(
+        out.contains("before"),
+        "statements before it still run: {out}"
+    );
     assert!(out.contains("bailing"), "the action body runs: {out}");
     assert!(!out.contains("after"), "the caller does not resume: {out}");
     assert_eq!(code, Some(0), "a normal exit is status 0: {out}");

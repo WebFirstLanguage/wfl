@@ -230,6 +230,7 @@ pub enum Statement {
         column: usize,
     },
     ExitStatement {
+        scope: ExitScope,
         line: usize,
         column: usize,
     },
@@ -1159,6 +1160,19 @@ impl fmt::Display for ParseError {
 pub enum WriteMode {
     Overwrite,
     Append,
+}
+
+/// What an `exit` statement leaves.
+///
+/// `exit` and `exit loop` leave the enclosing loop(s); `exit program`
+/// terminates the whole program with a successful status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExitScope {
+    /// `exit` / `exit loop`
+    #[default]
+    Loop,
+    /// `exit program`
+    Program,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,0 +1,47 @@
+// `exit program` end-to-end (issue #700)
+//
+// `exit program` is the documented spelling for stopping the whole program.
+// It used to fail to parse ("Variable 'program' is not defined", exit 3), and
+// bare `exit` did nothing at top level, so program termination had no working
+// spelling at all.
+//
+// This program stops in the middle: everything before the `exit program` runs,
+// nothing after it does, and the process still exits 0 — so the runner passing
+// this file is itself the assertion that a clean stop is a *successful* stop.
+
+define action called stop_when_empty with parameters value:
+    check if value is equal to "":
+        display "stopping: nothing to do"
+        exit program
+    end check
+    display "continuing with " with value
+end action
+
+define action called main:
+    display "main must not run after exit program"
+end action
+
+display "step 1: before any loop"
+
+count from 1 to 5:
+    display "step 2: trip " with count
+    check if count is equal to 2:
+        exit loop
+    end check
+end count
+
+display "step 3: exit loop left the loop and the program kept going"
+
+try:
+    display "step 4: inside try"
+when error:
+    display "step 4 handler must not run"
+end try
+
+call stop_when_empty with "a value"
+
+display "step 5: about to stop"
+
+call stop_when_empty with ""
+
+display "UNREACHABLE: statements after exit program must not run"

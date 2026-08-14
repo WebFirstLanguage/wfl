@@ -4004,7 +4004,7 @@ impl TypeChecker {
                         Type::Any
                     };
             }
-            Statement::ExitStatement { line: _, column: _ } => {}
+            Statement::ExitStatement { .. } => {}
             Statement::WaitForStatement {
                 inner,
                 line: _line,
@@ -8501,9 +8501,15 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Pattern && !self.is_gradual_type(&pattern_type) {
+                // The needle may be a compiled pattern or a literal text to
+                // match verbatim — the same statement, from the beginner form
+                // to the expert one.
+                if pattern_type != Type::Pattern
+                    && pattern_type != Type::Text
+                    && !self.is_gradual_type(&pattern_type)
+                {
                     self.type_error(
-                        format!("Expected Pattern for pattern replacement, got {pattern_type}"),
+                        format!("Expected Pattern or Text to replace, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
