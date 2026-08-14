@@ -1,0 +1,11 @@
+// Intentional error: Circle claims to implement Drawable but does not
+// provide the required 'draw' action, so defining the container fails.
+create interface Drawable:
+    requires action draw
+end
+
+create container Circle implements Drawable:
+    property radius: Number
+end
+
+display "unreachable: the container definition above must fail"

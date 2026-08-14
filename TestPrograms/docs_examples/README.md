@@ -131,7 +131,7 @@ Partial code demonstrating a concept:
 ### 3. Error Example (`type: "error_example"`)
 Intentionally incorrect code to demonstrate errors:
 - Must fail at specified layer
-- Requires `expected_failure_layer` (1-4)
+- Requires `expected_failure_layer` (1-5; 5 = runtime execution)
 - Requires `expected_error_pattern` (regex)
 - Used for: Error handling docs, type safety demos
 

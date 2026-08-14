@@ -478,19 +478,22 @@ impl CodeFixer {
 
                 output.push_str(":\n");
 
-                // Format static properties
+                // Format static properties. Property names are deliberately
+                // NOT snake_case-normalized: initializers in 'create new'
+                // blocks and member accesses print the original spelling, so
+                // renaming only the definition would break the program.
                 for prop in static_properties {
                     output.push_str(&format!("{indent}    "));
                     output.push_str("static property ");
                     output.push_str(&prop.name);
 
                     if let Some(prop_type) = &prop.property_type {
-                        output.push_str(" as ");
+                        output.push_str(": ");
                         output.push_str(&self.format_type(prop_type));
                     }
 
                     if let Some(default) = &prop.default_value {
-                        output.push_str(" = ");
+                        output.push_str(" defaults ");
                         self.pretty_print_expression(default, output, indent_level + 1, summary);
                     }
 
@@ -512,7 +515,7 @@ impl CodeFixer {
                     }
 
                     if let Some(default) = &prop.default_value {
-                        output.push_str(" = ");
+                        output.push_str(" defaults ");
                         self.pretty_print_expression(default, output, indent_level + 1, summary);
                     }
 
@@ -611,21 +614,22 @@ impl CodeFixer {
                     output.push('\n');
                 }
 
-                // Format events
+                // Format events in the grammar the container-body parser
+                // accepts: 'event <name> [needs a: T, b: T]'.
                 for event in events {
                     output.push_str(&format!("{indent}    "));
                     output.push_str("event ");
                     output.push_str(&event.name);
 
                     if !event.parameters.is_empty() {
-                        output.push_str(" with ");
+                        output.push_str(" needs ");
                         for (i, param) in event.parameters.iter().enumerate() {
                             if i > 0 {
-                                output.push_str(" and ");
+                                output.push_str(", ");
                             }
                             output.push_str(&param.name);
                             if let Some(param_type) = &param.param_type {
-                                output.push_str(" as ");
+                                output.push_str(": ");
                                 output.push_str(&self.format_type(param_type));
                             }
                         }
@@ -641,18 +645,31 @@ impl CodeFixer {
                     output.push('\n');
                 }
 
-                // Format static methods
+                // Format methods in container-body grammar ('action <name>
+                // ...: ... end'), not the standalone 'define action called'
+                // form, which the container-body parser rejects.
                 for method in static_methods {
-                    self.pretty_print_statement(method, output, indent_level + 1, summary);
+                    self.pretty_print_container_action(
+                        method,
+                        output,
+                        indent_level + 1,
+                        true,
+                        summary,
+                    );
                 }
 
-                // Format instance methods
                 for method in methods {
-                    self.pretty_print_statement(method, output, indent_level + 1, summary);
+                    self.pretty_print_container_action(
+                        method,
+                        output,
+                        indent_level + 1,
+                        false,
+                        summary,
+                    );
                 }
 
                 output.push_str(&indent);
-                output.push_str("end container\n");
+                output.push_str("end\n");
                 summary.lines_reformatted += 1;
             }
             Statement::ContainerInstantiation {
@@ -722,41 +739,48 @@ impl CodeFixer {
                     output.push_str(&extends.join(", "));
                 }
 
-                output.push_str(":\n");
+                // A bare interface (no requirements) is spelled without a
+                // colon or 'end' — the parser only opens a body after ':'.
+                if required_actions.is_empty() {
+                    output.push('\n');
+                    summary.lines_reformatted += 1;
+                } else {
+                    output.push_str(":\n");
 
-                // Format required actions
-                for action in required_actions {
-                    output.push_str(&format!("{indent}    "));
-                    output.push_str("requires action ");
-                    output.push_str(&action.name);
+                    // Format required actions in the grammar the parser
+                    // accepts: 'requires action <name> [needs a: T, b: T]
+                    // [: ReturnType]'.
+                    for action in required_actions {
+                        output.push_str(&format!("{indent}    "));
+                        output.push_str("requires action ");
+                        output.push_str(&action.name);
 
-                    // Format parameters
-                    if !action.parameters.is_empty() {
-                        output.push_str(" with ");
-                        for (i, param) in action.parameters.iter().enumerate() {
-                            if i > 0 {
-                                output.push_str(" and ");
-                            }
-                            output.push_str(&param.name);
-                            if let Some(param_type) = &param.param_type {
-                                output.push_str(" as ");
-                                output.push_str(&self.format_type(param_type));
+                        if !action.parameters.is_empty() {
+                            output.push_str(" needs ");
+                            for (i, param) in action.parameters.iter().enumerate() {
+                                if i > 0 {
+                                    output.push_str(", ");
+                                }
+                                output.push_str(&param.name);
+                                if let Some(param_type) = &param.param_type {
+                                    output.push_str(": ");
+                                    output.push_str(&self.format_type(param_type));
+                                }
                             }
                         }
+
+                        if let Some(return_type) = &action.return_type {
+                            output.push_str(": ");
+                            output.push_str(&self.format_type(return_type));
+                        }
+
+                        output.push('\n');
                     }
 
-                    // Format return type
-                    if let Some(return_type) = &action.return_type {
-                        output.push_str(" returns ");
-                        output.push_str(&self.format_type(return_type));
-                    }
-
-                    output.push('\n');
+                    output.push_str(&indent);
+                    output.push_str("end\n");
+                    summary.lines_reformatted += 1;
                 }
-
-                output.push_str(&indent);
-                output.push_str("end interface\n");
-                summary.lines_reformatted += 1;
             }
             Statement::EventDefinition {
                 name, parameters, ..
@@ -1007,6 +1031,71 @@ impl CodeFixer {
                 output.push_str(&format!("{expression:?}"));
             }
         }
+    }
+
+    /// Print a container method in the grammar the container-body parser
+    /// accepts: `action <name> [needs a: T, b: T][: ReturnType]:` + body +
+    /// `end`. Method and parameter names are deliberately NOT snake_case
+    /// normalized — method-call sites and interface `requires action` names
+    /// print the original spelling, so renaming only the definition would
+    /// break the fixed program (calls and interface conformance alike).
+    fn pretty_print_container_action(
+        &self,
+        method: &Statement,
+        output: &mut String,
+        indent_level: usize,
+        is_static: bool,
+        summary: &mut FixerSummary,
+    ) {
+        let Statement::ActionDefinition {
+            name,
+            parameters,
+            body,
+            return_type,
+            ..
+        } = method
+        else {
+            return;
+        };
+
+        let indent = "    ".repeat(indent_level);
+        output.push_str(&indent);
+        if is_static {
+            output.push_str("static ");
+        }
+        output.push_str("action ");
+        output.push_str(name);
+
+        if !parameters.is_empty() {
+            output.push_str(" needs ");
+            for (i, param) in parameters.iter().enumerate() {
+                if i > 0 {
+                    output.push_str(", ");
+                }
+                output.push_str(&param.name);
+                if let Some(param_type) = &param.param_type {
+                    output.push_str(": ");
+                    output.push_str(&self.format_type(param_type));
+                }
+            }
+        }
+
+        // The colon doubles as the body marker; a return type follows it
+        // directly ('action get_area: Number'), matching the parser.
+        output.push(':');
+        if let Some(return_type) = return_type {
+            output.push(' ');
+            output.push_str(&self.format_type(return_type));
+        }
+        output.push('\n');
+
+        for statement in body {
+            self.pretty_print_statement(statement, output, indent_level + 1, summary);
+        }
+
+        output.push_str(&indent);
+        output.push_str("end\n");
+        summary.lines_reformatted += 1;
     }
 
     fn fix_identifier_name(&self, name: &str, summary: &mut FixerSummary) -> String {

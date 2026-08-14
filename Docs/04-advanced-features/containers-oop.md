@@ -226,10 +226,14 @@ buddy.make_sound()
 
 ## Interfaces
 
-Interfaces define contracts that containers must fulfill:
+Interfaces define contracts that containers must fulfill. An interface body
+lists the actions every implementing container is **required** to provide:
 
 ```wfl
-create interface Drawable
+create interface Drawable:
+    requires action draw
+    requires action get_area: Number
+end
 
 create container Rectangle implements Drawable:
     property width: Number
@@ -252,6 +256,72 @@ end
 rect.draw()
 store area as rect.get_area()
 display "Area: " with area
+```
+
+**Syntax:**
+```wfl
+create interface <Name>:
+    requires action <name>
+    requires action <name>: <ReturnType>
+    requires action <name> needs <param>: <Type>, <param>: <Type>
+end
+```
+
+### Contracts Are Enforced
+
+A container that claims `implements X` but does not provide every required
+action is rejected. The static checker reports the breach, and the program
+stops with an error when the container definition runs:
+
+```wfl
+create interface Drawable:
+    requires action draw
+end
+
+create container Circle implements Drawable:
+    property radius: Number
+end
+
+// Error: Container 'Circle' does not satisfy interface 'Drawable':
+//        missing required action 'draw'
+```
+
+A required action with parameters must be implemented with the same number of
+parameters. A requirement may also be satisfied by an action inherited from a
+parent container (`extends`).
+
+Two details of the contract:
+
+- **Interface contracts are instance contracts.** A `static action` with the
+  right name does not satisfy `requires action` — the requirement must be met
+  by a regular (instance) action.
+- **Required return types are checked statically.** If an interface declares
+  `requires action get_area: Number` and the implementing action returns
+  `Text`, the static checker reports the mismatch before the program runs.
+
+### Interface Inheritance
+
+Interfaces can extend other interfaces; the requirements accumulate:
+
+```wfl
+create interface Drawable:
+    requires action draw
+end
+
+create interface Shape extends Drawable:
+    requires action get_area: Number
+end
+
+// A container implementing Shape must provide BOTH draw and get_area.
+```
+
+### Marker Interfaces
+
+An interface without a body is an empty contract — useful as a marker or tag
+that any container can implement:
+
+```wfl
+create interface Serializable
 ```
 
 ## Complete Example: Task Manager
@@ -358,7 +428,7 @@ In this section, you learned:
 ✅ **Creating instances** - `create new`
 ✅ **Calling actions** - `object.action()`
 ✅ **Inheritance** - `extends` keyword
-✅ **Interfaces** - `implements` keyword
+✅ **Interfaces** - `implements` keyword, contracts enforced via `requires action`
 ✅ **Complete examples** - Task manager with OOP
 
 ## Next Steps

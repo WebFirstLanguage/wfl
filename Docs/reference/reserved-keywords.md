@@ -163,7 +163,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `if` | Conditional | `check if x is 5:` |
 | `implements` | Interface implementation | `container Dog implements Animal:` |
 | `in` | For each collection | `for each item in list:` |
-| `interface` | Interface definition | `define interface called Runnable:` |
+| `interface` | Interface definition | `create interface Runnable:` |
 | `load` | Load module | `load module math` |
 | `module` | Module reference | `load module fs` |
 | `not` | Logical NOT | `check if not x:` |
@@ -175,7 +175,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `public` | Public visibility | `public property name` |
 | `push` | Add to list | `push with myList and item` |
 | `repeat` | Loop construct | `repeat 10 times:` |
-| `requires` | Interface requirement | `requires method run` |
+| `requires` | Interface requirement | `requires action run` |
 | `return` | Return value | `return result` |
 | `route` | Dispatch on a value (match/switch) | `route path:` |
 | `skip` | Continue (alias) | `skip` |
@@ -629,7 +629,7 @@ Complete reference table of all 181 keywords.
 | `if` | Structural | Control Flow | ❌ | `check if` |
 | `implements` | Structural | OOP | ❌ | `implements interface` |
 | `in` | Structural | Control Flow | ❌ | `for each in` |
-| `interface` | Structural | OOP | ❌ | `define interface` |
+| `interface` | Structural | OOP | ❌ | `create interface` |
 | `into` | Other | Process | ❌ | `output into` |
 | `is` | Other | Comparison | ❌ | `x is 5` |
 | `kill` | Other | Process | ❌ | `kill process` |
@@ -683,7 +683,7 @@ Complete reference table of all 181 keywords.
 | `repeat` | Structural | Control Flow | ❌ | `repeat 10 times` |
 | `replace` | Other | Pattern | ❌ | `replace pattern` |
 | `request` | Other | Web/Network | ❌ | `HTTP request` |
-| `requires` | Structural | OOP | ❌ | `requires method` |
+| `requires` | Structural | OOP | ❌ | `requires action` |
 | `respond` | Other | Web/Network | ❌ | `respond to request` |
 | `response` | Other | Web/Network | ❌ | `HTTP response` |
 | `return` | Structural | Operations | ❌ | `return value` |
