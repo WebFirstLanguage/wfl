@@ -566,6 +566,10 @@ Because stopping is not a failure, a `when error:` handler never catches
 | `exit loop` (or bare `exit`) | Every enclosing loop |
 | `exit program` | The program |
 
+`exit loop` is about loops only: outside one it has nothing to leave and does
+nothing, exactly like a `break` written outside a loop. Write `exit program`
+when you mean "stop here".
+
 To stop with a *failure* status instead, raise an error rather than exiting.
 
 ## Common Mistakes
