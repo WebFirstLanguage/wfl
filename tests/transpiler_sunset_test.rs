@@ -13,9 +13,8 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
-fn wfl_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_wfl")
-}
+mod common;
+use common::wfl_exe;
 
 const SAMPLE: &str = "store greeting as \"Hello\"\ndisplay greeting\n";
 

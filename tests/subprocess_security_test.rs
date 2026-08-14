@@ -4,6 +4,9 @@ use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
 
+mod common;
+use common::wfl_release_exe;
+
 /// Temp directory holding a `.wfl` program and optional `.wflcfg` so config walk-up works.
 struct TempWflEnv {
     _dir: TempDir,
@@ -53,14 +56,6 @@ allowed_shell_commands = where.exe
 warn_on_shell_execution = false
 "#;
 
-fn wfl_exe() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    }
-}
-
 fn run_wfl(code: &str) -> Result<String, String> {
     run_wfl_with_config(code, None)
 }
@@ -68,7 +63,7 @@ fn run_wfl(code: &str) -> Result<String, String> {
 fn run_wfl_with_config(code: &str, config: Option<&str>) -> Result<String, String> {
     let env = TempWflEnv::new(code, config).expect("Failed to create temp WFL env");
 
-    let output = Command::new(wfl_exe())
+    let output = Command::new(wfl_release_exe())
         .arg(env.path())
         .output()
         .expect("Failed to execute WFL");

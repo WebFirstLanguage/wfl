@@ -11,9 +11,8 @@
 use std::process::Command;
 use tempfile::TempDir;
 
-fn wfl_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_wfl")
-}
+mod common;
+use common::wfl_exe;
 
 /// Run `wfl <flag>` in an empty temp dir, returning (stdout, stderr, exit code).
 fn run_flag(flag: &str) -> (String, String, Option<i32>) {

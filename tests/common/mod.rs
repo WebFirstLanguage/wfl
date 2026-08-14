@@ -1,8 +1,11 @@
 //! Shared helpers for integration tests.
 #![allow(dead_code)]
 
+use std::fs;
 use std::net::TcpListener;
+use std::process::Command;
 
+use tempfile::TempDir;
 use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
@@ -144,4 +147,70 @@ pub fn get_number(interpreter: &Interpreter, name: &str) -> f64 {
         Value::Number(n) => n,
         other => panic!("Expected '{name}' to be a number, got {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Real-binary driver: spawn the actual `wfl` executable and capture its
+// output. Unlike the in-memory shapes above, these tests exercise the real
+// CLI boundary (argument parsing, process exit codes, file I/O), so they
+// spawn a subprocess rather than calling into the interpreter directly.
+// ---------------------------------------------------------------------------
+
+/// Absolute path to the `wfl` binary Cargo built for *this* test run.
+/// `CARGO_BIN_EXE_wfl` is injected by Cargo, so it always points at the
+/// freshly-built binary matching the current test profile (debug under plain
+/// `cargo test`, release under `cargo test --release`) — no stale-binary risk
+/// and no cwd assumption.
+pub fn wfl_exe() -> &'static str {
+    env!("CARGO_BIN_EXE_wfl")
+}
+
+/// Path to the separately-built `target/release/wfl` binary. This is a
+/// *different* binary from [`wfl_exe`] (which may point at a debug build) —
+/// callers that need the release binary specifically (e.g. because a sibling
+/// helper in the same file already assumes it, or the test predates
+/// `CARGO_BIN_EXE_wfl` and was never migrated) use this instead.
+pub fn wfl_release_exe() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "target/release/wfl.exe"
+    } else {
+        "target/release/wfl"
+    }
+}
+
+/// Run inline WFL source (via [`wfl_exe`]) in a fresh temp dir, returning
+/// (combined stdout+stderr, exit code).
+pub fn run_src(src: &str) -> (String, Option<i32>) {
+    let dir = TempDir::new().expect("tempdir");
+    let path = dir.path().join("main.wfl");
+    fs::write(&path, src).unwrap();
+    let output = Command::new(wfl_exe())
+        .arg(&path)
+        .output()
+        .expect("failed to execute WFL");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    drop(dir);
+    (combined, output.status.code())
+}
+
+/// Run a WFL file that already lives inside `dir` (via [`wfl_release_exe`]),
+/// so relative paths like `include from`/`load module from` resolve to
+/// sibling files. Returns (combined stdout+stderr, exit code).
+pub fn run_file_status(dir: &TempDir, name: &str, extra_args: &[&str]) -> (String, Option<i32>) {
+    let path = dir.path().join(name);
+    let output = Command::new(wfl_release_exe())
+        .args(extra_args)
+        .arg(&path)
+        .output()
+        .expect("Failed to execute WFL");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (combined, output.status.code())
 }
