@@ -101,6 +101,18 @@ pub struct ContainerInfo {
     pub column: usize,
 }
 
+/// Static view of an interface contract: the actions a conforming container
+/// must provide, plus the interfaces this one extends (whose requirements
+/// accumulate onto implementers).
+#[derive(Debug, Clone)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub extends: Vec<String>,
+    pub required_actions: HashMap<String, MethodInfo>,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct PropertyInfo {
     pub name: String,
@@ -370,6 +382,7 @@ pub struct Analyzer {
     /// constant shadowed in an inner scope is not mistaken for the outer one.
     constant_bindings: std::collections::HashSet<SymbolBindingKey>,
     containers: HashMap<String, ContainerInfo>,
+    interfaces: HashMap<String, InterfaceInfo>,
     events: HashMap<String, EventInfo>,
     current_container: Option<String>,
     /// Whether the currently analyzed container method is static. `None`
@@ -658,6 +671,7 @@ impl Analyzer {
             action_parameters: std::collections::HashSet::new(),
             constant_bindings: std::collections::HashSet::new(),
             containers: HashMap::new(),
+            interfaces: HashMap::new(),
             events: HashMap::new(),
             current_container: None,
             current_method_is_static: None,
@@ -735,6 +749,7 @@ impl Analyzer {
         self.action_parameters.clear();
         self.constant_bindings.clear();
         self.containers.clear();
+        self.interfaces.clear();
         self.events.clear();
         self.current_container = None;
         self.current_method_is_static = None;
@@ -2330,8 +2345,8 @@ impl Analyzer {
 
             Statement::InterfaceDefinition {
                 name,
-                extends: _,
-                required_actions: _,
+                extends,
+                required_actions,
                 line,
                 column,
             } => {
@@ -2347,6 +2362,33 @@ impl Analyzer {
                 if let Err(e) = self.current_scope.define(interface_symbol) {
                     self.errors.push(e);
                 }
+
+                // Record the contract so the type checker can verify that
+                // implementing containers actually provide these actions.
+                let mut actions = HashMap::new();
+                for signature in required_actions {
+                    actions.insert(
+                        signature.name.clone(),
+                        MethodInfo {
+                            name: signature.name.clone(),
+                            parameters: signature.parameters.clone(),
+                            return_type: signature.return_type.clone().unwrap_or(Type::Unknown),
+                            is_public: true,
+                            line: signature.line,
+                            column: signature.column,
+                        },
+                    );
+                }
+                self.interfaces.insert(
+                    name.clone(),
+                    InterfaceInfo {
+                        name: name.clone(),
+                        extends: extends.clone(),
+                        required_actions: actions,
+                        line: *line,
+                        column: *column,
+                    },
+                );
             }
 
             Statement::CreateListStatement {
@@ -3534,6 +3576,10 @@ impl Analyzer {
 
     pub fn get_containers(&self) -> &HashMap<String, ContainerInfo> {
         &self.containers
+    }
+
+    pub fn get_interface(&self, name: &str) -> Option<&InterfaceInfo> {
+        self.interfaces.get(name)
     }
 
     fn enter_child_scope(&mut self, parent: Scope) {
