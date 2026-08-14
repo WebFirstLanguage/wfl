@@ -262,18 +262,29 @@ impl LintRule for KeywordCasingRule {
         let mut keyword_cache: HashMap<String, bool> = HashMap::new();
 
         for token in lex_wfl_with_positions(source) {
-            let Token::Identifier(ref name) = token.token else {
-                continue;
-            };
-
             // The lexer merges adjacent identifier words into one multi-word
             // identifier, so check each word separately. Words are ASCII and the
             // separators are spaces/tabs, so the byte offset within the token's
             // span is also the column offset. Multi-word identifiers never span
             // lines (a newline flushes them), so the line is the token's line.
-            let text = source
-                .get(token.byte_start..token.byte_end)
-                .unwrap_or(name.as_str());
+            let text = match token.token {
+                Token::Identifier(ref name) => source
+                    .get(token.byte_start..token.byte_end)
+                    .unwrap_or(name.as_str()),
+                // `yes`/`no`/`true`/`false` are the one case-*insensitive*
+                // production in the lexer (`src/lexer/token.rs:446`), so `YES`
+                // lexes as a boolean literal and never reaches the identifier
+                // branch. The pre-#707 rule carried `yes`/`no` in its keyword
+                // array and warned on them, so they are checked here to keep
+                // that coverage rather than silently dropping it.
+                Token::BooleanLiteral(_) => {
+                    let Some(text) = source.get(token.byte_start..token.byte_end) else {
+                        continue;
+                    };
+                    text
+                }
+                _ => continue,
+            };
 
             for (offset, word) in word_positions(text) {
                 if !word.chars().any(char::is_uppercase) {

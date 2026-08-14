@@ -95,3 +95,33 @@ reaches the linter — `STORE alpha as 1` exits 2 with a parse error. LINT-KEYWO
 therefore only fires on mis-cased words that still parse, e.g. `store Count as 5`.
 That is pre-existing CLI behavior, identical before and after, and is recorded
 here so the rule's real reach is not overstated.
+
+## Review round: the one token that is case-insensitive
+
+Codex and Devin both caught, independently, that the first cut of this rewrite
+lost coverage the old rule had.
+
+`yes`/`no`/`true`/`false` are the single case-*insensitive* production in the
+lexer:
+
+```rust
+#[regex("(?i:yes|no|true|false)", ...)]
+BooleanLiteral(bool),
+```
+
+So `store flag as YES` lexes as a `BooleanLiteral`, never as an `Identifier`,
+and an identifier-only rule skipped it silently. The pre-#707 implementation
+carried `yes` and `no` in its 26-keyword array and *did* warn on them — so the
+claim that "output for genuine hits is identical" was false for exactly those
+two keywords, in exactly the way a substring search happened to get right.
+
+The rule now checks `BooleanLiteral` spans as well. Everything else in the
+lexer is case-sensitive — `NothingLiteral` is `#[token("nothing")]`, so
+`Nothing` still arrives as an identifier and was always covered.
+
+Worth recording as a general shape: replacing a crude mechanism with a precise
+one silently drops whatever the crude mechanism covered by accident. The
+regression was invisible in the six tests written for the reported defect,
+because those tests were all about false *positives*.
+
+Red: `90bfb69`. Green: the boolean-literal branch, 12/12 after.
