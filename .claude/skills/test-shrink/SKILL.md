@@ -84,7 +84,7 @@ way at the end):
 | Debug/output volume | `cargo test --all 2>&1 \| wc -c` (bytes the suite prints) |
 | On-disk artifacts | `du -sh target/test-artifacts/` before vs after a run; list any stray files a run drops elsewhere (hygiene violations — fix on sight) |
 | Wall time | time of `cargo test --all` and of the integration script |
-| Test binary footprint | `du -sh target/debug/deps/` and count of test binaries — with ~146 separate files under `tests/`, each is its own binary statically linking the whole compiler with debug info; this is usually where most of the "debug data" lives |
+| Test binary footprint | `du -sh target/debug/deps/` and count of test binaries — with ~146 separate files under `tests/`, each is its own binary statically linking the whole compiler with debug info; this is usually where most of the "debug data" lives. **Compare like with like:** Cargo never deletes a removed target's old binaries, so a dirty `deps/` diff shows no saving (or growth) after consolidation — measure from equivalent clean states, or inventory only the current target graph's artifacts (`cargo test --no-run --message-format=json` lists them) |
 
 Not every metric must improve every run — but no metric may get *worse* in an
 accepted change without an explicit reason in its commit message.
@@ -141,10 +141,15 @@ For each candidate, in order:
    the exact change, the hard rules above verbatim, and the targeted test
    command for the affected area (e.g. `cargo test --test <name>`). One
    candidate per agent; small focused diffs are what make step 3 meaningful.
-2. **Review — spawn `code-reviewer`** on the diff (`git diff`). Its one
-   non-negotiable question: *does the suite still verify everything it
-   verified before this diff?* It answers KEEP / REVISE / REJECT with
-   evidence. REVISE goes back to a code-monkey once; REJECT means revert now.
+2. **Review — spawn `code-reviewer`** on the complete change: run
+   `git add -A` first, then have it review `git status --short` plus
+   `git diff --cached HEAD` — a plain `git diff` omits newly created files
+   and staged-only changes (e.g. a new shared helper, or `git mv`s during
+   consolidation), letting a KEEP through without the reviewer ever seeing
+   the code that decides coverage. Its one non-negotiable question: *does
+   the suite still verify everything it verified before this diff?* It
+   answers KEEP / REVISE / REJECT with evidence. REVISE goes back to a
+   code-monkey once; REJECT means revert now.
 3. **Verify.** Targeted tests first (fast feedback), then before committing:
    `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`,
    `cargo test --all`. If the change touched anything the end-to-end programs
