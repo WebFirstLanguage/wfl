@@ -9,6 +9,9 @@
 // unsupported error — never a silent no-op, which is the failure mode the issue
 // complains about.
 
+// `Value` is only referenced from the `unix` module below; on Windows the import
+// would be dead and `-D warnings` rejects it.
+#[cfg(unix)]
 use wfl::interpreter::value::Value;
 
 mod common;
