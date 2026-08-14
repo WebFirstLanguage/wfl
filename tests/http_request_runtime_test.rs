@@ -12,6 +12,9 @@ use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
+mod common;
+use common::{get_text, get_var, run_wfl_ok as run_wfl};
+
 /// Captured request: (request line + headers, body)
 type CapturedRequest = (String, String);
 
@@ -76,36 +79,6 @@ async fn spawn_echo_server() -> (String, tokio::task::JoinHandle<CapturedRequest
     });
 
     (format!("http://{addr}"), handle)
-}
-
-async fn run_wfl(code: &str) -> Interpreter {
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let program = parser
-        .parse()
-        .unwrap_or_else(|e| panic!("Parse error: {e:?}"));
-
-    let mut interpreter = Interpreter::new();
-    interpreter
-        .interpret(&program)
-        .await
-        .unwrap_or_else(|e| panic!("Runtime error: {e:?}"));
-    interpreter
-}
-
-fn get_var(interpreter: &Interpreter, name: &str) -> Value {
-    interpreter
-        .global_env()
-        .borrow()
-        .get(name)
-        .unwrap_or_else(|| panic!("Variable '{name}' not found"))
-}
-
-fn get_text(interpreter: &Interpreter, name: &str) -> String {
-    match get_var(interpreter, name) {
-        Value::Text(t) => t.to_string(),
-        other => panic!("Expected '{name}' to be text, got {other:?}"),
-    }
 }
 
 #[tokio::test]

@@ -7,31 +7,8 @@
 //! the bare semver text of `wfl::version::VERSION` (mirroring how `newline` and
 //! `tab` are exposed).
 
-use std::fs;
-use std::process::Command;
-use tempfile::TempDir;
-
-fn wfl_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_wfl")
-}
-
-/// Run inline WFL source in a fresh temp dir, returning (stdout+stderr, exit code).
-fn run_src(src: &str) -> (String, Option<i32>) {
-    let dir = TempDir::new().expect("tempdir");
-    let path = dir.path().join("main.wfl");
-    fs::write(&path, src).unwrap();
-    let output = Command::new(wfl_exe())
-        .arg(&path)
-        .output()
-        .expect("failed to execute WFL");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    drop(dir);
-    (combined, output.status.code())
-}
+mod common;
+use common::run_src;
 
 /// `wfl_version` resolves to the running interpreter's semver text and matches
 /// the compiled-in constant exactly.

@@ -131,3 +131,19 @@ debug = true
 # request-handler fault isolation (Phase 1) stays sound. Enforced by the
 # `#[cfg(panic = "abort")] compile_error!` in src/lib.rs.
 panic = "unwind"
+
+# Test-shrink: the suite's 143 top-level `tests/*.rs` files each statically
+# link the whole compiler, and full debug info pushed `target/` to ~27 GB
+# (25.1 GB of it test binaries) -- past a 30 GB environment's disk budget and
+# fatal to the link step (`ld ... signal 7 [Bus error]`). `line-tables-only`
+# keeps file/line info for panics and backtraces while dropping variable/type
+# DWARF, so panic messages and backtraces still name file and line.
+#
+# This is deliberately scoped to `[profile.test]` only. Under `cargo test`
+# the *entire* build graph -- the local library, the `wfl` binary, and every
+# external dependency -- is built with the `test` profile, so this one setting
+# captures the whole saving. `[profile.dev]` is intentionally left at full
+# debug info so ordinary `cargo build` / `cargo run` binaries stay fully
+# inspectable in a debugger.
+[profile.test]
+debug = "line-tables-only"

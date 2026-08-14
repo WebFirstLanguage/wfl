@@ -14,13 +14,8 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
-fn wfl_exe() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    }
-}
+mod common;
+use common::wfl_release_exe;
 
 /// Run a single WFL program (written to a temp file) and return combined
 /// stdout + stderr.
@@ -35,7 +30,7 @@ fn run_wfl(code: &str) -> String {
 /// sibling modules), returning combined stdout + stderr.
 fn run_file(dir: &TempDir, name: &str) -> String {
     let path = dir.path().join(name);
-    let output = Command::new(wfl_exe())
+    let output = Command::new(wfl_release_exe())
         .arg(&path)
         .output()
         .expect("Failed to execute WFL");
@@ -49,7 +44,7 @@ fn analyze_wfl(code: &str) -> String {
     let dir = TempDir::new().expect("tempdir");
     let main = dir.path().join("main.wfl");
     fs::write(&main, code).expect("write");
-    let output = Command::new(wfl_exe())
+    let output = Command::new(wfl_release_exe())
         .arg("--analyze")
         .arg(&main)
         .output()
@@ -243,7 +238,7 @@ fn undefined_action_with_include_is_surfaced_as_warning() {
     )
     .unwrap();
 
-    let output = Command::new(wfl_exe())
+    let output = Command::new(wfl_release_exe())
         .arg("--analyze")
         .arg(&main)
         .output()

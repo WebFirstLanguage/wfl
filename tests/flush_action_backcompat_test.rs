@@ -7,28 +7,12 @@
 //! merged `flush …` tokens to the streaming flush; it must still prefer a defined
 //! action of that full name so an existing program keeps working.
 
-use std::fs;
-use std::process::Command;
-use tempfile::TempDir;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
 
-fn run_src(src: &str) -> (String, Option<i32>) {
-    let dir = TempDir::new().expect("tempdir");
-    let path = dir.path().join("main.wfl");
-    fs::write(&path, src).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_wfl"))
-        .arg(&path)
-        .output()
-        .expect("failed to execute WFL");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    (combined, output.status.code())
-}
+mod common;
+use common::run_src;
 
 #[test]
 fn flush_calls_a_matching_zero_arg_action_instead_of_flushing_a_stream() {
