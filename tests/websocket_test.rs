@@ -240,3 +240,113 @@ async fn websocket_close_server_closes_connections() {
 
     let _ = child.kill().await;
 }
+
+/// `exit program` inside a websocket handler must stop the whole program, not
+/// be reported as a handler error while the event pump carries on.
+const EXIT_PROGRAM_PROGRAM: &str = r#"
+listen for websockets on port 0 as ws_server
+
+on websocket connect to ws_server as conn:
+    send websocket message "ready" to conn
+end on
+
+on websocket message from ws_server as msg:
+    display "handler reached"
+    exit program
+end on
+
+wait for 30 seconds
+
+display "UNREACHABLE: the program kept running after exit program"
+"#;
+
+/// Like [`start_ws_server`], but keeps the stdout reader and captures stderr so
+/// a test can assert on everything the program printed after startup.
+async fn start_ws_server_capturing(
+    program: &str,
+) -> (
+    Child,
+    u16,
+    TempDir,
+    tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let prog_path = dir.path().join("ws_server.wfl");
+    std::fs::write(&prog_path, program).expect("write program");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wfl"))
+        .arg(&prog_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("spawn wfl binary");
+
+    let stdout = child.stdout.take().expect("child stdout");
+    let mut lines = BufReader::new(stdout).lines();
+
+    let port = tokio::time::timeout(Duration::from_secs(60), async {
+        while let Ok(Some(line)) = lines.next_line().await {
+            const MARKER: &str = "listening on port ";
+            if let Some(idx) = line.rfind(MARKER)
+                && let Ok(port) = line[idx + MARKER.len()..].trim().parse::<u16>()
+            {
+                return Some(port);
+            }
+        }
+        None
+    })
+    .await
+    .expect("timed out waiting for the websocket server to start")
+    .expect("server did not announce a port");
+
+    (child, port, dir, lines)
+}
+
+#[tokio::test]
+async fn websocket_handler_exit_program_stops_the_program() {
+    let (mut child, port, _dir, mut lines) = start_ws_server_capturing(EXIT_PROGRAM_PROGRAM).await;
+    let mut ws = connect(port).await;
+    assert_eq!(next_text(&mut ws).await, "ready");
+
+    ws.send(Message::Text("stop".into()))
+        .await
+        .expect("send stop");
+
+    // The program still has ~30 seconds of `wait for` left. Stopping means the
+    // process goes away well before that window closes; swallowing the sentinel
+    // means it runs the wait out and then prints the unreachable line.
+    let status = tokio::time::timeout(Duration::from_secs(15), child.wait())
+        .await
+        .expect("exit program must stop the process, not just print an error")
+        .expect("wait for the child");
+
+    let mut stdout = String::new();
+    while let Ok(Some(line)) = lines.next_line().await {
+        stdout.push_str(&line);
+        stdout.push('\n');
+    }
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        use tokio::io::AsyncReadExt;
+        let _ = err.read_to_string(&mut stderr).await;
+    }
+
+    assert!(
+        stdout.contains("handler reached"),
+        "the handler body ran: {stdout}"
+    );
+    assert!(
+        !stdout.contains("UNREACHABLE"),
+        "statements after the stop must not run: {stdout}"
+    );
+    assert!(
+        !stderr.contains("handler error"),
+        "stopping is not a handler error: {stderr}"
+    );
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "a clean stop is a successful stop (stdout: {stdout}, stderr: {stderr})"
+    );
+}

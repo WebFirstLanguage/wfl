@@ -235,18 +235,7 @@ pub fn native_pattern_replace(
         }
     };
 
-    let _pattern = match &args[1] {
-        Value::Pattern(p) => p.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument must be a pattern".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
-
-    let _replacement = match &args[2] {
+    let replacement = match &args[2] {
         Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -257,8 +246,66 @@ pub fn native_pattern_replace(
         }
     };
 
-    // TODO: Update to use new pattern system for replacement
-    Ok(Value::Text(Arc::from(text)))
+    let pattern = match &args[1] {
+        Value::Pattern(p) => p,
+        // A literal needle is the beginner spelling of the same operation:
+        // `replace "world" with "there" in s`. It is matched literally, so
+        // pattern syntax inside it is just characters.
+        Value::Text(needle) => {
+            return Ok(Value::Text(Arc::from(
+                text.replace(needle.as_ref(), replacement).as_str(),
+            )));
+        }
+        _ => {
+            return Err(RuntimeError::new(
+                "Second argument must be a pattern or text".to_string(),
+                line,
+                column,
+            ));
+        }
+    };
+
+    // Every match is replaced, left to right. Matches come back as *character*
+    // offsets, so the rebuild walks characters rather than slicing on byte
+    // offsets, which would panic (or silently mis-cut) on multibyte text.
+    let budget = ExecutionBudget::current_or_default();
+    let matches = pattern
+        .find_all_with_budget(text, &budget)
+        .map_err(pattern_err)?;
+
+    if matches.is_empty() {
+        return Ok(Value::Text(Arc::from(text)));
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    let mut char_idx = 0usize;
+
+    // `find_all` yields non-overlapping matches in ascending order (a
+    // zero-width match advances the scan by one character), so a single
+    // forward pass over the input is enough.
+    for match_result in matches {
+        while char_idx < match_result.start {
+            match chars.next() {
+                Some(c) => {
+                    result.push(c);
+                    char_idx += 1;
+                }
+                None => break,
+            }
+        }
+        while char_idx < match_result.end {
+            match chars.next() {
+                Some(_) => char_idx += 1,
+                None => break,
+            }
+        }
+        result.push_str(replacement);
+    }
+
+    result.extend(chars);
+
+    Ok(Value::Text(Arc::from(result.as_str())))
 }
 
 /// Native function for pattern splitting (called by interpreter)

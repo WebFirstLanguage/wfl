@@ -1,0 +1,84 @@
+// Replacement and count-loop behaviour (issues #698, #699)
+//
+// #698: `replace <pattern or text> with <text> in <text>` used to validate its
+// arguments and then return the input unchanged, so every program that reached
+// for it got a silently wrong answer and a zero exit status.
+//
+// #699: the count loop's trip guard was keyed on the loop's *end value*, so
+// `count from 1 to 20000` aborted at 10001 trips while `count from 1 to
+// 1000001` ran uncapped, and a downward loop was capped by the value it
+// counted down to.
+
+create pattern separator:
+    "-" or "_"
+end pattern
+
+create pattern two_digits:
+    exactly 2 digit
+end pattern
+
+describe "Replacing text":
+
+    test "a literal needle replaces every occurrence":
+        store greeting as "hello world world"
+        expect replace "world" with "there" in greeting to equal "hello there there"
+    end test
+
+    test "the original text is left alone":
+        store greeting as "hello world"
+        store changed as replace "world" with "there" in greeting
+        expect greeting to equal "hello world"
+        expect changed to equal "hello there"
+    end test
+
+    test "a literal needle is matched verbatim":
+        // Characters that mean something inside a pattern are just characters
+        // in a literal needle.
+        expect replace "." with "-" in "a.b.c" to equal "a-b-c"
+    end test
+
+    test "a needle that never occurs changes nothing":
+        expect replace "absent" with "x" in "hello world" to equal "hello world"
+    end test
+
+    test "multibyte text is replaced at the right place":
+        expect replace "é" with "E" in "aébécé" to equal "aEbEcE"
+    end test
+
+    test "a pattern replaces every match":
+        expect replace separator with " " in "first-name_last" to equal "first name last"
+    end test
+
+    test "a pattern replaces whole matches, not single characters":
+        expect replace two_digits with "#" in "a12b34c5" to equal "a#b#c5"
+    end test
+
+end describe
+
+describe "Count loops":
+
+    test "a loop runs every trip it was asked for":
+        store total as 0
+        count from 1 to 20000:
+            change total to total plus 1
+        end count
+        expect total to equal 20000
+    end test
+
+    test "a downward loop is not limited by the value it counts down to":
+        store total as 0
+        count from 20000 down to 1:
+            change total to total plus 1
+        end count
+        expect total to equal 20000
+    end test
+
+    test "a stepped loop runs every trip":
+        store total as 0
+        count from 1 to 40000 by 2:
+            change total to total plus 1
+        end count
+        expect total to equal 20000
+    end test
+
+end describe

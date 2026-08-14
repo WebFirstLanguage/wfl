@@ -29,7 +29,7 @@ Quick lookup for all WFL reserved keywords.
 | `downward` | Count loop direction | ✗ |
 | `each` | For each loop | ✗ |
 | `end` | Close block | ✗ |
-| `exit` | Exit program/loop | ✗ |
+| `exit` | Exit loops (`exit loop`) or the program (`exit program`) | ✗ |
 | `for` | For loop | ✗ |
 | `forever` | Infinite loop | ✗ |
 | `from` | Count loop start | ✗ |
@@ -152,7 +152,7 @@ Quick lookup for all WFL reserved keywords.
 | `one` | Quantifier (one or more) | ✗ |
 | `optional` | Optional quantifier | ✗ |
 | `pattern` | Pattern definition | ✓ |
-| `replace` | Pattern replacement | ✗ |
+| `replace` | Pattern or text replacement | ✗ |
 | `script` | Unicode script | ✗ |
 | `split` | Split by pattern | ✗ |
 | `start` | Start anchor | ✗ |

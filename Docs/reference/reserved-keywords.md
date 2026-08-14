@@ -607,7 +607,7 @@ Complete reference table of all 181 keywords.
 | `exactly` | Other | Pattern | ❌ | `exactly 5 times` |
 | `execute` | Other | Process | ❌ | `execute command` |
 | `exists` | Other | File I/O | ❌ | `file exists` |
-| `exit` | Other | Control Flow | ❌ | `exit program` |
+| `exit` | Other | Control Flow | ❌ | `exit loop` / `exit program` |
 | `extension` | Contextual | File I/O | ✅ | `file extension` |
 | `extensions` | Contextual | File I/O | ✅ | `file extensions` |
 | `extends` | Structural | OOP | ❌ | `container extends` |
@@ -681,7 +681,7 @@ Complete reference table of all 181 keywords.
 | `register` | Other | Web/Network | ❌ | `register handler` |
 | `remove` | Other | Operations | ❌ | `remove item` |
 | `repeat` | Structural | Control Flow | ❌ | `repeat 10 times` |
-| `replace` | Other | Pattern | ❌ | `replace pattern` |
+| `replace` | Other | Pattern | ❌ | `replace <pattern or text> with <text> in <text>` |
 | `request` | Other | Web/Network | ❌ | `HTTP request` |
 | `requires` | Structural | OOP | ❌ | `requires action` |
 | `respond` | Other | Web/Network | ❌ | `respond to request` |
