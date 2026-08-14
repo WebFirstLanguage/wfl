@@ -49,9 +49,21 @@ Two things worth recording, because both contradict the skill's own playbook:
   0 = none, 1 = limited, 2 = full; `line-tables-only` is a separate named level,
   lighter than 1. The playbook's inline comment (`debug = 1 # line-tables-only`)
   is wrong and should be corrected.
-- **`[profile.test]` alone would not have worked.** Integration-test binaries
-  link the library as a *dev*-profile dependency, so `[profile.dev]` carries most
-  of the saving.
+- **`[profile.test]` alone is exactly right — and the first version of this
+  change got that wrong.** It originally set `[profile.dev]` *and*
+  `[profile.test]`, on the belief that integration-test binaries link the
+  library as a *dev*-profile dependency. That belief is false, and PR #694
+  review (Codex) caught it. Under `cargo test` the **entire** build graph — the
+  local library, the `wfl` binary, and every external dependency — is built with
+  the `test` profile. Verified with a throwaway crate built with deliberately
+  different values (`[profile.dev] debug = 0`, `[profile.test] debug = 2`): the
+  plain `--crate-type lib` rlib *and* an external path dependency both compiled
+  with `-C debuginfo=2`, i.e. the test profile, never dev's 0. Confirmed against
+  the real repo too — dropping the `[profile.dev]` override left the test binary
+  at 56.1 MB and `libwfl-*.rlib` at 85.5 MB, byte-identical to before. So the
+  dev override bought nothing for tests and only cost contributors variable and
+  type DWARF in ordinary `cargo build` / `cargo run` binaries. It was removed;
+  `[profile.dev]` stays at full debug info.
 
 No `strip` was added — it would remove the very line tables the setting keeps.
 `[profile.release]` was not touched; its `debug = true` stays deliberate.
@@ -115,6 +127,14 @@ full-suite count held at 2096 throughout.
    six tests fail with an opaque
    `Os { code: 2, kind: NotFound }` rather than a clear "run cargo build
    --release first" message.
+   *Partly addressed during PR #694 review:* both Devin and Copilot
+   independently flagged that hoisting `wfl_release_exe()` into the shared
+   harness made this trap easier to reach, since a future author picking
+   `run_file_status` silently gets the release binary. The shared helper now
+   anchors the path to `CARGO_MANIFEST_DIR` (so it no longer depends on the test
+   process's working directory) and asserts the binary exists with an actionable
+   "Run `cargo build --release` first" message. `binary_io_test.rs` still has its
+   own copy of the hardcoded path and is unfixed — see issue #692.
 3. **30 file-I/O tests can drop files into the repo root on failure.**
    `tests/file_io_{performance,concurrent,error_handling,execution}_test.rs` call
    `cleanup_test_files()` as a plain trailing statement with no `Drop` guard, so

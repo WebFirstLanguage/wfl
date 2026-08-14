@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -170,12 +171,30 @@ pub fn wfl_exe() -> &'static str {
 /// callers that need the release binary specifically (e.g. because a sibling
 /// helper in the same file already assumes it, or the test predates
 /// `CARGO_BIN_EXE_wfl` and was never migrated) use this instead.
-pub fn wfl_release_exe() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
+///
+/// Unlike [`wfl_exe`], this binary is **not** built by `cargo test`; it has to
+/// exist already. The path is anchored to `CARGO_MANIFEST_DIR` rather than a
+/// bare relative path so it does not depend on the test process's working
+/// directory, and a missing binary fails with an actionable message instead of
+/// a bare `Os { code: 2, kind: NotFound }` from the eventual spawn.
+pub fn wfl_release_exe() -> PathBuf {
+    let name = if cfg!(target_os = "windows") {
+        "wfl.exe"
     } else {
-        "target/release/wfl"
-    }
+        "wfl"
+    };
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("release")
+        .join(name);
+    assert!(
+        path.exists(),
+        "release binary not found at {}\n\
+         This test runs the separately-built release binary; `cargo test` does not build it.\n\
+         Run `cargo build --release` first.",
+        path.display()
+    );
+    path
 }
 
 /// Run inline WFL source (via [`wfl_exe`]) in a fresh temp dir, returning
