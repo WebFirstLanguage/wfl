@@ -14,7 +14,8 @@
 //! and #700 describe.
 
 mod common;
-use common::run_src;
+use common::{run_file_status, run_src};
+use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
 // #698 — replace actually replaces
@@ -306,5 +307,163 @@ fn bare_exit_still_leaves_the_loop_and_keeps_going() {
     assert!(out.contains("tick 2"), "the deciding trip runs: {out}");
     assert!(!out.contains("tick 3"), "the loop stops: {out}");
     assert!(out.contains("after"), "the program continues: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+// ---------------------------------------------------------------------------
+// Follow-ups raised in review of the fix itself
+// ---------------------------------------------------------------------------
+
+#[test]
+fn count_loop_with_an_empty_range_ignores_its_step() {
+    // Backward compatibility: the step only matters if the loop is entered.
+    // `count from 5 to 1` never runs its body, so a nonsense step was — and
+    // must remain — harmless. Validating it unconditionally turned a working
+    // program into a runtime error.
+    let (out, code) = run_src(
+        "count from 5 to 1 by 0:\n\
+         \x20   display \"never\"\n\
+         end count\n\
+         display \"done\"\n",
+    );
+    assert!(!out.contains("never"), "the body must not run: {out}");
+    assert!(out.contains("done"), "the program continues: {out}");
+    assert_eq!(code, Some(0), "an empty range is not an error: {out}");
+}
+
+#[test]
+fn count_loop_with_an_empty_downward_range_ignores_its_step() {
+    let (out, code) = run_src(
+        "count from 1 down to 5 by 0:\n\
+         \x20   display \"never\"\n\
+         end count\n\
+         display \"done\"\n",
+    );
+    assert!(!out.contains("never"), "the body must not run: {out}");
+    assert!(out.contains("done"), "the program continues: {out}");
+    assert_eq!(code, Some(0), "an empty range is not an error: {out}");
+}
+
+#[test]
+fn count_loop_rejects_a_step_too_small_to_advance_the_counter() {
+    // A positive, finite step is not enough: below the counter's floating-point
+    // resolution `count + step == count`, so the loop can never reach its end.
+    // 100000000000000000 plus 1 is still 100000000000000000.
+    let started = std::time::Instant::now();
+    let (out, code) = run_src(
+        "count from 100000000000000000 to 100000000000000100 by 1:\n\
+         \x20   display \"tick\"\n\
+         end count\n",
+    );
+    let elapsed = started.elapsed();
+    assert_ne!(code, Some(0), "a non-advancing step must be refused: {out}");
+    assert!(
+        out.to_lowercase().contains("step"),
+        "the diagnostic must name the step: {out}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "the loop must be refused up front, not spin until the timeout \
+         (took {elapsed:?}): {out}"
+    );
+}
+
+#[test]
+fn exit_program_inside_a_test_block_stops_the_run_cleanly() {
+    // A test block records a runtime error in its body as a test failure. The
+    // stop sentinel is not a failure: it must pass straight through, leaving a
+    // clean exit rather than a bogus failing test.
+    let dir = TempDir::new().expect("tempdir");
+    std::fs::write(
+        dir.path().join("main.wfl"),
+        "describe \"stopping\":\n\
+         \x20   test \"stops the run\":\n\
+         \x20       display \"inside the test\"\n\
+         \x20       exit program\n\
+         \x20   end test\n\
+         \x20   test \"must not run\":\n\
+         \x20       display \"later test ran\"\n\
+         \x20   end test\n\
+         end describe\n",
+    )
+    .expect("write program");
+
+    let (out, code) = run_file_status(&dir, "main.wfl", &["--test"]);
+    assert!(out.contains("inside the test"), "the test body runs: {out}");
+    assert!(
+        !out.contains("later test ran"),
+        "the run stops at the exit: {out}"
+    );
+    assert!(
+        out.contains("Failed: 0"),
+        "stopping is not a test failure: {out}"
+    );
+    assert_eq!(code, Some(0), "a clean stop is a successful stop: {out}");
+}
+
+#[test]
+fn replace_needle_diagnostic_does_not_contradict_itself() {
+    // The message says Pattern *or* Text is accepted; the structured
+    // expected/found pair must not then render "Expected Pattern but found ...".
+    let (out, code) = run_src("display replace 5 with \"a\" in \"text\"\n");
+    assert_ne!(code, Some(0), "a number needle is refused: {out}");
+    assert!(
+        out.contains("Pattern or Text"),
+        "the diagnostic names both accepted types: {out}"
+    );
+    assert!(
+        !out.contains("Expected Pattern but found"),
+        "the diagnostic must not contradict itself: {out}"
+    );
+}
+
+#[test]
+fn count_loop_rejects_a_negative_step() {
+    // A negative step moves *away* from the end value. The step is a magnitude
+    // — a downward loop is spelled `count from 10 down to 1 by 2`.
+    let (out, code) = run_src(
+        "count from 1 to 10 by (0 minus 1):\n\
+         \x20   display \"tick\"\n\
+         end count\n",
+    );
+    assert_ne!(code, Some(0), "a negative step must be refused: {out}");
+    assert!(!out.contains("tick"), "the body must not run: {out}");
+    assert!(
+        out.to_lowercase().contains("step"),
+        "the diagnostic must name the step: {out}"
+    );
+}
+
+#[test]
+fn bare_exit_leaves_the_loop_like_exit_loop() {
+    // `exit` with no scope keeps its historic meaning: leave the loop, and let
+    // the program carry on. Covered separately from `exit loop` so a regression
+    // in either spelling is visible.
+    let (out, code) = run_src(
+        "count from 1 to 5:\n\
+         \x20   display \"tick \" with count\n\
+         \x20   check if count is equal to 2:\n\
+         \x20       exit\n\
+         \x20   end check\n\
+         end count\n\
+         display \"after\"\n",
+    );
+    assert!(out.contains("tick 2"), "the deciding trip runs: {out}");
+    assert!(!out.contains("tick 3"), "the loop stops: {out}");
+    assert!(out.contains("after"), "the program continues: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn bare_exit_at_top_level_does_not_stop_the_program() {
+    // Backward compatibility: outside a loop, bare `exit` has always been a
+    // no-op (like `break`). `exit program` is the spelling that stops the run,
+    // so a program relying on the old no-op keeps working.
+    let (out, code) = run_src("display \"before\"\nexit\ndisplay \"after\"\n");
+    assert!(out.contains("before"), "statements before run: {out}");
+    assert!(
+        out.contains("after"),
+        "bare exit outside a loop does not stop the program: {out}"
+    );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
