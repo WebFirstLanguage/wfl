@@ -208,9 +208,10 @@ end
 ## Constants
 
 Declare a real constant with `store new constant` — WFL then rejects `change`,
-`add`, `subtract`, `multiply`, `divide`, `remove`, and `clear` against it (see
+`add`, `subtract`, `multiply`, `divide`, `remove`, `clear`, and `push` against
+it (see
 [Variables and Types — Constants](../03-language-basics/variables-and-types.md#constants)
-for the one form that is not yet checked) — and **use SCREAMING_SNAKE_CASE** so
+for what a constant does and does not fix) — and **use SCREAMING_SNAKE_CASE** so
 the name itself says “do not reassign”:
 
 ```wfl

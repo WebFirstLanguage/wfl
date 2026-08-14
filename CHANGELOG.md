@@ -36,6 +36,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   drop.
 
 ### Fixed
+- **`push` onto a constant list is now reported** (#673). `push with ROLES and
+  "guest"` on a `store new constant` list previously ran and mutated the list,
+  because `push` carries its target as an expression rather than a bare name and
+  so escaped the constness check that already covered `add`/`remove`/`clear`
+  (#671). Targets rooted at a constant through an index or member chain
+  (`push with CONFIG[0] and x`) are reported the same way, against the root
+  binding's name. **Compatibility:** a program that pushed onto a constant now
+  exits 3 at analysis instead of running — it was mutating something declared
+  immutable, which the other three statements already refused. Targets with no
+  root binding (a call result, a literal), mutable bindings, parameters and loop
+  variables are unaffected. Writes that reach a constant's contents through a
+  *different* binding — an alias or a loop variable — are still not caught;
+  constants fix the binding, not the contents.
 - **Transaction control SQL sent through `query`/`execute` is now rejected**
   (#664). `BEGIN`, `COMMIT`, `ROLLBACK`, `START TRANSACTION`, `SAVEPOINT` and
   `RELEASE` previously ran on arbitrary pooled connections, so a hand-written

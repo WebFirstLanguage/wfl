@@ -263,6 +263,115 @@ end
     );
 }
 
+/// Issue #673: `push with <list> and <value>` carries its target as an
+/// `Expression` (`Statement::PushStatement { list: Expression, .. }`), not the
+/// `list_name: String` the #671 check resolves, so `push` slipped past the
+/// constant check entirely — no analyzer report, no runtime error, the
+/// interpreter mutating the list in place through its `Rc<RefCell<..>>`.
+#[test]
+fn push_onto_a_constant_list_is_rejected() {
+    let reports = constant_mutation_reports(
+        r#"
+store new constant ROLES as ["admin"]
+push with ROLES and "guest"
+"#,
+    );
+
+    assert_eq!(
+        reports.len(),
+        1,
+        "`push with CONST and value` should be reported by the analyzer: {reports:?}"
+    );
+    assert!(
+        reports[0].contains("ROLES"),
+        "report should name the constant: {reports:?}"
+    );
+}
+
+/// An indexed push target is still a write through the constant binding, so it
+/// draws the same report — named for the *root* binding the write reaches, not
+/// for the element expression.
+#[test]
+fn push_onto_an_indexed_constant_target_names_the_root_binding() {
+    let reports = constant_mutation_reports(
+        r#"
+store new constant CONFIG as [["a"]]
+push with CONFIG[0] and "b"
+"#,
+    );
+
+    assert_eq!(
+        reports.len(),
+        1,
+        "`push with CONST[0] and value` should be reported by the analyzer: {reports:?}"
+    );
+    assert!(
+        reports[0].contains("CONFIG"),
+        "report should name the root binding: {reports:?}"
+    );
+}
+
+/// A push target that bottoms out in a call result or a literal has no root
+/// binding at all, so there is nothing to test for constness and nothing to
+/// report. Pushing onto a temporary was always legal and stays legal.
+#[test]
+fn push_targets_without_a_root_binding_are_accepted() {
+    let reports = constant_mutation_reports(
+        r#"
+store new constant SOURCE as ["admin"]
+push with (unique of SOURCE) and "guest"
+push with ["literal"] and "guest"
+"#,
+    );
+
+    assert!(
+        reports.is_empty(),
+        "push targets with no root binding must not be reported: {reports:?}"
+    );
+}
+
+#[test]
+fn push_onto_a_mutable_list_is_accepted() {
+    let reports = constant_mutation_reports(
+        r#"
+store items as ["a"]
+store nested as [["a"]]
+push with items and "b"
+push with nested[0] and "b"
+"#,
+    );
+
+    assert!(
+        reports.is_empty(),
+        "mutable push targets must not be reported as constants: {reports:?}"
+    );
+}
+
+/// Action parameters and loop variables are immutable *symbols* that are not
+/// constants (see `list_parameters_and_loop_variables_are_not_constants`), and
+/// pushing onto a list parameter has always been legal. Guard the #671 shapes
+/// against the new write-target walk widening into them.
+#[test]
+fn push_onto_a_parameter_or_loop_variable_is_accepted() {
+    let reports = constant_mutation_reports(
+        r#"
+define action called process_list with parameters list_param:
+    push with list_param and "processed"
+    give back list_param
+end action
+
+for each entry in [[1] and [2]]:
+    push with entry and 3
+end for
+"#,
+    );
+
+    assert!(
+        reports.is_empty(),
+        "parameters and loop variables must not be reported as constants: {reports:?}"
+    );
+}
+
 #[test]
 fn mutable_targets_are_still_accepted() {
     let reports = constant_mutation_reports(

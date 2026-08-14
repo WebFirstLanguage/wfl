@@ -2415,9 +2415,22 @@ impl Analyzer {
                 }
             }
 
-            Statement::PushStatement { list, value, .. } => {
+            Statement::PushStatement {
+                list,
+                value,
+                line,
+                column,
+            } => {
                 self.analyze_expression(list);
                 self.analyze_expression(value);
+                // #673: unlike `add`/`remove`/`clear`, this statement carries its
+                // target as an expression rather than a bare name, so resolve the
+                // binding the write actually reaches before the constness check.
+                // A target with no root binding (a call result, a literal) has
+                // nothing to check and reports nothing.
+                if let Some(root) = Self::write_target_root_binding(list) {
+                    self.report_constant_mutation(root, *line, *column);
+                }
             }
 
             Statement::MapCreation {
@@ -4739,6 +4752,33 @@ impl Analyzer {
             });
         if was_constant && let Some(key) = self.get_symbol_binding_key(name) {
             self.constant_bindings.insert(key);
+        }
+    }
+
+    /// Resolve a write-target expression to the name of the binding the write
+    /// ultimately reaches, or `None` when it reaches no binding at all.
+    ///
+    /// A bare `ROLES` resolves to itself. Index and member chains resolve to
+    /// whatever they bottom out in — `CONFIG[0]`, `CONFIG[0][1]`, and
+    /// `CONFIG.entries` all resolve to `CONFIG` — because mutating an element
+    /// mutates the collection the binding names. Anything rooted in a computed
+    /// value (a call result, a literal) resolves to `None`: there is no binding
+    /// whose constness could be violated, so the caller reports nothing.
+    ///
+    /// Needed by `push` (#673), whose `Statement::PushStatement` carries its
+    /// target as an `Expression`; the bare-name mutation statements of #671
+    /// carry a `list_name: String` and go straight to
+    /// [`Self::report_constant_mutation`].
+    fn write_target_root_binding(expression: &Expression) -> Option<&str> {
+        match expression {
+            Expression::Variable(name, _, _) => Some(name),
+            Expression::IndexAccess { collection, .. } => {
+                Self::write_target_root_binding(collection)
+            }
+            Expression::MemberAccess { object, .. } | Expression::PropertyAccess { object, .. } => {
+                Self::write_target_root_binding(object)
+            }
+            _ => None,
         }
     }
 

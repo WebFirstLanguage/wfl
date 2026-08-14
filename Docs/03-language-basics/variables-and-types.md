@@ -305,24 +305,38 @@ multiply MAX_SIZE by 2        // ERROR: Cannot modify constant 'MAX_SIZE'
 divide MAX_SIZE by 2          // ERROR: Cannot modify constant 'MAX_SIZE'
 ```
 
-The same applies to a constant list — `add ... to`, `remove ... from`, and
-`clear` are all rejected:
+The same applies to a constant list — `add ... to`, `remove ... from`, `clear`,
+and `push with ... and ...` are all rejected:
 
 ```wfl
 store new constant ALLOWED_ROLES as ["admin" and "editor"]
 
 add "guest" to ALLOWED_ROLES  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
 clear ALLOWED_ROLES           // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+push with ALLOWED_ROLES and "guest"  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
 ```
 
-> **Known gap:** `push with <list> and <value>` is **not** yet checked. Pushing
-> onto a constant list currently succeeds silently, at both check time and run
-> time — see [issue #673](https://github.com/WebFirstLanguage/wfl/issues/673).
-> Use `add ... to` when you want the constant to be enforced.
+A push into an element is rejected too when the target is written *through the
+constant's own name* — the report names the binding the write reaches:
+
+```wfl
+store new constant ROLE_GROUPS as [["admin"] and ["editor"]]
+
+push with ROLE_GROUPS[0] and "guest"  // ERROR: Cannot modify constant 'ROLE_GROUPS'
+```
+
+> Constants fix the *binding*, not the contents reached through it. These checks
+> are made by reading the code, so they catch writes spelled through the
+> constant's name. A write that reaches the same list through a *different*
+> name is not caught, and does change the underlying list — whether that name
+> comes from an alias (`store alias as ALLOWED_ROLES`) or from a loop variable:
 >
-> Constants also fix the *binding*, not the contents reached through it. Binding
-> a constant list to a mutable name (`store alias as ALLOWED_ROLES`) and mutating
-> the alias changes the underlying list.
+> ```wfl
+> store new constant ROLE_GROUPS as [["admin"]]
+> for each group in ROLE_GROUPS:
+>     push with group and "guest"   // runs; ROLE_GROUPS is changed
+> end for
+> ```
 
 **Best practice:** Use uppercase names for constants so a reader can see at a
 glance that a value is fixed:

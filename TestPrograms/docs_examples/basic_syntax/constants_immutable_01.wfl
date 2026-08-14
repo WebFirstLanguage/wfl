@@ -1,8 +1,6 @@
 // CI-SKIP: intentional error example — must fail semantic analysis (asserted by validate_docs_examples.py)
 // Constants: the mutation forms that are rejected before the program runs
 // Source: Docs/03-language-basics/variables-and-types.md#constants
-// `push with <list> and <value>` is deliberately absent — it is not yet
-// checked against constants (issue #673).
 
 store new constant MAX_SIZE as 100
 
@@ -17,3 +15,10 @@ store new constant ALLOWED_ROLES as ["admin" and "editor"]
 add "guest" to ALLOWED_ROLES  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
 remove "editor" from ALLOWED_ROLES  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
 clear ALLOWED_ROLES           // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+push with ALLOWED_ROLES and "guest"  // ERROR: Cannot modify constant 'ALLOWED_ROLES'
+
+// A nested push target is still a write through the constant binding, so it is
+// reported against the name the write reaches (issue #673).
+store new constant ROLE_GROUPS as [["admin"]]
+
+push with ROLE_GROUPS[0] and "guest"  // ERROR: Cannot modify constant 'ROLE_GROUPS'

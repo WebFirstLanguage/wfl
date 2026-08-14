@@ -219,7 +219,7 @@
       "immutability",
       "error-example"
     ],
-    "doc_purpose": "Every mutation form of a constant (change/add/subtract/multiply/divide, and add/remove/clear on a constant list) is rejected during semantic analysis (issue #671)"
+    "doc_purpose": "Every mutation form of a constant (change/add/subtract/multiply/divide, and add/remove/clear/push on a constant list, including an indexed push target) is rejected during semantic analysis (issues #671, #673)"
   },
   "docs_examples/basic_syntax/operators_01.wfl": {
     "doc_section": "Docs/03-language-basics/operators-and-expressions.md",
