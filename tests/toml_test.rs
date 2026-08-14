@@ -7,45 +7,10 @@
 // R3 (untrusted input): config text is attacker-reachable, so malformed input
 // must produce a clean error rather than a panic.
 
-use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
 
-async fn run_wfl(code: &str) -> Result<Interpreter, String> {
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let ast = parser.parse().map_err(|e| format!("Parse error: {e:?}"))?;
-
-    let mut interpreter = Interpreter::new();
-    interpreter
-        .interpret(&ast)
-        .await
-        .map_err(|e| format!("Runtime error: {e:?}"))?;
-    Ok(interpreter)
-}
-
-fn get_global(interpreter: &Interpreter, name: &str) -> Value {
-    interpreter
-        .global_env()
-        .borrow()
-        .get(name)
-        .unwrap_or_else(|| panic!("Variable '{name}' not found"))
-}
-
-fn expect_text(value: &Value) -> String {
-    match value {
-        Value::Text(t) => t.to_string(),
-        other => panic!("Expected text, got {other:?}"),
-    }
-}
-
-fn expect_number(value: &Value) -> f64 {
-    match value {
-        Value::Number(n) => *n,
-        other => panic!("Expected number, got {other:?}"),
-    }
-}
+mod common;
+use common::{expect_number, expect_text, get_global, run_wfl};
 
 // ---------------------------------------------------------------------------
 // Parsing — the priority half of the issue.

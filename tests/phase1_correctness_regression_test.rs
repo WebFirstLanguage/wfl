@@ -78,16 +78,8 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::{NamedTempFile, TempDir};
 
-/// Absolute path to the `wfl` binary Cargo built for this test run. It matches
-/// the profile the test itself is compiled with: the **debug** binary under a
-/// plain `cargo test` / `cargo test --workspace` (what CI's test job runs), or
-/// the **release** binary under `cargo test --release`. Either way
-/// `CARGO_BIN_EXE_wfl` points at the freshly-built one, so there is no
-/// stale-binary risk. (These regression programs are tiny, so the debug/release
-/// distinction doesn't affect their outcome.)
-fn wfl_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_wfl")
-}
+mod common;
+use common::wfl_exe;
 
 /// Hard wall-clock cap for a single program run. A regression that loops or
 /// hangs is killed here instead of consuming the whole job timeout.

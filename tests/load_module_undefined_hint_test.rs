@@ -15,33 +15,10 @@
 //! definitions. This suite pins that behavior and guards the boundaries.
 
 use std::fs;
-use std::process::Command;
 use tempfile::TempDir;
 
-fn wfl_exe() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    }
-}
-
-/// Run a WFL file inside `dir` (so module paths resolve to sibling files),
-/// returning (combined stdout+stderr, exit code).
-fn run_file_status(dir: &TempDir, name: &str, extra_args: &[&str]) -> (String, Option<i32>) {
-    let path = dir.path().join(name);
-    let output = Command::new(wfl_exe())
-        .args(extra_args)
-        .arg(&path)
-        .output()
-        .expect("Failed to execute WFL");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    (combined, output.status.code())
-}
+mod common;
+use common::run_file_status;
 
 /// Write a `lib_mod.wfl` exposing a one-arg `mod_double` action next to a
 /// `main_mod.wfl` whose body is `main_body`, then run `main_mod.wfl`.

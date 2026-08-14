@@ -7,45 +7,8 @@
 // byte generation into native Rust so WFL auth/session code has a correct,
 // non-DoS-prone primitive instead of hand-rolling them in interpreted WFL.
 
-use wfl::interpreter::Interpreter;
-use wfl::interpreter::value::Value;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
-
-/// Run WFL source and return the value stored in the `result` variable.
-async fn run_wfl_code(code: &str) -> Result<Value, String> {
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let ast = parser
-        .parse()
-        .map_err(|e| format!("Parse error: {:?}", e))?;
-
-    let mut interpreter = Interpreter::new();
-    interpreter
-        .interpret(&ast)
-        .await
-        .map_err(|e| format!("Runtime error: {:?}", e))?;
-
-    if let Some(result_value) = interpreter.global_env().borrow().get("result") {
-        Ok(result_value)
-    } else {
-        Err("Variable 'result' not found after execution".to_string())
-    }
-}
-
-fn expect_text(result: Result<Value, String>) -> String {
-    match result {
-        Ok(Value::Text(t)) => t.to_string(),
-        other => panic!("Expected text result, got {:?}", other),
-    }
-}
-
-fn expect_bool(result: Result<Value, String>) -> bool {
-    match result {
-        Ok(Value::Bool(b)) => b,
-        other => panic!("Expected boolean result, got {:?}", other),
-    }
-}
+mod common;
+use common::{expect_bool_result as expect_bool, expect_text_result as expect_text, run_wfl_code};
 
 // === PBKDF2-HMAC-SHA256 (well-known / RFC-style vectors) ===
 // Vectors: P="password", S="salt". These are the canonical PBKDF2-HMAC-SHA256

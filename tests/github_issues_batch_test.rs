@@ -22,31 +22,8 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
-/// Absolute path to the `wfl` binary built for this integration-test run.
-/// `CARGO_BIN_EXE_wfl` is injected by Cargo, so it always points at the
-/// freshly-built binary regardless of profile or working directory — no stale
-/// `target/release` build and no cwd assumption.
-fn wfl_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_wfl")
-}
-
-/// Run inline WFL source in a fresh temp dir, returning (stdout+stderr, exit code).
-fn run_src(src: &str) -> (String, Option<i32>) {
-    let dir = TempDir::new().expect("tempdir");
-    let path = dir.path().join("main.wfl");
-    fs::write(&path, src).unwrap();
-    let output = Command::new(wfl_exe())
-        .arg(&path)
-        .output()
-        .expect("failed to execute WFL");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    drop(dir);
-    (combined, output.status.code())
-}
+mod common;
+use common::{run_src, wfl_exe};
 
 // ---------------------------------------------------------------------------
 // #583 — a quoted "[]" string stays Text

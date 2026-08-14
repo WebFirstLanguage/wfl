@@ -1,38 +1,8 @@
 // TDD Tests for standard SHA-256 and HMAC-SHA256 builtins (issue #558)
 // Webhook verification (e.g. Stripe) requires standard HMAC-SHA256, not just WFLHASH.
 
-use wfl::interpreter::Interpreter;
-use wfl::interpreter::value::Value;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
-
-/// Test helper to run WFL code and get the result from a variable
-async fn run_wfl_code(code: &str) -> Result<Value, String> {
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let ast = parser
-        .parse()
-        .map_err(|e| format!("Parse error: {:?}", e))?;
-
-    let mut interpreter = Interpreter::new();
-    let _ = interpreter
-        .interpret(&ast)
-        .await
-        .map_err(|e| format!("Runtime error: {:?}", e))?;
-
-    if let Some(result_value) = interpreter.global_env().borrow().get("result") {
-        Ok(result_value)
-    } else {
-        Err("Variable 'result' not found after execution".to_string())
-    }
-}
-
-fn expect_text(result: Result<Value, String>) -> String {
-    match result {
-        Ok(Value::Text(t)) => t.to_string(),
-        other => panic!("Expected text result, got {:?}", other),
-    }
-}
+mod common;
+use common::{expect_text_result as expect_text, run_wfl_code};
 
 // === SHA-256 (FIPS 180-4 / well-known vectors) ===
 

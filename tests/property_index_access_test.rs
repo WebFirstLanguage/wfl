@@ -8,38 +8,16 @@
 //! `ct` was bound to the whole `headers` map. This proves both the AST shape
 //! (one `IndexAccess` over the `PropertyAccess`) and the runtime value.
 
-use std::fs;
-use std::process::Command;
-use tempfile::TempDir;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::{Expression, Literal, Statement};
 
+mod common;
+use common::run_src;
+
 fn parse(src: &str) -> wfl::parser::ast::Program {
     let tokens = lex_wfl_with_positions(src);
     Parser::new(&tokens).parse().expect("parse should succeed")
-}
-
-fn wfl_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_wfl")
-}
-
-/// Run inline WFL source, returning (stdout+stderr, exit code).
-fn run_src(src: &str) -> (String, Option<i32>) {
-    let dir = TempDir::new().expect("tempdir");
-    let path = dir.path().join("main.wfl");
-    fs::write(&path, src).unwrap();
-    let output = Command::new(wfl_exe())
-        .arg(&path)
-        .output()
-        .expect("failed to execute WFL");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    drop(dir);
-    (combined, output.status.code())
 }
 
 #[test]
