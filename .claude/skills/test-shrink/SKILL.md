@@ -40,9 +40,12 @@ optimization — revert it.
    runtime flag to silence trace output), record it as a **proposal** in the
    final report instead of implementing it here.
 5. **Maintainer-decision items are flagged, not applied.** `[profile.release] debug = true`
-   is deliberate (release backtraces) — never change it silently. Same for
-   anything in Cargo profiles, CI workflow files, or `.repo-hygiene.toml`.
-   Put such ideas in the report's "Proposals for Brad" section.
+   is deliberate (release backtraces) — never change the release profile. New
+   dev-dependencies (e.g. snapshot crates), CI workflow files, linker/tooling
+   config, and `.repo-hygiene.toml` also go in the report's "Proposals for
+   Brad" section instead of being applied. **Test-profile tuning
+   (`[profile.test]`) is an ordinary candidate** — see the playbook's rules,
+   including the readable-panic check.
 6. **Hygiene:** all measurement scratch and reports go under
    `target/reports/test-shrink/` or the session temp dir — never into the tree.
 
@@ -75,34 +78,50 @@ way at the end):
 | Debug/output volume | `cargo test --all 2>&1 \| wc -c` (bytes the suite prints) |
 | On-disk artifacts | `du -sh target/test-artifacts/` before vs after a run; list any stray files a run drops elsewhere (hygiene violations — fix on sight) |
 | Wall time | time of `cargo test --all` and of the integration script |
-| Test binary count/size | `ls -la target/debug/deps/ \| grep -c test`-style rough count (informational) |
+| Test binary footprint | `du -sh target/debug/deps/` and count of test binaries — with ~146 separate files under `tests/`, each is its own binary statically linking the whole compiler with debug info; this is usually where most of the "debug data" lives |
 
 Not every metric must improve every run — but no metric may get *worse* in an
 accepted change without an explicit reason in its commit message.
 
 ## Phase 2 — Research (parallel subagents)
 
+**First, read `references/rust-test-optimization.md`** — the distilled
+playbook of Rust compiler-testing research (single-binary consolidation,
+`check` drivers, profile tuning, snapshot testing, rustc hygiene rules) with
+WFL-specific migration notes and a suggested priority order. Hand each
+research agent the section for its hunting ground; treat the playbook's claims
+as hypotheses to verify and measure, not facts.
+
 Spawn **research-agent** subagents in parallel, one per hunting ground, each
 returning a ranked candidate list (what, where, estimated saving, risk,
 suggested approach). Hunting grounds that historically pay off in this repo:
 
+- **Binary proliferation (playbook §1):** every `.rs` file directly under
+  `tests/` becomes its own statically-linked test binary. Consolidating into a
+  single suite binary in incremental batches is usually the biggest disk and
+  link-time win available.
 - **Noise:** `println!`/`eprintln!`/`dbg!` and captured `exec_trace!` output in
   test code; tests that run the binary with verbose flags they don't assert on;
   overly chatty failure messages built eagerly (`format!` on the hot path).
-- **Duplication:** the same spawn-server / run-wfl-file / temp-dir harness
-  re-implemented across files — hoist into `tests/common/`. With ~146 test
-  files this is usually the biggest single win.
+- **Duplication (playbook §3):** the same spawn-server / run-wfl-file /
+  temp-dir harness re-implemented across files — hoist into `tests/common/`
+  as `check`-style drivers. With ~146 test files this is usually the biggest
+  source-line win.
 - **Redundancy:** tests that assert a strict subset of another test's
   assertions on the same inputs (merge, carefully — rule 1).
-- **Fixtures:** oversized `.wfl` fixtures where a minimal program exercises the
-  same path; generated fixtures that could be built in the test instead of
-  checked in.
+- **Fixtures (playbook §5):** oversized `.wfl` fixtures where a minimal
+  program exercises the same path; generated fixtures that could be built in
+  the test instead of checked in; non-descriptive issue-number test names.
 - **Artifacts:** test output written outside `target/test-artifacts/<suite>/`
   or temp dirs; artifacts never cleaned up; debug dumps written even on pass.
-- **Rust-level:** anything a current-best-practices search turns up for
-  shrinking Rust test debug data (e.g. capturing output instead of printing,
-  lazy `assert!` messages, splitting mega-tests). The research agent may use
-  web search for this.
+- **Profiles (playbook §2):** `[profile.test]` debug-info and opt-level
+  tuning — ordinary candidate, but never the release profile, and always with
+  the readable-panic check.
+- **Rust-level:** anything beyond the playbook that a current-best-practices
+  search turns up for shrinking Rust test debug data (e.g. capturing output
+  instead of printing, lazy `assert!` messages, splitting mega-tests). The
+  research agent may use web search, and should verify the playbook's claims
+  against current docs while it's there.
 
 Merge the lists, de-duplicate, and order the worklist **highest saving × lowest
 risk first**. Cap a single run's worklist at ~10 candidates — this skill runs

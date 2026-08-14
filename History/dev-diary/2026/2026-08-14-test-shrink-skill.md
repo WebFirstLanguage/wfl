@@ -34,6 +34,28 @@ assertions, no deleted coverage, no manufactured green, real boundaries stay
 real, and maintainer-decision items (e.g. `[profile.release] debug = true`,
 CI config) are reported as proposals rather than applied.
 
+## Research playbook (same-day follow-up)
+
+Distilled the maintainer-supplied research on Rust compiler/interpreter test
+architecture (matklad's testing/build essays, rustc dev-guide best practices,
+rust-analyzer and pydantic-monty case studies) into
+`.claude/skills/test-shrink/references/rust-test-optimization.md`. Key content:
+
+- **Test-binary proliferation:** each of the ~146 files under `tests/` is its
+  own statically-linked binary with debug info — identified as the primary
+  source of the suite's disk/debug-data bloat; the playbook documents the
+  incremental single-binary consolidation migration.
+- **`check`-driver pattern** for deduplicating harness code without coupling
+  tests to compiler internals.
+- **`[profile.test]` tuning** promoted to an ordinary candidate (release
+  profile stays untouchable); snapshot-crate adoption, `cargo-nextest`, and
+  linker changes remain maintainer proposals.
+- **rustc hygiene rules:** minimal fixtures, descriptive names, suppressing
+  unrelated warning noise.
+
+SKILL.md's research phase now points agents at the playbook with a priority
+order, and treats its claims as hypotheses to verify and measure.
+
 ## Notes
 
 - No product code changed; this is tooling/process only.
