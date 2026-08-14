@@ -1,3 +1,4 @@
+// CI-SKIP: intentional interface-contract error example (exits 1 by design; executed and asserted by scripts/validate_docs_examples.py with expected_exit_code 1)
 create interface Drawable:
     requires action draw
 end
