@@ -2429,8 +2429,7 @@ impl Analyzer {
                 // A target with no root binding (a call result, a literal) has
                 // nothing to check and reports nothing.
                 if let Some(root) = Self::write_target_root_binding(list) {
-                    let root = root.to_string();
-                    self.report_constant_mutation(&root, *line, *column);
+                    self.report_constant_mutation(root, *line, *column);
                 }
             }
 
