@@ -24,10 +24,17 @@ HYGIENE_CMD="${HYGIENE_CMD:-python scripts/check_repo_hygiene.py --mode static}"
 # concurrent runs can compute the same next version, we reset to the fresh tip
 # and re-run the bump so the version is derived from the true current version
 # instead of replaying a stale bump.
+ATTEMPTS=5
 for attempt in 1 2 3 4 5; do
   if git push origin HEAD:"$BRANCH"; then
     echo "Pushed version bump on attempt $attempt"
     exit 0
+  fi
+  # After the final rejection there is no further push, so re-bumping would
+  # build a commit nothing will ever send - and the real bump shells out to
+  # Cargo, so that is not free. Give up here instead.
+  if [ "$attempt" -eq "$ATTEMPTS" ]; then
+    break
   fi
   echo "Push rejected on attempt $attempt (main advanced); re-bumping from latest tip..."
   git fetch origin "$BRANCH"

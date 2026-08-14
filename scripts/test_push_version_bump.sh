@@ -247,8 +247,12 @@ assert_nonzero "$rc" "the script fails after five rejections"
 assert_contains "$(cat "$SB/out")" \
   "::error::Failed to push version bump after 5 attempts (main kept advancing)." \
   "it emits the workflow error annotation"
-assert_contains "$(cat "$SB/out")" "Push rejected on attempt 5" "all five attempts were made"
-assert_eq "5" "$(call_count "$SB" bump)" "it re-bumped once per rejection"
+assert_contains "$(cat "$SB/out")" "Push rejected on attempt 4" "it kept retrying up to the last attempt"
+# Five pushes are attempted, but only the first four are followed by another
+# push - so the fifth rejection does not re-bump. Re-bumping there would build a
+# commit nothing sends, and the real bump shells out to Cargo.
+assert_eq "4" "$(call_count "$SB" bump)" "it re-bumps only when another push will follow"
+assert_eq "4" "$(call_count "$SB" hygiene)" "it re-proves hygiene only for pushes that happen"
 rm -rf "$SB"
 
 echo
