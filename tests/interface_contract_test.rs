@@ -673,6 +673,68 @@ end
 }
 
 #[test]
+fn fixer_normalizes_requirement_and_implementation_names_together() {
+    // The fixer snake_cases action names. If it normalized the implementing
+    // action but not the interface requirement, the fixed program would no
+    // longer satisfy its own contract. Both sides must agree after a fix.
+    use wfl::fixer::CodeFixer;
+
+    let source = r#"create interface Drawable:
+    requires action drawShape
+end
+
+create container Sketch implements Drawable:
+    property title: Text
+
+    action drawShape:
+        display "drawing"
+    end
+end
+"#;
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser
+        .parse()
+        .expect("camelCase interface program should parse");
+
+    let (fixed_code, _) = CodeFixer::new().fix(&program, source);
+
+    let fixed_tokens = lex_wfl_with_positions(&fixed_code);
+    let mut fixed_parser = Parser::new(&fixed_tokens);
+    let reparsed = fixed_parser
+        .parse()
+        .unwrap_or_else(|e| panic!("fixer output must re-parse, got {e:?}\noutput:\n{fixed_code}"));
+
+    let required_name = reparsed
+        .statements
+        .iter()
+        .find_map(|s| match s {
+            Statement::InterfaceDefinition {
+                required_actions, ..
+            } => required_actions.first().map(|a| a.name.clone()),
+            _ => None,
+        })
+        .expect("requirement survives the fix round-trip");
+    let method_name = reparsed
+        .statements
+        .iter()
+        .find_map(|s| match s {
+            Statement::ContainerDefinition { methods, .. } => {
+                methods.iter().find_map(|m| match m {
+                    Statement::ActionDefinition { name, .. } => Some(name.clone()),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .expect("implementation survives the fix round-trip");
+    assert_eq!(
+        required_name, method_name,
+        "requirement and implementation must stay in sync after fixing:\n{fixed_code}"
+    );
+}
+
+#[test]
 fn fixer_roundtrip_preserves_bare_interfaces() {
     use wfl::fixer::CodeFixer;
 
