@@ -24,6 +24,7 @@ allowed-files = [
     "Cargo.lock",
     "Cargo.toml",
     "GOVERNANCE.md",
+    "IDEA.md",              # WFL language definition consumed by Hermes — maintainer-approved (Brad, 2026-08-14)
     "LICENSE",
     "README.md",
     "REPOSITORY_HYGIENE.md",
