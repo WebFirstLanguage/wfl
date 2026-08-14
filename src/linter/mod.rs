@@ -1,5 +1,8 @@
 use crate::diagnostics::{DiagnosticReporter, Severity, WflDiagnostic};
+use crate::lexer::lex_wfl_with_positions;
+use crate::lexer::token::Token;
 use crate::parser::ast::{Program, Statement};
+use std::collections::HashMap;
 use std::path::Path;
 
 pub trait LintRule {
@@ -245,76 +248,63 @@ impl LintRule for KeywordCasingRule {
     ) -> Vec<WflDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        if let Ok(file) = reporter.files.get(file_id) {
-            let source = file.source();
+        let Ok(file) = reporter.files.get(file_id) else {
+            return diagnostics;
+        };
+        let source = file.source();
 
-            let keywords = [
-                "store",
-                "as",
-                "create",
-                "change",
-                "to",
-                "define",
-                "action",
-                "called",
-                "give",
-                "back",
-                "check",
-                "if",
-                "otherwise",
-                "end",
-                "count",
-                "from",
-                "for",
-                "each",
-                "in",
-                "while",
-                "display",
-                "yes",
-                "no",
-                "nothing",
-                "missing",
-                "undefined",
-            ];
+        // WFL keywords are case-sensitive, so `STORE` never lexes as a keyword —
+        // it lexes as an identifier. A mis-cased keyword is therefore an
+        // identifier token whose lowercase form *is* a keyword. Working from the
+        // token stream (instead of raw substring search over the source) keeps
+        // string literals and comments out of the rule entirely, never matches
+        // inside a longer word, and reports every occurrence rather than the first.
+        let mut keyword_cache: HashMap<String, bool> = HashMap::new();
 
-            for keyword in keywords.iter() {
-                let uppercase_keyword = keyword.to_uppercase();
-                let mixed_case_keyword = keyword
-                    .chars()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        if i == 0 {
-                            c.to_uppercase().next().unwrap()
-                        } else {
-                            c
-                        }
-                    })
-                    .collect::<String>();
+        for token in lex_wfl_with_positions(source) {
+            // The lexer merges adjacent identifier words into one multi-word
+            // identifier, so check each word separately. Words are ASCII and the
+            // separators are spaces/tabs, so the byte offset within the token's
+            // span is also the column offset. Multi-word identifiers never span
+            // lines (a newline flushes them), so the line is the token's line.
+            let text = match token.token {
+                Token::Identifier(ref name) => source
+                    .get(token.byte_start..token.byte_end)
+                    .unwrap_or(name.as_str()),
+                // `yes`/`no`/`true`/`false` are the one case-*insensitive*
+                // production in the lexer (`src/lexer/token.rs:446`), so `YES`
+                // lexes as a boolean literal and never reaches the identifier
+                // branch. The pre-#707 rule carried `yes`/`no` in its keyword
+                // array and warned on them, so they are checked here to keep
+                // that coverage rather than silently dropping it.
+                Token::BooleanLiteral(_) => {
+                    let Some(text) = source.get(token.byte_start..token.byte_end) else {
+                        continue;
+                    };
+                    text
+                }
+                _ => continue,
+            };
 
-                if let Some(pos) = source.find(&uppercase_keyword) {
-                    let line_col = line_col_from_pos(source, pos);
-                    diagnostics.push(WflDiagnostic::new(
-                        Severity::Warning,
-                        format!("Keyword '{uppercase_keyword}' should be lowercase"),
-                        Some(format!("Change to '{keyword}'")),
-                        "LINT-KEYWORD".to_string(),
-                        file_id,
-                        line_col.0,
-                        line_col.1,
-                        None,
-                    ));
+            for (offset, word) in word_positions(text) {
+                if !word.chars().any(char::is_uppercase) {
+                    continue;
                 }
 
-                if let Some(pos) = source.find(&mixed_case_keyword) {
-                    let line_col = line_col_from_pos(source, pos);
+                let lowercase = word.to_lowercase();
+                let is_keyword = *keyword_cache
+                    .entry(lowercase.clone())
+                    .or_insert_with(|| is_keyword(&lowercase));
+
+                if is_keyword {
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
-                        format!("Keyword '{mixed_case_keyword}' should be lowercase"),
-                        Some(format!("Change to '{keyword}'")),
+                        format!("Keyword '{word}' should be lowercase"),
+                        Some(format!("Change to '{lowercase}'")),
                         "LINT-KEYWORD".to_string(),
                         file_id,
-                        line_col.0,
-                        line_col.1,
+                        token.line,
+                        token.column + offset,
                         None,
                     ));
                 }
@@ -323,6 +313,39 @@ impl LintRule for KeywordCasingRule {
 
         diagnostics
     }
+}
+
+/// Split `text` into whitespace-separated words, paired with each word's byte
+/// offset within `text`.
+fn word_positions(text: &str) -> Vec<(usize, &str)> {
+    let mut words = Vec::new();
+    let mut start: Option<usize> = None;
+
+    for (index, ch) in text.char_indices() {
+        if ch.is_whitespace() {
+            if let Some(word_start) = start.take() {
+                words.push((word_start, &text[word_start..index]));
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+    }
+
+    if let Some(word_start) = start {
+        words.push((word_start, &text[word_start..]));
+    }
+
+    words
+}
+
+/// Whether `lowercase` (already lowercased) is a WFL keyword.
+///
+/// Determined by lexing it: a keyword lexes to exactly one non-identifier token.
+/// Asking the lexer keeps this rule in sync with the language automatically,
+/// instead of a hardcoded keyword list that drifts.
+fn is_keyword(lowercase: &str) -> bool {
+    let tokens = lex_wfl_with_positions(lowercase);
+    matches!(tokens.as_slice(), [only] if !matches!(only.token, Token::Identifier(_)))
 }
 
 struct TrailingWhitespaceRule;
@@ -530,26 +553,6 @@ fn to_snake_case(s: &str) -> String {
     }
 
     result
-}
-
-fn line_col_from_pos(source: &str, pos: usize) -> (usize, usize) {
-    let mut line = 1;
-    let mut col = 1;
-
-    for (i, c) in source.char_indices() {
-        if i >= pos {
-            break;
-        }
-
-        if c == '\n' {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
-    }
-
-    (line, col)
 }
 
 #[cfg(test)]
