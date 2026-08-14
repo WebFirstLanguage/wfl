@@ -7404,12 +7404,25 @@ impl Interpreter {
                     1.0
                 };
 
+                let mut count = start_num;
+
+                let should_continue: Box<dyn Fn(f64, f64) -> bool> = if *downward {
+                    Box::new(|count, end_num| count >= end_num)
+                } else {
+                    Box::new(|count, end_num| count <= end_num)
+                };
+
                 // A step that cannot move the counter toward the end value would
                 // spin until the execution timeout, so it is refused up front
                 // with a diagnostic that names the problem. `count` always moves
                 // *toward* its end value (a downward loop subtracts the step), so
                 // the step is a magnitude and must be a positive, finite number.
-                if !step_num.is_finite() || step_num <= 0.0 {
+                //
+                // Only a loop that actually runs is validated: `count from 5 to 1`
+                // never enters its body, so its step never mattered and a program
+                // that passed a nonsense one has always completed successfully.
+                // Validating unconditionally would break those programs.
+                if should_continue(count, end_num) && (!step_num.is_finite() || step_num <= 0.0) {
                     *self.current_count.borrow_mut() = previous_count;
                     *self.in_count_loop.borrow_mut() = was_in_count_loop;
                     return Err(RuntimeError::new(
@@ -7422,14 +7435,6 @@ impl Interpreter {
                         *column,
                     ));
                 }
-
-                let mut count = start_num;
-
-                let should_continue: Box<dyn Fn(f64, f64) -> bool> = if *downward {
-                    Box::new(|count, end_num| count >= end_num)
-                } else {
-                    Box::new(|count, end_num| count <= end_num)
-                };
 
                 *self.in_count_loop.borrow_mut() = true;
 
@@ -7497,11 +7502,31 @@ impl Interpreter {
                         }
                     }
 
-                    if *downward {
-                        count -= step_num;
+                    // A positive step is not enough: past 2^53 the counter's
+                    // floating-point resolution exceeds the step, so `count`
+                    // stops changing and the loop can never reach its end. That
+                    // is an endless loop the execution timeout would catch only
+                    // outside a `main loop`, where the deadline is suspended —
+                    // so it is refused here, where the stall is provable.
+                    let next = if *downward {
+                        count - step_num
                     } else {
-                        count += step_num;
+                        count + step_num
+                    };
+                    if next == count {
+                        *self.current_count.borrow_mut() = previous_count;
+                        *self.in_count_loop.borrow_mut() = was_in_count_loop;
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Count loop step {step_num} is too small to move the counter \
+                                 past {count}, so the loop can never reach {end_num}. \
+                                 Numbers this large lose precision — use a larger step."
+                            ),
+                            *line,
+                            *column,
+                        ));
                     }
+                    count = next;
                 }
 
                 *self.current_count.borrow_mut() = previous_count;
@@ -13124,6 +13149,12 @@ impl Interpreter {
                 for stmt in body {
                     match Box::pin(self._execute_statement(stmt, test_env.clone())).await {
                         Ok(_) => {}
+                        Err(e) if e.is_exit_program() => {
+                            // Stopping the program is not a failing test. Pass the
+                            // sentinel through so the run ends cleanly instead of
+                            // recording a bogus failure and continuing.
+                            return Err(e);
+                        }
                         Err(e) => {
                             test_passed = false;
 
@@ -13412,6 +13443,12 @@ impl Interpreter {
         }
 
         if let Err(err) = self.execute_block(&body, child_env).await {
+            // `exit program` is a stop request, not a handler failure: it must
+            // leave the pump and unwind to the top of the run rather than be
+            // reported and swallowed like an ordinary handler error.
+            if err.is_exit_program() {
+                return Err(err);
+            }
             eprintln!(
                 "WebSocket {} handler error: {}",
                 event.kind.as_str(),

@@ -60,7 +60,14 @@ end count
 The step is a *distance*, so it is always a positive number: a downward loop
 (`count from 10 down to 1 by 2`) subtracts it. A step of `0` or a negative step
 could never reach the end value, so it is reported as an error instead of
-looping forever.
+looping forever. A loop whose range is already empty never runs its body, so
+its step is never used and never checked — `count from 5 to 1` does nothing,
+whatever step you give it.
+
+A step also has to be big enough to actually move the counter. Past about 9
+quadrillion, numbers lose the precision to add 1 to them, so
+`count from 100000000000000000 to 100000000000000100 by 1` would sit on the
+same value forever. WFL reports that instead of running it.
 
 ### How Many Times a Count Loop May Run
 
@@ -69,6 +76,12 @@ As many times as you ask it to. A count loop has no built-in trip limit —
 `repeat while` or `for each`. A loop that never finishes is stopped by the
 execution timeout (`timeout_seconds` in `.wflcfg`, 60 seconds by default),
 which is the same protection every other loop form gets.
+
+One exception is worth knowing if you write servers: inside a `main loop` the
+execution timeout is suspended, because a server must not time out on its own
+uptime. Every loop form is unbounded there, count loops included, so a loop
+inside a request handler is only as bounded as the values you give it. Keep
+handler loop ranges under your own control rather than a caller's.
 
 ### Count Examples
 

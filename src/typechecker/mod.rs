@@ -8508,9 +8508,12 @@ impl TypeChecker {
                     && pattern_type != Type::Text
                     && !self.is_gradual_type(&pattern_type)
                 {
+                    // No single `expected` type to report: two are accepted, and
+                    // naming one would make `TypeError`'s rendering append
+                    // "Expected Pattern but found ...", contradicting the message.
                     self.type_error(
                         format!("Expected Pattern or Text to replace, got {pattern_type}"),
-                        Some(Type::Pattern),
+                        None,
                         Some(pattern_type),
                         0,
                         0,

@@ -88,9 +88,11 @@ which is the whole point for #698 and #700, where the old failure was a wrong
 answer with status 0.
 
 End-to-end WFL coverage lives in `TestPrograms/replace_and_count_loop_test.wfl`
-(10 `describe`/`test` assertions) and `TestPrograms/exit_program_test.wfl`,
-which stops halfway through and relies on the gated runner's "exit 0" to assert
-that a clean stop is a successful stop.
+(10 `test` blocks, 11 `expect` assertions) and
+`TestPrograms/exit_program_test.wfl`, which stops halfway through and relies on
+the gated runner's "exit 0" to assert that a clean stop is a successful stop.
+The statements after the stop end in a read of a file that cannot exist, so
+unexpected continuation fails the run rather than merely printing a line.
 
 ## Docs shipped with the change
 
@@ -104,6 +106,51 @@ that a clean stop is a successful stop.
   `break`, and the "(if supported)" hedges removed now that both are pinned by
   tests.
 - Both keyword reference pages updated together.
+
+## What review caught
+
+Automated review of the fix found five more defects in it, all of the same
+family — a change that is right in the common path and wrong at a boundary
+nobody walked:
+
+- **Two more places swallowed the stop sentinel.** The websocket event
+  dispatcher printed every handler error and returned `Ok(())`, so
+  `exit program` inside `on websocket message:` printed
+  `WebSocket message handler error: [Exit program]` and the pump carried on.
+  A `test` block records any non-assertion error as a failure, so stopping
+  inside a test was reported as a failing test and the run continued with a
+  nonzero status — the exact opposite of "a clean stop is a successful stop".
+  Both now use the same `is_exit_program()` pass-through as the other
+  boundaries. The lesson is that adding an out-of-band signal means auditing
+  *every* place that absorbs a `Result`, not just the ones the feature's own
+  tests walk.
+- **The step check broke a working program.** Validating the step
+  unconditionally turned `count from 5 to 1 by 0` — an empty range whose body
+  never ran, and which therefore never cared about its step — into a runtime
+  error. The check now runs only when the loop is actually entered. A fix for
+  a loud bug quietly became a compatibility break, which is precisely what the
+  backward-compatibility rule exists to catch.
+- **A positive step still is not necessarily a step.** Past 2^53 the counter's
+  floating-point resolution exceeds the step, so `count + step == count` and
+  the loop never advances. Removing the trip cap made that endless rather than
+  merely slow, and inside a `main loop` — where the deadline is suspended —
+  nothing would have stopped it. The loop now refuses to continue the moment
+  the counter provably stops moving.
+- **A diagnostic contradicted itself.** `TypeError` appends
+  "Expected X but found Y" whenever both fields are set, so accepting two types
+  while naming one produced "Expected Pattern or Text to replace, got Number -
+  Expected Pattern but found Number". With two valid types there is no single
+  expectation to report, so that field is now left unset.
+
+Not fixed, deliberately: count loops inside a `main loop` remain unbounded.
+The deadline exemption is intentional (a server must not time out on its own
+uptime) and applies to every loop form, so `repeat forever` and a `for each`
+over a caller-supplied list are equally unbounded there. The removed cap was
+never a control against this — it only bit loops whose end value was *below*
+1,000,000, so any caller wanting an unbounded loop just passed a larger number.
+The real fix is a per-handler deadline, which is a design change rather than a
+bug fix; the docs now state the exemption plainly instead of implying the
+timeout covers it.
 
 ## Noted, not fixed
 

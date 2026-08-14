@@ -44,4 +44,9 @@ display "step 5: about to stop"
 
 call stop_when_empty with ""
 
+// Reaching this line means `exit program` did not stop the program. Displaying
+// a message would still leave the file exiting 0, so the gated runner would
+// call that a pass. Reading a file that cannot exist raises a runtime error
+// instead, which is what makes unexpected continuation a *failure*.
 display "UNREACHABLE: statements after exit program must not run"
+open file at "wfl-exit-program-must-never-open-this.txt" for reading as leaked

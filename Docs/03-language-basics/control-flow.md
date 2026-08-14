@@ -556,7 +556,15 @@ display "Hello, " with user_name
 ```
 
 Because stopping is not a failure, a `when error:` handler never catches
-`exit program`. A `finally:` block still runs, so cleanup is not skipped.
+`exit program`. A `finally:` block still runs, so cleanup is not skipped. In a
+websocket handler it stops the server too, rather than being reported as a
+handler error.
+
+**What counts as "the program".** Code you bring in with `load module from` or
+`include from` becomes part of the program that included it, so stopping inside
+it stops everything. A program you launch with `execute file` is a *separate*
+program: `exit program` there ends that run and hands control back to the
+caller, which carries on.
 
 **`exit program` vs `exit loop`:**
 
