@@ -49,7 +49,7 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, Type,
+    Assertion, ExitScope, Expression, FileOpenMode, Literal, Operator, Program, Statement, Type,
     UnaryOperator, WsHandlerEvent,
 };
 use crate::pattern::CompiledPattern;
@@ -182,6 +182,12 @@ fn classify_concurrent_handler_error(
     error: &RuntimeError,
     accepted_request: bool,
 ) -> ConcurrentHandlerDisposition {
+    // `exit program` is a deliberate stop, so it must leave the loop and unwind
+    // to the top of the run — never be absorbed as a request-local outcome,
+    // even for a handler that already accepted a request.
+    if error.is_exit_program() {
+        return ConcurrentHandlerDisposition::Structural;
+    }
     let request_wait_timeout =
         error.kind == ErrorKind::Timeout && error.message.starts_with(REQUEST_WAIT_TIMEOUT_PREFIX);
     if accepted_request || error.kind == ErrorKind::Cancelled || request_wait_timeout {
@@ -6344,6 +6350,11 @@ impl Interpreter {
                 //
                 // Structural pre-request failures feed the breaker.
                 Some((Ok(Err(err)), accepted)) => {
+                    // `exit program` stops the server, so it unwinds out of the
+                    // loop instead of being logged and retried.
+                    if err.is_exit_program() {
+                        return Err(err);
+                    }
                     match classify_concurrent_handler_error(&err, accepted) {
                         ConcurrentHandlerDisposition::RequestLocal => {
                             log::debug!(
@@ -6789,6 +6800,10 @@ impl Interpreter {
 
         let mut last_value = Value::Null;
         let mut errors = Vec::new();
+        // Set when an `exit program` statement asked the run to stop: the
+        // remaining top-level statements and the conventional `main` action are
+        // skipped, but the cleanup below still runs and the run still succeeds.
+        let mut exited = false;
 
         #[allow(unused_variables)]
         for (i, statement) in program.statements.iter().enumerate() {
@@ -6844,6 +6859,13 @@ impl Interpreter {
                         ControlFlow::None => {}
                     }
                 }
+                // `exit program`: a successful stop, not a failure. Nothing is
+                // reported and nothing further runs.
+                Err(err) if err.is_exit_program() => {
+                    exec_trace!("Program exited via `exit program`");
+                    exited = true;
+                    break;
+                }
                 Err(err) => {
                     if !self.step_mode {
                         exec_trace!(
@@ -6862,7 +6884,7 @@ impl Interpreter {
         // Run the conventional `main` action (if any) before cleanup, so a
         // stream/request opened by `main` is finalized by the drain below rather
         // than leaking.
-        if errors.is_empty() {
+        if errors.is_empty() && !exited {
             let main_func_opt = {
                 match self.global_env.borrow().get("main") {
                     Some(Value::Function(main_func)) => Some(main_func.clone()),
@@ -6882,6 +6904,11 @@ impl Interpreter {
                     Ok(value) => {
                         exec_trace!("Main function returned: {:?}", value);
                         last_value = value
+                    }
+                    // `exit program` inside `main` finishes the run cleanly,
+                    // exactly as it does at top level.
+                    Err(err) if err.is_exit_program() => {
+                        exec_trace!("Program exited from main via `exit program`");
                     }
                     Err(err) => {
                         exec_trace!("Main function failed: {}", err);
@@ -7385,14 +7412,29 @@ impl Interpreter {
                     Box::new(|count, end_num| count <= end_num)
                 };
 
-                let max_iterations = if end_num > 1000000.0 {
-                    u64::MAX // Effectively no limit for large end values, rely on timeout instead
-                } else {
-                    // Allow up to 10001 iterations to accommodate loops that need exactly 10000
-                    // (e.g., "count from 1 to 10000" requires 10000 iterations)
-                    10001
-                };
-                let mut iterations = 0;
+                // A step that cannot move the counter toward the end value would
+                // spin until the execution timeout, so it is refused up front
+                // with a diagnostic that names the problem. `count` always moves
+                // *toward* its end value (a downward loop subtracts the step), so
+                // the step is a magnitude and must be a positive, finite number.
+                //
+                // Only a loop that actually runs is validated: `count from 5 to 1`
+                // never enters its body, so its step never mattered and a program
+                // that passed a nonsense one has always completed successfully.
+                // Validating unconditionally would break those programs.
+                if should_continue(count, end_num) && (!step_num.is_finite() || step_num <= 0.0) {
+                    *self.current_count.borrow_mut() = previous_count;
+                    *self.in_count_loop.borrow_mut() = was_in_count_loop;
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Count loop step must be a positive number, got {step_num}. \
+                             A count loop always moves toward its end value, so \
+                             `count from 10 down to 1 by 2` steps down by 2."
+                        ),
+                        *line,
+                        *column,
+                    ));
+                }
 
                 *self.in_count_loop.borrow_mut() = true;
 
@@ -7400,7 +7442,13 @@ impl Interpreter {
                 let loop_var_name = variable_name.as_deref().unwrap_or("count");
                 let mut loop_env_recycle = None;
 
-                while should_continue(count, end_num) && iterations < max_iterations {
+                // No trip-count ceiling: `count` is bounded by the same
+                // execution timeout as `repeat` and `for each` (checked below on
+                // every trip), so an ordinary long loop runs and a runaway one
+                // still stops. The previous guard keyed on the *end value*, which
+                // capped `count from 1 to 20000` while letting
+                // `count from 1 to 1000001` run uncapped (issue #699).
+                while should_continue(count, end_num) {
                     self.check_time()?;
 
                     *self.current_count.borrow_mut() = Some(count);
@@ -7454,25 +7502,35 @@ impl Interpreter {
                         }
                     }
 
-                    if *downward {
-                        count -= step_num;
+                    // A positive step is not enough: past 2^53 the counter's
+                    // floating-point resolution exceeds the step, so `count`
+                    // stops changing and the loop can never reach its end. That
+                    // is an endless loop the execution timeout would catch only
+                    // outside a `main loop`, where the deadline is suspended —
+                    // so it is refused here, where the stall is provable.
+                    let next = if *downward {
+                        count - step_num
                     } else {
-                        count += step_num;
+                        count + step_num
+                    };
+                    if next == count {
+                        *self.current_count.borrow_mut() = previous_count;
+                        *self.in_count_loop.borrow_mut() = was_in_count_loop;
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Count loop step {step_num} is too small to move the counter \
+                                 past {count}, so the loop can never reach {end_num}. \
+                                 Numbers this large lose precision — use a larger step."
+                            ),
+                            *line,
+                            *column,
+                        ));
                     }
-
-                    iterations += 1;
+                    count = next;
                 }
 
                 *self.current_count.borrow_mut() = previous_count;
                 *self.in_count_loop.borrow_mut() = was_in_count_loop;
-
-                if iterations >= max_iterations {
-                    return Err(RuntimeError::new(
-                        format!("Count loop exceeded maximum iterations ({max_iterations})"),
-                        *line,
-                        *column,
-                    ));
-                }
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -7839,10 +7897,23 @@ impl Interpreter {
                 Ok((Value::Null, ControlFlow::Continue))
             }
 
-            Statement::ExitStatement { .. } => {
+            Statement::ExitStatement {
+                scope,
+                line,
+                column,
+            } => {
                 #[cfg(debug_assertions)]
-                exec_trace!("Executing exit statement");
-                Ok((Value::Null, ControlFlow::Exit))
+                exec_trace!("Executing exit statement ({scope:?})");
+                match scope {
+                    // `exit` / `exit loop`: unwind the enclosing loop(s).
+                    ExitScope::Loop => Ok((Value::Null, ControlFlow::Exit)),
+                    // `exit program`: stop the run where it stands. Raised as
+                    // the `ExitProgram` sentinel so it unwinds action calls and
+                    // expression evaluation too — neither of which carries a
+                    // control-flow channel — and is turned back into a
+                    // successful finish at the top of the run.
+                    ExitScope::Program => Err(RuntimeError::exit_program(*line, *column)),
+                }
             }
 
             Statement::OpenFileStatement {
@@ -8550,6 +8621,10 @@ impl Interpreter {
                         *line,
                         *column,
                     )),
+                    // `exit program` inside a module stops the whole run, so it
+                    // travels untouched rather than being retitled as a module
+                    // failure.
+                    Err(e) if e.is_exit_program() => Err(e),
                     Err(e) => {
                         // Capture chain BEFORE guard drops (while current module is still on stack)
                         let chain = _guard.get_chain();
@@ -8727,6 +8802,9 @@ impl Interpreter {
                         *line,
                         *column,
                     )),
+                    // As in module scope: `exit program` stops the whole run and
+                    // must not be retitled as an include failure.
+                    Err(e) if e.is_exit_program() => Err(e),
                     Err(e) => {
                         let chain = _guard.get_chain();
                         if chain.len() > 1 {
@@ -9079,6 +9157,10 @@ impl Interpreter {
 
                 let primary_result = match self.execute_block(body, Rc::clone(&child_env)).await {
                     Ok(val) => Ok(val), // Success path: just bubble result
+                    // `exit program` is a request to stop, not a failure: no
+                    // `when`/`otherwise` clause may swallow it. (`finally:`
+                    // below still runs, so cleanup is not skipped.)
+                    Err(err) if err.is_exit_program() => Err(err),
                     Err(err) => {
                         // Find matching when clause based on error kind
                         let mut executed = false;
@@ -13067,6 +13149,12 @@ impl Interpreter {
                 for stmt in body {
                     match Box::pin(self._execute_statement(stmt, test_env.clone())).await {
                         Ok(_) => {}
+                        Err(e) if e.is_exit_program() => {
+                            // Stopping the program is not a failing test. Pass the
+                            // sentinel through so the run ends cleanly instead of
+                            // recording a bogus failure and continuing.
+                            return Err(e);
+                        }
                         Err(e) => {
                             test_passed = false;
 
@@ -13355,6 +13443,12 @@ impl Interpreter {
         }
 
         if let Err(err) = self.execute_block(&body, child_env).await {
+            // `exit program` is a stop request, not a handler failure: it must
+            // leave the pump and unwind to the top of the run rather than be
+            // reported and swallowed like an ordinary handler error.
+            if err.is_exit_program() {
+                return Err(err);
+            }
             eprintln!(
                 "WebSocket {} handler error: {}",
                 event.kind.as_str(),

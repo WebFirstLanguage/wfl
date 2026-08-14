@@ -395,6 +395,57 @@ store directories as split of filepath by "/"
 
 ---
 
+### replace
+
+**Purpose:** Replace every occurrence of one text with another.
+
+**Signature:**
+```wfl
+replace <needle> with <replacement> in <text>
+```
+
+**Parameters:**
+- `needle` (Text or Pattern): What to look for. A plain text is matched
+  verbatim — characters that mean something in a pattern are just characters
+  here. A [pattern](pattern-module.md#pattern_replace) may be used instead
+- `replacement` (Text): What each occurrence becomes
+- `text` (Text): The text to search
+
+**Returns:** Text - a new text; the original is unchanged
+
+**Example:**
+```wfl
+store path as "home/user/documents"
+store windows_path as replace "/" with "\\" in path
+display windows_path
+```
+
+**Output:**
+```
+home\user\documents
+```
+
+**More examples:**
+```wfl
+store greeting as "hello world world"
+display replace "world" with "there" in greeting
+// Output: hello there there
+
+store spaced as "a.b.c"
+display replace "." with "-" in spaced
+// Output: a-b-c
+```
+
+Occurrences are replaced left to right and never overlap. A needle that does
+not occur returns the text unchanged.
+
+**Use Cases:**
+- Swap separators
+- Redact or mask text
+- Normalize input before comparison
+
+---
+
 ### format_number
 
 **Purpose:** Format a number as text with a fixed number of decimal places.
