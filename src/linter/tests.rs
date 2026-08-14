@@ -149,3 +149,39 @@ fn test_linter_integration() {
             .any(|d| d.code == "LINT-NAME" && d.message.contains("snakecase"))
     );
 }
+
+/// Regression for #707 review: `yes`/`no`/`true`/`false` lex case-insensitively
+/// (`src/lexer/token.rs:446`), so `YES` becomes a `BooleanLiteral` rather than an
+/// `Identifier`. The pre-#707 rule carried `yes`/`no` in its keyword array and
+/// warned on them, so skipping non-identifier tokens would silently drop that
+/// coverage.
+#[test]
+fn test_keyword_casing_flags_mis_cased_boolean_literals() {
+    for (source, expected) in [
+        ("store flag as YES", "YES"),
+        ("store flag as No", "No"),
+        ("store flag as TRUE", "TRUE"),
+        ("store flag as False", "False"),
+    ] {
+        let diagnostics = keyword_casing_diagnostics(source);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "`{source}` should report exactly one mis-cased literal, got {diagnostics:?}"
+        );
+        assert_eq!(
+            diagnostics[0].message,
+            format!("Keyword '{expected}' should be lowercase")
+        );
+    }
+}
+
+/// Correctly-cased boolean literals must stay silent.
+#[test]
+fn test_keyword_casing_accepts_lowercase_boolean_literals() {
+    let diagnostics = keyword_casing_diagnostics("store flag as yes\nstore other as false");
+    assert!(
+        diagnostics.is_empty(),
+        "lowercase boolean literals must not be linted, got {diagnostics:?}"
+    );
+}
