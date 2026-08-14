@@ -10042,13 +10042,16 @@ impl Interpreter {
                     }
                 }
 
-                // Process events
+                // Process events. The definition's events are templates: each
+                // instance gets its own copy with its own handler list (see
+                // `create_container_instance_with_inheritance`), so a handler
+                // registered on one Button never fires for another.
                 let mut container_events = HashMap::new();
                 for event in events {
                     let container_event = ContainerEventValue {
                         name: event.name.clone(),
                         params: event.parameters.iter().map(|p| p.name.clone()).collect(),
-                        handlers: Vec::new(),
+                        handlers: Rc::new(RefCell::new(Vec::new())),
                         line: event.line,
                         column: event.column,
                     };
@@ -10251,7 +10254,7 @@ impl Interpreter {
                 let event_def = ContainerEventValue {
                     name: name.clone(),
                     params: parameters.iter().map(|p| p.name.clone()).collect(),
-                    handlers: Vec::new(),
+                    handlers: Rc::new(RefCell::new(Vec::new())),
                     line: *_line,
                     column: *_column,
                 };
@@ -10293,10 +10296,30 @@ impl Interpreter {
                     arg_values.push(arg_val);
                 }
 
+                // Snapshot the handler list before running anything: a handler
+                // is free to register another handler for the same event, and
+                // holding the borrow across an await would panic. Handlers
+                // added during this dispatch run on the next trigger.
+                let handlers = event.handlers.borrow().clone();
+
+                // Dispatching a handler descends another native stack level, and
+                // a handler is free to trigger its own event. Enforce the same
+                // recursion ceiling `call_function` uses so an event loop is a
+                // clean error rather than a native stack overflow.
+                if !handlers.is_empty()
+                    && let Err(exceeded) = self.budget.check_call_depth(self.call_depth.get())
+                {
+                    return Err(self.budget_error(exceeded, *_line, *_column));
+                }
+                let _depth_guard = CallDepthGuard::enter(&self.call_depth);
+
                 // Execute all event handlers
-                for handler in &event.handlers {
-                    // Create a new environment for the handler
-                    let handler_env = Environment::new_child_env(&env);
+                for handler in &handlers {
+                    // Run the handler in its own scope, parented to where it
+                    // was registered, so its body sees the variables that were
+                    // visible at registration rather than the trigger site's.
+                    let parent_env = handler.env.upgrade().unwrap_or_else(|| Rc::clone(&env));
+                    let handler_env = Environment::new_child_env(&parent_env);
 
                     // Bind arguments to parameters. Use define_direct so a
                     // parameter shadows any same-named global rather than being
@@ -10326,72 +10349,82 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                // Evaluate the event source
-                let source_val = self
-                    .evaluate_expression(event_source, Rc::clone(&env))
-                    .await?;
+                let handler = EventHandler {
+                    body: handler_body.clone(),
+                    env: Rc::downgrade(&env),
+                    line: *_line,
+                    column: *_column,
+                };
 
-                // Check if the source is a container instance
-                if let Value::ContainerInstance(instance_rc) = &source_val {
-                    let instance = instance_rc.borrow();
-                    let container_type = instance.container_type.clone();
+                // `on <event> of <instance>:` registers on that instance;
+                // the bare `on <event>:` form registers on the event of that
+                // name already in scope.
+                let target_event = match event_source {
+                    Some(source_expr) => {
+                        let source_val = self
+                            .evaluate_expression(source_expr, Rc::clone(&env))
+                            .await?;
 
-                    // Look up the container definition
-                    let container_def = match env.borrow().get(&container_type) {
-                        Some(Value::ContainerDefinition(def)) => def.clone(),
-                        _ => {
+                        match &source_val {
+                            Value::ContainerInstance(instance_rc) => {
+                                let instance = instance_rc.borrow();
+                                match instance.events.get(event_name) {
+                                    Some(event) => Rc::clone(event),
+                                    None => {
+                                        let container_type = instance.container_type.clone();
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Event '{event_name}' not found in container '{container_type}'"
+                                            ),
+                                            *_line,
+                                            *_column,
+                                        ));
+                                    }
+                                }
+                            }
+                            // An event value is a legitimate target too, so a
+                            // handler can be attached to an event held in a
+                            // variable rather than reached through an instance.
+                            Value::ContainerEvent(event) => Rc::clone(event),
+                            other => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Cannot add event handler to non-container value of type {}",
+                                        other.type_name()
+                                    ),
+                                    *_line,
+                                    *_column,
+                                ));
+                            }
+                        }
+                    }
+                    None => match env.borrow().get(event_name) {
+                        Some(Value::ContainerEvent(event)) => event,
+                        Some(other) => {
                             return Err(RuntimeError::new(
-                                format!("Container '{container_type}' not found"),
+                                format!(
+                                    "'{event_name}' is a {}, not an event. Use `on {event_name} of <container>:` to handle a container's event.",
+                                    other.type_name()
+                                ),
                                 *_line,
                                 *_column,
                             ));
                         }
-                    };
+                        None => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Event '{event_name}' not found. Use `on {event_name} of <container>:` to handle a container's event."
+                                ),
+                                *_line,
+                                *_column,
+                            ));
+                        }
+                    },
+                };
 
-                    // Look up the event
-                    if let Some(event) = container_def.events.get(event_name) {
-                        // Create a new event handler
-                        let handler = EventHandler {
-                            body: handler_body.clone(),
-                            env: Rc::downgrade(&env),
-                            line: *_line,
-                            column: *_column,
-                        };
+                target_event.handlers.borrow_mut().push(handler);
 
-                        // Create a new event with the handler added
-                        let mut handlers = event.handlers.clone();
-                        handlers.push(handler);
-
-                        // Create a new event value
-                        let new_event = ContainerEventValue {
-                            name: event.name.clone(),
-                            params: event.params.clone(),
-                            handlers,
-                            line: event.line,
-                            column: event.column,
-                        };
-
-                        // Store the updated event in the environment
-                        let event_value = Value::ContainerEvent(Rc::new(new_event));
-                        let _ = env.borrow_mut().define(event_name, event_value.clone());
-
-                        Ok((Value::Null, ControlFlow::None))
-                    } else {
-                        Err(RuntimeError::new(
-                            format!(
-                                "Event '{event_name}' not found in container '{container_type}'"
-                            ),
-                            *_line,
-                            *_column,
-                        ))
-                    }
-                } else {
-                    Err(RuntimeError::new(
-                        "Cannot add event handler to non-container value".to_string(),
-                        *_line,
-                        *_column,
-                    ))
-                }
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::ParentMethodCall {
                 method_name,
@@ -14010,17 +14043,14 @@ impl Interpreter {
                                     .define(prop_name, prop_value.clone());
                             }
 
-                            // Add events from the container definition
-                            if let Some(Value::ContainerDefinition(container_def_rc)) =
-                                env.borrow().get(&instance.container_type)
-                            {
-                                let container_def = container_def_rc.clone();
-                                for (event_name, event_value) in &container_def.events {
-                                    let _ = method_env.borrow_mut().define(
-                                        event_name,
-                                        Value::ContainerEvent(Rc::new(event_value.clone())),
-                                    );
-                                }
+                            // Add this instance's events, so a `trigger` inside
+                            // the action sees the handlers registered on this
+                            // very instance rather than an empty template.
+                            for (event_name, event_value) in &instance.events {
+                                let _ = method_env.borrow_mut().define(
+                                    event_name,
+                                    Value::ContainerEvent(Rc::clone(event_value)),
+                                );
                             }
                         } // Drop instance borrow here
 
@@ -16101,9 +16131,26 @@ impl Interpreter {
             }
         }
 
+        // Give this instance its own events. Inherited events are shared with
+        // the parent instance (same `Rc`), so registering a handler on the
+        // child also reaches a `trigger` running in an inherited action.
+        let mut instance_events: HashMap<String, Rc<ContainerEventValue>> = HashMap::new();
+        if let Some(ref parent) = parent_instance {
+            for (name, event) in &parent.borrow().events {
+                instance_events.insert(name.clone(), Rc::clone(event));
+            }
+        }
+        for (event_name, event_def) in &container_def.events {
+            instance_events.insert(
+                event_name.clone(),
+                Rc::new(ContainerEventValue::fresh_instance(event_def)),
+            );
+        }
+
         Ok(ContainerInstanceValue {
             container_type: container_type.to_string(),
             properties: instance_properties,
+            events: instance_events,
             parent: parent_instance,
             line,
             column,

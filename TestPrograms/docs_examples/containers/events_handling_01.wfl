@@ -1,0 +1,20 @@
+create container Button:
+    property label: Text
+
+    event on_click
+
+    action click:
+        display "Clicking " with label
+        trigger on_click
+    end
+end
+
+create new Button as save_button:
+    label is "Save"
+end
+
+on on_click of save_button:
+    display "Saving your work..."
+end on
+
+save_button.click()

@@ -7,6 +7,7 @@ WFL supports object-oriented programming through **containers**—a natural way 
 Containers are WFL's version of classes. They combine:
 - **Properties** - Data fields
 - **Actions** - Methods/functions
+- **Events** - Announcements other code can react to
 - **Inheritance** - Code reuse
 - **Interfaces** - Contracts
 
@@ -324,6 +325,263 @@ that any container can implement:
 create interface Serializable
 ```
 
+## Events
+
+An **event** is an announcement a container makes. The container says *what
+happened*; other code decides *what to do about it*. That keeps a container from
+having to know about everything that cares — a `Button` announces that it was
+clicked without knowing who is listening.
+
+Three pieces make up the whole feature:
+
+| Piece | Where it goes | What it does |
+|---|---|---|
+| `event <name>` | In a container body | Declares an event the container can announce |
+| `trigger <name>` | In an action | Announces it — every registered handler runs |
+| `on <name> of <instance>:` … `end on` | Anywhere | Registers a handler to run when it is announced |
+
+### Declaring and Triggering an Event
+
+Declare an event alongside the container's properties and actions, then
+`trigger` it from an action:
+
+```wfl
+create container Button:
+    property label: Text
+
+    event on_click
+
+    action click:
+        display "Clicking " with label
+        trigger on_click
+    end
+end
+```
+
+### Handling an Event
+
+An `on` block registers a handler. It names the event first, then the instance
+to listen to, and ends with `end on`:
+
+```wfl
+create new Button as save_button:
+    label is "Save"
+end
+
+on on_click of save_button:
+    display "Saving your work..."
+end on
+
+save_button.click()
+```
+
+```
+Clicking Save
+Saving your work...
+```
+
+The event name comes before the instance because WFL reads adjacent bare words
+as a single name — `on save_button on_click` would be one name, with no way to
+tell the button from the event. The word `of` keeps the two apart.
+
+### Handlers Belong to One Instance
+
+Registering a handler attaches it to *that instance*, not to the container as a
+whole. Two buttons made from the same container listen independently:
+
+```wfl
+create new Button as save_button:
+    label is "Save"
+end
+
+create new Button as cancel_button:
+    label is "Cancel"
+end
+
+on on_click of save_button:
+    display "Saving your work..."
+end on
+
+cancel_button.click()   // No handler registered — nothing extra happens
+save_button.click()     // Runs the handler above
+```
+
+```
+Clicking Cancel
+Clicking Save
+Saving your work...
+```
+
+### Several Handlers
+
+An event can have any number of handlers. They all run, in the order they were
+registered:
+
+```wfl
+on on_click of save_button:
+    display "1. Validating..."
+end on
+
+on on_click of save_button:
+    display "2. Writing to disk..."
+end on
+
+save_button.click()
+```
+
+```
+Clicking Save
+1. Validating...
+2. Writing to disk...
+```
+
+A handler registered while an event is being dispatched runs on the *next*
+trigger, not the one in progress.
+
+### Passing Values with an Event
+
+An event can declare values it carries, using `needs` — the same parameter
+syntax actions use. `trigger` supplies them with `with`, and handlers refer to
+them by the names the event declared:
+
+```wfl
+create container Slider:
+    property value: Number
+
+    event on_change needs old_value: Number, new_value: Number
+
+    action set_to needs new_setting: Number:
+        store previous as value
+        store value as new_setting
+        trigger on_change with previous and new_setting
+    end
+end
+
+create new Slider as volume:
+    value is 3
+end
+
+on on_change of volume:
+    display "Volume moved from " with old_value with " to " with new_value
+end on
+
+volume.set_to(7)
+```
+
+```
+Volume moved from 3 to 7
+```
+
+If a `trigger` supplies fewer values than the event declares, the remaining
+parameters are `nothing`.
+
+### Handlers Remember Where They Were Written
+
+A handler body can use the variables that were in scope where it was
+registered, and changes it makes to them are visible afterwards:
+
+```wfl
+create container Bell:
+    event ring
+
+    action strike:
+        trigger ring
+    end
+end
+
+create new Bell as dinner_bell:
+end
+
+store times_rung as []
+
+on ring of dinner_bell:
+    push with times_rung and "ring"
+end on
+
+dinner_bell.strike()
+dinner_bell.strike()
+
+display "Rang " with length of times_rung with " times"
+```
+
+```
+Rang 2 times
+```
+
+### Inherited Events
+
+A container that `extends` another inherits its events. A handler registered on
+the child instance runs whether the trigger came from an inherited action or
+one of the child's own:
+
+```wfl
+create container Machine:
+    event started
+
+    action power_on:
+        trigger started
+    end
+end
+
+create container Printer extends Machine:
+    action warm_up:
+        trigger started
+    end
+end
+
+create new Printer as office_printer:
+end
+
+on started of office_printer:
+    display "Printer is starting"
+end on
+
+office_printer.power_on()
+office_printer.warm_up()
+```
+
+```
+Printer is starting
+Printer is starting
+```
+
+### Events Outside Containers
+
+`event` also works on its own, without a container. Declare it, register a
+handler with the short `on <name>:` form, and trigger it:
+
+```wfl
+event data_ready needs payload: Text
+
+on data_ready:
+    display "Received: " with payload
+end on
+
+trigger data_ready with "42 records"
+```
+
+```
+Received: 42 records
+```
+
+### Event Errors
+
+Events fail loudly rather than silently doing nothing:
+
+- Registering a handler for an event the container does not declare is an error
+  (`Event 'on_hover' not found in container 'Button'`), reported by the type
+  checker before the program runs and again at runtime.
+- `on <name> of <something that is not a container>:` is an error.
+- A handler that triggers its own event forever stops with a
+  `Maximum call depth exceeded` error rather than crashing.
+
+### Events vs. Calling an Action
+
+Use an action when the container should do the work itself. Use an event when
+the container should announce something and let other code decide what happens
+— especially when the number of interested parties can grow, or when the
+container should not depend on them.
+
 ## Complete Example: Task Manager
 
 ```wfl
@@ -429,6 +687,7 @@ In this section, you learned:
 ✅ **Calling actions** - `object.action()`
 ✅ **Inheritance** - `extends` keyword
 ✅ **Interfaces** - `implements` keyword, contracts enforced via `requires action`
+✅ **Events** - `event`, `trigger ... with ...`, and `on <event> of <instance>:`
 ✅ **Complete examples** - Task manager with OOP
 
 ## Next Steps

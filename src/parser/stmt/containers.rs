@@ -7,7 +7,7 @@ use super::super::{
 use super::actions::colon_type_from_token;
 use super::{ActionParser, StmtParser};
 use crate::lexer::token::Token;
-use crate::parser::expr::ExprParser;
+use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 
 pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
     fn parse_container_definition(&mut self) -> Result<Statement, ParseError>
@@ -24,7 +24,13 @@ pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
     fn parse_container_instantiation(&mut self) -> Result<Statement, ParseError>;
     fn parse_event_definition(&mut self) -> Result<Statement, ParseError>;
     fn parse_event_trigger(&mut self) -> Result<Statement, ParseError>;
-    fn parse_event_handler(&mut self) -> Result<Statement, ParseError>;
+    fn parse_event_handler(&mut self) -> Result<Statement, ParseError>
+    where
+        Self: StmtParser<'a>;
+    fn parse_event_name(
+        &mut self,
+        at_token: &crate::lexer::token::TokenWithPosition,
+    ) -> Result<String, ParseError>;
 
     fn parse_inheritance(&mut self) -> Result<(Option<String>, Vec<String>), ParseError>;
 
@@ -449,113 +455,155 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         })
     }
 
+    /// Parses a statement-level `event <name> [needs <params>]` definition.
+    ///
+    /// Shares its grammar with the in-container form so an event declared at
+    /// the top level accepts the same `needs` parameter list.
     fn parse_event_definition(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.bump_sync().unwrap(); // Consume 'event'
-        let line = start_token.line;
-        let column = start_token.column;
+        let definition = self.parse_event_definition_full()?;
 
-        // Parse event name
-        let name = if let Some(token) = self.cursor.peek() {
-            if let Token::Identifier(id) = &token.token {
-                self.bump_sync(); // Consume the identifier
-                id.clone()
-            } else {
-                return Err(ParseError::from_token(
-                    format!(
-                        "Expected identifier for event name, found {:?}",
-                        token.token
-                    ),
-                    token,
-                ));
-            }
-        } else {
-            return Err(ParseError::from_token(
-                "Expected identifier for event name, found end of input".to_string(),
-                start_token,
-            ));
-        };
-
-        // For now, just create a simple event definition
         Ok(Statement::EventDefinition {
-            name,
-            parameters: Vec::new(),
-            line,
-            column,
+            name: definition.name,
+            parameters: definition.parameters,
+            line: definition.line,
+            column: definition.column,
         })
     }
 
+    /// Parses `trigger <event> [with <arg> and <arg> ...]`.
+    ///
+    /// The `with` clause supplies positional values for the parameters the
+    /// event declared with `needs`; handlers see them bound by name.
     fn parse_event_trigger(&mut self) -> Result<Statement, ParseError> {
         let start_token = self.bump_sync().unwrap(); // Consume 'trigger'
         let line = start_token.line;
         let column = start_token.column;
 
-        // Parse event name
-        let name = if let Some(token) = self.cursor.peek() {
-            if let Token::Identifier(id) = &token.token {
-                self.bump_sync(); // Consume the identifier
-                id.clone()
-            } else {
-                return Err(ParseError::from_token(
-                    format!(
-                        "Expected identifier for event name, found {:?}",
-                        token.token
-                    ),
-                    token,
-                ));
-            }
+        let name = self.parse_event_name(start_token)?;
+
+        let arguments = if self
+            .cursor
+            .peek()
+            .is_some_and(|t| t.token == Token::KeywordWith)
+        {
+            self.bump_sync(); // Consume 'with'
+            self.parse_argument_list()?
         } else {
-            return Err(ParseError::from_token(
-                "Expected identifier for event name, found end of input".to_string(),
-                start_token,
-            ));
+            Vec::new()
         };
 
-        // For now, just create a simple event trigger
         Ok(Statement::EventTrigger {
             name,
-            arguments: Vec::new(),
+            arguments,
             line,
             column,
         })
     }
 
-    fn parse_event_handler(&mut self) -> Result<Statement, ParseError> {
+    /// Parses an event handler block:
+    ///
+    /// ```text
+    /// on <event> of <container instance>:
+    ///     <body>
+    /// end on
+    /// ```
+    ///
+    /// The `of <source>` clause is optional; without it the handler attaches to
+    /// the event of that name already in scope (a top-level `event` definition,
+    /// or the container's own event inside one of its actions).
+    ///
+    /// The event name comes first because the lexer merges adjacent bare words
+    /// into one identifier — `on btn on_click` would lex as a single
+    /// `btn on_click` identifier, leaving no way to tell source from event.
+    /// The `of` keyword is the separator that keeps the two apart.
+    fn parse_event_handler(&mut self) -> Result<Statement, ParseError>
+    where
+        Self: StmtParser<'a>,
+    {
         let start_token = self.bump_sync().unwrap(); // Consume 'on'
         let line = start_token.line;
         let column = start_token.column;
 
-        // Parse event source
-        let event_source = self.parse_expression()?;
+        let event_name = self.parse_event_name(start_token)?;
 
-        // Parse event name
-        let event_name = if let Some(token) = self.cursor.peek() {
+        let event_source = if self
+            .cursor
+            .peek()
+            .is_some_and(|t| t.token == Token::KeywordOf)
+        {
+            self.bump_sync(); // Consume 'of'
+            // Primary expression only: the binary-expression parser silently
+            // swallows a trailing ':', which would eat the header's colon.
+            Some(self.parse_primary_expression()?)
+        } else {
+            None
+        };
+
+        self.expect_token(
+            Token::Colon,
+            "Expected ':' after the event handler header (`on <event> of <instance>:`)",
+        )?;
+
+        // Parse the handler body until `end on`.
+        self.skip_eol();
+        let mut handler_body = Vec::new();
+        loop {
+            self.skip_eol();
+            match self.cursor.peek() {
+                Some(t) if t.token == Token::KeywordEnd => break,
+                None => {
+                    return Err(ParseError::from_token(
+                        "Expected 'end on' to close the event handler".to_string(),
+                        start_token,
+                    ));
+                }
+                _ => handler_body.push(self.parse_statement()?),
+            }
+        }
+        self.expect_token(
+            Token::KeywordEnd,
+            "Expected 'end' to close the event handler",
+        )?;
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'end' in the event handler",
+        )?;
+
+        Ok(Statement::EventHandler {
+            event_source,
+            event_name,
+            handler_body,
+            line,
+            column,
+        })
+    }
+
+    /// Consumes the identifier naming an event, reporting `at_token`'s position
+    /// when input runs out first.
+    fn parse_event_name(
+        &mut self,
+        at_token: &crate::lexer::token::TokenWithPosition,
+    ) -> Result<String, ParseError> {
+        if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
+                let name = id.clone();
                 self.bump_sync(); // Consume the identifier
-                id.clone()
+                Ok(name)
             } else {
-                return Err(ParseError::from_token(
+                Err(ParseError::from_token(
                     format!(
                         "Expected identifier for event name, found {:?}",
                         token.token
                     ),
                     token,
-                ));
+                ))
             }
         } else {
-            return Err(ParseError::from_token(
+            Err(ParseError::from_token(
                 "Expected identifier for event name, found end of input".to_string(),
-                start_token,
-            ));
-        };
-
-        // For now, just create a simple event handler
-        Ok(Statement::EventHandler {
-            event_source,
-            event_name,
-            handler_body: Vec::new(),
-            line,
-            column,
-        })
+                at_token,
+            ))
+        }
     }
 
     fn parse_inheritance(&mut self) -> Result<(Option<String>, Vec<String>), ParseError> {

@@ -6795,8 +6795,9 @@ impl TypeChecker {
                 let event_parameters = self
                     .current_container
                     .as_deref()
-                    .and_then(|container_name| self.analyzer.get_container(container_name))
-                    .and_then(|container| container.events.get(name))
+                    .and_then(|container_name| {
+                        self.analyzer.resolve_container_event(container_name, name)
+                    })
                     .map(|event| event.parameters.clone())
                     .or_else(|| {
                         self.analyzer
@@ -6851,13 +6852,17 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                let source_type = self.infer_expression_type(event_source);
+                // The bare `on <event>:` form has no source expression; its
+                // contract comes from the event declaration in scope.
+                let source_type = match event_source {
+                    Some(source_expr) => self.infer_expression_type(source_expr),
+                    None => Type::Unknown,
+                };
                 let event_parameters = match &source_type {
                     Type::ContainerInstance(container_name) => {
                         let event = self
                             .analyzer
-                            .get_container(container_name)
-                            .and_then(|container| container.events.get(event_name))
+                            .resolve_container_event(container_name, event_name)
                             .cloned();
                         if event.is_none() {
                             self.type_error(

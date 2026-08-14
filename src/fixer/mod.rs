@@ -789,22 +789,71 @@ impl CodeFixer {
                 output.push_str("event ");
                 output.push_str(name);
 
-                // Format parameters
+                // Format parameters. The grammar is `needs a: Text, b: Number`
+                // — printing anything else would not parse back.
                 if !parameters.is_empty() {
-                    output.push_str(" with ");
+                    output.push_str(" needs ");
                     for (i, param) in parameters.iter().enumerate() {
                         if i > 0 {
-                            output.push_str(" and ");
+                            output.push_str(", ");
                         }
                         output.push_str(&param.name);
                         if let Some(param_type) = &param.param_type {
-                            output.push_str(" as ");
+                            output.push_str(": ");
                             output.push_str(&self.format_type(param_type));
                         }
                     }
                 }
 
                 output.push('\n');
+                summary.lines_reformatted += 1;
+            }
+            Statement::EventTrigger {
+                name, arguments, ..
+            } => {
+                output.push_str(&indent);
+                output.push_str("trigger ");
+                output.push_str(name);
+
+                if !arguments.is_empty() {
+                    output.push_str(" with ");
+                    for (i, argument) in arguments.iter().enumerate() {
+                        if i > 0 {
+                            output.push_str(" and ");
+                        }
+                        self.pretty_print_expression(
+                            &argument.value,
+                            output,
+                            indent_level,
+                            summary,
+                        );
+                    }
+                }
+
+                output.push('\n');
+                summary.lines_reformatted += 1;
+            }
+            Statement::EventHandler {
+                event_source,
+                event_name,
+                handler_body,
+                ..
+            } => {
+                output.push_str(&indent);
+                output.push_str("on ");
+                output.push_str(event_name);
+                if let Some(event_source) = event_source {
+                    output.push_str(" of ");
+                    self.pretty_print_expression(event_source, output, indent_level, summary);
+                }
+                output.push_str(":\n");
+
+                for stmt in handler_body {
+                    self.pretty_print_statement(stmt, output, indent_level + 1, summary);
+                }
+
+                output.push_str(&indent);
+                output.push_str("end on\n");
                 summary.lines_reformatted += 1;
             }
             _ => {

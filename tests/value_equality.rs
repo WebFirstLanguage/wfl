@@ -155,6 +155,7 @@ fn test_container_parent_comparison() {
     let parent1 = Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Parent".to_string(),
         properties: HashMap::from([("p".to_string(), Value::Number(1.0))]),
+        events: HashMap::new(),
         parent: None,
         line: 0,
         column: 0,
@@ -164,6 +165,7 @@ fn test_container_parent_comparison() {
     let child1 = Value::ContainerInstance(Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Child".to_string(),
         properties: HashMap::new(),
+        events: HashMap::new(),
         parent: Some(parent1),
         line: 0,
         column: 0,
@@ -173,6 +175,7 @@ fn test_container_parent_comparison() {
     let parent2 = Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Parent".to_string(),
         properties: HashMap::from([("p".to_string(), Value::Number(1.0))]),
+        events: HashMap::new(),
         parent: None,
         line: 0,
         column: 0,
@@ -182,6 +185,7 @@ fn test_container_parent_comparison() {
     let child2 = Value::ContainerInstance(Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Child".to_string(),
         properties: HashMap::new(),
+        events: HashMap::new(),
         parent: Some(parent2),
         line: 0,
         column: 0,
@@ -191,6 +195,7 @@ fn test_container_parent_comparison() {
     let parent3 = Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Parent".to_string(),
         properties: HashMap::from([("p".to_string(), Value::Number(2.0))]),
+        events: HashMap::new(),
         parent: None,
         line: 0,
         column: 0,
@@ -200,6 +205,7 @@ fn test_container_parent_comparison() {
     let child3 = Value::ContainerInstance(Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Child".to_string(),
         properties: HashMap::new(),
+        events: HashMap::new(),
         parent: Some(parent3),
         line: 0,
         column: 0,

@@ -1,0 +1,25 @@
+create container Button:
+    property label: Text
+
+    event on_click
+
+    action click:
+        display "Clicking " with label
+        trigger on_click
+    end
+end
+
+create new Button as save_button:
+    label is "Save"
+end
+
+create new Button as cancel_button:
+    label is "Cancel"
+end
+
+on on_click of save_button:
+    display "Saving your work..."
+end on
+
+cancel_button.click()   // No handler registered — nothing extra happens
+save_button.click()     // Runs the handler above

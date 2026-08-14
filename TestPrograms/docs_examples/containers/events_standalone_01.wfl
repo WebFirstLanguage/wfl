@@ -1,0 +1,7 @@
+event data_ready needs payload: Text
+
+on data_ready:
+    display "Received: " with payload
+end on
+
+trigger data_ready with "42 records"

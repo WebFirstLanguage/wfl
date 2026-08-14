@@ -151,6 +151,10 @@ pub enum ValidationRuleType {
 pub struct ContainerInstanceValue {
     pub container_type: String,
     pub properties: HashMap<String, Value>,
+    /// This instance's own events, including inherited ones. Each carries its
+    /// own handler list, so `on <event> of <instance>:` registers on exactly
+    /// one object and `trigger` inside that instance's actions finds it.
+    pub events: HashMap<String, Rc<ContainerEventValue>>,
     pub parent: Option<Rc<RefCell<ContainerInstanceValue>>>,
     pub line: usize,
     pub column: usize,
@@ -172,9 +176,29 @@ pub struct ContainerMethodValue {
 pub struct ContainerEventValue {
     pub name: String,
     pub params: Vec<String>,
-    pub handlers: Vec<EventHandler>,
+    /// Registered handlers, shared through an `Rc<RefCell<..>>` so that
+    /// `on <event> of <instance>:` and a later `trigger <event>` — which reach
+    /// the event through different paths — see the same list. Cloning a
+    /// `ContainerEventValue` keeps the shared list; use
+    /// [`ContainerEventValue::fresh_instance`] to get an independent one.
+    pub handlers: Rc<RefCell<Vec<EventHandler>>>,
     pub line: usize,
     pub column: usize,
+}
+
+impl ContainerEventValue {
+    /// Builds a per-instance copy of a container definition's event: same name
+    /// and parameters, but its own handler list, so handlers registered on one
+    /// instance never fire for another.
+    pub fn fresh_instance(&self) -> Self {
+        ContainerEventValue {
+            name: self.name.clone(),
+            params: self.params.clone(),
+            handlers: Rc::new(RefCell::new(Vec::new())),
+            line: self.line,
+            column: self.column,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -341,6 +365,7 @@ impl Value {
         let cloned = Rc::new(RefCell::new(ContainerInstanceValue {
             container_type: String::new(),
             properties: HashMap::new(),
+            events: HashMap::new(),
             parent: None,
             line: 0,
             column: 0,
@@ -359,9 +384,30 @@ impl Value {
             .as_ref()
             .map(|parent| Self::deep_clone_container_instance(parent, memo));
 
+        // A deep clone is an independent object, so it gets independent event
+        // registrations: the handlers registered so far are carried over, but
+        // later registrations on either copy stay with that copy.
+        let cloned_events = source
+            .events
+            .iter()
+            .map(|(name, event)| {
+                (
+                    name.clone(),
+                    Rc::new(ContainerEventValue {
+                        name: event.name.clone(),
+                        params: event.params.clone(),
+                        handlers: Rc::new(RefCell::new(event.handlers.borrow().clone())),
+                        line: event.line,
+                        column: event.column,
+                    }),
+                )
+            })
+            .collect();
+
         *cloned.borrow_mut() = ContainerInstanceValue {
             container_type: source.container_type.clone(),
             properties: cloned_properties,
+            events: cloned_events,
             parent: cloned_parent,
             line: source.line,
             column: source.column,

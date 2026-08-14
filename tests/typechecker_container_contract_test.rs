@@ -810,7 +810,7 @@ fn event_handlers_validate_sources_events_and_parameter_scope() {
     let instance = instantiate("Emitter", vec![]);
     let valid_handler = Statement::EventHandler {
         event_name: "changed".to_string(),
-        event_source: Expression::Variable("instance".to_string(), 2, 1),
+        event_source: Some(Expression::Variable("instance".to_string(), 2, 1)),
         handler_body: vec![Statement::DisplayStatement {
             value: Expression::Variable("amount".to_string(), 3, 1),
             line: 3,
@@ -830,7 +830,7 @@ fn event_handlers_validate_sources_events_and_parameter_scope() {
             instance,
             Statement::EventHandler {
                 event_name: "missing".to_string(),
-                event_source: Expression::Variable("instance".to_string(), 2, 1),
+                event_source: Some(Expression::Variable("instance".to_string(), 2, 1)),
                 handler_body: vec![],
                 line: 2,
                 column: 1,
@@ -849,7 +849,7 @@ fn event_handlers_validate_sources_events_and_parameter_scope() {
     let diagnostics = check(Program {
         statements: vec![Statement::EventHandler {
             event_name: "changed".to_string(),
-            event_source: number(1),
+            event_source: Some(number(1)),
             handler_body: vec![],
             line: 1,
             column: 1,

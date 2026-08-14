@@ -201,7 +201,9 @@ loud.strike()
     );
     // Ordering proves the one run belonged to `loud`, not to `quiet`.
     let quiet_strike = out.find("striking quiet").expect("quiet must be struck");
-    let handled = out.find("only loud handles this").expect("handler must run");
+    let handled = out
+        .find("only loud handles this")
+        .expect("handler must run");
     assert!(
         quiet_strike < handled,
         "the handler must have run for loud, after quiet was struck, got:\n{out}"
@@ -444,7 +446,11 @@ end on
 "#,
     );
 
-    assert_ne!(code, Some(0), "a non-container source must fail, got:\n{out}");
+    assert_ne!(
+        code,
+        Some(0),
+        "a non-container source must fail, got:\n{out}"
+    );
     assert!(
         out.contains("Cannot add event handler to non-container value"),
         "the error must explain the source is not a container, got:\n{out}"
@@ -615,8 +621,12 @@ trigger resized with 800
         .parse()
         .unwrap_or_else(|errors| panic!("fixer output must parse again:\n{fixed}\n{errors:?}"));
 
-    for expected in ["event resized needs width", "on resized:", "end on", "trigger resized with"]
-    {
+    for expected in [
+        "event resized needs width",
+        "on resized:",
+        "end on",
+        "trigger resized with",
+    ] {
         assert!(
             fixed.contains(expected),
             "fixer output should contain {expected:?}, got:\n{fixed}"

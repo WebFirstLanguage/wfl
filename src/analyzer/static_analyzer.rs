@@ -1364,6 +1364,26 @@ impl Analyzer {
                     self.mark_used_variables(stmt, usages);
                 }
             }
+            Statement::EventHandler {
+                event_source,
+                handler_body,
+                ..
+            } => {
+                if let Some(event_source) = event_source {
+                    self.mark_used_in_expression(event_source, usages);
+                }
+                // A handler body runs later, but the variables it closes over
+                // are genuinely used — otherwise registering a handler that
+                // reads an outer variable would report it unused.
+                for stmt in handler_body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::EventTrigger { arguments, .. } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+            }
             Statement::SendWebSocketMessageStatement {
                 message, target, ..
             } => {

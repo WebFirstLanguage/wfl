@@ -581,5 +581,133 @@
       "complete-example"
     ],
     "doc_purpose": "Complete task manager example combining containers, lists, and actions"
+  },
+  "docs_examples/containers/events_handling_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#handling-an-event",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "events",
+      "oop"
+    ],
+    "doc_purpose": "Declares a container event, triggers it from an action, and registers a handler with `on <event> of <instance>:`"
+  },
+  "docs_examples/containers/events_per_instance_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#handlers-belong-to-one-instance",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "events",
+      "oop"
+    ],
+    "doc_purpose": "Shows that a handler registered on one instance does not fire for another instance of the same container"
+  },
+  "docs_examples/containers/events_multiple_handlers_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#several-handlers",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "events",
+      "oop"
+    ],
+    "doc_purpose": "Shows that every registered handler runs, in registration order"
+  },
+  "docs_examples/containers/events_parameters_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#passing-values-with-an-event",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "events",
+      "oop",
+      "parameters"
+    ],
+    "doc_purpose": "Declares event parameters with `needs`, supplies them with `trigger ... with ...`, and reads them in the handler"
+  },
+  "docs_examples/containers/events_scope_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#handlers-remember-where-they-were-written",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "events",
+      "oop",
+      "scope"
+    ],
+    "doc_purpose": "Shows a handler reading and mutating a variable from the scope it was registered in"
+  },
+  "docs_examples/containers/events_inheritance_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#inherited-events",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "events",
+      "oop",
+      "inheritance"
+    ],
+    "doc_purpose": "Shows that an extending container inherits its parent's events and dispatches to handlers on the child instance"
+  },
+  "docs_examples/containers/events_standalone_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#events-outside-containers",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "events",
+      "standalone"
+    ],
+    "doc_purpose": "Shows a top-level `event` declaration handled with the bare `on <event>:` form"
   }
 }

@@ -549,7 +549,11 @@ pub enum Statement {
         column: usize,
     },
     EventHandler {
-        event_source: Expression,
+        /// The container instance the handler is registered on
+        /// (`on <event> of <instance>:`). `None` is the bare
+        /// `on <event>:` form, which registers on the event of that
+        /// name already in scope.
+        event_source: Option<Expression>,
         event_name: String,
         handler_body: Vec<Statement>,
         line: usize,

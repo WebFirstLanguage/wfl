@@ -2577,21 +2577,25 @@ impl Analyzer {
                 handler_body,
                 ..
             } => {
-                self.analyze_expression(event_source);
-                let event_info = if let Expression::Variable(source_name, _, _) = event_source {
-                    self.current_scope
+                if let Some(event_source) = event_source {
+                    self.analyze_expression(event_source);
+                }
+                let event_info = match event_source {
+                    Some(Expression::Variable(source_name, _, _)) => self
+                        .current_scope
                         .resolve(source_name)
-                        .and_then(|symbol| symbol.symbol_type.as_ref())
+                        .and_then(|symbol| symbol.symbol_type.clone())
                         .and_then(|symbol_type| match symbol_type {
+                            // Walk `extends` too: instances inherit events.
                             Type::ContainerInstance(container_name) => self
-                                .containers
-                                .get(container_name)
-                                .and_then(|container| container.events.get(event_name)),
+                                .resolve_container_event(&container_name, event_name)
+                                .cloned(),
                             _ => None,
-                        })
-                        .cloned()
-                } else {
-                    None
+                        }),
+                    // The bare `on <event>:` form names an event already in
+                    // scope, so its declared parameters are the contract.
+                    None => self.events.get(event_name).cloned(),
+                    Some(_) => None,
                 };
 
                 if let Some(event_info) = &event_info {
@@ -4383,6 +4387,31 @@ impl Analyzer {
                 .and_then(|info| info.extends.clone());
         }
         false
+    }
+
+    /// Resolves an event on `container` or on any container it extends.
+    /// Instances inherit their parent's events at runtime, so the static view
+    /// has to walk the same chain. Depth-guarded like
+    /// [`Self::container_is_or_extends`], so a cyclic `extends` cannot hang.
+    pub(crate) fn resolve_container_event(
+        &self,
+        container: &str,
+        event_name: &str,
+    ) -> Option<&EventInfo> {
+        let mut current = Some(container.to_string());
+        let mut depth = 0;
+        while let Some(name) = current {
+            let info = self.get_container(&name)?;
+            if let Some(event) = info.events.get(event_name) {
+                return Some(event);
+            }
+            depth += 1;
+            if depth > 64 {
+                return None;
+            }
+            current = info.extends.clone();
+        }
+        None
     }
 
     fn format_type_for_display(t: &Type) -> String {

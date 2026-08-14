@@ -194,7 +194,7 @@ fn event_handler_body_types_do_not_leak_after_registration() {
             dynamic_event_source_binding(),
             outer_number_binding(),
             Statement::EventHandler {
-                event_source: Expression::Variable("source".to_string(), 2, 1),
+                event_source: Some(Expression::Variable("source".to_string(), 2, 1)),
                 event_name: "changed".to_string(),
                 handler_body: vec![stream_binding()],
                 line: 2,

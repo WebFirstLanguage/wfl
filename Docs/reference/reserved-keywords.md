@@ -154,7 +154,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `display` | Output text | `display "Hello World"` |
 | `each` | For each loop | `for each item in list:` |
 | `end` | Close block | `end` |
-| `event` | Define an event | `event click` |
+| `event` | Define an event | `event on_click needs which: Text` |
 | `extends` | Inheritance | `container Person extends Human:` |
 | `finally` | Always-run cleanup clause on try | `finally:` |
 | `for` | For loop | `for each x in items:` |
@@ -167,7 +167,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `load` | Load module | `load module math` |
 | `module` | Module reference | `load module fs` |
 | `not` | Logical NOT | `check if not x:` |
-| `on` | Event handler | `on click:` |
+| `on` | Event handler | `on on_click of btn:` … `end on` |
 | `or` | Logical OR | `check if x is 5 or y is 10:` |
 | `otherwise` | Else clause | `otherwise:` |
 | `private` | Private visibility | `private property age` |
@@ -184,7 +184,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `than` | Comparison keyword | `greater than`, `less than` |
 | `then` | Conditional separator | `check if x is 5 then display "yes"` |
 | `to` | Count loop end | `count from 1 to 10:` |
-| `trigger` | Fire event | `trigger myEvent` |
+| `trigger` | Fire event | `trigger on_click with "left"` |
 | `try` | Error handling | `try:` |
 | `until` | Loop condition | `repeat until x is 10:` |
 | `wait` | Async wait | `wait for result` |
@@ -603,7 +603,7 @@ Complete reference table of all 181 keywords.
 | `end` | Structural | Control Flow | ❌ | `end block` |
 | `equal` | Other | Comparison | ❌ | `is equal to` |
 | `error` | Other | Error Handling | ❌ | `handle error` |
-| `event` | Structural | OOP | ❌ | `define event` |
+| `event` | Structural | OOP | ❌ | `event on_click` |
 | `exactly` | Other | Pattern | ❌ | `exactly 5 times` |
 | `execute` | Other | Process | ❌ | `execute command` |
 | `exists` | Other | File I/O | ❌ | `file exists` |
@@ -658,7 +658,7 @@ Complete reference table of all 181 keywords.
 | `not` | Structural | Comparison | ❌ | `not equal` |
 | `nothing` | Literal | Values | ❌ | Null value |
 | `of` | Other | Comparison | ❌ | `typeof of` |
-| `on` | Structural | OOP | ❌ | `on event` |
+| `on` | Structural | OOP | ❌ | `on on_click of btn:` |
 | `one` | Other | Pattern | ❌ | `one or more` |
 | `open` | Other | File I/O | ❌ | `open file` |
 | `optional` | Other | Pattern | ❌ | `optional match` |
@@ -711,7 +711,7 @@ Complete reference table of all 181 keywords.
 | `timeout` | Other | Web/Network | ❌ | `request timeout` |
 | `times` | Other | Operations | ❌ | `repeat 5 times` |
 | `to` | Structural | Control Flow | ❌ | `count to 10` |
-| `trigger` | Structural | OOP | ❌ | `trigger event` |
+| `trigger` | Structural | OOP | ❌ | `trigger on_click` |
 | `true` | Literal | Values | ❌ | Boolean true |
 | `try` | Structural | Error Handling | ❌ | `try block` |
 | `undefined` | Literal | Values | ❌ | Null alias |

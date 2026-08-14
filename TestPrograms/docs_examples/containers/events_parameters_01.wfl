@@ -1,0 +1,21 @@
+create container Slider:
+    property value: Number
+
+    event on_change needs old_value: Number, new_value: Number
+
+    action set_to needs new_setting: Number:
+        store previous as value
+        store value as new_setting
+        trigger on_change with previous and new_setting
+    end
+end
+
+create new Slider as volume:
+    value is 3
+end
+
+on on_change of volume:
+    display "Volume moved from " with old_value with " to " with new_value
+end on
+
+volume.set_to(7)

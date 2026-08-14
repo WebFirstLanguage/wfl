@@ -1,0 +1,21 @@
+create container Bell:
+    event ring
+
+    action strike:
+        trigger ring
+    end
+end
+
+create new Bell as dinner_bell:
+end
+
+store times_rung as []
+
+on ring of dinner_bell:
+    push with times_rung and "ring"
+end on
+
+dinner_bell.strike()
+dinner_bell.strike()
+
+display "Rang " with length of times_rung with " times"

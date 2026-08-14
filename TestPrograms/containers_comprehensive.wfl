@@ -134,9 +134,31 @@ create new Button as my_button:
     clicked is 0
 end
 
+// Registering handlers proves the triggers above actually dispatch. Without
+// them a `trigger` runs zero handlers, which succeeds without proving anything
+// (issue #685).
+store click_log as []
+store hover_log as []
+
+on on_click of my_button:
+    push with click_log and "clicked"
+end on
+
+on on_hover of my_button:
+    push with hover_log and "hovered"
+end on
+
 my_button.click()
 my_button.hover()
 my_button.click()
+
+display "Click handler ran " with length of click_log with " times (expected 2)"
+display "Hover handler ran " with length of hover_log with " times (expected 1)"
+check if length of click_log is equal to 2:
+    display "PASS: click handlers fired"
+otherwise:
+    display "FAIL: click handlers did not fire"
+end check
 display ""
 
 // === Type Checking ===

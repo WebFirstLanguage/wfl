@@ -1,0 +1,23 @@
+create container Machine:
+    event started
+
+    action power_on:
+        trigger started
+    end
+end
+
+create container Printer extends Machine:
+    action warm_up:
+        trigger started
+    end
+end
+
+create new Printer as office_printer:
+end
+
+on started of office_printer:
+    display "Printer is starting"
+end on
+
+office_printer.power_on()
+office_printer.warm_up()
