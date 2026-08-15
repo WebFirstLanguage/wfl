@@ -222,3 +222,7 @@ MUST follow:
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
 - **Docs**: See `Docs/contributing/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
+
+## Imported Claude Cowork project instructions
+
+Devloping the web first programming language
