@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
       - name: Checker unit tests (fixture trees)
@@ -220,7 +220,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       # The post-suite working-tree hygiene check needs Python 3.11+ (tomllib);
       # the Windows runner's default python is older, so set it up explicitly.
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -391,7 +391,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       # The post-suite working-tree hygiene check needs Python 3.11+ (tomllib);
       # the Windows runner's default python is older, so set it up explicitly.
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -694,7 +694,7 @@ jobs:
           save-if: false
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
