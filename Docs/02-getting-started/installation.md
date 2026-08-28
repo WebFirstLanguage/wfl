@@ -149,7 +149,7 @@ This creates a `wfl-<version>-linux-x86_64/` directory containing:
 - `wfl` - the WFL compiler and runtime
 - `wfl-lsp` - the Language Server, for editor integration
 - `README.md`, `LICENSE`
-- `BUILD_INFO` - version, commit, build time, and target triple
+- `BUILD_INFO` - version, commit, commit date, and target triple
 
 ### Step 3: Install
 
