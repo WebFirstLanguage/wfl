@@ -561,17 +561,39 @@ jobs:
           cp "target/$TARGET/release/wfl-lsp" "dist/$DIR/wfl-lsp"
           strip "dist/$DIR/wfl" "dist/$DIR/wfl-lsp"
           cp README.md LICENSE "dist/$DIR/"
+
+          # publish_spaces.sh treats versioned keys as immutable: identical bytes
+          # are a no-op and different bytes abort the publish, which is what lets
+          # a publish that half-landed be repaired by re-running the nightly.
+          # That contract only holds if the same commit packages to the same
+          # bytes, so everything below that would otherwise vary run to run is
+          # pinned to the commit rather than to the wall clock:
+          #
+          #   - BUILD_INFO's `built:` is the commit's own committer date. It is
+          #     still the moment this artifact corresponds to, and unlike
+          #     `date -u` it does not change when the same commit is rebuilt.
+          #   - --sort=name fixes member order, which otherwise follows
+          #     directory-read order and reshuffles between runs.
+          #   - --mtime pins the header timestamps, which otherwise record when
+          #     `cp` happened.
+          #   - --owner/--group/--numeric-owner drop the runner's uid/gid names.
+          #
+          # gzip already records MTIME=0 here because tar -z compresses a pipe.
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           cat > "dist/$DIR/BUILD_INFO" <<EOF
           wfl ${VERSION}
           commit:   ${{ github.sha }}
           branch:   ${{ github.ref_name }}
-          built:    $(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+          built:    $(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%S+00:00)
           builder:  GitHub Actions / Blacksmith (x86_64-unknown-linux-musl)
           rustc:    $(rustc --version)
           contents: wfl, wfl-lsp
           note:     statically linked against musl - no glibc floor (wfl#616)
           EOF
-          tar czf "dist/${DIR}-${SHORT_SHA}.tar.gz" -C dist "$DIR"
+          tar --sort=name \
+              --mtime="@$SOURCE_DATE_EPOCH" \
+              --owner=0 --group=0 --numeric-owner \
+              -czf "dist/${DIR}-${SHORT_SHA}.tar.gz" -C dist "$DIR"
           ls -la "dist/${DIR}-${SHORT_SHA}.tar.gz"
 
       # The real boundary test, not a proxy for it, and it runs *after* packaging
