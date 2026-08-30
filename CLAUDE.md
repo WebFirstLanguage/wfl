@@ -76,7 +76,7 @@ Layout is governed by `REPOSITORY_HYGIENE.md` (placement table + root allowlist 
 - `Archive/`: Retained inactive material, indexed by `Archive/manifest.json` (non-normative; checker verifies checksums).
 - `scripts/`: Maintained automation (`run_integration_tests.*`, `check_repo_hygiene.py`, `build_windows_installer.ps1`, `bump_version.py`, `metrics/`, `docs/`).
 - `wix/`: Windows Installer (MSI) configuration.
-- `.cursor/rules/`, `.jules/`: thin adapters pointing back to `AGENTS.md` and root policy — no policy content of their own.
+- `.cursor/rules/`, `.jules/`, `AGENTS.md`: thin adapters pointing back to this file (`CLAUDE.md`, the canonical shared agent instructions) and root policy — no policy content of their own.
 
 ## Core Architecture
 The WFL compiler pipeline consists of:
@@ -280,6 +280,41 @@ agent MUST follow:
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
 - **Docs**: See `Docs/contributing/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
+
+## Cursor Cloud specific instructions
+Guidance for Cloud Agents (and similar ephemeral CI-like VMs) working in this repo.
+
+- **Rust toolchain (critical).** The stock Cloud Agent base image has shipped an
+  older Rust (observed: 1.83.0), but this crate requires **Rust ≥ 1.94** (edition
+  2024 plus the `sqlx` 0.9 dependency, whose `rust-version` is `1.94`). A stock
+  image therefore cannot build WFL at all — install a satisfying stable toolchain
+  first:
+  ```bash
+  rustup toolchain install stable --profile default   # includes rustfmt + clippy
+  rustup default stable
+  ```
+  `scripts/cloud-agent-install.sh` is the canonical, idempotent bootstrap: it does
+  exactly this (and enforces the `>= 1.94` floor), then runs `cargo fetch --locked`
+  and `cargo build --release`. The Cloud Agent environment's install step runs the
+  equivalent sequence, so a fresh agent boots with the release `wfl` binary ready.
+- **Disk.** See the disk-space note in **Build, Test, and Dev Commands**: a full
+  `target/` tree is ~30 GB and a constrained VM can SIGBUS mid-link. `cargo clean`
+  first only when free space is tight.
+- **End-to-end test flows (require the release binary).** Build it first
+  (`cargo build --release`), then:
+  - `./scripts/run_integration_tests.sh` — ensures the release binary, runs the
+    Rust integration tests, and executes every gated `TestPrograms/*.wfl`
+    end-to-end. `--test-only` reuses an already-built binary.
+  - `./scripts/run_web_tests.sh` — starts real WFL web servers on `localhost` and
+    drives them with `curl` (plain HTTP, route params/headers/404, and TLS with
+    the HTTP→HTTPS 301 redirect). Needs `curl`; the TLS case also needs `openssl`
+    to mint a throwaway cert (that case is skipped if `openssl` is absent).
+- **Presubmit gates** (same as CI): `cargo fmt --all -- --check`,
+  `cargo clippy --all-targets --all-features -- -D warnings`, and
+  `cargo test --workspace`.
+- **No always-on server.** WFL has no background dev server (the web server is
+  launched per-program by a `listen` statement), so a Cloud Agent needs nothing in
+  a `start` phase — all setup belongs in the install step.
 
 ## Claude Code Hooks
 - **Location**: `.claude/hooks/` (hook scripts), `.claude/settings.json` (configuration).

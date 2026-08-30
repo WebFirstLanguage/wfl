@@ -153,8 +153,8 @@ keeps every mirror in agreement.
 - Tool-required configuration stays in its conventional location only while a
   current workflow consumes it.
 - Configuration summaries in agent files and READMEs are non-authoritative
-  pointers. `AGENTS.md` is the canonical source of shared agent instructions;
-  `CLAUDE.md`, `.cursor/`, `.jules/`, and similar tool-specific files carry
+  pointers. `CLAUDE.md` is the canonical source of shared agent instructions;
+  `AGENTS.md`, `.cursor/`, `.jules/`, and similar tool-specific files carry
   only discovery adapters and genuine tool-specific deltas, and may not
   redefine governance, testing, compatibility, or placement policy.
 
