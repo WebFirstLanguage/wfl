@@ -1045,8 +1045,14 @@ fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
     if !bytes.len().is_multiple_of(2) {
         return None;
     }
+    // The length guard above makes the remainder half of `as_chunks` always
+    // empty, so discarding it drops nothing. `as_chunks::<2>` is preferred over
+    // `chunks_exact(2)` because the constant chunk size is carried in the type:
+    // each pair arrives as `&[u8; 2]` rather than a runtime-length slice.
     bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             // Rejects any non-ASCII byte: hex is ASCII by definition.
             let text = std::str::from_utf8(pair).ok()?;
