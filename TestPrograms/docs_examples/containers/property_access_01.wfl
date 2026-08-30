@@ -1,0 +1,12 @@
+create container Book:
+    property title: Text
+    property pages: Number
+end
+
+create new Book as my_book:
+    title is "WFL Guide"
+    pages is 250
+end
+
+display my_book.title
+display my_book.pages

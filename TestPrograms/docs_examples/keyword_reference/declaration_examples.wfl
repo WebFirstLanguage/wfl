@@ -1,4 +1,4 @@
-// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
+// CI-SKIP: remaining list-construction syntax is stale (issue #555); container portion uses current create-container syntax
 // Declaration Keywords Examples
 // Keywords covered: store, as, change, define, action, called, with, return, property, container
 
@@ -34,24 +34,24 @@ store result as call add_numbers with 5 and 3
 display "5 + 3 = " with result
 
 // Example 5: Container definition
-define container called Person:
-    property first_name as "Unknown"
-    property last_name as "Unknown"
-    property age_value as 0
+create container Person:
+    property first_name: Text
+    property last_name: Text
+    property age_value: Number
 
-    define action called get_full_name:
-        store full as first_name with " " with last_name
-        return full
-    end action
-end container
+    action get_full_name: Text
+        return first_name with " " with last_name
+    end
+end
 
 // Example 6: Create instance and use properties
-store alice as new Person
-change alice property first_name to "Alice"
-change alice property last_name to "Smith"
-change alice property age_value to 28
+create new Person as alice:
+    first_name is "Alice"
+    last_name is "Smith"
+    age_value is 28
+end
 
-store full_name as call alice action get_full_name
+store full_name as alice.get_full_name()
 display "Full name: " with full_name
 
 // Example 7: Lists and create

@@ -581,5 +581,97 @@
       "complete-example"
     ],
     "doc_purpose": "Complete task manager example combining containers, lists, and actions"
+  },
+  "docs_examples/containers/inheritance_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#inheritance",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "inheritance"
+    ],
+    "doc_purpose": "Demonstrates container inheritance with extends and inherited properties"
+  },
+  "docs_examples/containers/override_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#overriding-actions",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "override"
+    ],
+    "doc_purpose": "Demonstrates a child container overriding a parent action"
+  },
+  "docs_examples/containers/interface_extends_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#interface-inheritance",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "interfaces",
+      "extends"
+    ],
+    "doc_purpose": "Demonstrates interface inheritance accumulating required actions"
+  },
+  "docs_examples/containers/marker_interface_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#marker-interfaces",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "interfaces",
+      "marker"
+    ],
+    "doc_purpose": "Demonstrates a bare marker interface as an empty contract"
+  },
+  "docs_examples/containers/property_access_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#accessing-properties",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "properties"
+    ],
+    "doc_purpose": "Demonstrates reading instance properties with object.property"
   }
 }

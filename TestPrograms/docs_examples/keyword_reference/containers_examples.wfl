@@ -1,42 +1,39 @@
-// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Containers & OOP Keywords Examples
-// Keywords covered: container, property, extends, new
+// Keywords covered: container, property, extends, new, action, implements, interface
 
-// Example 1: Basic container definition
 display "Container examples"
 
-define container called Animal:
-    property name as "Unknown"
-    property age_years as 0
+create container Animal:
+    property name: Text
+    property age_years: Number
 
-    define action called make_sound:
+    action make_sound:
         display "Some sound"
-    end action
-end container
+    end
+end
 
-// Example 2: Create instance
-store pet as new Animal
-change pet property name to "Buddy"
-change pet property age_years to 3
+create new Animal as pet:
+    name is "Buddy"
+    age_years is 3
+end
 
-display "Pet name: " with pet property name
+display "Pet name: " with pet.name
 
-// Example 3: Another container
-define container called Vehicle:
-    property brand as "Generic"
-    property year_made as 2020
+create container Vehicle:
+    property brand: Text
+    property year_made: Number
 
-    define action called get_info:
-        store info as brand with " " with year_made
-        return info
-    end action
-end container
+    action get_info: Text
+        return brand with " " with year_made
+    end
+end
 
-store car as new Vehicle
-change car property brand to "Toyota"
-change car property year_made to 2024
+create new Vehicle as car:
+    brand is "Toyota"
+    year_made is 2024
+end
 
-store car_info as call car action get_info
+store car_info as car.get_info()
 display "Car: " with car_info
 
 display "Container examples complete"
