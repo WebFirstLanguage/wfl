@@ -84,8 +84,9 @@ breaking changes; Maintainers still own the compatibility bar.
 ## 3. Binding technical policies
 
 These policies are **non-negotiable** for accepted contributions. They already
-appear in `AGENTS.md`, `CLAUDE.md`, the contributing guide, and collaboration
-docs; this section makes them governance-level requirements.
+appear in `CLAUDE.md` (the canonical shared agent instructions, to which
+`AGENTS.md` points), the contributing guide, and collaboration docs; this
+section makes them governance-level requirements.
 
 ### 3.1 Backward compatibility is sacred
 

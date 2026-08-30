@@ -7,8 +7,9 @@ alwaysApply: true
 Canonical instructions live at the repository root — read them instead of
 relying on this file, and do not let this file override them:
 
-- `AGENTS.md` — shared agent instructions (project structure, build/test
-  commands, syntax pitfalls)
+- `CLAUDE.md` — canonical shared agent instructions (project structure,
+  build/test commands, syntax pitfalls, Cursor Cloud setup); `AGENTS.md` points
+  here
 - `GOVERNANCE.md`, `testing.md` (binding TDD/testing policy),
   `REPOSITORY_HYGIENE.md` (placement/output policy), `AI_POLICY.md`,
   `CONTRIBUTING.md`, `SECURITY.md`
