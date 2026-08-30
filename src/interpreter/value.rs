@@ -1,6 +1,6 @@
 use super::environment::Environment;
 use super::error::RuntimeError;
-use crate::parser::ast::Statement;
+use crate::parser::ast::{Statement, Type};
 use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -160,6 +160,7 @@ pub struct ContainerInstanceValue {
 pub struct ContainerMethodValue {
     pub name: String,
     pub params: Vec<String>,
+    pub return_type: Option<Type>,
     pub body: Vec<Statement>,
     pub is_static: bool,
     pub is_public: bool,
@@ -198,6 +199,7 @@ pub struct InterfaceDefinitionValue {
 pub struct ActionSignature {
     pub name: String,
     pub params: Vec<String>,
+    pub return_type: Option<Type>,
     pub line: usize,
     pub column: usize,
 }
