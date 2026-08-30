@@ -465,8 +465,19 @@ jobs:
     timeout-minutes: 60
     env:
       TARGET: x86_64-unknown-linux-musl
+      # cc-rs needs this so aws-lc-sys' C and assembly compile for the musl
+      # target. It is deliberately NOT paired with a matching
+      # CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER. That variable would hand
+      # the link to musl-gcc - a spec-file wrapper around the host gcc whose
+      # specs select musl's DYNAMIC loader - so the build silently emits a
+      # binary carrying a PT_INTERP segment, and `-C target-feature=+crt-static`
+      # cannot win the link back once musl-gcc is driving it. Rust's
+      # x86_64-unknown-linux-musl target ships its own self-contained musl and
+      # static-links by default, so the correct move is to leave the link to
+      # rustc rather than take it away. Dropping that override is wfl#683; the
+      # regression it prevents is wfl#616 reappearing. The `Assert the binaries
+      # are statically linked` step below is what proves this held.
       CC_x86_64_unknown_linux_musl: musl-gcc
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
       # Matches the BUILD_INFO the old wflbuild tarballs carried: no debug
       # symbols in the shipped artifact. Also keeps target/ far below the ~30 GB
       # ceiling CLAUDE.md warns about, so no disk-space dance is needed here.
