@@ -1,0 +1,14 @@
+// Intentional error: required return type is checked statically / at definition.
+create interface Measurable:
+    requires action get_area: Number
+end
+
+create container Card implements Measurable:
+    property label: Text
+
+    action get_area: Text
+        return label
+    end
+end
+
+display "unreachable: a return-type mismatch must fail"

@@ -472,6 +472,42 @@ end
 }
 
 #[test]
+fn container_with_incompatible_return_type_fails_at_runtime() {
+    let program = r#"
+create interface Measurable:
+    requires action get_area: Number
+end
+
+create container Card implements Measurable:
+    property label: Text
+
+    action get_area: Text
+        return label
+    end
+end
+
+display "should not get here"
+"#;
+    let output = run_wfl_program(program, "iface_return_type");
+    assert!(
+        !output.status.success(),
+        "a return-type mismatch against the interface must fail, got stdout: {} stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("get_area") && stderr.contains("return"),
+        "error should name the mismatched action and return types; got: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("should not get here"),
+        "program must not continue past the unsatisfied contract"
+    );
+}
+
+#[test]
 fn typechecker_reports_interface_return_type_mismatch() {
     use wfl::typechecker::TypeChecker;
 

@@ -1,0 +1,418 @@
+// Asserted coverage of every user-facing container/interface feature
+// documented in Docs/04-advanced-features/containers-oop.md, plus the
+// related claims in the language spec (multiple implements) and keyword
+// reference (defaults, static members).
+
+create container Person:
+    property name: Text
+    property age: Number
+
+    action greet: Text
+        return "Hello, I am " with name
+    end
+
+    action set_name needs new_name: Text:
+        change name to new_name
+    end
+
+    action get_info: Text
+        return name with " (" with age with ")"
+    end
+end
+
+create new Person as alice:
+    name is "Alice"
+    age is 28
+end
+
+alice.set_name("Alice Smith")
+
+create container Book:
+    property title: Text
+    property pages: Number
+    property is_available: Boolean
+
+    action check_out:
+        change is_available to no
+    end
+end
+
+create new Book as my_book:
+    title is "WFL Guide"
+    pages is 250
+    is_available is yes
+end
+
+my_book.check_out()
+
+create container Calculator:
+    property value: Number
+
+    action increase needs amount: Number:
+        change value to value plus amount
+    end
+
+    action get_value: Number
+        return value
+    end
+end
+
+create new Calculator as calc:
+    value is 0
+end
+
+calc.increase(10)
+calc.increase(5)
+
+create container Employee extends Person:
+    property job_title: Text
+    property salary: Number
+
+    action greet: Text
+        return "Hello, I am " with name with ", " with job_title
+    end
+
+    action get_salary: Number
+        return salary
+    end
+end
+
+create new Employee as bob:
+    name is "Bob"
+    age is 35
+    job_title is "Developer"
+    salary is 75000
+end
+
+create container Animal:
+    property name: Text
+
+    action make_sound: Text
+        return "Some generic sound"
+    end
+end
+
+create container Dog extends Animal:
+    action make_sound: Text
+        return "Woof! I'm " with name
+    end
+end
+
+create new Dog as buddy:
+    name is "Buddy"
+end
+
+create container Mammal extends Animal:
+    property fur_color: Text
+
+    action coat: Text
+        return name with " has " with fur_color with " fur"
+    end
+end
+
+create container Retriever extends Mammal:
+    property breed: Text
+
+    action make_sound: Text
+        return "The " with breed with " dog barks!"
+    end
+end
+
+create new Retriever as rex:
+    name is "Rex"
+    fur_color is "golden"
+    breed is "Golden Retriever"
+end
+
+create interface Drawable:
+    requires action draw
+    requires action get_area: Number
+end
+
+create container Rectangle implements Drawable:
+    property width: Number
+    property height: Number
+
+    action draw: Text
+        return "Drawing rectangle: " with width with " x " with height
+    end
+
+    action get_area: Number
+        return width times height
+    end
+end
+
+create new Rectangle as rect:
+    width is 10
+    height is 5
+end
+
+create interface Shape extends Drawable:
+    requires action describe_shape: Text
+end
+
+create container Square implements Shape:
+    property side: Number
+
+    action draw: Text
+        return "Drawing square: " with side
+    end
+
+    action get_area: Number
+        return side times side
+    end
+
+    action describe_shape: Text
+        return "a square with side " with side
+    end
+end
+
+create new Square as sq:
+    side is 4
+end
+
+create interface Resizable:
+    requires action resize needs w: Number, h: Number
+end
+
+create container Panel implements Resizable:
+    property width: Number
+    property height: Number
+
+    action resize needs w: Number, h: Number:
+        change width to w
+        change height to h
+    end
+
+    action area: Number
+        return width times height
+    end
+end
+
+create new Panel as panel:
+    width is 1
+    height is 1
+end
+
+panel.resize(20, 30)
+
+create interface Greeter:
+    requires action greet: Text
+end
+
+create container Staff extends Person implements Greeter:
+    property job_title: Text
+end
+
+create new Staff as cara:
+    name is "Cara"
+    age is 40
+    job_title is "Manager"
+end
+
+create interface Serializable
+
+create container Tagged implements Serializable:
+    property id: Number
+
+    action ping: Text
+        return "pong"
+    end
+end
+
+create new Tagged as thing:
+    id is 1
+end
+
+create interface Pingable:
+    requires action ping: Text
+end
+
+create interface Pongable:
+    requires action pong: Text
+end
+
+create container Dual implements Pingable, Pongable:
+    property label: Text
+
+    action ping: Text
+        return "ping-" with label
+    end
+
+    action pong: Text
+        return "pong-" with label
+    end
+end
+
+create new Dual as dual:
+    label is "both"
+end
+
+create container Item:
+    property amount: Number defaults 7
+end
+
+create new Item as defaulted:
+end
+
+create container Counter:
+    static property total: Number defaults 41
+
+    static action answer: Number
+        return total plus 1
+    end
+
+    static action increment: Number
+        change total to total plus 1
+        return total
+    end
+end
+
+store static_property as Counter.total
+store static_answer as Counter.answer()
+store static_incremented as Counter.increment()
+store static_persisted as Counter.total
+display static_property
+display static_answer
+display static_incremented
+display static_persisted
+
+create container Task:
+    property description: Text
+    property completed: Boolean
+    property priority: Number
+
+    action mark_complete:
+        change completed to yes
+    end
+
+    action set_priority needs level: Number:
+        change priority to level
+    end
+
+    action to_string: Text
+        store mark as "open"
+        check if completed is yes:
+            change mark to "done"
+        end check
+        return mark with " " with description with " P" with priority
+    end
+end
+
+create container TaskList:
+    property tasks: List
+
+    action add_task needs task: Task:
+        push with tasks and task
+    end
+
+    action complete_first:
+        check if length of tasks is greater than 0:
+            store first_task as tasks[0]
+            first_task.mark_complete()
+        end check
+    end
+
+    action first_label: Text
+        store first_task as tasks[0]
+        return first_task.to_string()
+    end
+end
+
+create new Task as task1:
+    description is "Learn WFL"
+    completed is no
+    priority is 1
+end
+
+create new Task as task2:
+    description is "Build web server"
+    completed is no
+    priority is 2
+end
+
+task2.set_priority(3)
+
+create new TaskList as my_tasks:
+    tasks is []
+end
+
+my_tasks.add_task(task1)
+my_tasks.add_task(task2)
+my_tasks.complete_first()
+
+describe "documented container features":
+    test "instances keep typed property initializers":
+        expect alice.age to equal 28
+        expect my_book.title to equal "WFL Guide"
+        expect my_book.pages to equal 250
+    end test
+
+    test "actions can read and return properties":
+        expect alice.get_info() to equal "Alice Smith (28)"
+        expect alice.greet() to equal "Hello, I am Alice Smith"
+    end test
+
+    test "actions mutate properties from inside the container":
+        expect my_book.is_available to equal no
+        expect calc.get_value() to equal 15
+    end test
+
+    test "child containers inherit parent properties and override actions":
+        expect bob.age to equal 35
+        expect bob.get_salary() to equal 75000
+        expect bob.greet() to equal "Hello, I am Bob, Developer"
+        expect buddy.make_sound() to equal "Woof! I'm Buddy"
+    end test
+
+    test "multi-level inheritance keeps ancestor properties and overrides":
+        expect rex.coat() to equal "Rex has golden fur"
+        expect rex.make_sound() to equal "The Golden Retriever dog barks!"
+    end test
+
+    test "interfaces require actions and return types":
+        expect rect.draw() to equal "Drawing rectangle: 10 x 5"
+        expect rect.get_area() to equal 50
+    end test
+
+    test "interface inheritance accumulates required actions":
+        expect sq.draw() to equal "Drawing square: 4"
+        expect sq.get_area() to equal 16
+        expect sq.describe_shape() to equal "a square with side 4"
+    end test
+
+    test "required actions may declare parameters":
+        expect panel.area() to equal 600
+    end test
+
+    test "inherited actions satisfy interface contracts":
+        expect cara.greet() to equal "Hello, I am Cara"
+    end test
+
+    test "marker interfaces accept any implementer":
+        expect thing.ping() to equal "pong"
+        expect thing.id to equal 1
+    end test
+
+    test "a container may implement more than one interface":
+        expect dual.ping() to equal "ping-both"
+        expect dual.pong() to equal "pong-both"
+    end test
+
+    test "property defaults apply when an initializer is omitted":
+        expect defaulted.amount to equal 7
+    end test
+
+    test "static properties and actions are called on the container name":
+        expect static_property to equal 41
+        expect static_answer to equal 42
+        expect static_incremented to equal 42
+        expect static_persisted to equal 42
+    end test
+
+    test "containers compose: lists of instances and typed parameters":
+        expect length of my_tasks.tasks to equal 2
+        expect my_tasks.first_label() to equal "done Learn WFL P1"
+        expect task2.to_string() to equal "open Build web server P3"
+    end test
+end describe
