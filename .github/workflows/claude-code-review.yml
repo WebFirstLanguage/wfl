@@ -36,10 +36,14 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Allow review of PRs opened by github-actions[bot], such as the
-          # monthly SECURITY.md rotation. Without this the job fails with
-          # "Workflow initiated by non-human actor".
-          allowed_bots: 'github-actions'
+          # Allow review of PRs opened or pushed by trusted bot actors.
+          # Without this the job fails with "Workflow initiated by non-human
+          # actor". github-actions covers the monthly SECURITY.md rotation;
+          # cursor covers the Cursor cloud agent, which pushes to cursor/*
+          # branches on our own PRs. The review prompt below is fixed by this
+          # workflow, so an allowed bot cannot influence what Claude is asked
+          # to do -- it only gets the same code review a human push would.
+          allowed_bots: 'github-actions,cursor'
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
