@@ -150,7 +150,7 @@ Features:
 - Methods (called "actions")
 - Inheritance with `extends`
 - Interfaces with `implements`
-- Events and event handlers
+- Events that an action can `trigger` (attaching handlers is not a shipped form yet)
 
 ## 7. Comprehensive Standard Library
 

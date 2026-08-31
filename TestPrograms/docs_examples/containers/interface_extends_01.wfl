@@ -1,0 +1,26 @@
+create interface Drawable:
+    requires action draw
+end
+
+create interface Shape extends Drawable:
+    requires action get_area: Number
+end
+
+create container Circle implements Shape:
+    property radius: Number
+
+    action draw:
+        display "Drawing circle"
+    end
+
+    action get_area: Number
+        return 3 times radius times radius
+    end
+end
+
+create new Circle as dot:
+    radius is 2
+end
+
+dot.draw()
+display dot.get_area()

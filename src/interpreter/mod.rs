@@ -10063,6 +10063,7 @@ impl Interpreter {
                         name,
                         parameters,
                         body,
+                        return_type,
                         line,
                         column,
                         ..
@@ -10071,6 +10072,7 @@ impl Interpreter {
                         let container_method = ContainerMethodValue {
                             name: name.clone(),
                             params: parameters.iter().map(|p| p.name.clone()).collect(),
+                            return_type: return_type.clone(),
                             body: body.clone(),
                             is_static: false,
                             is_public: true,
@@ -10103,6 +10105,7 @@ impl Interpreter {
                         name,
                         parameters,
                         body,
+                        return_type,
                         line,
                         column,
                         ..
@@ -10113,6 +10116,7 @@ impl Interpreter {
                             ContainerMethodValue {
                                 name: name.clone(),
                                 params: parameters.iter().map(|p| p.name.clone()).collect(),
+                                return_type: return_type.clone(),
                                 body: body.clone(),
                                 is_static: true,
                                 is_public: true,
@@ -10291,6 +10295,7 @@ impl Interpreter {
                     let value_action = value::ActionSignature {
                         name: action.name.clone(),
                         params: action.parameters.iter().map(|p| p.name.clone()).collect(),
+                        return_type: action.return_type.clone(),
                         line: action.line,
                         column: action.column,
                     };
@@ -15458,9 +15463,9 @@ impl Interpreter {
         // Resolve an instance method's parameter count: the container's own
         // methods first, then the parent chain (bounded against definition
         // cycles, which the environment cannot otherwise rule out).
-        let find_method_param_count = |method_name: &str| -> Option<usize> {
+        let find_method = |method_name: &str| -> Option<(usize, Option<Type>)> {
             if let Some(method) = container_methods.get(method_name) {
-                return Some(method.params.len());
+                return Some((method.params.len(), method.return_type.clone()));
             }
             let mut parent_name = container_extends.cloned();
             let mut visited_parents = HashSet::new();
@@ -15473,7 +15478,7 @@ impl Interpreter {
                     _ => return None,
                 };
                 if let Some(method) = parent.methods.get(method_name) {
-                    return Some(method.params.len());
+                    return Some((method.params.len(), method.return_type.clone()));
                 }
                 parent_name = parent.extends.clone();
             }
@@ -15522,7 +15527,7 @@ impl Interpreter {
                 }
 
                 for (action_name, signature) in &interface.required_actions {
-                    match find_method_param_count(action_name) {
+                    match find_method(action_name) {
                         None => {
                             return Err(RuntimeError::new(
                                 format!(
@@ -15533,7 +15538,7 @@ impl Interpreter {
                                 column,
                             ));
                         }
-                        Some(count) if count != signature.params.len() => {
+                        Some((count, _)) if count != signature.params.len() => {
                             return Err(RuntimeError::new(
                                 format!(
                                     "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' takes {count} parameter(s) but the interface requires {}",
@@ -15544,7 +15549,23 @@ impl Interpreter {
                                 column,
                             ));
                         }
-                        Some(_) => {}
+                        Some((_, return_type)) => {
+                            if let (Some(required_return), Some(actual_return)) =
+                                (&signature.return_type, &return_type)
+                                && !matches!(required_return, Type::Unknown | Type::Any)
+                                && !matches!(actual_return, Type::Unknown | Type::Any)
+                                && required_return != actual_return
+                            {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Container '{container_name}' does not satisfy interface '{}': action '{action_name}' returns {actual_return} but the interface requires {required_return}",
+                                        interface.name
+                                    ),
+                                    line,
+                                    column,
+                                ));
+                            }
+                        }
                     }
                 }
             }

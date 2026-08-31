@@ -1,0 +1,14 @@
+// Intentional error: a static action must not satisfy requires action.
+create interface Drawable:
+    requires action draw
+end
+
+create container Chart implements Drawable:
+    property title: Text
+
+    static action draw:
+        display "static draw"
+    end
+end
+
+display "unreachable: a static action must not satisfy the contract"

@@ -1,0 +1,15 @@
+create interface Serializable
+
+create container Note implements Serializable:
+    property body: Text
+
+    action show:
+        display body
+    end
+end
+
+create new Note as memo:
+    body is "saved"
+end
+
+memo.show()

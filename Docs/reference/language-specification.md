@@ -199,9 +199,17 @@ end try
 ```
 create container <identifier> [extends <identifier>] [implements <identifier-list>]:
     [property <identifier>: <type>]*
-    [action <identifier> [with parameters <param-list>]:
+    [action <identifier> [needs <param>: <type>, ...]:
         <statements>
     end]*
+end
+```
+
+**Interface Definition:**
+```
+create interface <identifier> [extends <identifier-list>]
+create interface <identifier> [extends <identifier-list>]:
+    [requires action <identifier> [needs <param>: <type>, ...] [: <type>]]*
 end
 ```
 

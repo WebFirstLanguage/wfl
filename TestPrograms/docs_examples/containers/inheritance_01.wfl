@@ -1,0 +1,31 @@
+create container Person:
+    property name: Text
+    property age: Number
+
+    action greet:
+        display "Hello, I am " with name
+    end
+end
+
+create container Employee extends Person:
+    property job_title: Text
+    property salary: Number
+
+    action greet:
+        display "Hello, I am " with name with ", " with job_title
+    end
+
+    action get_salary: Number
+        return salary
+    end
+end
+
+create new Employee as bob:
+    name is "Bob"
+    age is 35
+    job_title is "Developer"
+    salary is 75000
+end
+
+bob.greet()
+display bob.get_salary()

@@ -148,20 +148,20 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `catch` | Error handler | `catch when error:` |
 | `check` | Start conditional | `check if x is greater than 5:` |
 | `constant` | Define constant property | `constant property max_size as 100` |
-| `container` | Define a class/container | `define container called Person:` |
+| `container` | Define a class/container | `create container Person:` |
 | `continue` | Skip to next iteration | `continue` |
 | `define` | Define action/container | `define action called test:` |
 | `display` | Output text | `display "Hello World"` |
 | `each` | For each loop | `for each item in list:` |
 | `end` | Close block | `end` |
 | `event` | Define an event | `event click` |
-| `extends` | Inheritance | `container Person extends Human:` |
+| `extends` | Inheritance | `create container Employee extends Person:` |
 | `finally` | Always-run cleanup clause on try | `finally:` |
 | `for` | For loop | `for each x in items:` |
 | `forever` | Infinite loop | `repeat forever:` |
 | `from` | Count loop start | `count from 1 to 10:` |
 | `if` | Conditional | `check if x is 5:` |
-| `implements` | Interface implementation | `container Dog implements Animal:` |
+| `implements` | Interface implementation | `create container Dog implements Animal:` |
 | `in` | For each collection | `for each item in list:` |
 | `interface` | Interface definition | `create interface Runnable:` |
 | `load` | Load module | `load module math` |
@@ -171,7 +171,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `or` | Logical OR | `check if x is 5 or y is 10:` |
 | `otherwise` | Else clause | `otherwise:` |
 | `private` | Private visibility | `private property age` |
-| `property` | Container property | `property name as "default"` |
+| `property` | Container property | `property name: Text` |
 | `public` | Public visibility | `public property name` |
 | `push` | Add to list | `push with myList and item` |
 | `repeat` | Loop construct | `repeat 10 times:` |
@@ -579,7 +579,7 @@ Complete reference table of all 181 keywords.
 | `command` | Other | Process | ❌ | `execute command` |
 | `connections` | Other | Web/Network | ❌ | `network connections` |
 | `constant` | Structural | Declaration | ❌ | `constant property` |
-| `container` | Structural | OOP | ❌ | `define container` |
+| `container` | Structural | OOP | ❌ | `create container` |
 | `contains` | Contextual | Comparison | ✅ | `list contains item` |
 | `content` | Other | File I/O | ❌ | `file content` |
 | `continue` | Structural | Control Flow | ❌ | `continue loop` |

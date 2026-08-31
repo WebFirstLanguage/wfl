@@ -1,0 +1,19 @@
+create container Animal:
+    property name: Text
+
+    action make_sound:
+        display "Some generic sound"
+    end
+end
+
+create container Dog extends Animal:
+    action make_sound:
+        display "Woof! I'm " with name
+    end
+end
+
+create new Dog as buddy:
+    name is "Buddy"
+end
+
+buddy.make_sound()
