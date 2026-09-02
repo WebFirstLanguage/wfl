@@ -1,22 +1,90 @@
-// Intentionally incomplete stubs so the Laravel-app port tests fail on
-// assertions (Red) until the real welcome / health / 404 pages land.
+// Page bodies for the WFL port of the laravel/laravel 13.x starter app.
+// Copy and styling are original; they are not a Blade/Tailwind reconstruction.
 
 define action called welcome_page:
-    return "stub"
+    return "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+    <title>WFL starter</title>
+    <style>
+        :root { color-scheme: light dark; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Georgia, 'Times New Roman', serif;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        main {
+            max-width: 42rem;
+            margin: 0 auto;
+            padding: 4rem 1.5rem;
+        }
+        p.eyebrow {
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            color: #7dd3fc;
+            font-family: system-ui, sans-serif;
+        }
+        h1 { font-size: 2.4rem; line-height: 1.2; margin: 0.4rem 0 1rem; }
+        p.lead { font-size: 1.15rem; color: #cbd5e1; }
+        ul { padding-left: 1.2rem; }
+        li { margin: 0.4rem 0; }
+        a { color: #7dd3fc; }
+        footer { margin-top: 2.5rem; color: #94a3b8; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <main>
+        <p class=\"eyebrow\">WFL starter</p>
+        <h1>Your starter app is ready</h1>
+        <p class=\"lead\">This program is a WFL port of the Laravel application skeleton. It serves the same public routes the 13.x starter app exposes, using WFL's built-in web server.</p>
+        <ul>
+            <li><a href=\"/\">Welcome</a> — this page</li>
+            <li><a href=\"/up\">Health</a> — application status</li>
+            <li><a href=\"/robots.txt\">robots.txt</a> — the skeleton's crawler policy</li>
+        </ul>
+        <p>Read the capability map in <code>examples/laravel-app/README.md</code> for what mapped and what WFL cannot express (Eloquent, Blade, Artisan, queues).</p>
+        <footer>Served by WFL · port of laravel/laravel 13.x</footer>
+    </main>
+</body>
+</html>"
 end action
 
 define action called health_page:
-    return "stub"
+    return "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <title>WFL starter</title>
+</head>
+<body>
+    <p>Application up</p>
+</body>
+</html>"
 end action
 
 define action called not_found_page:
-    return "stub"
+    return "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <title>Not Found</title>
+</head>
+<body>
+    <h1>Not Found</h1>
+    <p>No route matches this path.</p>
+</body>
+</html>"
 end action
 
 define action called robots_text:
-    return "stub"
+    return "User-agent: *\nDisallow:\n"
 end action
 
 define action called method_not_allowed_page:
-    return "stub"
+    return "Method Not Allowed"
 end action

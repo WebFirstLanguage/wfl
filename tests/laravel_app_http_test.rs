@@ -19,7 +19,13 @@ fn example_app_dir() -> std::path::PathBuf {
 fn stage_app(port: u16) -> tempfile::TempDir {
     let src = example_app_dir();
     let dir = tempfile::tempdir().expect("tempdir for laravel-app port");
-    for name in ["app.wfl", "routes.wfl", "views.wfl", "user.wfl", "quotes.wfl"] {
+    for name in [
+        "app.wfl",
+        "routes.wfl",
+        "views.wfl",
+        "user.wfl",
+        "quotes.wfl",
+    ] {
         let content = std::fs::read_to_string(src.join(name))
             .unwrap_or_else(|e| panic!("read {}: {e}", src.join(name).display()));
         let content = content.replace(

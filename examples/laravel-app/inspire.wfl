@@ -1,0 +1,4 @@
+// Equivalent of `php artisan inspire` from routes/console.php.
+include from "quotes.wfl"
+store quote as inspire_quote
+display quote

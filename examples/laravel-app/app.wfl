@@ -1,6 +1,12 @@
+// Front controller for the WFL port of laravel/laravel 13.x.
+// Mirrors public/index.php + bootstrap/app.php: listen, then dispatch routes.
+
 include from "routes.wfl"
 
 store listen_port as 8000
+
+display "WFL starter (laravel/laravel port) listening on http://127.0.0.1:" with listen_port
+display "Routes: GET / , GET /up , GET /robots.txt"
 
 listen on port listen_port as laravel_app
 

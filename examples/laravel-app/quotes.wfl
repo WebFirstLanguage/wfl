@@ -1,3 +1,6 @@
+// Stand-in for Laravel's `artisan inspire` command. The quote list is original
+// WFL text, not the framework's Inspiring::quote() catalog.
+
 define action called inspire_quote:
-    return ""
+    return "Readability is a feature, not a luxury."
 end action

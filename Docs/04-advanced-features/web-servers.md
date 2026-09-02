@@ -1044,6 +1044,28 @@ otherwise:
 end check
 ```
 
+## Worked example: Laravel starter app
+
+WFL can express the **public HTTP surface** of the official Laravel
+application skeleton ([laravel/laravel](https://github.com/laravel/laravel)
+13.x) — the starter app, not the framework. That skeleton is thin: `GET /`
+(welcome), `GET /up` (health), `GET /robots.txt`, a 404 fallback, and
+method-not-allowed on the registered paths.
+
+The port lives at [`examples/laravel-app/`](../../examples/laravel-app/README.md):
+
+```bash
+wfl examples/laravel-app/app.wfl
+```
+
+Open `http://127.0.0.1:8000`. The welcome page, `/up`, and `/robots.txt` are
+the same routes Laravel's skeleton exposes. Welcome-page copy and CSS are
+original WFL; they are not a Blade or Tailwind reconstruction.
+
+WFL does **not** port Eloquent, Blade, Artisan, Vite, queues, mail, or
+sessions. Those live in `laravel/framework` and have no equivalent here. The
+example README's capability map lists every mapped route and every gap.
+
 ## Testing Your Server
 
 ### With a Browser

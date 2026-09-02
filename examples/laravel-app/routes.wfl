@@ -1,16 +1,52 @@
 include from "views.wfl"
 
-// Stub router: every path returns 418 so feature tests fail for the intended
-// reason (wrong status / body) until the Laravel-app routes are implemented.
+// Public routes of laravel/laravel 13.x:
+//   GET|HEAD /           welcome
+//   GET|HEAD /up         health (bootstrap/app.php)
+//   GET|HEAD /robots.txt public/robots.txt
+//   other methods on those paths → 405
+//   unknown path → 404
 
 define action called status_for_path with parameters request_path and request_method:
-    return 418
+    route request_path:
+        when "/" or "/up" or "/robots.txt":
+            route request_method:
+                when "GET" or "HEAD":
+                    return 200
+                otherwise:
+                    return 405
+            end route
+        otherwise:
+            return 404
+    end route
 end action
 
 define action called body_for_path with parameters request_path and request_method:
-    return "stub"
+    route request_path:
+        when "/" or "/up" or "/robots.txt":
+            route request_method:
+                when "GET" or "HEAD":
+                    route request_path:
+                        when "/":
+                            return welcome_page
+                        when "/up":
+                            return health_page
+                        when "/robots.txt":
+                            return robots_text
+                    end route
+                otherwise:
+                    return method_not_allowed_page
+            end route
+        otherwise:
+            return not_found_page
+    end route
 end action
 
 define action called content_type_for_path with parameters request_path:
-    return "application/octet-stream"
+    route request_path:
+        when "/robots.txt":
+            return "text/plain"
+        otherwise:
+            return "text/html"
+    end route
 end action

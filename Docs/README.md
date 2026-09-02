@@ -541,6 +541,7 @@ Every code example is tested with the WFL compiler to ensure accuracy!
 - **[Installation](02-getting-started/installation.md)** - Get started in 5 minutes
 - **[Language Basics](03-language-basics/index.md)** - Core concepts
 - **[TestPrograms](../TestPrograms/)** - 90+ example programs
+- **[Laravel starter-app port](../examples/laravel-app/README.md)** - WFL port of laravel/laravel 13.x (the app, not the framework)
 - **[Contributing](contributing/contributing-guide.md)** - Workflow + [root CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ### Policy Documents

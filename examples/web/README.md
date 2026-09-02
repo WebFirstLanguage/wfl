@@ -8,6 +8,10 @@ Validated WFL web-server programs.
   endpoints (`/`, `/api/posts`, `/api/posts/1`), a 404 fallback, and a
   request cap so it terminates after 20 requests.
 
+A larger worked example — a WFL port of the Laravel 13.x **application
+skeleton** (welcome, `/up`, `robots.txt`, 404/405) — lives at
+[`examples/laravel-app/`](../laravel-app/README.md).
+
 Run one with `wfl examples/web/html_server.wfl` and open the printed URL.
 Examples are non-gating; the asserted web-server coverage lives in
 `TestPrograms/` and the web test scripts.

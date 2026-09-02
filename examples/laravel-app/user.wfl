@@ -1,12 +1,15 @@
+// Stand-in for app/Models/User.php. Eloquent, hashing, and auth are not
+// ported; this container keeps the skeleton's name + email fields.
+
 create container User:
     property name: Text
     property email: Text
 
     action display_name: Text
-        return ""
+        return name
     end
 
     action email_address: Text
-        return ""
+        return email
     end
 end
