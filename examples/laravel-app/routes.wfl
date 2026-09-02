@@ -1,0 +1,16 @@
+include from "views.wfl"
+
+// Stub router: every path returns 418 so feature tests fail for the intended
+// reason (wrong status / body) until the Laravel-app routes are implemented.
+
+define action called status_for_path with parameters request_path and request_method:
+    return 418
+end action
+
+define action called body_for_path with parameters request_path and request_method:
+    return "stub"
+end action
+
+define action called content_type_for_path with parameters request_path:
+    return "application/octet-stream"
+end action

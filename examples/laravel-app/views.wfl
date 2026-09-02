@@ -1,0 +1,22 @@
+// Intentionally incomplete stubs so the Laravel-app port tests fail on
+// assertions (Red) until the real welcome / health / 404 pages land.
+
+define action called welcome_page:
+    return "stub"
+end action
+
+define action called health_page:
+    return "stub"
+end action
+
+define action called not_found_page:
+    return "stub"
+end action
+
+define action called robots_text:
+    return "stub"
+end action
+
+define action called method_not_allowed_page:
+    return "stub"
+end action

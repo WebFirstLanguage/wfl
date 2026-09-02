@@ -1,0 +1,15 @@
+include from "routes.wfl"
+
+store listen_port as 8000
+
+listen on port listen_port as laravel_app
+
+main loop concurrently:
+    wait for request comes in on laravel_app as incoming_request
+    store request_path as path of incoming_request
+    store request_method as method of incoming_request
+    store reply_status as status_for_path of request_path and request_method
+    store reply_body as body_for_path of request_path and request_method
+    store reply_type as content_type_for_path of request_path
+    respond to incoming_request with reply_body and status reply_status and content_type reply_type
+end loop

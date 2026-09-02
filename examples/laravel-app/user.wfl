@@ -1,0 +1,12 @@
+create container User:
+    property name: Text
+    property email: Text
+
+    action display_name: Text
+        return ""
+    end
+
+    action email_address: Text
+        return ""
+    end
+end

@@ -1,0 +1,3 @@
+define action called inspire_quote:
+    return ""
+end action

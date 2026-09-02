@@ -1,0 +1,111 @@
+// Feature + unit coverage for the WFL port of laravel/laravel (13.x starter app).
+// Mirrors Laravel's tests/Feature/ExampleTest.php (GET / is 200) and
+// tests/Unit/ExampleTest.php, and adds the other public routes the skeleton
+// actually exposes: /up (bootstrap health), /robots.txt, 404, and 405.
+
+include from "../../examples/laravel-app/routes.wfl"
+include from "../../examples/laravel-app/user.wfl"
+include from "../../examples/laravel-app/quotes.wfl"
+
+describe "Example":
+    test "that true is true":
+        expect yes to be yes
+    end test
+end describe
+
+describe "Laravel starter app routes":
+    test "GET / returns 200":
+        store reply_status as status_for_path of "/" and "GET"
+        expect reply_status to equal 200
+    end test
+
+    test "HEAD / returns 200":
+        store reply_status as status_for_path of "/" and "HEAD"
+        expect reply_status to equal 200
+    end test
+
+    test "GET /up returns 200":
+        store reply_status as status_for_path of "/up" and "GET"
+        expect reply_status to equal 200
+    end test
+
+    test "GET /robots.txt returns 200":
+        store reply_status as status_for_path of "/robots.txt" and "GET"
+        expect reply_status to equal 200
+    end test
+
+    test "GET /missing returns 404":
+        store reply_status as status_for_path of "/missing" and "GET"
+        expect reply_status to equal 404
+    end test
+
+    test "POST / returns 405":
+        store reply_status as status_for_path of "/" and "POST"
+        expect reply_status to equal 405
+    end test
+end describe
+
+describe "Laravel starter app responses":
+    test "welcome page identifies the WFL starter app":
+        store welcome_html as body_for_path of "/" and "GET"
+        expect welcome_html to contain "Your starter app is ready"
+        expect welcome_html to contain "WFL starter"
+    end test
+
+    test "health page reports the application is up":
+        store health_html as body_for_path of "/up" and "GET"
+        expect health_html to contain "Application up"
+    end test
+
+    test "robots.txt matches the Laravel skeleton":
+        store robots_body as body_for_path of "/robots.txt" and "GET"
+        expect robots_body to contain "User-agent: *"
+        expect robots_body to contain "Disallow:"
+    end test
+
+    test "unknown path returns a Not Found body":
+        store missing_html as body_for_path of "/no-such-route" and "GET"
+        expect missing_html to contain "Not Found"
+    end test
+
+    test "POST / returns a method-not-allowed body":
+        store not_allowed_body as body_for_path of "/" and "POST"
+        expect not_allowed_body to contain "Method Not Allowed"
+    end test
+
+    test "HTML routes advertise an HTML content type":
+        store welcome_type as content_type_for_path of "/"
+        store health_type as content_type_for_path of "/up"
+        store missing_type as content_type_for_path of "/missing"
+        expect welcome_type to equal "text/html"
+        expect health_type to equal "text/html"
+        expect missing_type to equal "text/html"
+    end test
+
+    test "robots.txt is served as text/plain":
+        store robots_type as content_type_for_path of "/robots.txt"
+        expect robots_type to equal "text/plain"
+    end test
+end describe
+
+describe "Laravel starter app User model":
+    test "a User exposes name and email":
+        create new User as demo_user:
+            name is "Test User"
+            email is "test@example.com"
+        end
+        store person_name as demo_user.display_name()
+        store person_email as demo_user.email_address()
+        expect person_name to equal "Test User"
+        expect person_email to equal "test@example.com"
+    end test
+end describe
+
+describe "Laravel starter app inspire command":
+    test "inspire_quote returns a non-empty quote":
+        store quote as inspire_quote
+        expect quote to be of type "Text"
+        store quote_length as length of quote
+        expect quote_length to be greater than 10
+    end test
+end describe
