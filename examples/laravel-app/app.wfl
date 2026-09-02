@@ -5,8 +5,12 @@ include from "routes.wfl"
 
 store listen_port as 8000
 
-display "WFL starter (laravel/laravel port) listening on http://127.0.0.1:" with listen_port
+display "WFL starter (laravel/laravel port) on port " with listen_port
 display "Routes: GET / , GET /up , GET /robots.txt"
+
+create map allow_get_head:
+    "Allow" is "GET, HEAD"
+end map
 
 listen on port listen_port as laravel_app
 
@@ -17,5 +21,9 @@ main loop concurrently:
     store reply_status as status_for_path of request_path and request_method
     store reply_body as body_for_path of request_path and request_method
     store reply_type as content_type_for_path of request_path
-    respond to incoming_request with reply_body and status reply_status and content_type reply_type
+    check if reply_status is equal to 405:
+        respond to incoming_request with reply_body and status reply_status and content_type reply_type and headers allow_get_head
+    otherwise:
+        respond to incoming_request with reply_body and status reply_status and content_type reply_type
+    end check
 end loop

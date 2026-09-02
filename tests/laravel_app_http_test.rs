@@ -2,7 +2,7 @@
 //!
 //! Spawns the real `wfl` binary on `examples/laravel-app/app.wfl` (copied to a
 //! temp dir so the listen port can be a free OS port) and drives `/`, `/up`,
-//! `/robots.txt`, an unknown path, and `POST /` over a real socket.
+//! `/robots.txt`, an unknown path, `HEAD /`, and `POST /` over a real socket.
 
 use std::process::Stdio;
 use std::time::Duration;
@@ -60,7 +60,7 @@ async fn start_app(port: u16) -> (Child, tempfile::TempDir) {
     let mut lines = BufReader::new(stdout).lines();
     tokio::time::timeout(Duration::from_secs(60), async {
         while let Ok(Some(line)) = lines.next_line().await {
-            if line.contains("listening on port") {
+            if line.contains("Server is listening on port") {
                 return;
             }
         }
@@ -86,6 +86,14 @@ async fn post(port: u16, path: &str) -> reqwest::Response {
         .send()
         .await
         .unwrap_or_else(|e| panic!("POST {path}: {e}"))
+}
+
+async fn head(port: u16, path: &str) -> reqwest::Response {
+    reqwest::Client::new()
+        .head(format!("http://127.0.0.1:{port}{path}"))
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("HEAD {path}: {e}"))
 }
 
 #[tokio::test]
@@ -150,6 +158,29 @@ async fn post_to_welcome_returns_405() {
 
     let response = post(port, "/").await;
     assert_eq!(response.status(), 405);
+    let allow = response
+        .headers()
+        .get("allow")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(
+        allow, "GET, HEAD",
+        "405 must advertise Allow: GET, HEAD, got {allow:?}"
+    );
     let body = response.text().await.expect("405 body");
     assert!(body.contains("Method Not Allowed"), "got: {body}");
+}
+
+#[tokio::test]
+async fn head_welcome_returns_200_without_a_body() {
+    let port = common::free_tcp_port();
+    let (_child, _dir) = start_app(port).await;
+
+    let response = head(port, "/").await;
+    assert_eq!(response.status(), 200);
+    let body = response.text().await.expect("HEAD body");
+    assert!(
+        body.is_empty(),
+        "HEAD / must transfer an empty body, got {body:?}"
+    );
 }

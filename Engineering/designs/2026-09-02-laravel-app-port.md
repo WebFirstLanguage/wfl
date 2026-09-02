@@ -2,7 +2,8 @@
 
 **Status:** Implemented as `examples/laravel-app/`
 **Source:** [laravel/laravel](https://github.com/laravel/laravel) 13.x
-**Risk class:** R2
+**Risk class:** R2 (example + HTTP contract; no change to the concurrent
+listen/respond/stream implementation — §11.3 stays on those primitives)
 
 ## What “the actual app” is
 

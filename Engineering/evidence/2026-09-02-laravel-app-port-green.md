@@ -1,7 +1,10 @@
 # Green evidence — Laravel starter-app port
 
 **Date:** 2026-09-02
-**Risk class:** R2
+**Risk class:** R2 — new example and HTTP contract. This change does **not**
+modify `main loop concurrently:`, request handling, or streaming statements
+(testing.md §11.3). Those primitives already have R3 coverage in
+`tests/concurrent_*.rs` / `tests/http_*.rs`; this example only calls them.
 **Red ancestor:** `06b3368` (`test: add failing Laravel starter-app port coverage`)
 
 ## Layers
