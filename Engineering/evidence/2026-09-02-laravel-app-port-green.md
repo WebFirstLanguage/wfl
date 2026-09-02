@@ -11,7 +11,7 @@ modify `main loop concurrently:`, request handling, or streaming statements
 
 | Layer | Command | Result |
 |---|---|---|
-| WFL feature tests | `./target/release/wfl --test TestPrograms/laravel_app/feature_example.test.wfl` | 16 passed, 0 failed, exit 0 |
+| WFL feature tests | `./target/release/wfl --test TestPrograms/laravel_app/laravel_starter_app.test.wfl` | 16 passed, 0 failed, exit 0 |
 | Rust HTTP e2e | `cargo test --test laravel_app_http_test` | 5 passed, 0 failed |
 | Inspire CLI | `./target/release/wfl examples/laravel-app/inspire.wfl` | printed `Readability is a feature, not a luxury.` |
 | Hygiene | `python3 scripts/check_repo_hygiene.py --mode static` | exit 0 |

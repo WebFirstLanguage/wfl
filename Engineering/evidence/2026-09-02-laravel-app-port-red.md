@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-02
 **Risk class:** R2 (new user-facing example + HTTP contract; no runtime/concurrency change)
-**Command:** `./target/release/wfl --test TestPrograms/laravel_app/feature_example.test.wfl`
+**Command:** `./target/release/wfl --test TestPrograms/laravel_app/laravel_starter_app.test.wfl`
 **Exit:** 1
 **Result:** 16 tests, 1 passed (`that true is true`), 15 failed for the intended reason.
 

@@ -19,7 +19,7 @@ The 13.x skeleton's public HTTP surface is small, and WFL can express it:
 - `inspire.wfl` as the `artisan inspire` stand-in
 
 Routing is extracted into actions so
-`TestPrograms/laravel_app/feature_example.test.wfl` can assert without a
+`TestPrograms/laravel_app/laravel_starter_app.test.wfl` can assert without a
 socket, and `tests/laravel_app_http_test.rs` drives the real `wfl` binary
 over HTTP.
 

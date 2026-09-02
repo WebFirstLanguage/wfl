@@ -41,11 +41,11 @@ wfl examples/laravel-app/inspire.wfl   # artisan inspire equivalent
 | Eloquent, migrations, factories, seeders | — | Not ported |
 | Artisan, queues, cache, mail, sessions, broadcasting | — | Not ported |
 | `.env` / `config/*.php` | `.wflcfg` bind address only | Partial |
-| PHPUnit Feature/Unit example tests | `TestPrograms/laravel_app/feature_example.test.wfl` | Mapped + expanded |
+| PHPUnit Feature/Unit example tests | `TestPrograms/laravel_app/laravel_starter_app.test.wfl` | Mapped + expanded |
 
 ## Layout
 
-```
+```text
 app.wfl              front controller (public/index.php + listen)
 routes.wfl           route table (routes/web.php + /up)
 views.wfl            welcome, health, 404, robots bodies
@@ -59,6 +59,6 @@ public/robots.txt    crawler policy
 ## Tests
 
 ```bash
-wfl --test TestPrograms/laravel_app/feature_example.test.wfl
+wfl --test TestPrograms/laravel_app/laravel_starter_app.test.wfl
 cargo test --test laravel_app_http_test
 ```

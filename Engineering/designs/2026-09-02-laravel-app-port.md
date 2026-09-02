@@ -10,11 +10,11 @@ listen/respond/stream implementation — §11.3 stays on those primitives)
 `laravel/laravel` is the application skeleton users get from `laravel new`.
 It is not the framework. On 13.x the runnable HTTP surface is:
 
-1. `GET /` → `resources/views/welcome.blade.php`
-2. `GET /up` → framework health registered in `bootstrap/app.php`
-3. `GET /robots.txt` → `User-agent: *` / `Disallow:`
+1. `GET|HEAD /` → `resources/views/welcome.blade.php`
+2. `GET|HEAD /up` → framework health registered in `bootstrap/app.php`
+3. `GET|HEAD /robots.txt` → `User-agent: *` / `Disallow:`
 4. Unknown paths → 404
-5. `Route::get` routes reject other methods with 405
+5. Other methods on those registered paths → 405
 
 Plus unused-but-present scaffolding: empty `Controller`, `User` model,
 `artisan inspire`, Vite/CSS/JS entrypoints, config, migrations.
