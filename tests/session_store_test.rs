@@ -187,28 +187,31 @@ async fn concurrent_updates_do_not_corrupt_store() {
     let manager = Arc::new(SessionManager::new(memory_config()).await.unwrap());
     let a = manager.create().await.unwrap();
     let b = manager.create().await.unwrap();
-    let mgr_a = Arc::clone(&manager);
-    let mgr_b = Arc::clone(&manager);
     let id_a = a.id.clone();
     let id_b = b.id.clone();
-    let left = tokio::spawn(async move {
-        for i in 0..50 {
-            mgr_a
-                .set_value(&id_a, "n", Value::Number(i as f64))
-                .await
-                .unwrap();
+    let left = {
+        let manager = Arc::clone(&manager);
+        async move {
+            for i in 0..50 {
+                manager
+                    .set_value(&id_a, "n", Value::Number(i as f64))
+                    .await
+                    .unwrap();
+            }
         }
-    });
-    let right = tokio::spawn(async move {
-        for i in 0..50 {
-            mgr_b
-                .set_value(&id_b, "n", Value::Number(i as f64))
-                .await
-                .unwrap();
+    };
+    let right = {
+        let manager = Arc::clone(&manager);
+        async move {
+            for i in 0..50 {
+                manager
+                    .set_value(&id_b, "n", Value::Number(i as f64))
+                    .await
+                    .unwrap();
+            }
         }
-    });
-    left.await.unwrap();
-    right.await.unwrap();
+    };
+    tokio::join!(left, right);
     assert!(manager.get(&a.id).await.unwrap().is_some());
     assert!(manager.get(&b.id).await.unwrap().is_some());
 }
