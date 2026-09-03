@@ -1185,7 +1185,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
     fn parse_store_session_data_statement(&mut self) -> Result<Statement, ParseError> {
         let token = self.bump_sync().unwrap(); // store
         let (line, column) = (token.line, token.column);
-        self.consume_session_data_marker(&token)?;
+        self.consume_session_data_marker(token)?;
         self.expect_token(
             Token::KeywordTo,
             "Expected 'to storage' after 'session_data'",
@@ -1207,7 +1207,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                 ));
             }
         }
-        let (key, data) = self.parse_storage_key_and_optional_data(true, &token)?;
+        let (key, data) = self.parse_storage_key_and_optional_data(true, token)?;
         Ok(Statement::StoreSessionDataStatement {
             key,
             data: data.expect("data required"),
@@ -1219,13 +1219,13 @@ impl<'a> WebParser<'a> for Parser<'a> {
     fn parse_delete_session_data_statement(&mut self) -> Result<Statement, ParseError> {
         let token = self.bump_sync().unwrap(); // delete
         let (line, column) = (token.line, token.column);
-        self.consume_session_data_marker(&token)?;
+        self.consume_session_data_marker(token)?;
         self.expect_token(
             Token::KeywordFrom,
             "Expected 'from storage' after 'session data'",
         )?;
-        self.consume_storage_marker(&token)?;
-        let (key, _) = self.parse_storage_key_and_optional_data(false, &token)?;
+        self.consume_storage_marker(token)?;
+        let (key, _) = self.parse_storage_key_and_optional_data(false, token)?;
         Ok(Statement::DeleteSessionDataStatement { key, line, column })
     }
 
@@ -1405,13 +1405,13 @@ impl<'a> WebParser<'a> for Parser<'a> {
     fn parse_load_session_data_expression(&mut self) -> Result<Expression, ParseError> {
         let token = self.bump_sync().unwrap(); // load
         let (line, column) = (token.line, token.column);
-        self.consume_session_data_marker(&token)?;
+        self.consume_session_data_marker(token)?;
         self.expect_token(
             Token::KeywordFrom,
             "Expected 'from storage' after 'session data'",
         )?;
-        self.consume_storage_marker(&token)?;
-        let (key, _) = self.parse_storage_key_and_optional_data(false, &token)?;
+        self.consume_storage_marker(token)?;
+        let (key, _) = self.parse_storage_key_and_optional_data(false, token)?;
         Ok(Expression::LoadSessionData {
             key: Box::new(key),
             line,

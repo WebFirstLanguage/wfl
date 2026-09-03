@@ -2,7 +2,7 @@
 //
 // These talk to the real store — no mocks of the persistence boundary.
 
-use std::sync::Arc;
+use std::rc::Rc;
 use std::time::Duration;
 use wfl::interpreter::sessions::{
     SessionConfig, SessionManager, SessionSameSite, SessionStorageKind,
@@ -184,13 +184,13 @@ async fn sqlite_backend_persists_across_managers() {
 
 #[tokio::test]
 async fn concurrent_updates_do_not_corrupt_store() {
-    let manager = Arc::new(SessionManager::new(memory_config()).await.unwrap());
+    let manager = Rc::new(SessionManager::new(memory_config()).await.unwrap());
     let a = manager.create().await.unwrap();
     let b = manager.create().await.unwrap();
     let id_a = a.id.clone();
     let id_b = b.id.clone();
     let left = {
-        let manager = Arc::clone(&manager);
+        let manager = Rc::clone(&manager);
         async move {
             for i in 0..50 {
                 manager
@@ -201,7 +201,7 @@ async fn concurrent_updates_do_not_corrupt_store() {
         }
     };
     let right = {
-        let manager = Arc::clone(&manager);
+        let manager = Rc::clone(&manager);
         async move {
             for i in 0..50 {
                 manager

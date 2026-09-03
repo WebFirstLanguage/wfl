@@ -417,9 +417,9 @@ async fn persist(store: &StoreState) -> Result<(), String> {
     }
 }
 
-fn load_file_store(
-    path: &Path,
-) -> Result<(HashMap<String, SessionRecord>, HashMap<String, Value>), String> {
+type LoadedStore = (HashMap<String, SessionRecord>, HashMap<String, Value>);
+
+fn load_file_store(path: &Path) -> Result<LoadedStore, String> {
     if !path.exists() {
         return Ok((HashMap::new(), HashMap::new()));
     }
@@ -473,9 +473,7 @@ async fn init_sqlite(pool: &SqlitePool) -> Result<(), String> {
     Ok(())
 }
 
-async fn load_sqlite(
-    pool: &SqlitePool,
-) -> Result<(HashMap<String, SessionRecord>, HashMap<String, Value>), String> {
+async fn load_sqlite(pool: &SqlitePool) -> Result<LoadedStore, String> {
     let session_rows = sqlx::query_as::<_, (String, String, i64, i64, i64)>(
         "SELECT id, data, created_at, last_activity, expires_at FROM wfl_sessions",
     )
@@ -585,9 +583,7 @@ fn encode_store_json(
     .map_err(|e| format!("Failed to encode session file: {e}"))
 }
 
-fn decode_store_json(
-    root: &serde_json::Value,
-) -> Result<(HashMap<String, SessionRecord>, HashMap<String, Value>), String> {
+fn decode_store_json(root: &serde_json::Value) -> Result<LoadedStore, String> {
     let mut sessions = HashMap::new();
     if let Some(map) = root.get("sessions").and_then(|v| v.as_object()) {
         for (id, record) in map {

@@ -364,7 +364,7 @@ pub struct WflWebServer {
     pub request_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflHttpRequest>>>,
     pub request_sender: mpsc::Sender<WflHttpRequest>,
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
-    pub sessions: Option<Arc<sessions::SessionManager>>,
+    pub sessions: Option<Rc<sessions::SessionManager>>,
 }
 
 impl Drop for WflWebServer {
@@ -10705,7 +10705,7 @@ impl Interpreter {
                 // *while streaming* (below), which bounds chunked bodies that
                 // carry no Content-Length.
                 let session_manager = if *sessions_enabled {
-                    Some(Arc::new(
+                    Some(Rc::new(
                         sessions::SessionManager::new(sessions::SessionConfig::from_wfl_config(
                             &self.config,
                         ))
@@ -13535,7 +13535,7 @@ impl Interpreter {
                 }
                 if name_str.starts_with("WebServer::") {
                     let web_servers = self.web_servers.borrow();
-                    for server_name in web_servers.keys() {
+                    if let Some(server_name) = web_servers.keys().next() {
                         return Ok(server_name.clone());
                     }
                 }
@@ -13559,7 +13559,7 @@ impl Interpreter {
         env: Rc<RefCell<Environment>>,
         line: usize,
         column: usize,
-    ) -> Result<Arc<sessions::SessionManager>, RuntimeError> {
+    ) -> Result<Rc<sessions::SessionManager>, RuntimeError> {
         let name = self
             .session_server_name_from_expr(server, env, line, column)
             .await?;
@@ -13571,7 +13571,7 @@ impl Interpreter {
         name: &str,
         line: usize,
         column: usize,
-    ) -> Result<Arc<sessions::SessionManager>, RuntimeError> {
+    ) -> Result<Rc<sessions::SessionManager>, RuntimeError> {
         let servers = self.web_servers.borrow();
         match servers.get(name).and_then(|s| s.sessions.clone()) {
             Some(manager) => Ok(manager),
@@ -13590,7 +13590,7 @@ impl Interpreter {
         request: &Value,
         line: usize,
         column: usize,
-    ) -> Result<(Arc<sessions::SessionManager>, String), RuntimeError> {
+    ) -> Result<(Rc<sessions::SessionManager>, String), RuntimeError> {
         let server = match request {
             Value::Object(obj) => match obj.borrow().get("_session_server") {
                 Some(Value::Text(name)) => name.to_string(),
@@ -13619,7 +13619,7 @@ impl Interpreter {
         session: &Value,
         line: usize,
         column: usize,
-    ) -> Result<(Arc<sessions::SessionManager>, String), RuntimeError> {
+    ) -> Result<(Rc<sessions::SessionManager>, String), RuntimeError> {
         let (server, id) = match session {
             Value::Object(obj) => {
                 let obj = obj.borrow();
@@ -13662,7 +13662,7 @@ impl Interpreter {
         &self,
         line: usize,
         column: usize,
-    ) -> Result<Arc<sessions::SessionManager>, RuntimeError> {
+    ) -> Result<Rc<sessions::SessionManager>, RuntimeError> {
         let managers: Vec<_> = self
             .web_servers
             .borrow()
