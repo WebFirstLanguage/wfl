@@ -2359,6 +2359,8 @@ display ln";
                     status: None,
                     content_type: None,
                     headers: Some(Expression::Variable("response_headers".to_string(), 2, 30)),
+                    set_session: None,
+                    clear_session: false,
                     line: 2,
                     column: 1,
                 },

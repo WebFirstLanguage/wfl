@@ -2668,6 +2668,7 @@ impl Analyzer {
                 server_name,
                 tls,
                 redirect_to_port,
+                sessions_enabled: _,
                 line,
                 column,
             } => {
@@ -2765,6 +2766,7 @@ impl Analyzer {
                 status,
                 content_type,
                 headers,
+                set_session,
                 ..
             } => {
                 // Analyze all expressions
@@ -2781,6 +2783,9 @@ impl Analyzer {
 
                 if let Some(headers_expr) = headers {
                     self.analyze_expression(headers_expr);
+                }
+                if let Some(session_expr) = set_session {
+                    self.analyze_expression(session_expr);
                 }
             }
 
@@ -5358,6 +5363,23 @@ impl Analyzer {
                 if let Some(params) = parameters {
                     self.analyze_expression(params);
                 }
+            }
+            Expression::CreateSession { request, .. } | Expression::GetSession { request, .. } => {
+                self.analyze_expression(request);
+            }
+            Expression::GetSessionValue { key, session, .. } => {
+                self.analyze_expression(key);
+                self.analyze_expression(session);
+            }
+            Expression::GenerateCsrfTokenForSession { session, .. } => {
+                self.analyze_expression(session);
+            }
+            Expression::FindExpiredSessions { server, .. }
+            | Expression::GetSessionStatistics { server, .. } => {
+                self.analyze_expression(server);
+            }
+            Expression::LoadSessionData { key, .. } => {
+                self.analyze_expression(key);
             }
         }
     }

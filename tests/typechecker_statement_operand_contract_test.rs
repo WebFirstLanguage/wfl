@@ -646,6 +646,8 @@ fn response_statements_reject_ordinary_maps_but_execute_file_defers_shape() {
             status: None,
             content_type: None,
             headers: None,
+            set_session: None,
+            clear_session: false,
             line: 2,
             column: 1,
         },

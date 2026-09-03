@@ -7098,6 +7098,7 @@ impl TypeChecker {
                 server_name,
                 tls,
                 redirect_to_port,
+                sessions_enabled: _,
                 line: _line,
                 column: _column,
             } => {
@@ -7197,6 +7198,8 @@ impl TypeChecker {
                 status,
                 content_type,
                 headers,
+                set_session,
+                clear_session: _,
                 line: _line,
                 column: _column,
             } => {
@@ -7266,6 +7269,9 @@ impl TypeChecker {
                             *_column,
                         );
                     }
+                }
+                if let Some(session_expr) = set_session {
+                    let _ = self.infer_expression_type(session_expr);
                 }
             }
             // Graceful shutdown and signal handling statements
@@ -7663,6 +7669,41 @@ impl TypeChecker {
                         }
                     }
                 }
+            }
+
+            Statement::ConfigureSessionsStatement {
+                server,
+                timeout,
+                storage,
+                ..
+            } => {
+                self.infer_expression_type(server);
+                self.infer_expression_type(timeout);
+                self.infer_expression_type(storage);
+            }
+            Statement::EnableCsrfProtectionStatement { server, .. }
+            | Statement::EnableSecureCookiesStatement { server, .. } => {
+                self.infer_expression_type(server);
+            }
+            Statement::SetSessionValueStatement {
+                key,
+                value,
+                session,
+                ..
+            } => {
+                self.infer_expression_type(key);
+                self.infer_expression_type(value);
+                self.infer_expression_type(session);
+            }
+            Statement::DestroySessionStatement { session, .. } => {
+                self.infer_expression_type(session);
+            }
+            Statement::StoreSessionDataStatement { key, data, .. } => {
+                self.infer_expression_type(key);
+                self.infer_expression_type(data);
+            }
+            Statement::DeleteSessionDataStatement { key, .. } => {
+                self.infer_expression_type(key);
             }
         }
     }
@@ -9288,6 +9329,34 @@ impl TypeChecker {
                 self.check_database_query_operands(db, sql, parameters.as_deref(), *line, *column);
                 Self::database_result_type(*kind)
             }
+            Expression::CreateSession { request, .. } | Expression::GetSession { request, .. } => {
+                self.infer_expression_type(request);
+                Type::Map(Box::new(Type::Text), Box::new(Type::Any))
+            }
+            Expression::GetSessionValue { key, session, .. } => {
+                self.infer_expression_type(key);
+                self.infer_expression_type(session);
+                Type::Any
+            }
+            Expression::GenerateCsrfTokenForSession { session, .. } => {
+                self.infer_expression_type(session);
+                Type::Text
+            }
+            Expression::FindExpiredSessions { server, .. } => {
+                self.infer_expression_type(server);
+                Type::List(Box::new(Type::Map(
+                    Box::new(Type::Text),
+                    Box::new(Type::Any),
+                )))
+            }
+            Expression::GetSessionStatistics { server, .. } => {
+                self.infer_expression_type(server);
+                Type::Map(Box::new(Type::Text), Box::new(Type::Any))
+            }
+            Expression::LoadSessionData { key, .. } => {
+                self.infer_expression_type(key);
+                Type::Any
+            }
         }
     }
 
@@ -10845,6 +10914,23 @@ impl TypeChecker {
                     self.check_expression_names_defined(parameters);
                 }
             }
+            Expression::CreateSession { request, .. } | Expression::GetSession { request, .. } => {
+                self.check_expression_names_defined(request);
+            }
+            Expression::GetSessionValue { key, session, .. } => {
+                self.check_expression_names_defined(key);
+                self.check_expression_names_defined(session);
+            }
+            Expression::GenerateCsrfTokenForSession { session, .. } => {
+                self.check_expression_names_defined(session);
+            }
+            Expression::FindExpiredSessions { server, .. }
+            | Expression::GetSessionStatistics { server, .. } => {
+                self.check_expression_names_defined(server);
+            }
+            Expression::LoadSessionData { key, .. } => {
+                self.check_expression_names_defined(key);
+            }
         }
     }
 
@@ -11327,6 +11413,8 @@ push with exposed and "text"
                     status: None,
                     content_type: None,
                     headers: Some(Expression::Literal(Literal::Integer(42), 2, 1)),
+                    set_session: None,
+                    clear_session: false,
                     line: 2,
                     column: 1,
                 },

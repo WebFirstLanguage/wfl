@@ -24,6 +24,18 @@ pub(crate) trait WebParser<'a>: ExprParser<'a> + PrimaryExprParser<'a> {
         line: usize,
         column: usize,
     ) -> Result<Expression, ParseError>;
+    fn parse_configure_sessions_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_enable_csrf_protection_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_enable_secure_cookies_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_set_session_value_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_destroy_session_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_store_session_data_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_delete_session_data_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_create_session_expression(&mut self) -> Result<Expression, ParseError>;
+    fn parse_get_session_expression(&mut self) -> Result<Expression, ParseError>;
+    fn parse_generate_csrf_token_for_session(&mut self) -> Result<Expression, ParseError>;
+    fn parse_find_expired_sessions_expression(&mut self) -> Result<Expression, ParseError>;
+    fn parse_load_session_data_expression(&mut self) -> Result<Expression, ParseError>;
 }
 
 impl<'a> WebParser<'a> for Parser<'a> {
@@ -192,11 +204,77 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Parse server name
         let server_name = self.parse_variable_name_simple()?;
 
+        let mut sessions_enabled = false;
+        if self
+            .cursor
+            .peek()
+            .is_some_and(|t| t.token == Token::KeywordWith)
+        {
+            self.bump_sync(); // Consume "with"
+            match self.cursor.peek() {
+                Some(token) => match &token.token {
+                    Token::Identifier(id)
+                        if id == "sessions enabled"
+                            || id == "sessions"
+                            || id.starts_with("sessions ") =>
+                    {
+                        let id = id.clone();
+                        self.bump_sync();
+                        if id == "sessions" {
+                            match self.cursor.peek() {
+                                Some(enabled)
+                                    if matches!(
+                                        &enabled.token,
+                                        Token::Identifier(word) if word == "enabled"
+                                    ) =>
+                                {
+                                    self.bump_sync();
+                                }
+                                Some(other) => {
+                                    return Err(ParseError::from_token(
+                                        "Expected 'sessions enabled' after 'with'".to_string(),
+                                        other,
+                                    ));
+                                }
+                                None => {
+                                    return Err(ParseError::from_token(
+                                        "Expected 'sessions enabled' after 'with'".to_string(),
+                                        token,
+                                    ));
+                                }
+                            }
+                        } else if id != "sessions enabled"
+                            && !id.starts_with("sessions enabled")
+                        {
+                            return Err(ParseError::from_token(
+                                "Expected 'sessions enabled' after 'with'".to_string(),
+                                token,
+                            ));
+                        }
+                        sessions_enabled = true;
+                    }
+                    _ => {
+                        return Err(ParseError::from_token(
+                            "Expected 'sessions enabled' after 'with'".to_string(),
+                            token,
+                        ));
+                    }
+                },
+                None => {
+                    return Err(ParseError::from_token(
+                        "Expected 'sessions enabled' after 'with'".to_string(),
+                        listen_token,
+                    ));
+                }
+            }
+        }
+
         Ok(Statement::ListenStatement {
             port,
             server_name,
             tls,
             redirect_to_port,
+            sessions_enabled,
             line: listen_token.line,
             column: listen_token.column,
         })
@@ -260,10 +338,12 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Parse content expression (use primary to avoid consuming "and")
         let content = self.parse_primary_expression()?;
 
-        // Optional status, content_type, and headers
+        // Optional status, content_type, headers, and session cookie clauses
         let mut status = None;
         let mut content_type = None;
         let mut headers = None;
+        let mut set_session = None;
+        let mut clear_session = false;
 
         // Check for optional "and" clauses (status, content_type, and/or headers)
         loop {
@@ -347,6 +427,51 @@ impl<'a> WebParser<'a> for Parser<'a> {
                                 Some(Expression::Variable(rest.to_string(), id_line, id_column));
                         }
                         continue;
+                    } else if let Token::Identifier(id) = &next_token.token
+                        && (id == "set session" || id.starts_with("set session "))
+                    {
+                        let id = id.clone();
+                        let (id_line, id_column) = (next_token.line, next_token.column);
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume "set session" (possibly merged)
+                        let rest = id
+                            .strip_prefix("set session")
+                            .map(str::trim_start)
+                            .unwrap_or("");
+                        if rest.is_empty() {
+                            set_session = Some(self.parse_primary_expression()?);
+                        } else {
+                            set_session =
+                                Some(Expression::Variable(rest.to_string(), id_line, id_column));
+                        }
+                        continue;
+                    } else if next_token.token == Token::KeywordClear {
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume "clear"
+                        match self.cursor.peek() {
+                            Some(token)
+                                if matches!(
+                                    &token.token,
+                                    Token::Identifier(id) if id == "session" || id.starts_with("session ")
+                                ) =>
+                            {
+                                self.bump_sync();
+                                clear_session = true;
+                                continue;
+                            }
+                            Some(token) => {
+                                return Err(ParseError::from_token(
+                                    "Expected 'session' after 'and clear'".to_string(),
+                                    token,
+                                ));
+                            }
+                            None => {
+                                return Err(ParseError::from_token(
+                                    "Expected 'session' after 'and clear'".to_string(),
+                                    respond_token,
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -359,6 +484,8 @@ impl<'a> WebParser<'a> for Parser<'a> {
             status,
             content_type,
             headers,
+            set_session,
+            clear_session,
             line: respond_token.line,
             column: respond_token.column,
         })
@@ -902,5 +1029,536 @@ impl<'a> WebParser<'a> for Parser<'a> {
                 column,
             )),
         }
+    }
+
+    fn parse_configure_sessions_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        self.expect_token(Token::KeywordOn, "Expected 'on' after 'configure sessions'")?;
+        let server = self.parse_primary_expression()?;
+        self.expect_token(
+            Token::KeywordWith,
+            "Expected 'with' after the server in 'configure sessions'",
+        )?;
+        match self.cursor.peek() {
+            Some(t) if t.token == Token::KeywordTimeout => {
+                self.bump_sync();
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'timeout' after 'configure sessions ... with'".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'timeout' after 'configure sessions ... with'".to_string(),
+                    token,
+                ));
+            }
+        }
+        let timeout = self.parse_primary_expression()?;
+        self.expect_token(
+            Token::KeywordAnd,
+            "Expected 'and storage' after the session timeout",
+        )?;
+        match self.cursor.peek() {
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "storage" || id.starts_with("storage ")) =>
+            {
+                let id = match &t.token {
+                    Token::Identifier(id) => id.clone(),
+                    _ => unreachable!(),
+                };
+                let (id_line, id_column) = (t.line, t.column);
+                self.bump_sync();
+                let rest = id.strip_prefix("storage").map(str::trim_start).unwrap_or("");
+                let storage = if rest.is_empty() {
+                    self.parse_primary_expression()?
+                } else {
+                    Expression::Variable(rest.to_string(), id_line, id_column)
+                };
+                Ok(Statement::ConfigureSessionsStatement {
+                    server,
+                    timeout,
+                    storage,
+                    line,
+                    column,
+                })
+            }
+            Some(t) => Err(ParseError::from_token(
+                "Expected 'storage' after 'and' in 'configure sessions'".to_string(),
+                t,
+            )),
+            None => Err(ParseError::from_token(
+                "Expected 'storage' after 'and' in 'configure sessions'".to_string(),
+                token,
+            )),
+        }
+    }
+
+    fn parse_enable_csrf_protection_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'enable csrf protection'",
+        )?;
+        let server = self.parse_primary_expression()?;
+        Ok(Statement::EnableCsrfProtectionStatement {
+            server,
+            line,
+            column,
+        })
+    }
+
+    fn parse_enable_secure_cookies_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'enable secure cookies'",
+        )?;
+        let server = self.parse_primary_expression()?;
+        Ok(Statement::EnableSecureCookiesStatement {
+            server,
+            line,
+            column,
+        })
+    }
+
+    fn parse_set_session_value_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        let rest = match &token.token {
+            Token::Identifier(id) => id
+                .strip_prefix("set session value")
+                .map(str::trim_start)
+                .unwrap_or("")
+                .to_string(),
+            _ => String::new(),
+        };
+        let key = if rest.is_empty() {
+            self.parse_primary_expression()?
+        } else {
+            Expression::Variable(rest, line, column)
+        };
+        self.expect_token(Token::KeywordTo, "Expected 'to' after the session value key")?;
+        let value = self.parse_primary_expression()?;
+        self.expect_token(Token::KeywordIn, "Expected 'in' after the session value")?;
+        let session = self.parse_primary_expression()?;
+        Ok(Statement::SetSessionValueStatement {
+            key,
+            value,
+            session,
+            line,
+            column,
+        })
+    }
+
+    fn parse_destroy_session_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        let rest = match &token.token {
+            Token::Identifier(id) => id
+                .strip_prefix("destroy session")
+                .map(str::trim_start)
+                .unwrap_or("")
+                .to_string(),
+            _ => String::new(),
+        };
+        let session = if rest.is_empty() {
+            self.parse_primary_expression()?
+        } else {
+            Expression::Variable(rest, line, column)
+        };
+        Ok(Statement::DestroySessionStatement {
+            session,
+            line,
+            column,
+        })
+    }
+
+    fn parse_store_session_data_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap(); // store
+        let (line, column) = (token.line, token.column);
+        self.consume_session_data_marker(&token)?;
+        self.expect_token(Token::KeywordTo, "Expected 'to storage' after 'session_data'")?;
+        match self.cursor.peek() {
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "storage") => {
+                self.bump_sync();
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'storage' after 'to'".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'storage' after 'to'".to_string(),
+                    token,
+                ));
+            }
+        }
+        let (key, data) = self.parse_storage_key_and_optional_data(true, &token)?;
+        Ok(Statement::StoreSessionDataStatement {
+            key,
+            data: data.expect("data required"),
+            line,
+            column,
+        })
+    }
+
+    fn parse_delete_session_data_statement(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap(); // delete
+        let (line, column) = (token.line, token.column);
+        self.consume_session_data_marker(&token)?;
+        self.expect_token(
+            Token::KeywordFrom,
+            "Expected 'from storage' after 'session data'",
+        )?;
+        self.consume_storage_marker(&token)?;
+        let (key, _) = self.parse_storage_key_and_optional_data(false, &token)?;
+        Ok(Statement::DeleteSessionDataStatement { key, line, column })
+    }
+
+    fn parse_create_session_expression(&mut self) -> Result<Expression, ParseError> {
+        let token = self.bump_sync().unwrap(); // create
+        let (line, column) = (token.line, token.column);
+        match self.cursor.peek() {
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "session") => {
+                self.bump_sync();
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'session' after 'create'".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'session' after 'create'".to_string(),
+                    token,
+                ));
+            }
+        }
+        self.expect_token(Token::KeywordFor, "Expected 'for' after 'create session'")?;
+        let request = self.parse_primary_expression()?;
+        Ok(Expression::CreateSession {
+            request: Box::new(request),
+            line,
+            column,
+        })
+    }
+
+    fn parse_get_session_expression(&mut self) -> Result<Expression, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        let id = match &token.token {
+            Token::Identifier(id) => id.clone(),
+            _ => String::new(),
+        };
+        if id == "get session statistics" || id.starts_with("get session statistics ") {
+            let rest = id
+                .strip_prefix("get session statistics")
+                .map(str::trim_start)
+                .unwrap_or("");
+            self.expect_token(
+                Token::KeywordFrom,
+                "Expected 'from' after 'get session statistics'",
+            )?;
+            let server = if rest.is_empty() {
+                self.parse_primary_expression()?
+            } else {
+                // rest should not include the server; server follows `from`
+                self.parse_primary_expression()?
+            };
+            return Ok(Expression::GetSessionStatistics {
+                server: Box::new(server),
+                line,
+                column,
+            });
+        }
+        if id == "get session value" || id.starts_with("get session value ") {
+            let rest = id
+                .strip_prefix("get session value")
+                .map(str::trim_start)
+                .unwrap_or("")
+                .to_string();
+            let key = if rest.is_empty() {
+                self.parse_primary_expression()?
+            } else {
+                Expression::Variable(rest, line, column)
+            };
+            self.expect_token(
+                Token::KeywordFrom,
+                "Expected 'from' after the session value key",
+            )?;
+            let session = self.parse_primary_expression()?;
+            return Ok(Expression::GetSessionValue {
+                key: Box::new(key),
+                session: Box::new(session),
+                line,
+                column,
+            });
+        }
+        // `get session` or `get session <rest>`
+        self.expect_token(Token::KeywordFrom, "Expected 'from' after 'get session'")?;
+        let request = self.parse_primary_expression()?;
+        Ok(Expression::GetSession {
+            request: Box::new(request),
+            line,
+            column,
+        })
+    }
+
+    fn parse_generate_csrf_token_for_session(&mut self) -> Result<Expression, ParseError> {
+        let token = self.bump_sync().unwrap();
+        let (line, column) = (token.line, token.column);
+        self.expect_token(
+            Token::KeywordFor,
+            "Expected 'for' after 'generate csrf token'",
+        )?;
+        let session = self.parse_primary_expression()?;
+        Ok(Expression::GenerateCsrfTokenForSession {
+            session: Box::new(session),
+            line,
+            column,
+        })
+    }
+
+    fn parse_find_expired_sessions_expression(&mut self) -> Result<Expression, ParseError> {
+        let token = self.bump_sync().unwrap(); // find
+        let (line, column) = (token.line, token.column);
+        match self.cursor.peek() {
+            Some(t)
+                if matches!(
+                    &t.token,
+                    Token::Identifier(id)
+                        if id == "expired sessions"
+                            || id == "expired"
+                            || id.starts_with("expired sessions ")
+                ) =>
+            {
+                let id = match &t.token {
+                    Token::Identifier(id) => id.clone(),
+                    _ => unreachable!(),
+                };
+                self.bump_sync();
+                if id == "expired" {
+                    match self.cursor.peek() {
+                        Some(s)
+                            if matches!(
+                                &s.token,
+                                Token::Identifier(word) if word == "sessions" || word.starts_with("sessions ")
+                            ) =>
+                        {
+                            self.bump_sync();
+                        }
+                        Some(s) => {
+                            return Err(ParseError::from_token(
+                                "Expected 'expired sessions' after 'find'".to_string(),
+                                s,
+                            ));
+                        }
+                        None => {
+                            return Err(ParseError::from_token(
+                                "Expected 'expired sessions' after 'find'".to_string(),
+                                token,
+                            ));
+                        }
+                    }
+                }
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'expired sessions' after 'find'".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'expired sessions' after 'find'".to_string(),
+                    token,
+                ));
+            }
+        }
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'find expired sessions'",
+        )?;
+        let server = self.parse_primary_expression()?;
+        Ok(Expression::FindExpiredSessions {
+            server: Box::new(server),
+            line,
+            column,
+        })
+    }
+
+    fn parse_load_session_data_expression(&mut self) -> Result<Expression, ParseError> {
+        let token = self.bump_sync().unwrap(); // load
+        let (line, column) = (token.line, token.column);
+        self.consume_session_data_marker(&token)?;
+        self.expect_token(
+            Token::KeywordFrom,
+            "Expected 'from storage' after 'session data'",
+        )?;
+        self.consume_storage_marker(&token)?;
+        let (key, _) = self.parse_storage_key_and_optional_data(false, &token)?;
+        Ok(Expression::LoadSessionData {
+            key: Box::new(key),
+            line,
+            column,
+        })
+    }
+}
+
+impl<'a> Parser<'a> {
+    fn consume_session_data_marker(
+        &mut self,
+        origin: &crate::lexer::token::TokenWithPosition,
+    ) -> Result<(), ParseError> {
+        match self.cursor.peek() {
+            Some(t)
+                if matches!(
+                    &t.token,
+                    Token::Identifier(id)
+                        if id == "session data"
+                            || id == "session_data"
+                            || id.starts_with("session data ")
+                            || id.starts_with("session_data ")
+                ) =>
+            {
+                self.bump_sync();
+                Ok(())
+            }
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "session") => {
+                self.bump_sync();
+                match self.cursor.peek() {
+                    Some(d) if d.token == Token::KeywordData => {
+                        self.bump_sync();
+                        Ok(())
+                    }
+                    Some(d) => Err(ParseError::from_token(
+                        "Expected 'data' after 'session'".to_string(),
+                        d,
+                    )),
+                    None => Err(ParseError::from_token(
+                        "Expected 'data' after 'session'".to_string(),
+                        origin,
+                    )),
+                }
+            }
+            Some(t) => Err(ParseError::from_token(
+                "Expected 'session data'".to_string(),
+                t,
+            )),
+            None => Err(ParseError::from_token(
+                "Expected 'session data'".to_string(),
+                origin,
+            )),
+        }
+    }
+
+    fn consume_storage_marker(
+        &mut self,
+        origin: &crate::lexer::token::TokenWithPosition,
+    ) -> Result<(), ParseError> {
+        match self.cursor.peek() {
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "storage") => {
+                self.bump_sync();
+                Ok(())
+            }
+            Some(t) => Err(ParseError::from_token(
+                "Expected 'storage'".to_string(),
+                t,
+            )),
+            None => Err(ParseError::from_token("Expected 'storage'".to_string(), origin)),
+        }
+    }
+
+    fn parse_storage_key_and_optional_data(
+        &mut self,
+        require_data: bool,
+        origin: &crate::lexer::token::TokenWithPosition,
+    ) -> Result<(Expression, Option<Expression>), ParseError> {
+        self.expect_token(
+            Token::KeywordWith,
+            "Expected 'with key' after 'storage'",
+        )?;
+        let key = match self.cursor.peek() {
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "key" || id.starts_with("key ")) =>
+            {
+                let id = match &t.token {
+                    Token::Identifier(id) => id.clone(),
+                    _ => unreachable!(),
+                };
+                let (id_line, id_column) = (t.line, t.column);
+                self.bump_sync();
+                let rest = id.strip_prefix("key").map(str::trim_start).unwrap_or("");
+                if rest.is_empty() {
+                    self.parse_primary_expression()?
+                } else {
+                    Expression::Variable(rest.to_string(), id_line, id_column)
+                }
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'key' after 'with'".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'key' after 'with'".to_string(),
+                    origin,
+                ));
+            }
+        };
+        if !require_data {
+            return Ok((key, None));
+        }
+        self.expect_token(
+            Token::KeywordAnd,
+            "Expected 'and data' after the storage key",
+        )?;
+        let data = match self.cursor.peek() {
+            Some(t) if t.token == Token::KeywordData => {
+                self.bump_sync();
+                self.parse_primary_expression()?
+            }
+            Some(t)
+                if matches!(
+                    &t.token,
+                    Token::Identifier(id) if id == "data" || id.starts_with("data ")
+                ) =>
+            {
+                let id = match &t.token {
+                    Token::Identifier(id) => id.clone(),
+                    _ => unreachable!(),
+                };
+                let (id_line, id_column) = (t.line, t.column);
+                self.bump_sync();
+                let rest = id.strip_prefix("data").map(str::trim_start).unwrap_or("");
+                if rest.is_empty() {
+                    self.parse_primary_expression()?
+                } else {
+                    Expression::Variable(rest.to_string(), id_line, id_column)
+                }
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'data' after 'and'".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'data' after 'and'".to_string(),
+                    origin,
+                ));
+            }
+        };
+        Ok((key, Some(data)))
     }
 }

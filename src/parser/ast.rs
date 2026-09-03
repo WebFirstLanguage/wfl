@@ -576,6 +576,8 @@ pub enum Statement {
         tls: Option<TlsListenConfig>,
         /// `redirecting to port <expr>` — native HTTP->HTTPS 301 redirect server.
         redirect_to_port: Option<Expression>,
+        /// `with sessions enabled` after `as <name>`.
+        sessions_enabled: bool,
         line: usize,
         column: usize,
     },
@@ -594,6 +596,10 @@ pub enum Statement {
         /// Optional map of extra response headers, e.g. `Accept-Query` /
         /// `Content-Location` / `Location` for RFC 10008 (HTTP QUERY).
         headers: Option<Expression>,
+        /// `and set session <expr>` — persist the session and emit Set-Cookie.
+        set_session: Option<Expression>,
+        /// `and clear session` — emit an expired session cookie.
+        clear_session: bool,
         line: usize,
         column: usize,
     },
@@ -733,6 +739,46 @@ pub enum Statement {
     ExpectStatement {
         subject: Expression,
         assertion: Assertion,
+        line: usize,
+        column: usize,
+    },
+    ConfigureSessionsStatement {
+        server: Expression,
+        timeout: Expression,
+        storage: Expression,
+        line: usize,
+        column: usize,
+    },
+    EnableCsrfProtectionStatement {
+        server: Expression,
+        line: usize,
+        column: usize,
+    },
+    EnableSecureCookiesStatement {
+        server: Expression,
+        line: usize,
+        column: usize,
+    },
+    SetSessionValueStatement {
+        key: Expression,
+        value: Expression,
+        session: Expression,
+        line: usize,
+        column: usize,
+    },
+    DestroySessionStatement {
+        session: Expression,
+        line: usize,
+        column: usize,
+    },
+    StoreSessionDataStatement {
+        key: Expression,
+        data: Expression,
+        line: usize,
+        column: usize,
+    },
+    DeleteSessionDataStatement {
+        key: Expression,
         line: usize,
         column: usize,
     },
@@ -937,6 +983,42 @@ pub enum Expression {
         sql: Box<Expression>,
         parameters: Option<Box<Expression>>,
         kind: DatabaseQueryKind,
+        line: usize,
+        column: usize,
+    },
+    CreateSession {
+        request: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    GetSession {
+        request: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    GetSessionValue {
+        key: Box<Expression>,
+        session: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    GenerateCsrfTokenForSession {
+        session: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    FindExpiredSessions {
+        server: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    GetSessionStatistics {
+        server: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    LoadSessionData {
+        key: Box<Expression>,
         line: usize,
         column: usize,
     },
