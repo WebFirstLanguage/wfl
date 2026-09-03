@@ -220,6 +220,23 @@ All keys currently loaded from config files, with defaults.
 | `web_socket_max_message_size` | integer ≥ 1 | `1048576` (1 MiB) | Max size of a single WebSocket text message (bytes); larger frames are dropped |
 | `web_socket_max_queued_bytes` | integer ≥ 1 | `16777216` (16 MiB) | Global ceiling on queued WebSocket payload bytes across all connections |
 
+### Sessions
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `session_timeout_ms` | integer | `1800000` | Idle timeout in milliseconds (30 minutes) |
+| `session_storage` | `memory` / `file` / `database` | `memory` | Backend for `listen … with sessions enabled` |
+| `session_db_path` | string | `wfl_sessions.db` | SQLite file when storage is `database` |
+| `session_file_path` | string | `wfl_sessions.json` | JSON file when storage is `file` |
+| `session_cookie_name` | string | `wfl_sid` | Session cookie name |
+| `session_cookie_secure` | bool | `false` | Add `Secure` to `Set-Cookie` |
+| `session_cookie_samesite` | `Lax` / `Strict` / `None` | `Lax` | `SameSite` attribute |
+| `session_cookie_httponly` | bool | `true` | Add `HttpOnly` to `Set-Cookie` |
+| `session_csrf_enabled` | bool | `false` | Default for `enable csrf protection` |
+| `session_max_sessions` | integer ≥ 1 | `10000` | DoS ceiling; `create session` fails when full |
+
+No session secret belongs in `.wflcfg` (config files must not hold app secrets). Session IDs and CSRF tokens come from the OS CSPRNG.
+
 ### Execution budget keys (summary)
 
 A single [`ExecutionBudget`](#execution-budget-resource-limits) governs every
@@ -613,6 +630,100 @@ Global ceiling in bytes on all WebSocket payloads queued across every connection
 - **Default:** `16777216` (16 MiB)
 - **Example:** `web_socket_max_queued_bytes = 8388608`
 
+### Sessions
+
+Defaults for `listen … with sessions enabled`. Statement-level `configure sessions`
+and `enable csrf protection` / `enable secure cookies` override these for that
+server. Timeouts are **milliseconds** so they match `configure sessions … with
+timeout 1800000`. See [User sessions](../04-advanced-features/web-servers.md#user-sessions).
+
+#### `session_timeout_ms`
+
+Idle lifetime of a session in milliseconds. `get session` of an expired id
+returns `nothing`. Cookie `Max-Age` is this value in seconds (`timeout_ms / 1000`).
+
+- **Type:** Integer (milliseconds)
+- **Default:** `1800000` (30 minutes)
+- **Example:** `session_timeout_ms = 600000`  # 10 minutes
+
+#### `session_storage`
+
+Backend used when the program does not `configure sessions … and storage`.
+`memory` is test-safe (nothing written to disk). `file` is one JSON file.
+`database` is SQLite (not Postgres or MySQL).
+
+- **Type:** `memory` / `file` / `database`
+- **Default:** `memory`
+- **Example:** `session_storage = database`
+
+#### `session_db_path`
+
+SQLite file created when `session_storage = database`.
+
+- **Type:** File path string
+- **Default:** `wfl_sessions.db`
+- **Example:** `session_db_path = /var/lib/wfl/sessions.db`
+
+#### `session_file_path`
+
+JSON file used when `session_storage = file`. Writes are atomic (temp file + rename).
+
+- **Type:** File path string
+- **Default:** `wfl_sessions.json`
+- **Example:** `session_file_path = /var/lib/wfl/sessions.json`
+
+#### `session_cookie_name`
+
+Name of the session cookie (`Set-Cookie` / `Cookie`).
+
+- **Type:** String
+- **Default:** `wfl_sid`
+- **Example:** `session_cookie_name = sid`
+
+#### `session_cookie_secure`
+
+When `true`, `Set-Cookie` includes `Secure`. Also set by `enable secure cookies`.
+Leave `false` for plain HTTP (the cookie will not come back on HTTP if `Secure`
+is set).
+
+- **Type:** Boolean
+- **Default:** `false`
+- **Example:** `session_cookie_secure = true`
+
+#### `session_cookie_samesite`
+
+`SameSite` attribute on the session cookie.
+
+- **Type:** `Lax` / `Strict` / `None`
+- **Default:** `Lax`
+- **Example:** `session_cookie_samesite = Strict`
+
+#### `session_cookie_httponly`
+
+When `true`, `Set-Cookie` includes `HttpOnly` so JavaScript cannot read the id.
+
+- **Type:** Boolean
+- **Default:** `true`
+- **Example:** `session_cookie_httponly = true`
+
+#### `session_csrf_enabled`
+
+Default CSRF flag when the program omits `enable csrf protection`. v1 records
+the flag only; handlers still compare tokens themselves.
+
+- **Type:** Boolean
+- **Default:** `false`
+- **Example:** `session_csrf_enabled = true`
+
+#### `session_max_sessions`
+
+Maximum stored sessions. `create session` fails with an actionable error when
+the store is full.
+
+- **Type:** Integer (at least 1)
+- **Default:** `10000`
+- **Example:** `session_max_sessions = 1000`
+
 ### Execution budget (resource limits)
 
 WFL enforces every resource ceiling through a single shared **execution budget**
@@ -738,8 +849,9 @@ Application settings (business ports, feature flags) belong in data files your p
 | HTTPS defaults without hardcoding paths | `web_server_tls_cert_file` / `web_server_tls_key_file` |
 | Large uploads | `web_server_max_body_size` |
 | Bound request backlog under load | `web_server_request_queue_bound` |
+| Session timeout / store / cookie | `session_timeout_ms`, `session_storage`, `session_cookie_*` |
 
-TLS intent always lives in the program (`secured`); config only supplies default file paths.
+TLS intent always lives in the program (`secured`); config only supplies default file paths. Session `configure` / `enable` statements override `.wflcfg` for that server.
 
 ### Shell / subprocesses
 

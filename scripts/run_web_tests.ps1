@@ -473,6 +473,138 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
     }
 }
 
+# Test 5: web_server_session_test.wfl (cookies, CSRF, storage KV)
+if (Test-Path "TestPrograms\web_server_session_test.wfl") {
+    $totalTests++
+    Write-Host ""
+    Write-Host "[INFO] Testing: web_server_session_test.wfl on port 8097" -ForegroundColor Blue
+
+    $sessionOutLog = Join-Path ([System.IO.Path]::GetTempPath()) ("wfl-session-" + [System.IO.Path]::GetRandomFileName() + ".out.log")
+    $sessionErrLog = Join-Path ([System.IO.Path]::GetTempPath()) ("wfl-session-" + [System.IO.Path]::GetRandomFileName() + ".err.log")
+    $cookieJar = Join-Path ([System.IO.Path]::GetTempPath()) ("wfl-session-" + [System.IO.Path]::GetRandomFileName() + ".cookies")
+    $sessionProcess = Start-Process -FilePath $BinaryPath -ArgumentList "TestPrograms\web_server_session_test.wfl" -NoNewWindow -PassThru -RedirectStandardOutput $sessionOutLog -RedirectStandardError $sessionErrLog
+    $null = $sessionProcess.Handle
+
+    try {
+        $sessionReady = $false
+        $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $sessionReady -and $deadline.Elapsed.TotalSeconds -lt $Timeout) {
+            try {
+                $ready = Invoke-WebRequest -Uri "http://127.0.0.1:8097/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+                if ($ready.Content -match "Session server ready") { $sessionReady = $true }
+            } catch {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+
+        $sessionOk = $true
+        if (-not $sessionReady) {
+            Write-Host "[ERROR] TIMEOUT: Session server did not start within ${Timeout}s" -ForegroundColor Red
+            $sessionOk = $false
+        } else {
+            $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+            if (-not $curl) {
+                Write-Host "[ERROR] curl.exe is required to drive session cookie tests" -ForegroundColor Red
+                $sessionOk = $false
+            } else {
+                $login = & curl.exe -s --max-time 2 -D - -c $cookieJar "http://127.0.0.1:8097/login"
+                $loginText = ($login | Out-String)
+                if ($loginText -match "Set-Cookie: wfl_sid=" -and $loginText -match "HttpOnly") {
+                    Write-Host "[SUCCESS] PASS: /login sets HttpOnly wfl_sid cookie" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /login did not set HttpOnly wfl_sid: $loginText" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+                $loginBody = ($login | Select-Object -Last 1).ToString().Trim()
+                $parts = $loginBody.Split(" ", 2, [System.StringSplitOptions]::RemoveEmptyEntries)
+                $csrfToken = if ($parts.Count -ge 2) { $parts[1] } else { "" }
+
+                $profile = & curl.exe -s --max-time 2 -b $cookieJar "http://127.0.0.1:8097/profile"
+                if ($profile -eq "user123") {
+                    Write-Host "[SUCCESS] PASS: /profile returns user_id from cookie" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /profile returned '$profile'" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $anon = & curl.exe -s -o NUL -w "%{http_code}" --max-time 2 "http://127.0.0.1:8097/profile"
+                if ($anon -eq "401") {
+                    Write-Host "[SUCCESS] PASS: /profile without cookie returns 401" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: anonymous /profile returned HTTP $anon" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $csrfMiss = & curl.exe -s -o NUL -w "%{http_code}" --max-time 2 -b $cookieJar "http://127.0.0.1:8097/secure"
+                if ($csrfMiss -eq "403") {
+                    Write-Host "[SUCCESS] PASS: /secure without CSRF header returns 403" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /secure without CSRF returned HTTP $csrfMiss" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $csrfOk = & curl.exe -s --max-time 2 -b $cookieJar -H "X-CSRF-Token: $csrfToken" "http://127.0.0.1:8097/secure"
+                if ($csrfOk -eq "Access granted") {
+                    Write-Host "[SUCCESS] PASS: /secure accepts matching CSRF token" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /secure with CSRF returned '$csrfOk'" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $admin = & curl.exe -s -o NUL -w "%{http_code}" --max-time 2 -b $cookieJar "http://127.0.0.1:8097/admin"
+                if ($admin -eq "403") {
+                    Write-Host "[SUCCESS] PASS: /admin denies missing admin permission" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /admin returned HTTP $admin" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $stats = & curl.exe -s --max-time 2 "http://127.0.0.1:8097/stats"
+                if ($stats -like "memory *") {
+                    Write-Host "[SUCCESS] PASS: /stats reports memory backend ($stats)" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /stats returned '$stats'" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $storage = & curl.exe -s --max-time 2 "http://127.0.0.1:8097/storage"
+                if ($storage -eq "stored test_value") {
+                    Write-Host "[SUCCESS] PASS: storage KV put/load/delete" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /storage returned '$storage'" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $logout = & curl.exe -s --max-time 2 -D - -b $cookieJar -c $cookieJar "http://127.0.0.1:8097/logout"
+                $logoutText = ($logout | Out-String)
+                if ($logoutText -match "logged_out" -and $logoutText -match "Max-Age=0") {
+                    Write-Host "[SUCCESS] PASS: /logout clears session cookie" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /logout did not clear cookie: $logoutText" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+
+                $after = & curl.exe -s -o NUL -w "%{http_code}" --max-time 2 -b $cookieJar "http://127.0.0.1:8097/profile"
+                if ($after -eq "401") {
+                    Write-Host "[SUCCESS] PASS: /profile after logout returns 401" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: /profile after logout returned HTTP $after" -ForegroundColor Red
+                    $sessionOk = $false
+                }
+            }
+        }
+
+        if ($sessionOk) {
+            $passedTests++
+        } else {
+            Show-ServerLogs -OutLog $sessionOutLog -ErrLog $sessionErrLog -Process $sessionProcess
+        }
+    } finally {
+        Stop-ServerProcess -Process $sessionProcess
+        Remove-Item -Force $cookieJar, $sessionOutLog, $sessionErrLog -ErrorAction SilentlyContinue
+    }
+}
+
 # Summary
 Write-Host ""
 Write-Host "[INFO] ============================" -ForegroundColor Blue

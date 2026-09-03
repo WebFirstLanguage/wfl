@@ -1230,7 +1230,93 @@ end check
 - **Bounded request body (chunked-safe):** The request-body limit (`web_server_max_body_size`) is enforced *while the body streams in*, so a chunked upload with no `Content-Length` is bounded too — an oversized body is refused with `413 Payload Too Large` without being fully buffered.
 - **Global in-flight cap + request deadline:** The accepted-request cap is shared across every `listen` server via one budget, and one deadline (`web_server_response_timeout_seconds`, default 300s) is set at admission and covers the whole accepted-request lifetime. A body that is not fully received in time is shed with `408 Request Timeout` (so a slow "trickle" upload under the size cap cannot pin a slot), and a handler that does not answer in time is shed with `504 Gateway Timeout`. A shed or abandoned request is skipped and its bookkeeping pruned rather than run as zombie work.
 - **No middleware system** (yet) - Implement manually
-- **No built-in session management** - Implement yourself
+- **No automatic CSRF rejection** - `enable csrf protection` records the flag; your handler still compares `header "X-CSRF-Token"` to `get session value "csrf_token"`. Automatic rejection would change every handler without a test that requires it.
+
+## User sessions
+
+`listen … with sessions enabled` starts a server with a built-in session store.
+`wait for request` does **not** create a session automatically — you call
+`create session` / `get session` explicitly. `respond … and set session` appends
+a `Set-Cookie` header; `respond … and clear session` expires it.
+
+```wfl
+listen on port 8080 as web_server with sessions enabled
+configure sessions on web_server with timeout 1800000 and storage "memory"
+enable csrf protection on web_server
+
+main loop:
+    wait for request comes in on web_server as req
+    store sess as get session from req
+    check if sess is nothing:
+        store sess as create session for req
+        set session value "user_id" to "guest" in sess
+        store csrf as generate csrf token for sess
+        respond to req with "ok" and set session sess
+    otherwise:
+        store user_id as get session value "user_id" from sess
+        respond to req with user_id
+    end check
+end loop
+```
+
+Session objects expose `id` (and `created_at` / `last_activity`) through
+`id of sess`. User data is **not** dumped onto that object — use
+`get session value` / `set session value` so a key named `id` cannot collide
+with the session identifier.
+
+### Storage backends
+
+`configure sessions … and storage` picks the backend (`memory`, `file`, or
+`database`). `database` is SQLite via the in-tree sqlx dependency, not
+Postgres or MySQL. Defaults come from `.wflcfg` (`session_storage`,
+`session_timeout_ms`, cookie flags); statement-level `configure` / `enable`
+override them for that server. See [Configuration Reference](../reference/configuration-reference.md#sessions).
+
+- **memory** — process-local map. Default, test-safe.
+- **file** — one JSON file (`session_file_path`), written with a temp file + rename.
+- **database** — SQLite file (`session_db_path`) with `wfl_sessions` and `wfl_session_kv`.
+
+Values must be JSON-safe (text, number, bool, list, object, nothing). Functions,
+natives, and binaries produce an actionable error. `create session` fails cleanly
+when the store is full (`session_max_sessions`).
+
+Concurrent handlers may touch the same store: last write wins per session id.
+Two handlers on **different** sessions do not block each other at the language
+level; they still interleave on one thread under `main loop concurrently:`
+(cooperative concurrency, not parallel cores).
+
+### Cookies and CSRF
+
+The default cookie name is `wfl_sid`, with `Path=/`, `HttpOnly`, `SameSite=Lax`,
+and `Max-Age` from the timeout. `enable secure cookies` (or
+`session_cookie_secure = true`) adds `Secure`. `respond … and set session`
+keeps any `and headers` you already set.
+
+`generate csrf token for session` returns a new hex token and stores it on that
+session as `csrf_token`. Check it yourself:
+
+```wfl
+store provided as header "X-CSRF-Token" of req
+store expected as get session value "csrf_token" from sess
+check if provided is equal to expected:
+    respond to req with "ok"
+otherwise:
+    respond to req with "CSRF token invalid" and status 403
+end check
+```
+
+### Expiry, statistics, and raw storage
+
+`find expired sessions on web_server` returns the expired records so you can
+`destroy` them. `get session statistics from web_server` is a map with
+`active_sessions`, `total_created`, `expired_count`, and `storage_type`.
+Destroyed or missing cookies make `get session` return `nothing`; `set` after
+destroy is an error.
+
+The storage KV API is a separate key/value map on the same backend
+(`store session_data to storage …`, `load session data from storage …`,
+`delete session data from storage …`) — useful for one-off blobs that are not
+tied to a cookie.
 
 All of these ceilings, together with the request timeout and body-size limits, are part of one shared [execution budget](../reference/configuration-reference.md#execution-budget-resource-limits).
 
