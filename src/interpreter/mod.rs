@@ -5,7 +5,6 @@ pub mod command_sanitizer;
 pub mod control_flow;
 pub mod database;
 pub mod environment;
-pub mod sessions;
 pub mod error;
 pub(crate) mod io_capture;
 #[cfg(test)]
@@ -14,6 +13,7 @@ mod memory_tests;
 mod op_refactor_error_tests;
 #[cfg(test)]
 mod op_refactor_tests;
+pub mod sessions;
 #[cfg(test)]
 mod tests;
 mod tls;
@@ -13376,9 +13376,8 @@ impl Interpreter {
                 };
                 let storage_val = self.evaluate_expression(storage, Rc::clone(&env)).await?;
                 let storage_kind = match &storage_val {
-                    Value::Text(s) => sessions::SessionStorageKind::parse(s).map_err(|e| {
-                        RuntimeError::new(e, *line, *column)
-                    })?,
+                    Value::Text(s) => sessions::SessionStorageKind::parse(s)
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?,
                     _ => {
                         return Err(RuntimeError::new(
                             "Session storage must be text: memory, file, or database".to_string(),
@@ -13465,9 +13464,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let manager = self
-                    .sole_or_named_session_manager(*line, *column)
-                    .await?;
+                let manager = self.sole_or_named_session_manager(*line, *column).await?;
                 let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
                 let data_val = self.evaluate_expression(data, Rc::clone(&env)).await?;
                 let key_text = match &key_val {
@@ -13487,9 +13484,7 @@ impl Interpreter {
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::DeleteSessionDataStatement { key, line, column } => {
-                let manager = self
-                    .sole_or_named_session_manager(*line, *column)
-                    .await?;
+                let manager = self.sole_or_named_session_manager(*line, *column).await?;
                 let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
                 let key_text = match &key_val {
                     Value::Text(s) => s.to_string(),
@@ -15826,7 +15821,11 @@ impl Interpreter {
                     .await
                     .map_err(|e| RuntimeError::new(e, *line, *column))?
                 {
-                    Some(record) => Ok(record.data.get(&key_text).cloned().unwrap_or(Value::Nothing)),
+                    Some(record) => Ok(record
+                        .data
+                        .get(&key_text)
+                        .cloned()
+                        .unwrap_or(Value::Nothing)),
                     None => Ok(Value::Nothing),
                 }
             }
@@ -15879,9 +15878,7 @@ impl Interpreter {
                 Ok(sessions::SessionManager::stats_object(&stats))
             }
             Expression::LoadSessionData { key, line, column } => {
-                let manager = self
-                    .sole_or_named_session_manager(*line, *column)
-                    .await?;
+                let manager = self.sole_or_named_session_manager(*line, *column).await?;
                 let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
                 let key_text = match &key_val {
                     Value::Text(s) => s.to_string(),

@@ -3154,10 +3154,7 @@ fn can_start_primary_expression_matches_parse_primary_expression() {
         ("find x in y", true),
         ("replace x with y in z", true),
         ("split x by y", true),
-        (
-            r#"load session data from storage with key "k""#,
-            true,
-        ),
+        (r#"load session data from storage with key "k""#, true),
         // A sample of the contextual-keyword catch-all: no dedicated arm
         // above, but `token.is_contextual_keyword()` is true, so a bare
         // keyword still resolves to a plain variable reference.

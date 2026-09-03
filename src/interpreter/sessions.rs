@@ -188,7 +188,9 @@ impl SessionManager {
             store.sessions.remove(id);
             *self.expired_count.lock().await += 1;
             persist(&store).await?;
-            return Err(format!("Unknown session '{id}'. It may have been destroyed."));
+            return Err(format!(
+                "Unknown session '{id}'. It may have been destroyed."
+            ));
         }
         record.data.insert(key.to_string(), value);
         let now = now_ms();
@@ -289,10 +291,7 @@ impl SessionManager {
             "last_activity".to_string(),
             Value::Number(record.last_activity as f64),
         );
-        map.insert(
-            "_server".to_string(),
-            Value::Text(Arc::from(server_name)),
-        );
+        map.insert("_server".to_string(), Value::Text(Arc::from(server_name)));
         Value::Object(std::rc::Rc::new(std::cell::RefCell::new(map)))
     }
 
@@ -388,11 +387,7 @@ async fn open_store(config: &SessionConfig) -> Result<StoreState, String> {
     }
 }
 
-async fn prune_expired(
-    store: &mut StoreState,
-    _cfg: &SessionConfig,
-    expired_count: &Mutex<u64>,
-) {
+async fn prune_expired(store: &mut StoreState, _cfg: &SessionConfig, expired_count: &Mutex<u64>) {
     let now = now_ms();
     let before = store.sessions.len();
     store.sessions.retain(|_, record| record.expires_at >= now);
@@ -489,8 +484,8 @@ async fn load_sqlite(
     .map_err(|e| format!("Failed to load sessions: {e}"))?;
     let mut sessions = HashMap::new();
     for (id, data, created_at, last_activity, expires_at) in session_rows {
-        let json: serde_json::Value = serde_json::from_str(&data)
-            .map_err(|e| format!("Corrupt session row {id}: {e}"))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&data).map_err(|e| format!("Corrupt session row {id}: {e}"))?;
         sessions.insert(
             id.clone(),
             SessionRecord {
@@ -601,12 +596,18 @@ fn decode_store_json(
                 SessionRecord {
                     id: id.clone(),
                     data: json_to_map(record.get("data").unwrap_or(&json!({})))?,
-                    created_at: record.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0),
+                    created_at: record
+                        .get("created_at")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
                     last_activity: record
                         .get("last_activity")
                         .and_then(|v| v.as_i64())
                         .unwrap_or(0),
-                    expires_at: record.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0),
+                    expires_at: record
+                        .get("expires_at")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
                 },
             );
         }
@@ -677,7 +678,9 @@ fn json_to_value(value: &serde_json::Value) -> Result<Value, String> {
             for (key, val) in obj {
                 map.insert(key.clone(), json_to_value(val)?);
             }
-            Ok(Value::Object(std::rc::Rc::new(std::cell::RefCell::new(map))))
+            Ok(Value::Object(std::rc::Rc::new(std::cell::RefCell::new(
+                map,
+            ))))
         }
     }
 }

@@ -508,7 +508,8 @@ impl<'a> Parser<'a> {
                     return self.parse_get_session_expression();
                 }
                 Token::Identifier(name)
-                    if name == "generate csrf token" || name.starts_with("generate csrf token ") =>
+                    if name == "generate csrf token"
+                        || name.starts_with("generate csrf token ") =>
                 {
                     return self.parse_generate_csrf_token_for_session();
                 }
@@ -1327,9 +1328,9 @@ impl<'a> Parser<'a> {
                 _ if token.token.is_contextual_keyword() => {
                     // Special handling for "create list" expression
                     if token.token == Token::KeywordCreate {
-                        if self.cursor.peek_next().is_some_and(|t| {
-                            matches!(&t.token, Token::Identifier(id) if id == "session")
-                        }) {
+                        if self.cursor.peek_next().is_some_and(
+                            |t| matches!(&t.token, Token::Identifier(id) if id == "session"),
+                        ) {
                             return self.parse_create_session_expression();
                         }
                         self.bump_sync(); // Consume "create"

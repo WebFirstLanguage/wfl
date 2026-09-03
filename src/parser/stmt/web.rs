@@ -243,9 +243,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                                     ));
                                 }
                             }
-                        } else if id != "sessions enabled"
-                            && !id.starts_with("sessions enabled")
-                        {
+                        } else if id != "sessions enabled" && !id.starts_with("sessions enabled") {
                             return Err(ParseError::from_token(
                                 "Expected 'sessions enabled' after 'with'".to_string(),
                                 token,
@@ -1071,7 +1069,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
                 };
                 let (id_line, id_column) = (t.line, t.column);
                 self.bump_sync();
-                let rest = id.strip_prefix("storage").map(str::trim_start).unwrap_or("");
+                let rest = id
+                    .strip_prefix("storage")
+                    .map(str::trim_start)
+                    .unwrap_or("");
                 let storage = if rest.is_empty() {
                     self.parse_primary_expression()?
                 } else {
@@ -1142,7 +1143,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
         } else {
             Expression::Variable(rest, line, column)
         };
-        self.expect_token(Token::KeywordTo, "Expected 'to' after the session value key")?;
+        self.expect_token(
+            Token::KeywordTo,
+            "Expected 'to' after the session value key",
+        )?;
         let value = self.parse_primary_expression()?;
         self.expect_token(Token::KeywordIn, "Expected 'in' after the session value")?;
         let session = self.parse_primary_expression()?;
@@ -1182,7 +1186,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
         let token = self.bump_sync().unwrap(); // store
         let (line, column) = (token.line, token.column);
         self.consume_session_data_marker(&token)?;
-        self.expect_token(Token::KeywordTo, "Expected 'to storage' after 'session_data'")?;
+        self.expect_token(
+            Token::KeywordTo,
+            "Expected 'to storage' after 'session_data'",
+        )?;
         match self.cursor.peek() {
             Some(t) if matches!(&t.token, Token::Identifier(id) if id == "storage") => {
                 self.bump_sync();
@@ -1469,11 +1476,11 @@ impl<'a> Parser<'a> {
                 self.bump_sync();
                 Ok(())
             }
-            Some(t) => Err(ParseError::from_token(
+            Some(t) => Err(ParseError::from_token("Expected 'storage'".to_string(), t)),
+            None => Err(ParseError::from_token(
                 "Expected 'storage'".to_string(),
-                t,
+                origin,
             )),
-            None => Err(ParseError::from_token("Expected 'storage'".to_string(), origin)),
         }
     }
 
@@ -1482,10 +1489,7 @@ impl<'a> Parser<'a> {
         require_data: bool,
         origin: &crate::lexer::token::TokenWithPosition,
     ) -> Result<(Expression, Option<Expression>), ParseError> {
-        self.expect_token(
-            Token::KeywordWith,
-            "Expected 'with key' after 'storage'",
-        )?;
+        self.expect_token(Token::KeywordWith, "Expected 'with key' after 'storage'")?;
         let key = match self.cursor.peek() {
             Some(t) if matches!(&t.token, Token::Identifier(id) if id == "key" || id.starts_with("key ")) =>
             {

@@ -803,7 +803,8 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                     self.parse_enable_csrf_protection_statement()
                 }
                 Token::Identifier(id)
-                    if id == "enable secure cookies" || id.starts_with("enable secure cookies ") =>
+                    if id == "enable secure cookies"
+                        || id.starts_with("enable secure cookies ") =>
                 {
                     self.parse_enable_secure_cookies_statement()
                 }

@@ -239,9 +239,8 @@ fn get_session_statistics_expression() {
 
 #[test]
 fn store_session_data_is_not_store_as() {
-    let stmt = parse_one(
-        r#"store session_data to storage with key "test_session_123" and data payload"#,
-    );
+    let stmt =
+        parse_one(r#"store session_data to storage with key "test_session_123" and data payload"#);
     match stmt {
         Statement::StoreSessionDataStatement { key, data, .. } => {
             assert_string(&key, "test_session_123", "key");
