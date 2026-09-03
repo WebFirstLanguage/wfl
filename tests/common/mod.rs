@@ -29,6 +29,23 @@ pub fn free_tcp_port() -> u16 {
         .port()
 }
 
+/// Spawn a background thread with the CLI-sized interpreter stack.
+///
+/// Web-server integration tests that drive [`Interpreter::interpret`] on a
+/// dedicated thread must use this instead of [`std::thread::spawn`]: session-
+/// aware interpreter paths overflow the default ~2 MiB OS thread stack under
+/// concurrent handler load in debug builds.
+pub fn spawn_interpreter_thread<F>(work: F) -> std::thread::JoinHandle<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name("wfl-interpreter".to_string())
+        .stack_size(wfl::INTERPRETER_STACK_SIZE)
+        .spawn(work)
+        .expect("spawn interpreter thread")
+}
+
 // ---------------------------------------------------------------------------
 // Shape A: run WFL source, get back `Result<Interpreter, String>` for
 // inspecting arbitrary globals afterwards.

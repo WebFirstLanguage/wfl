@@ -464,7 +464,7 @@ struct ProxyServer {
 
 fn start_proxy_server(code: String) -> ProxyServer {
     let (abort, abort_rx) = tokio::sync::oneshot::channel();
-    let thread = std::thread::spawn(move || {
+    let thread = common::spawn_interpreter_thread(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async {
             let tokens = lex_wfl_with_positions(&code);
