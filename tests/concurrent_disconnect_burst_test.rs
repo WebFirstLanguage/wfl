@@ -82,17 +82,23 @@ async fn spawn_counting_stall_upstream() -> (u16, mpsc::UnboundedReceiver<()>) {
 }
 
 fn start_proxy_server(code: String) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("runtime");
-        rt.block_on(async {
-            let tokens = lex_wfl_with_positions(&code);
-            let ast = Parser::new(&tokens).parse().expect("parse");
-            let mut interp = Interpreter::new();
-            if let Err(errors) = interp.interpret(&ast).await {
-                panic!("proxy interpreter failed: {errors:?}");
-            }
-        });
-    })
+    // Session-aware interpreter paths need the CLI-sized stack; the default
+    // ~2 MiB OS thread stack overflows under this 270-client disconnect burst.
+    std::thread::Builder::new()
+        .name("wfl-interpreter".to_string())
+        .stack_size(wfl::INTERPRETER_STACK_SIZE)
+        .spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("runtime");
+            rt.block_on(async {
+                let tokens = lex_wfl_with_positions(&code);
+                let ast = Parser::new(&tokens).parse().expect("parse");
+                let mut interp = Interpreter::new();
+                if let Err(errors) = interp.interpret(&ast).await {
+                    panic!("proxy interpreter failed: {errors:?}");
+                }
+            });
+        })
+        .expect("spawn interpreter thread")
 }
 
 async fn wait_for_server(port: u16) {
