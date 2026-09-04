@@ -733,6 +733,42 @@ impl Analyzer {
         analyzer
     }
 
+    /// Seeds actions that already exist in the enclosing runtime scope (for
+    /// example, actions an earlier `include from` brought in) as real
+    /// function symbols with their true signatures. Seeding them as plain
+    /// variables would make every call to them a fatal "is not a function"
+    /// error in the file being analyzed, which is what broke diamond and
+    /// sibling includes. Like the other parent-scope symbols these carry
+    /// position 0:0; a same-name definition in the analyzed file is treated
+    /// as an overload under the usual distinctness rules.
+    pub fn register_parent_actions(&mut self, actions: Vec<(String, Vec<FunctionSignature>)>) {
+        for (name, signatures) in actions {
+            let param_types = signatures
+                .first()
+                .map(|sig| {
+                    sig.parameters
+                        .iter()
+                        .map(|p| p.param_type.clone().unwrap_or(Type::Unknown))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let symbol = Symbol {
+                name: name.clone(),
+                kind: SymbolKind::Function { signatures },
+                symbol_type: Some(Type::Function {
+                    parameters: param_types,
+                    return_type: Box::new(Type::Unknown),
+                }),
+                line: 0,
+                column: 0,
+            };
+            self.current_scope
+                .symbols
+                .insert(name.clone(), symbol.clone());
+            self.baseline_symbols.insert(name, symbol);
+        }
+    }
+
     pub fn is_builtin_function(name: &str) -> bool {
         crate::builtins::is_builtin_function(name)
     }

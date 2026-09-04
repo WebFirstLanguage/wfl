@@ -1,6 +1,7 @@
 use super::value::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
@@ -11,6 +12,12 @@ pub struct Environment {
     /// When true, provides module isolation: values from parent scopes are deep cloned
     /// to prevent mutations, and assignment to parent variables is prevented.
     pub isolated: bool,
+    /// Canonical paths of the files `include from` has already run in this
+    /// scope. An include of a file whose definitions are already visible
+    /// here (recorded on this scope or an ancestor) is a no-op, which is
+    /// what makes diamond includes work: two files that both include the
+    /// same shared file reach it once, not twice.
+    pub included_files: HashSet<PathBuf>,
 }
 
 impl Environment {
@@ -23,6 +30,7 @@ impl Environment {
             constants: HashSet::new(),
             parent: None,
             isolated: false,
+            included_files: HashSet::new(),
         }))
     }
 
@@ -35,6 +43,7 @@ impl Environment {
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
+            included_files: HashSet::new(),
         }))
     }
 
@@ -48,6 +57,7 @@ impl Environment {
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
+            included_files: HashSet::new(),
         }))
     }
 
@@ -64,7 +74,30 @@ impl Environment {
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
             isolated: true,
+            included_files: HashSet::new(),
         }))
+    }
+
+    /// True when `path` was already included into this scope or into any
+    /// scope this one can see, so its definitions are already reachable.
+    pub fn has_included(&self, path: &Path) -> bool {
+        if self.included_files.contains(path) {
+            return true;
+        }
+        let mut parent = self.parent.as_ref().and_then(|weak| weak.upgrade());
+        while let Some(env) = parent {
+            let env_ref = env.borrow();
+            if env_ref.included_files.contains(path) {
+                return true;
+            }
+            parent = env_ref.parent.as_ref().and_then(|weak| weak.upgrade());
+        }
+        false
+    }
+
+    /// Records that `path` has been included into this scope.
+    pub fn mark_included(&mut self, path: PathBuf) {
+        self.included_files.insert(path);
     }
 
     pub fn define(&mut self, name: &str, value: Value) -> Result<(), String> {
