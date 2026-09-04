@@ -6,19 +6,24 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use tempfile::TempDir;
+use wfl::exec::budget::{BudgetLimits, ExecutionBudget};
 use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
 async fn run(main_file: &Path) -> Result<Interpreter, String> {
+    run_with(main_file, Interpreter::new()).await
+}
+
+async fn run_with(main_file: &Path, mut interpreter: Interpreter) -> Result<Interpreter, String> {
     let source = fs::read_to_string(main_file).expect("read main");
     let tokens = lex_wfl_with_positions(&source);
     let ast = Parser::new(&tokens)
         .parse()
         .unwrap_or_else(|e| panic!("Parse failed: {e:?}"));
-    let mut interpreter = Interpreter::new();
     interpreter.set_source_file(main_file.to_path_buf());
     match interpreter.interpret(&ast).await {
         Ok(_) => Ok(interpreter),
@@ -194,5 +199,119 @@ async fn genuine_include_cycle_is_still_rejected() {
     assert!(
         err.contains("Circular dependency detected"),
         "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn include_in_a_loop_body_runs_again_in_each_recycled_iteration_scope() {
+    // Loop iteration scopes are recycled (cleared and reused). A file that
+    // installs only a plain variable leaves no weak references behind, so
+    // the recycled scope must forget the include along with the variable.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("val.wfl"), "store loop_val as 7\n").unwrap();
+    let main = dir.path().join("main.wfl");
+    fs::write(
+        &main,
+        r#"
+store total as 0
+count from 1 to 3:
+    include from "val.wfl"
+    change total to total plus loop_val
+end count
+"#,
+    )
+    .unwrap();
+    let interpreter = run(&main)
+        .await
+        .unwrap_or_else(|e| panic!("loop include failed: {e}"));
+    assert_number(&interpreter, "total", 21.0);
+}
+
+#[tokio::test]
+async fn side_effect_only_file_still_runs_on_every_include() {
+    // Backward compatibility: a file that defines nothing has nothing for a
+    // later include to collide with, so it keeps running each time.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bump.wfl"), "change n to n plus 1\n").unwrap();
+    let main = dir.path().join("main.wfl");
+    fs::write(
+        &main,
+        r#"
+store n as 0
+include from "bump.wfl"
+include from "bump.wfl"
+"#,
+    )
+    .unwrap();
+    let interpreter = run(&main)
+        .await
+        .unwrap_or_else(|e| panic!("repeated side-effect include failed: {e}"));
+    assert_number(&interpreter, "n", 2.0);
+}
+
+#[tokio::test]
+async fn already_visible_include_is_a_no_op_even_at_the_import_depth_ceiling() {
+    // With a ceiling of one nested file, `wrapper.wfl` may not enter another
+    // file. Its include of `util.wfl` is already satisfied by the top-level
+    // include, so it must be a no-op rather than a depth error.
+    let dir = TempDir::new().unwrap();
+    write_diamond(dir.path());
+    fs::write(
+        dir.path().join("wrapper.wfl"),
+        "include from \"util.wfl\"\nstore via_wrapper as shout of \"w\"\n",
+    )
+    .unwrap();
+    let main = dir.path().join("main.wfl");
+    fs::write(
+        &main,
+        "include from \"util.wfl\"\ninclude from \"wrapper.wfl\"\n",
+    )
+    .unwrap();
+    let mut interpreter = Interpreter::new();
+    interpreter.set_budget(Arc::new(ExecutionBudget::new(BudgetLimits {
+        max_import_depth: 1,
+        ..BudgetLimits::default()
+    })));
+    let interpreter = run_with(&main, interpreter)
+        .await
+        .unwrap_or_else(|e| panic!("no-op include must not consume import depth: {e}"));
+    assert_text(&interpreter, "via_wrapper", "w!");
+}
+
+#[tokio::test]
+async fn load_module_cannot_overload_an_outer_action_and_is_rejected_before_running() {
+    // The module runs in an isolated scope where the runtime rejects any
+    // same-name definition. The analyzer must reject it first, so the
+    // module's earlier statements (here: a mutation of `ran`) never run.
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("mod.wfl"),
+        r#"
+change ran to "yes"
+define action called greet with parameters a and b:
+    give back a with b
+end action
+"#,
+    )
+    .unwrap();
+    let main = dir.path().join("main.wfl");
+    fs::write(
+        &main,
+        r#"
+store ran as "no"
+define action called greet with parameters who:
+    give back "hi " with who
+end action
+load module from "mod.wfl"
+"#,
+    )
+    .unwrap();
+    let err = run(&main)
+        .await
+        .err()
+        .expect("a module redefining an outer action must fail");
+    assert!(
+        err.contains("Semantic error in module") && err.contains("outer scope"),
+        "expected an analysis-time rejection, got: {err}"
     );
 }
