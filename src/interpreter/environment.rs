@@ -384,6 +384,9 @@ impl Environment {
     pub fn clear(&mut self) {
         self.values.clear();
         self.constants.clear();
+        // A recycled loop scope starts logically fresh: the definitions an
+        // include installed are gone, so its marker must go with them.
+        self.included_files.clear();
         // Parent, isolated status, and other flags remain unchanged
     }
 

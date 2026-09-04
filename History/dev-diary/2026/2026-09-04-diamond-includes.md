@@ -55,19 +55,25 @@ Two separate defects, one hiding the other.
   file is treated as an overload under the existing distinctness rules,
   which matches what the runtime already did.
 - `Environment` records the canonical paths `include from` has completed in
-  that scope. An include whose file is already visible from the current
-  scope (recorded there or on an ancestor) is a no-op. Only a file that ran
-  to completion is recorded, so a failed include can be retried. `load
-  module` is unchanged: it exists to run a file for its side effects.
-
-Behavior that changes: a file included twice into the same scope used to
-run twice if it contained only side effects (anything with a definition
-already failed). It now runs once; `load module from` is the documented tool
-for "run this file every time".
+  that scope **and that installed at least one definition there**. An
+  include whose file is already recorded for the current scope (or an
+  ancestor it can see) is a no-op, decided before the import-depth ceiling
+  is charged. Recycled loop scopes clear the record along with their
+  values. A file that defines nothing is never recorded, so a side-effect-
+  only file keeps running on every include — no existing program changes
+  behavior (anything with a definition already failed). A failed include is
+  not recorded either; what it defined before failing stays in the scope,
+  as it always did.
+- `load module` still runs in an isolated child scope. Its analyzer now
+  sees outer actions as callable functions (so calls resolve) but rejects a
+  same-name definition up front — the runtime would reject it anyway, and
+  the rejection must land before the module's earlier statements run.
 
 ## Evidence
 
-- Red: `tests/include_diamond_test.rs` (5 tests) and
+- Red: `tests/include_diamond_test.rs` (9 tests, four added from review
+  findings: loop-scope recycling, side-effect-only re-include, the
+  import-depth boundary, and `load module` outer-action rejection) and
   `TestPrograms/modules/include_diamond.wfl` fail on the unmodified
   interpreter with the errors quoted above.
 - Green: same tests pass after the change; `cargo test --workspace`,

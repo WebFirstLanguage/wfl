@@ -114,24 +114,34 @@ display auth_check of "alice"      # alice!
 display render_page of "home"      # home!
 ```
 
-This works because an include runs **once per scope**. `auth.wfl` brings
-`util.wfl` into the main program's scope. When `render.wfl` then asks for
-`util.wfl` again, its definitions are already visible in that scope, so the
-second `include from` does nothing — it does not run the file a second time,
-and it does not raise an "already defined" error. Each file can therefore
-honestly declare what it depends on, and the order in which the main program
-includes its libraries does not matter.
+This works because a file's **definitions are included once per scope**.
+`auth.wfl` brings `util.wfl` into the main program's scope. When
+`render.wfl` then asks for `util.wfl` again, its definitions are already
+visible in that scope, so the second `include from` does nothing — it does
+not run the file a second time, and it does not raise an "already defined"
+error. Each file can therefore honestly declare what it depends on, and the
+order in which the main program includes its libraries does not matter.
 
-Two consequences worth knowing:
+Three details worth knowing:
 
-- **Includes are for definitions, not for repeating side effects.** A file
-  included twice into the same scope runs once. If you want a file's
-  statements to run every time, use `load module from` instead.
+- **The rule is about definitions.** A file that defines actions,
+  containers, or variables is brought in once per scope. A file that
+  defines nothing — it only displays something, writes a file, or changes
+  variables that already exist — has nothing a later include could collide
+  with, so it runs every time it is included, exactly as it always has.
+  (`load module from` remains the clearest way to say "run this file for
+  its side effects".)
 - **"Same scope" includes scopes you can see.** An include inside an action
   body is skipped when the file was already included by an enclosing scope
   (its definitions are already reachable). A file included only inside an
-  action body runs again on each call, because each call starts with a
-  fresh local scope that has not seen it.
+  action body or a loop body runs again on each call or iteration, because
+  each one starts with a fresh local scope that has not seen it.
+- **A failed include is not remembered.** If the included file stops with
+  an error, a later include of it runs it again. Anything it defined before
+  the error stays in the scope, as it did before.
+
+The four files above are kept under `TestPrograms/docs_examples/modules/diamond/`
+and validated with the rest of the documentation examples.
 
 A genuine cycle — `a.wfl` includes `b.wfl`, which includes `a.wfl` — is
 still reported as a circular dependency (see
@@ -680,8 +690,8 @@ export constant VERSION
 3. **No Module Caching for `load module`**
    - Each `load module` re-parses and re-executes
    - Multiple loads of same file execute multiple times
-   - (`include from` is different: it runs a file once per scope, so
-     diamond includes are safe — see
+   - (`include from` is different: it brings a file's definitions in once
+     per scope, so diamond includes are safe — see
      [Including the same file more than once](#including-the-same-file-more-than-once-diamond-includes))
    - Future: Optional caching planned
 
@@ -915,7 +925,7 @@ load module from "expensive.wfl"  # Uses cached version
 WFL's hybrid module system provides flexible code organization:
 
 - **`load module from "path.wfl"`** - Isolated execution for initialization and side effects
-- **`include from "path.wfl"`** - Parent scope execution for shared libraries and containers; a file is included once per scope, so diamond includes are safe  
+- **`include from "path.wfl"`** - Parent scope execution for shared libraries and containers; a file's definitions are included once per scope, so diamond includes are safe  
 - **`export container/action/constant NAME`** - Foundation for future namespace system
 - Paths resolve relative to the including file
 - Circular dependencies are automatically detected

@@ -673,5 +673,71 @@
       "properties"
     ],
     "doc_purpose": "Demonstrates reading instance properties with object.property"
+  },
+  "docs_examples/modules/diamond/util.wfl": {
+    "doc_section": "Docs/04-advanced-features/modules.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "modules",
+      "include",
+      "diamond"
+    ],
+    "doc_purpose": "Shared leaf file of the diamond include example"
+  },
+  "docs_examples/modules/diamond/auth.wfl": {
+    "doc_section": "Docs/04-advanced-features/modules.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "modules",
+      "include",
+      "diamond"
+    ],
+    "doc_purpose": "First branch of the diamond include example. Layers 2-3 are skipped: it calls an action that lives in a file it includes, and single-file analysis reports that as a non-fatal warning with a nonzero exit; layer 5 runs the real multi-file program."
+  },
+  "docs_examples/modules/diamond/render.wfl": {
+    "doc_section": "Docs/04-advanced-features/modules.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "modules",
+      "include",
+      "diamond"
+    ],
+    "doc_purpose": "Second branch of the diamond include example. Layers 2-3 are skipped: it calls an action that lives in a file it includes, and single-file analysis reports that as a non-fatal warning with a nonzero exit; layer 5 runs the real multi-file program."
+  },
+  "docs_examples/modules/diamond/main.wfl": {
+    "doc_section": "Docs/04-advanced-features/modules.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "modules",
+      "include",
+      "diamond"
+    ],
+    "doc_purpose": "Top of the diamond include example: both branches include util.wfl once. Layers 2-3 are skipped: it calls an action that lives in a file it includes, and single-file analysis reports that as a non-fatal warning with a nonzero exit; layer 5 runs the real multi-file program."
   }
 }

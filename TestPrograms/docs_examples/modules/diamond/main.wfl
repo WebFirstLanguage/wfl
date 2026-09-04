@@ -1,0 +1,5 @@
+// Top of the diamond: both branches bring in util.wfl; it is included once.
+include from "auth.wfl"
+include from "render.wfl"
+display auth_check of "alice"      # alice!
+display render_page of "home"      # home!

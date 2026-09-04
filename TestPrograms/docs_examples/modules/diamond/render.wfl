@@ -1,0 +1,5 @@
+// The other branch of the diamond: also depends on util.wfl directly.
+include from "util.wfl"
+define action called render_page with parameters title:
+    give back shout of title
+end action

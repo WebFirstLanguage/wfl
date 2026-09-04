@@ -8583,7 +8583,9 @@ impl Interpreter {
                 // Extract parent variables from current environment for module analyzer
                 let parent_scope = Self::snapshot_parent_scope(&env);
                 let mut analyzer = Analyzer::with_parent_variables(parent_scope.variables);
-                analyzer.register_parent_actions(parent_scope.actions);
+                // The module runs in an isolated child scope: outer actions are
+                // callable but a same-name definition is rejected, as at runtime.
+                analyzer.register_parent_actions(parent_scope.actions, false);
                 if let Err(errors) = analyzer.analyze(&program) {
                     // Use the semantic error's position from the module file, not the load site
                     let first_error = errors.first();
@@ -8716,23 +8718,27 @@ impl Interpreter {
                 // 2. Resolve absolute path
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
 
-                // 3. Check circular dependencies and the shared import-depth
-                // ceiling (loading_stack length is the depth already entered).
+                // 3. Reject a genuine cycle (the file is still being loaded).
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
+
+                // 3b. Include definitions once per visible scope. When the
+                // file's definitions already live in this scope (or one it
+                // can see), running it again would only collide with them,
+                // so the include is a no-op. This is what lets two files
+                // both `include from` the same shared file (a diamond). It
+                // is decided before the depth ceiling because a no-op never
+                // enters another file.
+                if env.borrow().has_included(&resolved_path) {
+                    return Ok((Value::Null, ControlFlow::None));
+                }
+
+                // 3c. Shared import-depth ceiling (loading_stack length is the
+                // depth already entered).
                 if let Err(exceeded) = self
                     .budget
                     .check_import_depth(self.loading_stack.borrow().len())
                 {
                     return Err(self.budget_error(exceeded, *line, *column));
-                }
-
-                // 3b. Include once per visible scope. The file's definitions
-                // already live in this scope (or one it can see), so running
-                // it again would only collide with them. This is what lets
-                // two files both `include from` the same shared file (a
-                // diamond) — the second arrival is a no-op.
-                if env.borrow().has_included(&resolved_path) {
-                    return Ok((Value::Null, ControlFlow::None));
                 }
 
                 // 4. Read file content under the shared source-size ceiling.
@@ -8771,7 +8777,9 @@ impl Interpreter {
 
                 let parent_scope = Self::snapshot_parent_scope(&env);
                 let mut analyzer = Analyzer::with_parent_variables_mutable(parent_scope.variables);
-                analyzer.register_parent_actions(parent_scope.actions);
+                // The file runs in this very scope, so a same-name definition
+                // merges into the overload set exactly as the runtime does.
+                analyzer.register_parent_actions(parent_scope.actions, true);
                 if let Err(errors) = analyzer.analyze(&program) {
                     let first_error = errors.first();
                     let (error_line, error_column) =
@@ -8832,22 +8840,34 @@ impl Interpreter {
 
                 // 9. Execute included file in PARENT scope (key difference from load module)
                 // This allows containers/variables to be exposed to parent
+                let bindings_before = env.borrow().values.len();
                 let result = self
                     .execute_block(&program.statements, Rc::clone(&env))
                     .await;
 
-                // 10. Handle result. Only a file that ran to completion is
-                // recorded as included: a failed include (even one caught by
-                // `when error`) leaves the scope free to try it again.
+                // 10. Handle result. A file is recorded as included only when
+                // it ran to completion AND installed at least one definition
+                // in this scope: that is what a later include of it would
+                // collide with. A file that defines nothing (side effects
+                // only, or mutations of existing variables) keeps running on
+                // every include exactly as it always has. A failed include is
+                // never recorded; note that whatever it defined before failing
+                // stays in the scope, as it did before include-once existed.
+                let record_if_defined = |env: &Rc<RefCell<Environment>>| {
+                    let mut env_mut = env.borrow_mut();
+                    if env_mut.values.len() > bindings_before {
+                        env_mut.mark_included(resolved_path.clone());
+                    }
+                };
                 match result {
                     Ok((_, ControlFlow::None)) => {
-                        env.borrow_mut().mark_included(resolved_path);
+                        record_if_defined(&env);
                         Ok((Value::Null, ControlFlow::None))
                     }
                     Ok((val, ControlFlow::Return(_))) => {
                         // Return statements in included files are allowed and simply return the value
                         // This enables utility functions in included files to use return statements
-                        env.borrow_mut().mark_included(resolved_path);
+                        record_if_defined(&env);
                         Ok((val, ControlFlow::None))
                     }
                     Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(
