@@ -13,6 +13,7 @@ mod memory_tests;
 mod op_refactor_error_tests;
 #[cfg(test)]
 mod op_refactor_tests;
+pub mod sessions;
 #[cfg(test)]
 mod tests;
 mod tls;
@@ -331,6 +332,31 @@ pub(crate) fn lookup_header_case_insensitive(
     })
 }
 
+fn cookie_value_from_request(request: &Value, cookie_name: &str) -> Option<String> {
+    let Value::Object(obj) = request else {
+        return None;
+    };
+    let obj = obj.borrow();
+    let headers = match obj.get("headers") {
+        Some(Value::Object(headers)) => headers.borrow(),
+        _ => return None,
+    };
+    let raw = lookup_header_case_insensitive(&headers, "cookie")?;
+    let header = match raw {
+        Value::Text(s) => s.to_string(),
+        _ => return None,
+    };
+    for part in header.split(';') {
+        let part = part.trim();
+        if let Some((name, value)) = part.split_once('=')
+            && name.trim() == cookie_name
+        {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
 #[derive(Debug)]
 pub struct WflWebServer {
     // Bounded transport→interpreter queue (Phase 0, PR-0c): a full queue sheds
@@ -338,6 +364,7 @@ pub struct WflWebServer {
     pub request_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflHttpRequest>>>,
     pub request_sender: mpsc::Sender<WflHttpRequest>,
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
+    pub sessions: Option<Rc<sessions::SessionManager>>,
 }
 
 impl Drop for WflWebServer {
@@ -1504,6 +1531,17 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("TestBlock '{description}'")
         }
         Statement::ExpectStatement { .. } => "ExpectStatement".to_string(),
+        Statement::ConfigureSessionsStatement { .. } => "ConfigureSessionsStatement".to_string(),
+        Statement::EnableCsrfProtectionStatement { .. } => {
+            "EnableCsrfProtectionStatement".to_string()
+        }
+        Statement::EnableSecureCookiesStatement { .. } => {
+            "EnableSecureCookiesStatement".to_string()
+        }
+        Statement::SetSessionValueStatement { .. } => "SetSessionValueStatement".to_string(),
+        Statement::DestroySessionStatement { .. } => "DestroySessionStatement".to_string(),
+        Statement::StoreSessionDataStatement { .. } => "StoreSessionDataStatement".to_string(),
+        Statement::DeleteSessionDataStatement { .. } => "DeleteSessionDataStatement".to_string(),
     }
 }
 
@@ -1558,6 +1596,13 @@ fn expr_type(expr: &Expression) -> String {
         }
         Expression::ProcessRunning { .. } => "ProcessRunning".to_string(),
         Expression::DatabaseQuery { .. } => "DatabaseQuery".to_string(),
+        Expression::CreateSession { .. } => "CreateSession".to_string(),
+        Expression::GetSession { .. } => "GetSession".to_string(),
+        Expression::GetSessionValue { .. } => "GetSessionValue".to_string(),
+        Expression::GenerateCsrfTokenForSession { .. } => "GenerateCsrfTokenForSession".to_string(),
+        Expression::FindExpiredSessions { .. } => "FindExpiredSessions".to_string(),
+        Expression::GetSessionStatistics { .. } => "GetSessionStatistics".to_string(),
+        Expression::LoadSessionData { .. } => "LoadSessionData".to_string(),
     }
 }
 
@@ -7187,6 +7232,13 @@ impl Interpreter {
             Statement::DescribeBlock { line, column, .. } => (*line, *column),
             Statement::TestBlock { line, column, .. } => (*line, *column),
             Statement::ExpectStatement { line, column, .. } => (*line, *column),
+            Statement::ConfigureSessionsStatement { line, column, .. } => (*line, *column),
+            Statement::EnableCsrfProtectionStatement { line, column, .. } => (*line, *column),
+            Statement::EnableSecureCookiesStatement { line, column, .. } => (*line, *column),
+            Statement::SetSessionValueStatement { line, column, .. } => (*line, *column),
+            Statement::DestroySessionStatement { line, column, .. } => (*line, *column),
+            Statement::StoreSessionDataStatement { line, column, .. } => (*line, *column),
+            Statement::DeleteSessionDataStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -10702,6 +10754,7 @@ impl Interpreter {
                 server_name,
                 tls,
                 redirect_to_port,
+                sessions_enabled,
                 line,
                 column,
             } => {
@@ -10734,6 +10787,18 @@ impl Interpreter {
                 // can no longer pin memory indefinitely. Body size is enforced
                 // *while streaming* (below), which bounds chunked bodies that
                 // carry no Content-Length.
+                let session_manager = if *sessions_enabled {
+                    Some(Rc::new(
+                        sessions::SessionManager::new(sessions::SessionConfig::from_wfl_config(
+                            &self.config,
+                        ))
+                        .await
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?,
+                    ))
+                } else {
+                    None
+                };
+
                 let request_sender_clone = request_sender.clone();
                 let max_body_size = self.budget.max_request_body_bytes();
                 let max_body_size_u64 = max_body_size as u64;
@@ -11103,6 +11168,7 @@ impl Interpreter {
                                 request_receiver: request_receiver.clone(),
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
+                                sessions: session_manager.clone(),
                             };
                             self.web_servers
                                 .borrow_mut()
@@ -11246,6 +11312,7 @@ impl Interpreter {
                                 request_receiver: request_receiver.clone(),
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
+                                sessions: session_manager.clone(),
                             };
                             self.web_servers
                                 .borrow_mut()
@@ -11287,6 +11354,7 @@ impl Interpreter {
                                 request_receiver: request_receiver.clone(),
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
+                                sessions: session_manager.clone(),
                             };
 
                             // Store the server in the interpreter
@@ -11538,6 +11606,10 @@ impl Interpreter {
                 );
                 request_properties.insert("body_bytes".to_string(), body_binary.clone());
                 request_properties.insert("headers".to_string(), headers_object.clone());
+                request_properties.insert(
+                    "_session_server".to_string(),
+                    Value::Text(Arc::from(server_name.as_str())),
+                );
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
                 // These bindings are refreshed on every wait, so overwrite any
@@ -11605,6 +11677,8 @@ impl Interpreter {
                 status,
                 content_type,
                 headers,
+                set_session,
+                clear_session,
                 line,
                 column,
             } => {
@@ -11641,6 +11715,8 @@ impl Interpreter {
                         ));
                     }
                 };
+
+                let request_for_cookie = request_val.clone();
 
                 // Keep the pending request parked until content/status/header
                 // expressions are evaluated so a browser disconnect still cancels
@@ -11802,6 +11878,25 @@ impl Interpreter {
                             ));
                         }
                     }
+                }
+
+                if let Some(session_expr) = set_session {
+                    let session_val = self
+                        .evaluate_expression(session_expr, Rc::clone(&env))
+                        .await?;
+                    let cookie = self
+                        .session_set_cookie(&session_val, false, *line, *column)
+                        .await?;
+                    custom_headers
+                        .entry("Set-Cookie".to_string())
+                        .or_insert(cookie);
+                } else if *clear_session {
+                    let cookie = self
+                        .session_set_cookie(&request_for_cookie, true, *line, *column)
+                        .await?;
+                    custom_headers
+                        .entry("Set-Cookie".to_string())
+                        .or_insert(cookie);
                 }
 
                             Ok(WflHttpResponse {
@@ -13341,6 +13436,155 @@ impl Interpreter {
 
                 Ok((Value::Null, ControlFlow::None))
             }
+            Statement::ConfigureSessionsStatement {
+                server,
+                timeout,
+                storage,
+                line,
+                column,
+            } => {
+                let manager = self
+                    .session_manager_from_server_expr(server, Rc::clone(&env), *line, *column)
+                    .await?;
+                let timeout_val = self.evaluate_expression(timeout, Rc::clone(&env)).await?;
+                let timeout_ms = match timeout_val {
+                    Value::Number(n) if n >= 1.0 => n as u64,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session timeout must be a number of milliseconds >= 1".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                let storage_val = self.evaluate_expression(storage, Rc::clone(&env)).await?;
+                let storage_kind = match &storage_val {
+                    Value::Text(s) => sessions::SessionStorageKind::parse(s)
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session storage must be text: memory, file, or database".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                manager
+                    .configure(timeout_ms, storage_kind)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::EnableCsrfProtectionStatement {
+                server,
+                line,
+                column,
+            } => {
+                let manager = self
+                    .session_manager_from_server_expr(server, Rc::clone(&env), *line, *column)
+                    .await?;
+                manager.enable_csrf().await;
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::EnableSecureCookiesStatement {
+                server,
+                line,
+                column,
+            } => {
+                let manager = self
+                    .session_manager_from_server_expr(server, Rc::clone(&env), *line, *column)
+                    .await?;
+                manager.enable_secure_cookies().await;
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::SetSessionValueStatement {
+                key,
+                value,
+                session,
+                line,
+                column,
+            } => {
+                let session_val = self.evaluate_expression(session, Rc::clone(&env)).await?;
+                let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
+                let value_val = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let key_text = match &key_val {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session value key must be text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                let (manager, id) = self
+                    .session_manager_from_session_object(&session_val, *line, *column)
+                    .await?;
+                manager
+                    .set_value(&id, &key_text, value_val)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::DestroySessionStatement {
+                session,
+                line,
+                column,
+            } => {
+                let session_val = self.evaluate_expression(session, Rc::clone(&env)).await?;
+                let (manager, id) = self
+                    .session_manager_from_session_object(&session_val, *line, *column)
+                    .await?;
+                manager
+                    .destroy(&id)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::StoreSessionDataStatement {
+                key,
+                data,
+                line,
+                column,
+            } => {
+                let manager = self.sole_or_named_session_manager(*line, *column).await?;
+                let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
+                let data_val = self.evaluate_expression(data, Rc::clone(&env)).await?;
+                let key_text = match &key_val {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session storage key must be text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                manager
+                    .put_kv(&key_text, data_val)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::DeleteSessionDataStatement { key, line, column } => {
+                let manager = self.sole_or_named_session_manager(*line, *column).await?;
+                let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
+                let key_text = match &key_val {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session storage key must be text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                manager
+                    .delete_kv(&key_text)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok((Value::Null, ControlFlow::None))
+            }
         };
 
         if self.step_mode {
@@ -13351,6 +13595,203 @@ impl Interpreter {
         }
 
         result
+    }
+
+    async fn session_server_name_from_expr(
+        &self,
+        server: &Expression,
+        env: Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        if let Expression::Variable(name, ..) = server
+            && self.web_servers.borrow().contains_key(name)
+        {
+            return Ok(name.clone());
+        }
+        let value = self.evaluate_expression(server, env).await?;
+        match value {
+            Value::Text(name) => {
+                let name_str = name.as_ref();
+                if self.web_servers.borrow().contains_key(name_str) {
+                    return Ok(name_str.to_string());
+                }
+                if name_str.starts_with("WebServer::") {
+                    let web_servers = self.web_servers.borrow();
+                    if let Some(server_name) = web_servers.keys().next() {
+                        return Ok(server_name.clone());
+                    }
+                }
+                Err(RuntimeError::new(
+                    format!("Unknown web server '{name_str}'"),
+                    line,
+                    column,
+                ))
+            }
+            _ => Err(RuntimeError::new(
+                "Expected a web server".to_string(),
+                line,
+                column,
+            )),
+        }
+    }
+
+    async fn session_manager_from_server_expr(
+        &self,
+        server: &Expression,
+        env: Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Rc<sessions::SessionManager>, RuntimeError> {
+        let name = self
+            .session_server_name_from_expr(server, env, line, column)
+            .await?;
+        self.session_manager_by_name(&name, line, column)
+    }
+
+    fn session_manager_by_name(
+        &self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Rc<sessions::SessionManager>, RuntimeError> {
+        let servers = self.web_servers.borrow();
+        match servers.get(name).and_then(|s| s.sessions.clone()) {
+            Some(manager) => Ok(manager),
+            None => Err(RuntimeError::new(
+                format!(
+                    "Server '{name}' does not have sessions enabled. Use `listen ... with sessions enabled`."
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    async fn session_manager_from_request(
+        &self,
+        request: &Value,
+        line: usize,
+        column: usize,
+    ) -> Result<(Rc<sessions::SessionManager>, String), RuntimeError> {
+        let server = match request {
+            Value::Object(obj) => match obj.borrow().get("_session_server") {
+                Some(Value::Text(name)) => name.to_string(),
+                _ => {
+                    return Err(RuntimeError::new(
+                        "Request is missing its session server. Wait for the request on a session-enabled listener.".to_string(),
+                        line,
+                        column,
+                    ));
+                }
+            },
+            _ => {
+                return Err(RuntimeError::new(
+                    "Expected a request object".to_string(),
+                    line,
+                    column,
+                ));
+            }
+        };
+        let manager = self.session_manager_by_name(&server, line, column)?;
+        Ok((manager, server))
+    }
+
+    async fn session_manager_from_session_object(
+        &self,
+        session: &Value,
+        line: usize,
+        column: usize,
+    ) -> Result<(Rc<sessions::SessionManager>, String), RuntimeError> {
+        let (server, id) = match session {
+            Value::Object(obj) => {
+                let obj = obj.borrow();
+                let server = match obj.get("_server") {
+                    Some(Value::Text(name)) => name.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected a session object from create session or get session"
+                                .to_string(),
+                            line,
+                            column,
+                        ));
+                    }
+                };
+                let id = match obj.get("id") {
+                    Some(Value::Text(id)) => id.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session object is missing its id".to_string(),
+                            line,
+                            column,
+                        ));
+                    }
+                };
+                (server, id)
+            }
+            _ => {
+                return Err(RuntimeError::new(
+                    "Expected a session object".to_string(),
+                    line,
+                    column,
+                ));
+            }
+        };
+        let manager = self.session_manager_by_name(&server, line, column)?;
+        Ok((manager, id))
+    }
+
+    async fn sole_or_named_session_manager(
+        &self,
+        line: usize,
+        column: usize,
+    ) -> Result<Rc<sessions::SessionManager>, RuntimeError> {
+        let managers: Vec<_> = self
+            .web_servers
+            .borrow()
+            .iter()
+            .filter_map(|(name, server)| server.sessions.clone().map(|m| (name.clone(), m)))
+            .collect();
+        match managers.len() {
+            0 => Err(RuntimeError::new(
+                "No session-enabled server is running. Use `listen ... with sessions enabled`."
+                    .to_string(),
+                line,
+                column,
+            )),
+            1 => Ok(managers.into_iter().next().unwrap().1),
+            _ => Err(RuntimeError::new(
+                "More than one session-enabled server is running; name the server in configure sessions."
+                    .to_string(),
+                line,
+                column,
+            )),
+        }
+    }
+
+    async fn session_set_cookie(
+        &self,
+        source: &Value,
+        clear: bool,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        let (manager, id) = if matches!(source, Value::Object(obj) if obj.borrow().contains_key("id"))
+        {
+            self.session_manager_from_session_object(source, line, column)
+                .await?
+        } else {
+            let (manager, _) = self
+                .session_manager_from_request(source, line, column)
+                .await?;
+            (manager, String::new())
+        };
+        let cfg = manager.config_snapshot().await;
+        Ok(sessions::SessionManager::format_set_cookie(
+            &cfg,
+            if clear { "" } else { &id },
+            clear,
+        ))
     }
 
     /// Resolves a server expression to the key of a running WebSocket server.
@@ -15392,6 +15833,154 @@ impl Interpreter {
                     Rc::clone(&env),
                 )
                 .await
+            }
+            Expression::CreateSession {
+                request,
+                line,
+                column,
+            } => {
+                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                let (manager, server_name) = self
+                    .session_manager_from_request(&request_val, *line, *column)
+                    .await?;
+                let record = manager
+                    .create()
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok(sessions::SessionManager::session_object(
+                    &record,
+                    &server_name,
+                ))
+            }
+            Expression::GetSession {
+                request,
+                line,
+                column,
+            } => {
+                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                let (manager, server_name) = self
+                    .session_manager_from_request(&request_val, *line, *column)
+                    .await?;
+                let cfg = manager.config_snapshot().await;
+                let sid = match cookie_value_from_request(&request_val, &cfg.cookie_name) {
+                    Some(id) => id,
+                    None => return Ok(Value::Nothing),
+                };
+                match manager
+                    .get(&sid)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?
+                {
+                    Some(record) => Ok(sessions::SessionManager::session_object(
+                        &record,
+                        &server_name,
+                    )),
+                    None => Ok(Value::Nothing),
+                }
+            }
+            Expression::GetSessionValue {
+                key,
+                session,
+                line,
+                column,
+            } => {
+                let session_val = self.evaluate_expression(session, Rc::clone(&env)).await?;
+                let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
+                let key_text = match &key_val {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session value key must be text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                let (manager, id) = self
+                    .session_manager_from_session_object(&session_val, *line, *column)
+                    .await?;
+                match manager
+                    .get(&id)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?
+                {
+                    Some(record) => Ok(record
+                        .data
+                        .get(&key_text)
+                        .cloned()
+                        .unwrap_or(Value::Nothing)),
+                    None => Ok(Value::Nothing),
+                }
+            }
+            Expression::GenerateCsrfTokenForSession {
+                session,
+                line,
+                column,
+            } => {
+                let session_val = self.evaluate_expression(session, Rc::clone(&env)).await?;
+                let (manager, id) = self
+                    .session_manager_from_session_object(&session_val, *line, *column)
+                    .await?;
+                let token = sessions::SessionManager::generate_csrf_hex();
+                manager
+                    .set_value(&id, "csrf_token", Value::Text(Arc::from(token.as_str())))
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                Ok(Value::Text(Arc::from(token.as_str())))
+            }
+            Expression::FindExpiredSessions {
+                server,
+                line,
+                column,
+            } => {
+                let manager = self
+                    .session_manager_from_server_expr(server, Rc::clone(&env), *line, *column)
+                    .await?;
+                let server_name = self
+                    .session_server_name_from_expr(server, Rc::clone(&env), *line, *column)
+                    .await?;
+                let expired = manager
+                    .find_expired()
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                let values = expired
+                    .iter()
+                    .map(|record| sessions::SessionManager::session_object(record, &server_name))
+                    .collect();
+                Ok(Value::List(Rc::new(RefCell::new(values))))
+            }
+            Expression::GetSessionStatistics {
+                server,
+                line,
+                column,
+            } => {
+                let manager = self
+                    .session_manager_from_server_expr(server, Rc::clone(&env), *line, *column)
+                    .await?;
+                let stats = manager.stats().await;
+                Ok(sessions::SessionManager::stats_object(&stats))
+            }
+            Expression::LoadSessionData { key, line, column } => {
+                let manager = self.sole_or_named_session_manager(*line, *column).await?;
+                let key_val = self.evaluate_expression(key, Rc::clone(&env)).await?;
+                let key_text = match &key_val {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Session storage key must be text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                match manager
+                    .load_kv(&key_text)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?
+                {
+                    Some(value) => Ok(value),
+                    None => Ok(Value::Nothing),
+                }
             }
         };
         self.assert_invariants();
@@ -17452,6 +18041,7 @@ mod request_wait_timeout_tests {
                 request_receiver: Arc::new(tokio::sync::Mutex::new(request_receiver)),
                 request_sender,
                 server_handle: None,
+                sessions: None,
             },
         );
         env.borrow_mut()

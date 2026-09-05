@@ -1,0 +1,23 @@
+// CI-SKIP: starts a session-enabled server; needs an HTTP client (layers 1-4)
+// Built-in user sessions: create, store values, set the session cookie.
+//
+// Validated for syntax/analysis/lint only (layers 1-4): running it needs a
+// live client, so execution is skipped.
+
+listen on port 8080 as web_server with sessions enabled
+configure sessions on web_server with timeout 1800000 and storage "memory"
+enable csrf protection on web_server
+
+main loop:
+    wait for request comes in on web_server as req
+    store sess as get session from req
+    check if sess is nothing:
+        store new_sess as create session for req
+        set session value "user_id" to "guest" in new_sess
+        store csrf as generate csrf token for new_sess
+        respond to req with csrf and set session new_sess
+    otherwise:
+        store user_id as get session value "user_id" from sess
+        respond to req with user_id
+    end check
+end loop

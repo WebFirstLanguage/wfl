@@ -20,7 +20,7 @@ use wfl::parser::Parser;
 mod common;
 
 fn start_server_thread(code: String, source_file: Option<PathBuf>) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
+    common::spawn_interpreter_thread(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async {
             let tokens = lex_wfl_with_positions(&code);

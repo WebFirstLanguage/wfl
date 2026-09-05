@@ -101,6 +101,9 @@ A few words have special meaning in exactly one statement position but are **not
 - `redirecting` - redirect marker in `listen on port 8080 redirecting to port 8443 as server`
 - `content_type` - response content type marker in `respond to req with ... and content_type "text/html"`
 - `transaction` - transaction block marker in `in transaction on db:` and `end transaction`
+- `sessions` / `session` - session markers in `listen … with sessions enabled`, `configure sessions`, `create session`, `get session`, `set session value`, `destroy session`, `respond … and set session` / `and clear session`
+- `storage` - session storage marker in `configure sessions … and storage "memory"` and `store session_data to storage …`
+- `csrf` / `protection` - CSRF markers in `enable csrf protection` and `generate csrf token for …`
 
 ```wfl
 // All perfectly valid — these words are not reserved:
@@ -108,6 +111,7 @@ store key as "secret_key_456"
 store certificate as "diploma"
 store secured as yes
 store transaction as "TX-1094"
+store session as "active"
 ```
 
 `transaction` is recognized in exactly two positions: directly after a leading

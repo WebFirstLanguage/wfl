@@ -614,7 +614,124 @@ impl ConfigChecker {
                 "Execution Budget",
                 "Maximum bytes buffered by one text or binary file read (default 50 MiB, min 1)",
             );
+            int_setting(
+                "session_timeout_ms",
+                "1800000",
+                "Sessions",
+                "Idle session lifetime in milliseconds (default 1800000, min 1)",
+            );
+            int_setting(
+                "session_max_sessions",
+                "10000",
+                "Sessions",
+                "Maximum stored sessions before create session fails (min 1)",
+            );
         }
+
+        expected_settings.insert(
+            "session_storage".to_string(),
+            ExpectedSetting {
+                name: "session_storage".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: Some("memory".to_string()),
+                description: "Session persistence backend (memory, file, or database)".to_string(),
+                valid_values: Some(vec![
+                    "memory".to_string(),
+                    "file".to_string(),
+                    "database".to_string(),
+                ]),
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_db_path".to_string(),
+            ExpectedSetting {
+                name: "session_db_path".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: Some("wfl_sessions.db".to_string()),
+                description: "SQLite file used when session_storage is database".to_string(),
+                valid_values: None,
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_file_path".to_string(),
+            ExpectedSetting {
+                name: "session_file_path".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: Some("wfl_sessions.json".to_string()),
+                description: "JSON file used when session_storage is file".to_string(),
+                valid_values: None,
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_cookie_name".to_string(),
+            ExpectedSetting {
+                name: "session_cookie_name".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: Some("wfl_sid".to_string()),
+                description: "Name of the session cookie".to_string(),
+                valid_values: None,
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_cookie_secure".to_string(),
+            ExpectedSetting {
+                name: "session_cookie_secure".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Add the Secure flag to the session cookie".to_string(),
+                valid_values: None,
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_cookie_samesite".to_string(),
+            ExpectedSetting {
+                name: "session_cookie_samesite".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: Some("Lax".to_string()),
+                description: "SameSite attribute on the session cookie".to_string(),
+                valid_values: Some(vec![
+                    "Lax".to_string(),
+                    "Strict".to_string(),
+                    "None".to_string(),
+                ]),
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_cookie_httponly".to_string(),
+            ExpectedSetting {
+                name: "session_cookie_httponly".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("true".to_string()),
+                description: "Add the HttpOnly flag to the session cookie".to_string(),
+                valid_values: None,
+                category: "Sessions".to_string(),
+            },
+        );
+        expected_settings.insert(
+            "session_csrf_enabled".to_string(),
+            ExpectedSetting {
+                name: "session_csrf_enabled".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Default CSRF-protection flag when enable csrf is omitted".to_string(),
+                valid_values: None,
+                category: "Sessions".to_string(),
+            },
+        );
 
         Self { expected_settings }
     }
@@ -633,6 +750,7 @@ impl ConfigChecker {
             "Security",
             "Subprocess Management",
             "Web Server",
+            "Sessions",
             // Without this, the config wizard silently omitted every setting
             // assigned to the ExecutionBudget category.
             "Execution Budget",
@@ -1116,7 +1234,9 @@ fn integer_min_for_key(key: &str) -> Option<u64> {
         | "max_pattern_steps"
         | "max_pattern_states"
         | "max_source_size"
-        | "max_file_read_size" => Some(1),
+        | "max_file_read_size"
+        | "session_timeout_ms"
+        | "session_max_sessions" => Some(1),
         _ => None,
     }
 }

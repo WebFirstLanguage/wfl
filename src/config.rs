@@ -110,6 +110,82 @@ pub struct WflConfig {
     /// buffer without bound. Feeds `ExecutionBudget`. Default 16 MiB; must be at
     /// least 1.
     pub web_socket_max_queued_bytes: usize,
+    /// Idle session lifetime in milliseconds. Default 1800000 (30 minutes).
+    pub session_timeout_ms: u64,
+    /// Session persistence backend: memory, file, or database (SQLite).
+    pub session_storage: SessionStorageKind,
+    /// SQLite file used when `session_storage = database`.
+    pub session_db_path: String,
+    /// JSON file used when `session_storage = file`.
+    pub session_file_path: String,
+    /// Name of the session cookie (`Set-Cookie`).
+    pub session_cookie_name: String,
+    /// Add the `Secure` flag to the session cookie.
+    pub session_cookie_secure: bool,
+    /// `SameSite` attribute on the session cookie.
+    pub session_cookie_samesite: SessionSameSite,
+    /// Add the `HttpOnly` flag to the session cookie.
+    pub session_cookie_httponly: bool,
+    /// Default for `enable csrf protection` when the statement is omitted.
+    pub session_csrf_enabled: bool,
+    /// Maximum stored sessions before `create session` fails. Default 10000.
+    pub session_max_sessions: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStorageKind {
+    Memory,
+    File,
+    Database,
+}
+
+impl SessionStorageKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::File => "file",
+            Self::Database => "database",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "memory" => Ok(Self::Memory),
+            "file" => Ok(Self::File),
+            "database" => Ok(Self::Database),
+            other => Err(format!(
+                "Unknown session storage '{other}'. Use memory, file, or database."
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionSameSite {
+    Lax,
+    Strict,
+    None,
+}
+
+impl SessionSameSite {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lax => "Lax",
+            Self::Strict => "Strict",
+            Self::None => "None",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim() {
+            "Lax" | "lax" => Ok(Self::Lax),
+            "Strict" | "strict" => Ok(Self::Strict),
+            "None" | "none" => Ok(Self::None),
+            other => Err(format!(
+                "Unknown session_cookie_samesite '{other}'. Use Lax, Strict, or None."
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +293,16 @@ impl Default for WflConfig {
             web_socket_max_connections: 1_024,
             web_socket_max_message_size: 1_048_576,
             web_socket_max_queued_bytes: 16 * 1_048_576,
+            session_timeout_ms: 1_800_000,
+            session_storage: SessionStorageKind::Memory,
+            session_db_path: "wfl_sessions.db".to_string(),
+            session_file_path: "wfl_sessions.json".to_string(),
+            session_cookie_name: "wfl_sid".to_string(),
+            session_cookie_secure: false,
+            session_cookie_samesite: SessionSameSite::Lax,
+            session_cookie_httponly: true,
+            session_csrf_enabled: false,
+            session_max_sessions: 10_000,
         }
     }
 }
@@ -922,6 +1008,62 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                     value,
                     file,
                 ),
+                "session_timeout_ms" => {
+                    if let Ok(parsed) = value.parse::<u64>()
+                        && parsed >= 1
+                    {
+                        config.session_timeout_ms = parsed;
+                    } else {
+                        log::warn!(
+                            "Invalid session_timeout_ms '{value}' in {}: expected an integer >= 1",
+                            file.display()
+                        );
+                    }
+                }
+                "session_storage" => match SessionStorageKind::parse(value) {
+                    Ok(kind) => config.session_storage = kind,
+                    Err(err) => log::warn!("{err} in {}", file.display()),
+                },
+                "session_db_path" => {
+                    if !value.is_empty() {
+                        config.session_db_path = value.to_string();
+                    }
+                }
+                "session_file_path" => {
+                    if !value.is_empty() {
+                        config.session_file_path = value.to_string();
+                    }
+                }
+                "session_cookie_name" => {
+                    if !value.is_empty() {
+                        config.session_cookie_name = value.to_string();
+                    }
+                }
+                "session_cookie_secure" => {
+                    if let Ok(enabled) = value.parse::<bool>() {
+                        config.session_cookie_secure = enabled;
+                    }
+                }
+                "session_cookie_samesite" => match SessionSameSite::parse(value) {
+                    Ok(kind) => config.session_cookie_samesite = kind,
+                    Err(err) => log::warn!("{err} in {}", file.display()),
+                },
+                "session_cookie_httponly" => {
+                    if let Ok(enabled) = value.parse::<bool>() {
+                        config.session_cookie_httponly = enabled;
+                    }
+                }
+                "session_csrf_enabled" => {
+                    if let Ok(enabled) = value.parse::<bool>() {
+                        config.session_csrf_enabled = enabled;
+                    }
+                }
+                "session_max_sessions" => set_positive_usize(
+                    &mut config.session_max_sessions,
+                    "session_max_sessions",
+                    value,
+                    file,
+                ),
                 _ => {
                     log::warn!("Unknown configuration key: {} in {}", key, file.display());
                 }
@@ -1587,5 +1729,57 @@ mod tests {
             config.web_server_bind_address, "127.0.0.1",
             "Empty web_server_bind_address should keep default value"
         );
+    }
+
+    #[test]
+    fn test_session_config_defaults_and_overrides() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let defaults = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+        assert_eq!(defaults.session_timeout_ms, 1_800_000);
+        assert_eq!(defaults.session_storage, SessionStorageKind::Memory);
+        assert_eq!(defaults.session_db_path, "wfl_sessions.db");
+        assert_eq!(defaults.session_file_path, "wfl_sessions.json");
+        assert_eq!(defaults.session_cookie_name, "wfl_sid");
+        assert!(!defaults.session_cookie_secure);
+        assert_eq!(defaults.session_cookie_samesite, SessionSameSite::Lax);
+        assert!(defaults.session_cookie_httponly);
+        assert!(!defaults.session_csrf_enabled);
+        assert_eq!(defaults.session_max_sessions, 10_000);
+
+        let config_path = temp_dir.path().join(".wflcfg");
+        fs::write(
+            &config_path,
+            r#"
+            session_timeout_ms = 900000
+            session_storage = database
+            session_db_path = custom_sessions.db
+            session_file_path = custom_sessions.json
+            session_cookie_name = sid
+            session_cookie_secure = true
+            session_cookie_samesite = Strict
+            session_cookie_httponly = false
+            session_csrf_enabled = true
+            session_max_sessions = 50
+            "#,
+        )
+        .unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+        assert_eq!(config.session_timeout_ms, 900_000);
+        assert_eq!(config.session_storage, SessionStorageKind::Database);
+        assert_eq!(config.session_db_path, "custom_sessions.db");
+        assert_eq!(config.session_file_path, "custom_sessions.json");
+        assert_eq!(config.session_cookie_name, "sid");
+        assert!(config.session_cookie_secure);
+        assert_eq!(config.session_cookie_samesite, SessionSameSite::Strict);
+        assert!(!config.session_cookie_httponly);
+        assert!(config.session_csrf_enabled);
+        assert_eq!(config.session_max_sessions, 50);
     }
 }

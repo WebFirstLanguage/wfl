@@ -6,7 +6,7 @@ use super::super::{Argument, Expression, Literal, ParseError, Parser, UnaryOpera
 use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
-use crate::parser::stmt::PatternParser;
+use crate::parser::stmt::{PatternParser, WebParser};
 use std::sync::Arc;
 
 /// Trait for parsing primary (atomic) expressions
@@ -496,6 +496,33 @@ impl<'a> Parser<'a> {
                     let call_column = token.column;
                     self.bump_sync(); // Consume 'call'
                     return self.parse_call_expression(call_line, call_column, stop_at_clause);
+                }
+                Token::Identifier(name)
+                    if name == "get session"
+                        || name.starts_with("get session ")
+                        || name == "get session value"
+                        || name.starts_with("get session value ")
+                        || name == "get session statistics"
+                        || name.starts_with("get session statistics ") =>
+                {
+                    return self.parse_get_session_expression();
+                }
+                Token::Identifier(name)
+                    if name == "generate csrf token"
+                        || name.starts_with("generate csrf token ") =>
+                {
+                    return self.parse_generate_csrf_token_for_session();
+                }
+                Token::KeywordLoad => {
+                    if self.next_is_session_data_phrase() {
+                        return self.parse_load_session_data_expression();
+                    }
+                    return Err(ParseError::from_token(
+                        "Unexpected 'load' in expression — use 'load session data from storage \
+                         with key …' here, or the 'load module' statement"
+                            .to_string(),
+                        token,
+                    ));
                 }
                 Token::Identifier(name) => {
                     self.bump_sync();
@@ -1194,6 +1221,19 @@ impl<'a> Parser<'a> {
                         token_column,
                     ))
                 }
+                Token::KeywordFind
+                    if self.cursor.peek_next().is_some_and(|t| {
+                        matches!(
+                            &t.token,
+                            Token::Identifier(id)
+                                if id == "expired sessions"
+                                    || id == "expired"
+                                    || id.starts_with("expired sessions ")
+                        )
+                    }) =>
+                {
+                    return self.parse_find_expired_sessions_expression();
+                }
                 Token::KeywordFind => {
                     self.bump_sync(); // Consume "find"
                     let pattern_expr =
@@ -1288,6 +1328,11 @@ impl<'a> Parser<'a> {
                 _ if token.token.is_contextual_keyword() => {
                     // Special handling for "create list" expression
                     if token.token == Token::KeywordCreate {
+                        if self.cursor.peek_next().is_some_and(
+                            |t| matches!(&t.token, Token::Identifier(id) if id == "session"),
+                        ) {
+                            return self.parse_create_session_expression();
+                        }
                         self.bump_sync(); // Consume "create"
                         let token_line = token.line;
                         let token_column = token.column;

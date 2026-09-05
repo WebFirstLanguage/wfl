@@ -506,6 +506,23 @@
     ],
     "description": "Concurrent request handling with main loop concurrently."
   },
+  "docs_examples/web_servers/session_login.wfl": {
+    "doc_section": "Docs/04-advanced-features/web-servers.md#user-sessions",
+    "type": "snippet",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "skip_execution": true,
+    "tags": [
+      "web-server",
+      "sessions",
+      "cookies"
+    ],
+    "description": "Session-enabled listen, create/get session, set value, CSRF token, and Set-Cookie on respond."
+  },
   "docs_examples/containers/basic_container_01.wfl": {
     "doc_section": "Docs/04-advanced-features/containers-oop.md#basic-container",
     "type": "executable",

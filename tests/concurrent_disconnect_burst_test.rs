@@ -82,7 +82,7 @@ async fn spawn_counting_stall_upstream() -> (u16, mpsc::UnboundedReceiver<()>) {
 }
 
 fn start_proxy_server(code: String) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
+    common::spawn_interpreter_thread(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         rt.block_on(async {
             let tokens = lex_wfl_with_positions(&code);

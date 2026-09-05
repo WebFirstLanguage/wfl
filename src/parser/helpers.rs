@@ -279,7 +279,7 @@ impl<'a> Parser<'a> {
     /// explicit keyword-led arms (`call`, `not`, `-` unary, `with`, `count`,
     /// `pattern`, `loop`, `output`, `repeat`, `exit`, `back`, `try`, `when`,
     /// `error`, `file`, `directory`, `process`, `header`, `current`, `list`,
-    /// `read`, `find`, `replace`, `split`); and finally the contextual-keyword
+    /// `read`, `find`, `replace`, `split`, `load`); and finally the contextual-keyword
     /// catch-all described above. `Token::Eol` has its own arm but it always
     /// errors, so it is excluded here.
     pub(crate) fn can_start_primary_expression(token: &Token) -> bool {
@@ -317,6 +317,7 @@ impl<'a> Parser<'a> {
                 | Token::KeywordFind
                 | Token::KeywordReplace
                 | Token::KeywordSplit
+                | Token::KeywordLoad
         ) || token.is_contextual_keyword()
     }
 
@@ -603,4 +604,51 @@ impl<'a> Parser<'a> {
             self.bump_sync(); // Consume "of"
         }
     }
+
+    /// `session_data` / merged `session data` identifiers. `data` is a reserved
+    /// keyword, so the two-word phrase also arrives as `Identifier("session")`
+    /// plus `KeywordData`.
+    pub(crate) fn next_is_session_data_phrase(&self) -> bool {
+        match self.cursor.peek_next() {
+            Some(t) if session_data_ident(&t.token) => true,
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "session") => {
+                matches!(
+                    self.cursor.peek_n(2).map(|tok| &tok.token),
+                    Some(Token::KeywordData)
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// `store session_data to storage` / `store session data to storage`.
+    pub(crate) fn next_is_store_session_data(&self) -> bool {
+        match self.cursor.peek_next() {
+            Some(t) if session_data_ident(&t.token) => self
+                .cursor
+                .peek_n(2)
+                .is_some_and(|tok| tok.token == Token::KeywordTo),
+            Some(t) if matches!(&t.token, Token::Identifier(id) if id == "session") => {
+                matches!(
+                    self.cursor.peek_n(2).map(|tok| &tok.token),
+                    Some(Token::KeywordData)
+                ) && self
+                    .cursor
+                    .peek_n(3)
+                    .is_some_and(|tok| tok.token == Token::KeywordTo)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn session_data_ident(token: &Token) -> bool {
+    matches!(
+        token,
+        Token::Identifier(id)
+            if id == "session_data"
+                || id == "session data"
+                || id.starts_with("session_data ")
+                || id.starts_with("session data ")
+    )
 }

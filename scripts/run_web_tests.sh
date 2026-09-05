@@ -300,6 +300,134 @@ if [ -f "TestPrograms/web_server_tls.wfl" ]; then
     fi
 fi
 
+# Test 5: web_server_session_test.wfl (cookies, CSRF, storage KV)
+if [ -f "TestPrograms/web_server_session_test.wfl" ]; then
+    total_tests=$((total_tests + 1))
+    echo ""
+    echo -e "${BLUE}[INFO]${NC} Testing: web_server_session_test.wfl on port 8097"
+
+    session_log=$(mktemp)
+    "./$BINARY_PATH" "TestPrograms/web_server_session_test.wfl" > "$session_log" 2>&1 &
+    session_pid=$!
+    cookie_jar=$(mktemp)
+
+    session_ok=true
+    session_ready=false
+    retries=0
+    max_retries=$((TIMEOUT * 2))
+    while [ "$session_ready" = false ] && [ $retries -lt $max_retries ]; do
+        sleep 0.5
+        retries=$((retries + 1))
+        if curl -s --max-time 2 "http://127.0.0.1:8097/" 2>/dev/null | grep -q "Session server ready"; then
+            session_ready=true
+        fi
+    done
+
+    if [ "$session_ready" = false ]; then
+        echo -e "${RED}[ERROR]${NC} TIMEOUT: Session server did not start within ${TIMEOUT}s"
+        echo -e "${GRAY}  server log:${NC}"
+        cat "$session_log" || true
+        session_ok=false
+    else
+        login_headers=$(mktemp)
+        login_body=$(curl -s --max-time 2 -D "$login_headers" -c "$cookie_jar" "http://127.0.0.1:8097/login")
+        session_id=$(echo "$login_body" | awk '{print $1}')
+        csrf_token=$(echo "$login_body" | awk '{print $2}')
+        if [[ "$login_body" == *" "* ]] && grep -qi "Set-Cookie: wfl_sid=" "$login_headers" && grep -qi "HttpOnly" "$login_headers"; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /login sets HttpOnly wfl_sid cookie"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /login body='$login_body' headers:"
+            cat "$login_headers" || true
+            session_ok=false
+        fi
+
+        profile_body=$(curl -s --max-time 2 -b "$cookie_jar" "http://127.0.0.1:8097/profile")
+        if [ "$profile_body" = "user123" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /profile returns user_id from cookie"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /profile returned '$profile_body' (expected user123)"
+            session_ok=false
+        fi
+
+        anon_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:8097/profile")
+        if [ "$anon_code" = "401" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /profile without cookie returns 401"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: anonymous /profile returned HTTP $anon_code (expected 401)"
+            session_ok=false
+        fi
+
+        csrf_miss=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -b "$cookie_jar" "http://127.0.0.1:8097/secure")
+        if [ "$csrf_miss" = "403" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /secure without CSRF header returns 403"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /secure without CSRF returned HTTP $csrf_miss (expected 403)"
+            session_ok=false
+        fi
+
+        csrf_ok=$(curl -s --max-time 2 -b "$cookie_jar" -H "X-CSRF-Token: $csrf_token" "http://127.0.0.1:8097/secure")
+        if [ "$csrf_ok" = "Access granted" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /secure accepts matching CSRF token"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /secure with CSRF returned '$csrf_ok'"
+            session_ok=false
+        fi
+
+        admin_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -b "$cookie_jar" "http://127.0.0.1:8097/admin")
+        if [ "$admin_code" = "403" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /admin denies missing admin permission"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /admin returned HTTP $admin_code (expected 403)"
+            session_ok=false
+        fi
+
+        stats_body=$(curl -s --max-time 2 "http://127.0.0.1:8097/stats")
+        if [[ "$stats_body" == memory\ * ]]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /stats reports memory backend ($stats_body)"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /stats returned '$stats_body'"
+            session_ok=false
+        fi
+
+        storage_body=$(curl -s --max-time 2 "http://127.0.0.1:8097/storage")
+        if [ "$storage_body" = "stored test_value" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: storage KV put/load/delete"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /storage returned '$storage_body'"
+            session_ok=false
+        fi
+
+        logout_headers=$(mktemp)
+        logout_body=$(curl -s --max-time 2 -D "$logout_headers" -b "$cookie_jar" -c "$cookie_jar" "http://127.0.0.1:8097/logout")
+        if [ "$logout_body" = "logged_out" ] && grep -qi "Max-Age=0" "$logout_headers"; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /logout clears session cookie"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /logout body='$logout_body' headers:"
+            cat "$logout_headers" || true
+            session_ok=false
+        fi
+
+        after_logout=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -b "$cookie_jar" "http://127.0.0.1:8097/profile")
+        if [ "$after_logout" = "401" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} PASS: /profile after logout returns 401"
+        else
+            echo -e "${RED}[ERROR]${NC} FAIL: /profile after logout returned HTTP $after_logout"
+            session_ok=false
+        fi
+
+        rm -f "$login_headers" "$logout_headers"
+    fi
+
+    if kill -0 $session_pid 2>/dev/null; then
+        kill $session_pid 2>/dev/null || true
+    fi
+    rm -f "$cookie_jar" "$session_log"
+
+    if [ "$session_ok" = true ]; then
+        passed_tests=$((passed_tests + 1))
+    fi
+fi
+
 # Summary
 echo ""
 echo -e "${BLUE}[INFO]${NC} ============================"

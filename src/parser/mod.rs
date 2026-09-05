@@ -469,7 +469,22 @@ impl<'a> StmtParser<'a> for Parser<'a> {
         }
         if let Some(token) = self.cursor.peek() {
             match &token.token {
+                Token::KeywordStore if self.next_is_store_session_data() => {
+                    self.parse_store_session_data_statement()
+                }
                 Token::KeywordStore => self.parse_variable_declaration(),
+                Token::KeywordLoad if self.next_is_session_data_phrase() => {
+                    // Expression-shaped `load session data ...` used as a statement
+                    // is unexpected; still accept it by wrapping as an expression
+                    // statement so `store x as load session data ...` is not
+                    // required at statement level.
+                    let expr = self.parse_load_session_data_expression()?;
+                    Ok(Statement::ExpressionStatement {
+                        expression: expr,
+                        line: 0,
+                        column: 0,
+                    })
+                }
                 Token::KeywordLoad => self.parse_load_module_statement(),
                 Token::KeywordInclude => self.parse_include_statement(),
                 Token::KeywordExport => self.parse_export_statement(),
@@ -609,6 +624,9 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                     } else {
                         self.parse_close_file_statement()
                     }
+                }
+                Token::KeywordDelete if self.next_is_session_data_phrase() => {
+                    self.parse_delete_session_data_statement()
                 }
                 Token::KeywordDelete => self.parse_delete_statement(),
                 Token::KeywordWrite => self.parse_write_to_statement(),
@@ -772,6 +790,33 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                         line: token_pos.line,
                         column: token_pos.column,
                     })
+                }
+                Token::Identifier(id)
+                    if id == "configure sessions" || id.starts_with("configure sessions ") =>
+                {
+                    self.parse_configure_sessions_statement()
+                }
+                Token::Identifier(id)
+                    if id == "enable csrf protection"
+                        || id.starts_with("enable csrf protection ") =>
+                {
+                    self.parse_enable_csrf_protection_statement()
+                }
+                Token::Identifier(id)
+                    if id == "enable secure cookies"
+                        || id.starts_with("enable secure cookies ") =>
+                {
+                    self.parse_enable_secure_cookies_statement()
+                }
+                Token::Identifier(id)
+                    if id == "set session value" || id.starts_with("set session value ") =>
+                {
+                    self.parse_set_session_value_statement()
+                }
+                Token::Identifier(id)
+                    if id == "destroy session" || id.starts_with("destroy session ") =>
+                {
+                    self.parse_destroy_session_statement()
                 }
                 Token::Identifier(id) if id == "main" => {
                     // Check if next token is "loop"

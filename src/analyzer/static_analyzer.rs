@@ -1320,6 +1320,7 @@ impl Analyzer {
                 status,
                 content_type,
                 headers,
+                set_session,
                 ..
             } => {
                 self.mark_used_in_expression(request, usages);
@@ -1333,6 +1334,43 @@ impl Analyzer {
                 if let Some(headers) = headers {
                     self.mark_used_in_expression(headers, usages);
                 }
+                if let Some(session) = set_session {
+                    self.mark_used_in_expression(session, usages);
+                }
+            }
+            Statement::ConfigureSessionsStatement {
+                server,
+                timeout,
+                storage,
+                ..
+            } => {
+                self.mark_used_in_expression(server, usages);
+                self.mark_used_in_expression(timeout, usages);
+                self.mark_used_in_expression(storage, usages);
+            }
+            Statement::EnableCsrfProtectionStatement { server, .. }
+            | Statement::EnableSecureCookiesStatement { server, .. } => {
+                self.mark_used_in_expression(server, usages);
+            }
+            Statement::SetSessionValueStatement {
+                key,
+                value,
+                session,
+                ..
+            } => {
+                self.mark_used_in_expression(key, usages);
+                self.mark_used_in_expression(value, usages);
+                self.mark_used_in_expression(session, usages);
+            }
+            Statement::DestroySessionStatement { session, .. } => {
+                self.mark_used_in_expression(session, usages);
+            }
+            Statement::StoreSessionDataStatement { key, data, .. } => {
+                self.mark_used_in_expression(key, usages);
+                self.mark_used_in_expression(data, usages);
+            }
+            Statement::DeleteSessionDataStatement { key, .. } => {
+                self.mark_used_in_expression(key, usages);
             }
             Statement::ListenStatement { port, .. } => {
                 self.mark_used_in_expression(port, usages);
@@ -1577,6 +1615,23 @@ impl Analyzer {
             }
             Expression::AwaitExpression { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
+            }
+            Expression::CreateSession { request, .. } | Expression::GetSession { request, .. } => {
+                self.mark_used_in_expression(request, usages);
+            }
+            Expression::GetSessionValue { key, session, .. } => {
+                self.mark_used_in_expression(key, usages);
+                self.mark_used_in_expression(session, usages);
+            }
+            Expression::GenerateCsrfTokenForSession { session, .. } => {
+                self.mark_used_in_expression(session, usages);
+            }
+            Expression::FindExpiredSessions { server, .. }
+            | Expression::GetSessionStatistics { server, .. } => {
+                self.mark_used_in_expression(server, usages);
+            }
+            Expression::LoadSessionData { key, .. } => {
+                self.mark_used_in_expression(key, usages);
             }
             _ => {}
         }
@@ -2359,6 +2414,8 @@ display ln";
                     status: None,
                     content_type: None,
                     headers: Some(Expression::Variable("response_headers".to_string(), 2, 30)),
+                    set_session: None,
+                    clear_session: false,
                     line: 2,
                     column: 1,
                 },
