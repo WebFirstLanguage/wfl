@@ -1,0 +1,6 @@
+// Shared leaf of the include diamond. Both `auth.wfl` and `render.wfl`
+// include this file; it must be safe to reach it twice.
+store util_loads as 1
+define action called shout with parameters msg:
+    give back msg with "!"
+end action

@@ -75,6 +75,78 @@ display line
 
 All three forms work at the top level and inside your own action bodies. Because the analyzer does not read included files, it emits a **non-fatal** `Undefined action '<name>'` note for a name it cannot see statically — the program still runs and the action resolves at runtime.
 
+### Including the same file more than once (diamond includes)
+
+Larger programs often end up including a shared file from more than one
+place. The classic shape is a **diamond**: two library files both include the
+same helper file, and the main program includes both libraries.
+
+```text
+            util.wfl
+           /        \
+     auth.wfl      render.wfl
+           \        /
+            main.wfl
+```
+
+```wfl
+# util.wfl
+define action called shout with parameters msg:
+    give back msg with "!"
+end action
+
+# auth.wfl
+include from "util.wfl"
+define action called auth_check with parameters who:
+    give back shout of who
+end action
+
+# render.wfl
+include from "util.wfl"
+define action called render_page with parameters title:
+    give back shout of title
+end action
+
+# main.wfl
+include from "auth.wfl"
+include from "render.wfl"
+display auth_check of "alice"      # alice!
+display render_page of "home"      # home!
+```
+
+This works because a file's **definitions are included once per scope**.
+`auth.wfl` brings `util.wfl` into the main program's scope. When
+`render.wfl` then asks for `util.wfl` again, its definitions are already
+visible in that scope, so the second `include from` does nothing — it does
+not run the file a second time, and it does not raise an "already defined"
+error. Each file can therefore honestly declare what it depends on, and the
+order in which the main program includes its libraries does not matter.
+
+Three details worth knowing:
+
+- **The rule is about definitions.** A file that defines actions,
+  containers, or variables is brought in once per scope. A file that
+  defines nothing — it only displays something, writes a file, or changes
+  variables that already exist — has nothing a later include could collide
+  with, so it runs every time it is included, exactly as it always has.
+  (`load module from` remains the clearest way to say "run this file for
+  its side effects".)
+- **"Same scope" includes scopes you can see.** An include inside an action
+  body is skipped when the file was already included by an enclosing scope
+  (its definitions are already reachable). A file included only inside an
+  action body or a loop body runs again on each call or iteration, because
+  each one starts with a fresh local scope that has not seen it.
+- **A failed include is not remembered.** If the included file stops with
+  an error, a later include of it runs it again. Anything it defined before
+  the error stays in the scope, as it did before.
+
+The four files above are kept under `TestPrograms/docs_examples/modules/diamond/`
+and validated with the rest of the documentation examples.
+
+A genuine cycle — `a.wfl` includes `b.wfl`, which includes `a.wfl` — is
+still reported as a circular dependency (see
+[Circular Dependency Protection](#circular-dependency-protection)).
+
 ### Type Checking in Included Files
 
 Included files go through the same pipeline as the main program (parse, analyze, type check). Because `include from` runs the file in the parent scope — as if the code were written in the main program — type-check findings in an included file are reported the same way as in the main file: as **non-fatal warnings**. The program still runs.
@@ -615,9 +687,12 @@ export constant VERSION
    - Must load entire module
    - Future: `load function1, function2 from "x.wfl"` planned
 
-3. **No Module Caching**
+3. **No Module Caching for `load module`**
    - Each `load module` re-parses and re-executes
    - Multiple loads of same file execute multiple times
+   - (`include from` is different: it brings a file's definitions in once
+     per scope, so diamond includes are safe — see
+     [Including the same file more than once](#including-the-same-file-more-than-once-diamond-includes))
    - Future: Optional caching planned
 
 4. **Export Foundation Only**
@@ -850,7 +925,7 @@ load module from "expensive.wfl"  # Uses cached version
 WFL's hybrid module system provides flexible code organization:
 
 - **`load module from "path.wfl"`** - Isolated execution for initialization and side effects
-- **`include from "path.wfl"`** - Parent scope execution for shared libraries and containers  
+- **`include from "path.wfl"`** - Parent scope execution for shared libraries and containers; a file's definitions are included once per scope, so diamond includes are safe  
 - **`export container/action/constant NAME`** - Foundation for future namespace system
 - Paths resolve relative to the including file
 - Circular dependencies are automatically detected

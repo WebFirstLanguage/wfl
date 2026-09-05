@@ -1249,6 +1249,14 @@ impl Drop for OutboundStreamCleanup {
 }
 
 /// RAII guard that ensures module loading context is restored on scope exit.
+/// What an included or loaded file can see from its enclosing scope,
+/// split for the analyzer: typed variables and action signatures.
+#[derive(Default)]
+struct ParentScopeSnapshot {
+    variables: HashMap<String, (crate::parser::ast::Type, bool)>,
+    actions: Vec<(String, Vec<crate::analyzer::FunctionSignature>)>,
+}
+
 /// Automatically removes its loading_stack entry and restores
 /// current_source_file when dropped.
 ///
@@ -4913,42 +4921,80 @@ impl Interpreter {
 
     /// Extract variables from the environment for module analyzer
     /// Returns a HashMap of variable names to (inferred type, is_mutable)
-    fn extract_parent_variables(
-        env: &Rc<RefCell<Environment>>,
-    ) -> HashMap<String, (crate::parser::ast::Type, bool)> {
-        let mut vars = HashMap::new();
-        let env_borrowed = env.borrow();
-
-        for (name, value) in &env_borrowed.values {
-            // Skip native builtins (e.g. `year`, `month`, `day`, `length`, ...).
-            // The analyzer already resolves these through `is_builtin_function`,
-            // so seeding them as parent *variables* only makes an included file
-            // stricter than the main file: an action-local `store year as ...`
-            // would fatally conflict with the builtin's outer-scope binding even
-            // though the same code runs fine in a main program (#557). Leaving
-            // them out lets locals shadow builtins consistently in both paths.
-            if matches!(value, Value::NativeFunction(_, _)) {
-                continue;
+    /// Snapshot of what an included/loaded file can see from its enclosing
+    /// runtime scope, split the way the analyzer wants it: plain bindings
+    /// as typed variables and actions as function signatures.
+    fn snapshot_parent_scope(env: &Rc<RefCell<Environment>>) -> ParentScopeSnapshot {
+        let mut snapshot = ParentScopeSnapshot::default();
+        // Nearest scope wins: a name bound here shadows the same name further
+        // out, whatever kind of binding each one is.
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut current = Some(Rc::clone(env));
+        while let Some(scope) = current {
+            let scope_ref = scope.borrow();
+            for (name, value) in &scope_ref.values {
+                if !seen.insert(name.clone()) {
+                    continue;
+                }
+                match value {
+                    // Skip native builtins (e.g. `year`, `month`, `day`, `length`, ...).
+                    // The analyzer already resolves these through `is_builtin_function`,
+                    // so seeding them as parent *variables* only makes an included file
+                    // stricter than the main file: an action-local `store year as ...`
+                    // would fatally conflict with the builtin's outer-scope binding even
+                    // though the same code runs fine in a main program (#557). Leaving
+                    // them out lets locals shadow builtins consistently in both paths.
+                    Value::NativeFunction(_, _) => {}
+                    Value::Function(func) => {
+                        snapshot
+                            .actions
+                            .push((name.clone(), vec![Self::signature_of(func)]));
+                    }
+                    Value::Overloaded(set) => {
+                        let signatures = set
+                            .overloads
+                            .iter()
+                            .map(|f| Self::signature_of(f))
+                            .collect();
+                        snapshot.actions.push((name.clone(), signatures));
+                    }
+                    _ => {
+                        let inferred_type = Self::infer_type_from_value(value);
+                        // Check if this variable is a constant (immutable)
+                        let is_mutable = !scope_ref.constants.contains(name);
+                        snapshot
+                            .variables
+                            .insert(name.clone(), (inferred_type, is_mutable));
+                    }
+                }
             }
-            let inferred_type = Self::infer_type_from_value(value);
-            // Check if this variable is a constant (immutable)
-            let is_mutable = !env_borrowed.constants.contains(name);
-            vars.insert(name.clone(), (inferred_type, is_mutable));
+            current = scope_ref.parent.as_ref().and_then(|weak| weak.upgrade());
         }
 
-        // Also extract from parent scopes
-        if let Some(parent_weak) = &env_borrowed.parent
-            && let Some(parent_rc) = parent_weak.upgrade()
-        {
-            drop(env_borrowed); // Release borrow before recursive call
-            let parent_vars = Self::extract_parent_variables(&parent_rc);
-            // Parent variables are added first, can be shadowed by current scope
-            for (name, (ty, is_mut)) in parent_vars {
-                vars.entry(name).or_insert((ty, is_mut));
-            }
-        }
+        snapshot
+    }
 
-        vars
+    /// The analyzer-side signature of a runtime action value.
+    fn signature_of(
+        func: &crate::interpreter::value::FunctionValue,
+    ) -> crate::analyzer::FunctionSignature {
+        use crate::parser::ast::Parameter;
+        let parameters = func
+            .params
+            .iter()
+            .zip(func.param_types.iter().chain(std::iter::repeat(&None)))
+            .map(|(param_name, param_type)| Parameter {
+                name: param_name.clone(),
+                param_type: param_type.clone(),
+                default_value: None,
+                line: func.line,
+                column: func.column,
+            })
+            .collect();
+        crate::analyzer::FunctionSignature {
+            parameters,
+            return_type: None,
+        }
     }
 
     /// Infer AST Type from runtime Value
@@ -8535,8 +8581,11 @@ impl Interpreter {
                 use crate::analyzer::Analyzer;
 
                 // Extract parent variables from current environment for module analyzer
-                let parent_vars = Self::extract_parent_variables(&env);
-                let mut analyzer = Analyzer::with_parent_variables(parent_vars);
+                let parent_scope = Self::snapshot_parent_scope(&env);
+                let mut analyzer = Analyzer::with_parent_variables(parent_scope.variables);
+                // The module runs in an isolated child scope: outer actions are
+                // callable but a same-name definition is rejected, as at runtime.
+                analyzer.register_parent_actions(parent_scope.actions, false);
                 if let Err(errors) = analyzer.analyze(&program) {
                     // Use the semantic error's position from the module file, not the load site
                     let first_error = errors.first();
@@ -8669,9 +8718,22 @@ impl Interpreter {
                 // 2. Resolve absolute path
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
 
-                // 3. Check circular dependencies and the shared import-depth
-                // ceiling (loading_stack length is the depth already entered).
+                // 3. Reject a genuine cycle (the file is still being loaded).
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
+
+                // 3b. Include definitions once per visible scope. When the
+                // file's definitions already live in this scope (or one it
+                // can see), running it again would only collide with them,
+                // so the include is a no-op. This is what lets two files
+                // both `include from` the same shared file (a diamond). It
+                // is decided before the depth ceiling because a no-op never
+                // enters another file.
+                if env.borrow().has_included(&resolved_path) {
+                    return Ok((Value::Null, ControlFlow::None));
+                }
+
+                // 3c. Shared import-depth ceiling (loading_stack length is the
+                // depth already entered).
                 if let Err(exceeded) = self
                     .budget
                     .check_import_depth(self.loading_stack.borrow().len())
@@ -8713,8 +8775,11 @@ impl Interpreter {
                 // 6. Analyze semantics
                 use crate::analyzer::Analyzer;
 
-                let parent_vars = Self::extract_parent_variables(&env);
-                let mut analyzer = Analyzer::with_parent_variables_mutable(parent_vars);
+                let parent_scope = Self::snapshot_parent_scope(&env);
+                let mut analyzer = Analyzer::with_parent_variables_mutable(parent_scope.variables);
+                // The file runs in this very scope, so a same-name definition
+                // merges into the overload set exactly as the runtime does.
+                analyzer.register_parent_actions(parent_scope.actions, true);
                 if let Err(errors) = analyzer.analyze(&program) {
                     let first_error = errors.first();
                     let (error_line, error_column) =
@@ -8775,16 +8840,34 @@ impl Interpreter {
 
                 // 9. Execute included file in PARENT scope (key difference from load module)
                 // This allows containers/variables to be exposed to parent
+                let bindings_before = env.borrow().values.len();
                 let result = self
                     .execute_block(&program.statements, Rc::clone(&env))
                     .await;
 
-                // 10. Handle result
+                // 10. Handle result. A file is recorded as included only when
+                // it ran to completion AND installed at least one definition
+                // in this scope: that is what a later include of it would
+                // collide with. A file that defines nothing (side effects
+                // only, or mutations of existing variables) keeps running on
+                // every include exactly as it always has. A failed include is
+                // never recorded; note that whatever it defined before failing
+                // stays in the scope, as it did before include-once existed.
+                let record_if_defined = |env: &Rc<RefCell<Environment>>| {
+                    let mut env_mut = env.borrow_mut();
+                    if env_mut.values.len() > bindings_before {
+                        env_mut.mark_included(resolved_path.clone());
+                    }
+                };
                 match result {
-                    Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
+                    Ok((_, ControlFlow::None)) => {
+                        record_if_defined(&env);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
                     Ok((val, ControlFlow::Return(_))) => {
                         // Return statements in included files are allowed and simply return the value
                         // This enables utility functions in included files to use return statements
+                        record_if_defined(&env);
                         Ok((val, ControlFlow::None))
                     }
                     Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(

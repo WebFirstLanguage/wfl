@@ -1,0 +1,5 @@
+// One branch of the diamond: depends on util.wfl directly.
+include from "util.wfl"
+define action called auth_check with parameters who:
+    give back shout of who
+end action

@@ -364,6 +364,12 @@ pub struct Analyzer {
     /// before every independent program so prior declarations and diagnostics
     /// cannot leak across runs.
     baseline_symbols: HashMap<String, Symbol>,
+    /// Actions seeded from an enclosing runtime scope that the analyzed file
+    /// may call but must not redefine or overload: a `load module` file runs
+    /// in an isolated child scope whose runtime `define` rejects shadowing a
+    /// parent binding, so the analyzer rejects it first — before any of the
+    /// module's side effects run.
+    outer_actions: HashSet<String>,
     /// Monotone lexical-scope identity source. Scope IDs remain stable through
     /// snapshots/clones and are never reused within one analyzer run.
     next_scope_id: u64,
@@ -665,6 +671,7 @@ impl Analyzer {
         Analyzer {
             current_scope: global_scope,
             baseline_symbols,
+            outer_actions: HashSet::new(),
             next_scope_id: 1,
             errors: Vec::new(),
             warnings: Vec::new(),
@@ -731,6 +738,55 @@ impl Analyzer {
         analyzer.baseline_symbols = analyzer.current_scope.symbols.clone();
 
         analyzer
+    }
+
+    /// Seeds actions that already exist in the enclosing runtime scope (for
+    /// example, actions an earlier `include from` brought in) as real
+    /// function symbols with their true signatures. Seeding them as plain
+    /// variables would make every call to them a fatal "is not a function"
+    /// error in the file being analyzed, which is what broke diamond and
+    /// sibling includes. Like the other parent-scope symbols these carry
+    /// position 0:0.
+    ///
+    /// `mergeable` mirrors the runtime binding rule of the file being
+    /// analyzed: an `include from` file runs in the enclosing scope itself,
+    /// so a same-name definition there is an overload under the usual
+    /// distinctness rules; a `load module` file runs in an isolated child
+    /// scope where the runtime rejects any same-name definition, so the
+    /// analyzer rejects it too (see [`Self::outer_actions`]).
+    pub fn register_parent_actions(
+        &mut self,
+        actions: Vec<(String, Vec<FunctionSignature>)>,
+        mergeable: bool,
+    ) {
+        for (name, signatures) in actions {
+            if !mergeable {
+                self.outer_actions.insert(name.clone());
+            }
+            let param_types = signatures
+                .first()
+                .map(|sig| {
+                    sig.parameters
+                        .iter()
+                        .map(|p| p.param_type.clone().unwrap_or(Type::Unknown))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let symbol = Symbol {
+                name: name.clone(),
+                kind: SymbolKind::Function { signatures },
+                symbol_type: Some(Type::Function {
+                    parameters: param_types,
+                    return_type: Box::new(Type::Unknown),
+                }),
+                line: 0,
+                column: 0,
+            };
+            self.current_scope
+                .symbols
+                .insert(name.clone(), symbol.clone());
+            self.baseline_symbols.insert(name, symbol);
+        }
     }
 
     pub fn is_builtin_function(name: &str) -> bool {
@@ -3112,6 +3168,23 @@ impl Analyzer {
                 parameters: parameters.clone(),
                 return_type: return_type.clone(),
             };
+
+            // An action seeded from the loading file's scope cannot be
+            // redefined or overloaded by an isolated module (the runtime
+            // would reject the shadowing after the module's earlier
+            // statements had already run).
+            if self.outer_actions.contains(name) {
+                self.errors.push(SemanticError::new(
+                    format!(
+                        "Action '{name}' has already been defined in an outer scope. \
+                         A file run with 'load module' cannot redefine or overload an action \
+                         from the file that loaded it; use a different name."
+                    ),
+                    *line,
+                    *column,
+                ));
+                return;
+            }
 
             // Same-scope redefinition of an existing action is the overload
             // path: accumulate the signature instead of erroring, unless the

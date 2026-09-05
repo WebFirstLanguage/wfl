@@ -1,0 +1,5 @@
+// Shared leaf of the include diamond documented in
+// Docs/04-advanced-features/modules.md ("Including the same file more than once").
+define action called shout with parameters msg:
+    give back msg with "!"
+end action

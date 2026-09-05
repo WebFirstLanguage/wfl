@@ -1,0 +1,16 @@
+// Diamond include: `auth.wfl` and `render.wfl` both `include from "util.wfl"`.
+// The second arrival at `util.wfl` must be a no-op (its definitions are
+// already in this scope), not an "already defined" failure, and both
+// branches must be able to call the shared action.
+include from "../../tests/fixtures/modules/diamond/auth.wfl"
+include from "../../tests/fixtures/modules/diamond/render.wfl"
+
+describe "diamond include":
+    test "both branches see the shared action":
+        expect auth_check of "alice" to equal "alice!"
+        expect render_page of "home" to equal "home!"
+    end test
+    test "the shared file ran exactly once":
+        expect util_loads to equal 1
+    end test
+end describe
