@@ -49,3 +49,9 @@ local declarations can shadow the defaults without modifying the enclosing
 scope. Explicitly stored aliases remain user bindings, and existing constant
 and action collision rules remain enforced. User actions also retain their own
 arity checks when their names match the new helpers.
+
+The same audit retained the two existing call forms for user overloads and
+stored action aliases. Test-only revision `90d4638e` reproduces incorrect
+native-contract diagnostics in both paths, with fourteen passing controls.
+The analyzer and type checker now consult the existing user signatures and
+alias snapshots for these new names; unshadowed natives keep their contracts.

@@ -8188,7 +8188,8 @@ impl TypeChecker {
                     // through the signature list. This also gives a
                     // forward-referenced single action its provisional
                     // Unknown return without inventing a missing-type error.
-                    if !builtins::is_implemented_builtin_function(callee)
+                    if (!builtins::is_implemented_builtin_function(callee)
+                        || builtins::is_explicit_call_builtin_name(callee))
                         && let Some(signatures) = self.action_signatures(callee)
                     {
                         return self.infer_overloaded_call_type(

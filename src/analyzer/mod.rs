@@ -5242,10 +5242,13 @@ impl Analyzer {
                     self.analyze_expression(&arg.value);
                 }
 
-                // Implemented natives validate in the type checker. Reserved
-                // future names also defer there only when no real user symbol
-                // shadows the reservation.
-                if crate::builtins::is_implemented_builtin_function(name)
+                // Implemented natives validate in the type checker. New
+                // defaults must first honor a visible user action or alias so
+                // its resolution reaches the type checker. Reserved future
+                // names defer only when no user symbol shadows them.
+                let shadows_new_default = crate::builtins::is_explicit_call_builtin_name(name)
+                    && self.current_scope.resolve(name).is_some();
+                if (crate::builtins::is_implemented_builtin_function(name) && !shadows_new_default)
                     || (Self::is_builtin_function(name)
                         && self.current_scope.resolve(name).is_none())
                 {

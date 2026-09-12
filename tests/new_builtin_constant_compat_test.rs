@@ -232,6 +232,14 @@ fn unshadowed_and_self_aliased_new_natives_keep_arity_checks() {
     }
 }
 
+#[test]
+fn local_user_action_named_after_a_new_builtin_uses_its_own_contract() {
+    let source = "define action called local_runner:\n    define action called session_create with parameters label:\n        return \"local:\" with label\n    end action\n    return (session_create of \"first\") with (call session_create with \"second\")\nend action\ndisplay call local_runner\n";
+    let (output, status) = common::run_src(source);
+    assert_eq!(status, Some(0), "{output}");
+    assert_eq!(output.trim(), "local:firstlocal:second");
+}
+
 #[tokio::test]
 async fn action_local_user_actions_shadow_inherited_defaults_and_keep_overloads() {
     let mut failures = Vec::new();
