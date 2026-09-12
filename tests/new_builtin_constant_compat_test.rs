@@ -71,7 +71,7 @@ fn inherited_default_native_can_be_shadowed_without_mutating_its_owner() {
         for isolated in [false, true] {
             let interpreter = Interpreter::new();
             let global = interpreter.global_env();
-            let outer = Environment::new(&global);
+            let outer = Environment::new(global);
             let child = if isolated {
                 Environment::new_isolated_child_env(&outer)
             } else {
@@ -155,7 +155,7 @@ fn explicitly_stored_native_aliases_are_user_bindings_not_default_fallbacks() {
                 .declare_variable(name, text("replacement"), true)
                 .is_err()
         );
-        let child = Environment::new(&global);
+        let child = Environment::new(global);
         assert!(
             child
                 .borrow_mut()
@@ -381,7 +381,7 @@ fn every_user_write_consumes_default_native_provenance() {
                 "define" => global.borrow_mut().define(name, alias).unwrap(),
                 "define_direct" => global.borrow_mut().define_direct(name, alias).unwrap(),
                 "assign" => global.borrow_mut().assign(name, alias).unwrap(),
-                "parent_assign" => Environment::new(&global)
+                "parent_assign" => Environment::new(global)
                     .borrow_mut()
                     .assign(name, alias)
                     .unwrap(),
@@ -400,7 +400,7 @@ fn every_user_write_consumes_default_native_provenance() {
                     .is_err(),
                 "{write} must consume the default marker for {name}"
             );
-            let child = Environment::new(&global);
+            let child = Environment::new(global);
             assert!(
                 child
                     .borrow_mut()
@@ -462,7 +462,7 @@ fn clearing_a_scope_cannot_revive_default_provenance_for_a_user_alias() {
 fn local_scalar_declarations_leave_native_calls_in_other_scopes_intact() {
     let interpreter = Interpreter::new();
     let global = interpreter.global_env();
-    let child = Environment::new(&global);
+    let child = Environment::new(global);
     child
         .borrow_mut()
         .declare_variable("session_cookie", text("local"), false)
@@ -471,7 +471,7 @@ fn local_scalar_declarations_leave_native_calls_in_other_scopes_intact() {
         child.borrow().get_local("session_cookie"),
         Some(text("local"))
     );
-    let isolated = Environment::new_isolated_child_env(&global);
+    let isolated = Environment::new_isolated_child_env(global);
     let Value::NativeFunction(_, native) = isolated.borrow().get("session_cookie").unwrap() else {
         panic!("isolated lookup must keep the unshadowed native callable")
     };
@@ -502,7 +502,7 @@ async fn legacy_native_declaration_rules_are_unchanged() {
                 .define_or_merge_action(name, Rc::clone(&action))
                 .is_err()
         );
-        let child = Environment::new(&global);
+        let child = Environment::new(global);
         assert!(
             child
                 .borrow_mut()
