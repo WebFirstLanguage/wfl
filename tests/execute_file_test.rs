@@ -318,6 +318,91 @@ async fn test_execute_file_rejects_malformed_request_context() {
     );
 }
 
+async fn execute_request_with_auth_ambiguity(
+    ambiguity: Option<Value>,
+    page: &str,
+) -> (
+    Result<Value, Vec<wfl::interpreter::error::RuntimeError>>,
+    Interpreter,
+) {
+    let directory = TempDir::new().expect("create request projection fixture");
+    fs::write(directory.path().join("page.wfl"), page).expect("write projection page");
+    let mut properties = HashMap::from([
+        ("method".to_string(), Value::Text("POST".into())),
+        ("path".to_string(), Value::Text("/protected".into())),
+        ("query".to_string(), Value::Text("".into())),
+        ("client_ip".to_string(), Value::Text("127.0.0.1".into())),
+        ("body".to_string(), Value::Text("".into())),
+        (
+            "headers".to_string(),
+            Value::Object(std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()))),
+        ),
+    ]);
+    if let Some(ambiguity) = ambiguity {
+        properties.insert("ambiguous_auth_headers".to_string(), ambiguity);
+    }
+    let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(directory.path().join("main.wfl"));
+    interpreter
+        .global_env()
+        .borrow_mut()
+        .define(
+            "request_context",
+            Value::Object(std::rc::Rc::new(std::cell::RefCell::new(properties))),
+        )
+        .expect("seed caller request context");
+    let program = parse_program(
+        r#"execute file at "page.wfl" with request_context and read output as page_output"#,
+    )
+    .expect("parse request delegation");
+    let result = interpreter.interpret(&program).await;
+    (result, interpreter)
+}
+
+#[tokio::test]
+async fn execute_file_projects_auth_ambiguity_and_accepts_legacy_contexts() {
+    for (ambiguity, expected) in [
+        (None, "false\n127.0.0.1\n"),
+        (Some(Value::Bool(false)), "false\n127.0.0.1\n"),
+        (Some(Value::Bool(true)), "true\n127.0.0.1\n"),
+    ] {
+        let (result, interpreter) = execute_request_with_auth_ambiguity(
+            ambiguity,
+            "display ambiguous_auth_headers\ndisplay originating_ip\n",
+        )
+        .await;
+        result.expect("legacy and boolean request metadata must execute");
+        assert_eq!(get_global_text(&interpreter, "page_output"), expected);
+    }
+}
+
+#[tokio::test]
+async fn execute_file_rejects_malformed_auth_ambiguity_before_running_child() {
+    for ambiguity in [
+        Value::Text("false".into()),
+        Value::Nothing,
+        Value::Number(0.0),
+    ] {
+        let (result, interpreter) =
+            execute_request_with_auth_ambiguity(Some(ambiguity), "display \"must not execute\"\n")
+                .await;
+        let errors = result.expect_err("nonboolean security metadata must be rejected");
+        assert!(
+            errors.iter().any(|error| error
+                .message
+                .contains("'ambiguous_auth_headers' must be a boolean")),
+            "projection error must identify malformed security metadata: {errors:?}"
+        );
+        assert!(
+            interpreter
+                .global_env()
+                .borrow()
+                .get("page_output")
+                .is_none()
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------

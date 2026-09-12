@@ -17,6 +17,10 @@ struct AuthServer {
 
 impl AuthServer {
     async fn start(body: &str) -> Self {
+        Self::start_with_files(body, &[]).await
+    }
+
+    async fn start_with_files(body: &str, files: &[(&str, &str)]) -> Self {
         let port = std::net::TcpListener::bind("127.0.0.1:0")
             .expect("reserve an ephemeral port")
             .local_addr()
@@ -28,6 +32,9 @@ impl AuthServer {
             .parse()
             .unwrap_or_else(|errors| panic!("HTTP fixture must parse: {errors:?}"));
         let dir = tempfile::tempdir().expect("create isolated server directory");
+        for (name, contents) in files {
+            std::fs::write(dir.path().join(name), contents).expect("write delegated WFL fixture");
+        }
         std::fs::write(dir.path().join("server.wfl"), code).expect("write server fixture");
         std::fs::write(
             dir.path().join(".wflcfg"),
@@ -95,6 +102,98 @@ impl AuthServer {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
+}
+
+#[tokio::test]
+async fn execute_file_preserves_transport_ambiguity_for_csrf_guard() {
+    // An executed page reconstructs context from its injected variables. Its
+    // legacy fallback makes dropped transport metadata observable as a guard
+    // bypass, rather than merely failing because a new variable is undefined.
+    let page = r#"
+store projected_ambiguity as no
+try:
+    change projected_ambiguity to ambiguous_auth_headers
+when error:
+    change projected_ambiguity to no
+end try
+create map projected_request:
+    "method" is method
+    "headers" is headers
+    "ambiguous_auth_headers" is projected_ambiguity
+end map
+store projected_json as stringify_json of projected_request
+display projected_json
+"#;
+    let application = AUTH_APPLICATION.replace(
+        "store guarded as session_csrf_guard of sessions and req",
+        r#"execute wfl file at "request_context.wfl" with req and read output as projected_text
+    store projected_req as parse_json of projected_text
+    store guarded as session_csrf_guard of sessions and projected_req"#,
+    );
+    let mut server =
+        AuthServer::start_with_files(&application, &[("request_context.wfl", page)]).await;
+    let client = client();
+    let alice = issue(&client, &server, "alice").await;
+    let protected = format!("{}/protected", server.base_url);
+
+    let ordinary = alice
+        .request(&client, &server, "/protected")
+        .send()
+        .await
+        .expect("normal credentials survive execute-file delegation");
+    assert_eq!(ordinary.status(), reqwest::StatusCode::OK);
+    assert_eq!(ordinary.text().await.unwrap(), "authorized");
+
+    for duplicate in ["Cookie", "x-csrf-token"] {
+        let duplicated_value = if duplicate == "Cookie" {
+            &alice.cookie
+        } else {
+            &alice.csrf
+        };
+        let response = alice
+            .request(&client, &server, "/protected")
+            .header(duplicate, duplicated_value)
+            .send()
+            .await
+            .expect("duplicate physical header response");
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::FORBIDDEN,
+            "execute file must retain the transport's duplicate {duplicate} denial"
+        );
+        assert_eq!(response.text().await.unwrap(), "denied");
+    }
+
+    let mut stream =
+        tokio::net::TcpStream::connect(server.base_url.strip_prefix("http://").expect("HTTP URL"))
+            .await
+            .expect("connect for invalid header encoding");
+    let mut request = format!(
+        "POST /protected HTTP/1.1\r\nHost: localhost\r\nCookie: {}\r\nx-csrf-token: {}\r\nContent-Length: 0\r\nConnection: close\r\nX-Client-Metadata: ",
+        alice.cookie, alice.csrf
+    )
+    .into_bytes();
+    request.extend_from_slice(b"\xff\r\n\r\n");
+    stream
+        .write_all(&request)
+        .await
+        .expect("send obs-text header");
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut response))
+        .await
+        .expect("delegated guard response deadline")
+        .expect("read delegated guard response");
+    assert!(response.starts_with(b"HTTP/1.1 403"));
+    assert!(response.ends_with(b"denied"));
+
+    // A failed delegated request must not poison the next handler or session.
+    let recovered = alice
+        .request(&client, &server, "/protected")
+        .send()
+        .await
+        .expect("valid request after delegated denials");
+    assert_eq!(recovered.status(), reqwest::StatusCode::OK);
+    shutdown(&client, &mut server).await;
 }
 
 impl Drop for AuthServer {
