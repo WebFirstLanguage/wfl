@@ -4,12 +4,14 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-/// Complete list of all builtin function names recognized by WFL.
+/// Frozen inventory for the legacy `<builtin> with arguments` grammar.
+/// New functions belong in [`EXPLICIT_CALL_BUILTIN_FUNCTIONS`], so registering
+/// them cannot reinterpret an existing variable's `with` concatenation.
 /// This list includes:
 /// 1. Functions actually implemented in stdlib modules
 /// 2. Names reserved by the parser/analyzer for clear diagnostics and future compatibility
 /// 3. Special test functions used in test programs
-const BUILTIN_FUNCTIONS: &[&str] = &[
+const LEGACY_BUILTIN_FUNCTIONS: &[&str] = &[
     // Core functions (implemented in stdlib/core.rs)
     "print",
     "typeof",
@@ -44,19 +46,6 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "secure_random_bytes",
     // Password hashing (implemented in stdlib/crypto.rs)
     "hash_password",
-    "password_hash_policy",
-    "hash_password_with_policy",
-    "password_needs_rehash",
-    "create_session_store",
-    "session_create",
-    "session_lookup",
-    "session_rotate",
-    "session_revoke",
-    "session_revoke_account",
-    "session_csrf_guard",
-    "session_cookie",
-    "create_account_rate_limiter",
-    "account_rate_limit_allow",
     "verify_password",
     "argon2_hash",
     "argon2_verify",
@@ -262,9 +251,27 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "nested_function",
 ];
 
+/// Builtins called with `name of arguments` or `call name with arguments`.
+/// This inventory can grow without changing the legacy expression grammar.
+const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
+    "password_hash_policy",
+    "hash_password_with_policy",
+    "password_needs_rehash",
+    "create_session_store",
+    "session_create",
+    "session_lookup",
+    "session_rotate",
+    "session_revoke",
+    "session_revoke_account",
+    "session_csrf_guard",
+    "session_cookie",
+    "create_account_rate_limiter",
+    "account_rate_limit_allow",
+];
+
 /// Native functions actually installed by [`crate::stdlib::register_stdlib`].
 ///
-/// Keep this inventory distinct from [`BUILTIN_FUNCTIONS`]: the latter also
+/// Keep this inventory distinct from [`builtin_functions`]: the latter also
 /// reserves future names so the parser can recognize their call syntax. Static
 /// checking must only assign callable contracts to names in this runtime list.
 const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
@@ -464,11 +471,12 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
 
 /// Cached HashSet for O(1) lookup performance
 static BUILTIN_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+static LEGACY_BUILTIN_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 static IMPLEMENTED_BUILTIN_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
 /// Initialize the builtin function set
 fn get_builtin_set() -> &'static HashSet<&'static str> {
-    BUILTIN_SET.get_or_init(|| BUILTIN_FUNCTIONS.iter().copied().collect())
+    BUILTIN_SET.get_or_init(|| builtin_functions().collect())
 }
 
 /// Check if a function name is a builtin
@@ -476,9 +484,22 @@ pub fn is_builtin_function(name: &str) -> bool {
     get_builtin_set().contains(name)
 }
 
+/// Whether a name retains the original implicit `<name> with arguments` form.
+/// `count` remains a concatenation operand because it is also the implicit
+/// count-loop variable; call the list builtin with `count of ...` instead.
+pub fn is_legacy_builtin_with_name(name: &str) -> bool {
+    name != "count"
+        && LEGACY_BUILTIN_SET
+            .get_or_init(|| LEGACY_BUILTIN_FUNCTIONS.iter().copied().collect())
+            .contains(name)
+}
+
 /// Get an iterator over all builtin function names
 pub fn builtin_functions() -> impl Iterator<Item = &'static str> {
-    BUILTIN_FUNCTIONS.iter().copied()
+    LEGACY_BUILTIN_FUNCTIONS
+        .iter()
+        .chain(EXPLICIT_CALL_BUILTIN_FUNCTIONS)
+        .copied()
 }
 
 /// Check whether a recognized builtin name has a native runtime implementation.
@@ -734,7 +755,7 @@ mod tests {
         let set = get_builtin_set();
         assert_eq!(
             set.len(),
-            BUILTIN_FUNCTIONS.len(),
+            LEGACY_BUILTIN_FUNCTIONS.len() + EXPLICIT_CALL_BUILTIN_FUNCTIONS.len(),
             "Duplicate builtin function names detected"
         );
 
@@ -806,7 +827,7 @@ mod tests {
     fn test_all_builtins_have_arity_definition() {
         // Ensure all builtin functions have arity definitions
         // This prevents regression where new functions are added but arity is not defined
-        for function_name in BUILTIN_FUNCTIONS {
+        for function_name in builtin_functions() {
             let arity = get_function_arity(function_name);
             // Just verify it doesn't panic and returns a reasonable value
             assert!(

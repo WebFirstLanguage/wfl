@@ -5,6 +5,10 @@ and revocation, a request CSRF guard, secure session cookies, and an account
 attempt limiter. They are built in; no import is needed. Password verification
 uses the [crypto module](crypto-module.md#password-hashing).
 
+Invoke these helpers with `of`, as in `session_cookie of token`, or with an
+explicit call, `call session_cookie with token`. Bare `session_cookie with
+suffix` keeps the ordinary concatenation grammar for existing variables.
+
 Create each store once before your request loop and pass its handle to actions
 that need it. Handles share state across concurrent handlers and isolated
 modules. They cannot be constructed from text, inspected as objects, or

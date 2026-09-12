@@ -186,6 +186,10 @@ manage cost upgrades can create an explicit policy:
 | `hash_password_with_policy` | Password, policy | Salted Argon2id PHC string |
 | `password_needs_rehash` | Stored hash, policy | Boolean; invalid metadata or conflicting upgrades raise an error |
 
+Invoke these three helpers with `of`, or with `call name with arguments`.
+Their names do not extend the legacy bare `name with arguments` call grammar,
+so existing variables using these names retain ordinary concatenation.
+
 The policy always uses Argon2id version 19, a fresh 16-byte salt, and a 32-byte
 digest. All three numeric arguments must be finite whole numbers:
 

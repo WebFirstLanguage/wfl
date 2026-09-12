@@ -443,14 +443,15 @@ impl<'a> Parser<'a> {
                 Token::KeywordWith => {
                     // With the introduction of 'call' keyword, we still support
                     // legacy syntax for builtin functions: `builtinName with args`
-                    // For user-defined actions, require `call actionName with args`
+                    // New builtins and user-defined actions use `of` or explicit
+                    // `call ... with ...`, preserving existing concatenations.
                     if let Expression::Variable(ref name, var_line, var_column) = left {
                         // Check if this is a builtin function. `count` is
                         // excluded: it is the implicit count-loop variable and
                         // the documented idiom `display "..." with count with
                         // "..."` is concatenation, not a call to the list
                         // builtin (use `count of <list> and <value>` for that).
-                        if name != "count" && crate::builtins::is_builtin_function(name) {
+                        if crate::builtins::is_legacy_builtin_with_name(name) {
                             // Builtin function - keep legacy syntax
                             self.bump_sync(); // Consume "with"
                             let arguments = if stop_at_clause {
