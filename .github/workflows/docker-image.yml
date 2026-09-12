@@ -1,0 +1,108 @@
+name: Docker Runtime Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/docker-image.yml'
+      - '.github/workflows/nightly.yml'
+      - '.github/workflows/ci.yml'
+      - 'scripts/docker/**'
+      - 'tests/fixtures/docker-runtime/**'
+      - 'tests/tooling/test_docker*.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'src/**'
+      - 'wfl-lsp/Cargo.toml'
+      - '.wflcfg'
+      - 'LICENSE'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/docker-image.yml'
+      - '.github/workflows/nightly.yml'
+      - '.github/workflows/ci.yml'
+      - 'scripts/docker/**'
+      - 'tests/fixtures/docker-runtime/**'
+      - 'tests/tooling/test_docker*.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'src/**'
+      - 'wfl-lsp/Cargo.toml'
+      - '.wflcfg'
+      - 'LICENSE'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-runtime-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and test the consumer Docker image
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_RELEASE_DEBUG: false
+      CC_x86_64_unknown_linux_musl: musl-gcc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test publication policy against the local registry fixture
+        run: python -m unittest discover -s tests/tooling -p 'test_docker*.py' -v
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools musl-dev cmake clang
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: x86_64-unknown-linux-musl
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the WFL runtime
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl --bin wfl
+      - name: Stage the image and verify static linking
+        id: version
+        run: |
+          set -euo pipefail
+          BIN=target/x86_64-unknown-linux-musl/release/wfl
+          if readelf -l "$BIN" | grep -q 'Requesting program interpreter'; then
+            echo '::error::The Docker runtime must be statically linked'
+            exit 1
+          fi
+          mkdir -p target/docker-context
+          cp "$BIN" target/docker-context/wfl
+          strip target/docker-context/wfl
+          cp LICENSE .wflcfg target/docker-context/
+          echo "version=$(python scripts/docker/publish.py version --repo .)" >> "$GITHUB_OUTPUT"
+      - uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: scripts/docker/Dockerfile
+      - uses: useblacksmith/build-push-action@v2
+        with:
+          context: target/docker-context
+          file: scripts/docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: wfl-runtime-validation:${{ github.sha }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            REVISION=${{ github.sha }}
+      - name: Prove other projects can run their test scripts
+        env:
+          IMAGE: wfl-runtime-validation:${{ github.sha }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python scripts/docker/smoke_test.py "$IMAGE" --version "$VERSION"
