@@ -58,6 +58,8 @@ class Peer:
         self.repo_status = 200
         self.repo_body = {"namespace": USERNAME, "name": "wfl"}
         self.page_size = 100
+        self.reported_count = None
+        self.page_counts = {}
         self.next_override = None
         self.fail_command = None
         self.version_output = f"WebFirst Language (WFL) version {VERSION}\n"
@@ -150,8 +152,9 @@ class Peer:
                     )
                     if peer.next_override is not None:
                         next_page = peer.next_override
+                    count = len(ordered) if peer.reported_count is None else peer.reported_count
                     self.send_data(200, {
-                        "count": len(ordered),
+                        "count": peer.page_counts.get(page, count),
                         "next": next_page,
                         "results": ordered[offset:offset + peer.page_size],
                     })
@@ -388,6 +391,36 @@ class PublisherTests(unittest.TestCase):
             with self.assertRaises(self.publisher.PublishError):
                 self.publisher.plan(self.hub(peer), VERSION)
 
+    def test_stale_zero_count_allows_first_publication_and_staged_recovery(self):
+        for staged in (False, True):
+            with self.subTest(staged=staged), Peer() as peer:
+                peer.reported_count = 0
+                if staged:
+                    peer.tags[f"nightly-{VERSION}"] = tag(f"nightly-{VERSION}", DIGEST)
+                result = self.publish(peer, candidate=None if staged else "wfl-nightly-candidate:test")
+                self.assertEqual("published", result["action"])
+                self.assertEqual(DIGEST, peer.tags["nightly"]["digest"])
+                self.assertEqual(DIGEST, peer.tags[f"nightly-{VERSION}"]["digest"])
+                pushes = [item["args"][1] for item in peer.commands if item["args"][0] == "push"]
+                expected = [IMAGE + ":nightly"] if staged else [
+                    IMAGE + ":nightly-" + VERSION, IMAGE + ":nightly",
+                ]
+                self.assertEqual(expected, pushes)
+
+    def test_stale_zero_count_allows_changed_version_and_unchanged_cleanup(self):
+        for current in (OLD, VERSION):
+            with self.subTest(current=current), Peer() as peer:
+                peer.published(current, OLD_DIGEST if current == OLD else DIGEST)
+                peer.tags[f"nightly-{OLD}"] = tag(f"nightly-{OLD}", OLD_DIGEST)
+                peer.tags["stable"] = tag("stable", OLD_DIGEST)
+                peer.reported_count = 0
+                result = self.publish(peer, candidate=None if current == VERSION else "wfl-nightly-candidate:test")
+                self.assertEqual("unchanged" if current == VERSION else "published", result["action"])
+                self.assertEqual([f"nightly-{OLD}"], peer.deleted)
+                self.assertEqual({"nightly", f"nightly-{VERSION}", "stable"}, set(peer.tags))
+                if current == VERSION:
+                    self.assertFalse(peer.commands)
+
     def test_repository_identity_mismatch_fails_closed(self):
         with Peer() as peer:
             peer.repo_body = {"namespace": "someoneelse", "name": "wfl"}
@@ -501,6 +534,8 @@ class PublisherTests(unittest.TestCase):
     def test_pagination_cannot_send_bearer_to_another_origin_or_endpoint(self):
         for next_url in ("https://example.com/steal", "http://127.0.0.1:1/steal"):
             with self.subTest(next_url=next_url), Peer() as peer:
+                peer.reported_count = 0
+                peer.tags["stable"] = tag("stable", DIGEST)
                 peer.next_override = next_url
                 with self.assertRaises(self.publisher.PublishError):
                     self.publisher.plan(self.hub(peer), VERSION)
@@ -508,10 +543,59 @@ class PublisherTests(unittest.TestCase):
 
     def test_pagination_loop_fails_instead_of_running_forever(self):
         with Peer() as peer:
+            peer.reported_count = 0
+            peer.tags["stable"] = tag("stable", DIGEST)
             peer.next_override = peer.origin + TAGS_PATH + "?page=1&page_size=100"
             with self.assertRaises(self.publisher.PublishError):
                 self.publisher.plan(self.hub(peer), VERSION)
             self.assertLess(len(peer.requests), 10)
+
+    def test_stale_count_follows_all_pages_and_rejects_changing_counts(self):
+        with Peer() as peer:
+            peer.tags = {f"release-{index}": tag(f"release-{index}", DIGEST) for index in range(101)}
+            peer.reported_count = 0
+            self.assertEqual(set(peer.tags), set(self.hub(peer).list_tags()))
+            peer.page_counts = {1: 0, 2: 1}
+            with self.assertRaises(self.publisher.PublishError):
+                self.hub(peer).list_tags()
+            self.assert_no_mutation(peer)
+
+    def test_overstated_or_malformed_counts_still_fail_closed(self):
+        for count in (2, -1, True, "0", None, 10001):
+            with self.subTest(count=count), Peer() as peer:
+                peer.overrides[("GET", TAGS_PATH)] = (200, {
+                    "count": count, "next": None, "results": [tag("stable", DIGEST)],
+                }, {})
+                with self.assertRaises(self.publisher.PublishError):
+                    self.hub(peer).list_tags()
+                self.assert_no_mutation(peer)
+
+    def test_full_terminal_page_with_undercount_is_ambiguous(self):
+        with Peer() as peer:
+            peer.tags = {f"release-{index}": tag(f"release-{index}", DIGEST) for index in range(100)}
+            self.assertEqual(100, len(self.hub(peer).list_tags()))
+            peer.reported_count = 0
+            with self.assertRaises(self.publisher.PublishError):
+                self.hub(peer).list_tags()
+            self.assert_no_mutation(peer)
+
+    def test_oversized_actual_page_is_rejected_even_when_count_agrees(self):
+        with Peer() as peer:
+            peer.tags = {f"release-{index}": tag(f"release-{index}", DIGEST) for index in range(101)}
+            peer.page_size = 101
+            with self.assertRaises(self.publisher.PublishError):
+                self.hub(peer).list_tags()
+            self.assert_no_mutation(peer)
+
+    def test_duplicate_records_are_rejected_despite_stale_count(self):
+        with Peer() as peer:
+            peer.overrides[("GET", TAGS_PATH)] = (200, {
+                "count": 0, "next": None,
+                "results": [tag("stable", DIGEST), tag("stable", DIGEST)],
+            }, {})
+            with self.assertRaises(self.publisher.PublishError):
+                self.hub(peer).list_tags()
+            self.assert_no_mutation(peer)
 
     def test_destination_and_loopback_overrides_require_explicit_safe_scope(self):
         for image in ("evil.example/wfl", "bsbyrdwfl/wfl:nightly", "other/wfl", "bsbyrdwfl/../wfl"):
@@ -705,6 +789,25 @@ class PublisherTests(unittest.TestCase):
             self.publish(peer, candidate=None)
             self.assertEqual({"nightly", f"nightly-{VERSION}", "user-image"}, set(peer.tags))
             self.assertEqual(3, len(peer.deleted))
+
+    def test_cleanup_listing_must_include_both_current_tags_with_expected_digest(self):
+        for name in ("nightly", f"nightly-{VERSION}"):
+            for corrupt in ("missing", "wrong digest"):
+                with self.subTest(name=name, corrupt=corrupt), Peer() as peer:
+                    peer.published(VERSION, DIGEST)
+                    peer.tags[f"nightly-{OLD}"] = tag(f"nightly-{OLD}", OLD_DIGEST)
+                    listed = dict(peer.tags)
+                    if corrupt == "missing":
+                        del listed[name]
+                    else:
+                        listed[name] = tag(name, OTHER_DIGEST)
+                    peer.overrides[("GET", TAGS_PATH)] = (200, {
+                        "count": len(listed), "next": None, "results": list(listed.values()),
+                    }, {})
+                    with self.assertRaises(self.publisher.PublishError):
+                        self.publisher.cleanup(self.hub(peer), VERSION, DIGEST)
+                    self.assertFalse(peer.deleted)
+                    self.assertEqual(DIGEST, peer.tags["nightly"]["digest"])
 
     def test_delete_allowlist_rejects_rolling_unrelated_and_malformed_tags(self):
         with Peer() as peer:
