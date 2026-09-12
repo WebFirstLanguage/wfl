@@ -189,6 +189,8 @@ manage cost upgrades can create an explicit policy:
 Invoke these three helpers with `of`, or with `call name with arguments`.
 Their names do not extend the legacy bare `name with arguments` call grammar,
 so existing variables using these names retain ordinary concatenation.
+Existing variables, constants, and user actions can also declare these names
+and take precedence over the default helpers in their scope.
 
 The policy always uses Argon2id version 19, a fresh 16-byte salt, and a 32-byte
 digest. All three numeric arguments must be finite whole numbers:

@@ -7693,13 +7693,25 @@ impl TypeChecker {
     }
 
     /// Whether this call site resolves to the standard-library native rather
-    /// than a stored callable or a user action using a future-reserved name.
+    /// than a stored callable or a user action using an explicit-call or
+    /// future-reserved name.
     fn should_use_builtin_contract(&self, name: &str, line: usize, column: usize) -> bool {
         if !Analyzer::is_builtin_function(name)
             || self
                 .analyzer
                 .alias_call_resolution(name, line, column)
                 .is_some()
+        {
+            return false;
+        }
+        // New native defaults may be replaced by source action definitions.
+        // Their signatures belong to the program analyzer; native contracts
+        // live separately in `builtin_contracts`. Preserve legacy names' rules.
+        if builtins::is_explicit_call_builtin_name(name)
+            && self
+                .analyzer
+                .get_symbol(name)
+                .is_some_and(|symbol| matches!(symbol.kind, SymbolKind::Function { .. }))
         {
             return false;
         }

@@ -260,3 +260,165 @@ async fn user_action_redeclarations_keep_existing_collision_rules() {
         );
     }
 }
+
+#[test]
+fn every_user_write_consumes_default_native_provenance() {
+    for name in NEW_BUILTINS {
+        for write in [
+            "declare",
+            "define",
+            "define_direct",
+            "assign",
+            "parent_assign",
+            "replace",
+            "constant",
+            "constant_direct",
+        ] {
+            let interpreter = Interpreter::new();
+            let global = interpreter.global_env();
+            let alias = global.borrow().get(name).unwrap();
+            match write {
+                "declare" => global
+                    .borrow_mut()
+                    .declare_variable(name, alias, false)
+                    .unwrap(),
+                "define" => global.borrow_mut().define(name, alias).unwrap(),
+                "define_direct" => global.borrow_mut().define_direct(name, alias).unwrap(),
+                "assign" => global.borrow_mut().assign(name, alias).unwrap(),
+                "parent_assign" => Environment::new(&global)
+                    .borrow_mut()
+                    .assign(name, alias)
+                    .unwrap(),
+                "replace" => global.borrow_mut().define_or_replace(name, alias),
+                "constant" => global.borrow_mut().define_constant(name, alias).unwrap(),
+                "constant_direct" => global
+                    .borrow_mut()
+                    .define_constant_direct(name, alias)
+                    .unwrap(),
+                _ => unreachable!(),
+            }
+            assert!(
+                global
+                    .borrow_mut()
+                    .declare_variable(name, text("replacement"), true)
+                    .is_err(),
+                "{write} must consume the default marker for {name}"
+            );
+            let child = Environment::new(&global);
+            assert!(
+                child
+                    .borrow_mut()
+                    .define_constant(name, text("replacement"))
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn temporary_bindings_restore_the_original_default_or_user_provenance() {
+    for name in NEW_BUILTINS {
+        for user_claimed in [false, true] {
+            let interpreter = Interpreter::new();
+            let global = interpreter.global_env();
+            if user_claimed {
+                let alias = global.borrow().get(name).unwrap();
+                global
+                    .borrow_mut()
+                    .declare_variable(name, alias, false)
+                    .unwrap();
+            }
+            let saved = global.borrow_mut().take_local_binding(name);
+            global
+                .borrow_mut()
+                .define_or_replace(name, text("temporary"));
+            global.borrow_mut().restore_local_binding(name, saved);
+            assert!(matches!(
+                global.borrow().get(name),
+                Some(Value::NativeFunction(_, _))
+            ));
+            let result = global
+                .borrow_mut()
+                .declare_variable(name, text("constant"), true);
+            assert_eq!(result.is_err(), user_claimed, "{name}: {result:?}");
+        }
+    }
+}
+
+#[test]
+fn clearing_a_scope_cannot_revive_default_provenance_for_a_user_alias() {
+    for name in NEW_BUILTINS {
+        let interpreter = Interpreter::new();
+        let global = interpreter.global_env();
+        let alias = global.borrow().get(name).unwrap();
+        global.borrow_mut().clear();
+        global.borrow_mut().define_direct(name, alias).unwrap();
+        assert!(
+            global
+                .borrow_mut()
+                .declare_variable(name, text("replacement"), true)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn local_scalar_declarations_leave_native_calls_in_other_scopes_intact() {
+    let interpreter = Interpreter::new();
+    let global = interpreter.global_env();
+    let child = Environment::new(&global);
+    child
+        .borrow_mut()
+        .declare_variable("session_cookie", text("local"), false)
+        .unwrap();
+    assert_eq!(
+        child.borrow().get_local("session_cookie"),
+        Some(text("local"))
+    );
+    let isolated = Environment::new_isolated_child_env(&global);
+    let Value::NativeFunction(_, native) = isolated.borrow().get("session_cookie").unwrap() else {
+        panic!("isolated lookup must keep the unshadowed native callable")
+    };
+    let token = "a".repeat(64);
+    assert_eq!(
+        native(vec![text(&token)]).unwrap(),
+        text(&format!(
+            "__Host-wfl_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict"
+        ))
+    );
+}
+
+#[tokio::test]
+async fn legacy_native_declaration_rules_are_unchanged() {
+    let action = sample_action().await;
+    for name in ["abs", "count", "hash_password"] {
+        let interpreter = Interpreter::new();
+        let global = interpreter.global_env();
+        assert!(
+            global
+                .borrow_mut()
+                .declare_variable(name, text("constant"), true)
+                .is_err()
+        );
+        assert!(
+            global
+                .borrow_mut()
+                .define_or_merge_action(name, Rc::clone(&action))
+                .is_err()
+        );
+        let child = Environment::new(&global);
+        assert!(
+            child
+                .borrow_mut()
+                .declare_variable(name, text("constant"), true)
+                .is_err()
+        );
+        // Existing mutable stores keep their historical ancestor-assignment behavior.
+        child
+            .borrow_mut()
+            .declare_variable(name, text("assigned"), false)
+            .unwrap();
+        assert_eq!(global.borrow().get(name), Some(text("assigned")));
+        assert!(child.borrow().get_local(name).is_none());
+    }
+}

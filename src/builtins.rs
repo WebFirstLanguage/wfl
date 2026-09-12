@@ -494,6 +494,11 @@ pub fn is_legacy_builtin_with_name(name: &str) -> bool {
             .contains(name)
 }
 
+/// Whether a native name was added without reserving existing user declarations.
+pub fn is_explicit_call_builtin_name(name: &str) -> bool {
+    EXPLICIT_CALL_BUILTIN_FUNCTIONS.contains(&name)
+}
+
 /// Get an iterator over all builtin function names
 pub fn builtin_functions() -> impl Iterator<Item = &'static str> {
     LEGACY_BUILTIN_FUNCTIONS

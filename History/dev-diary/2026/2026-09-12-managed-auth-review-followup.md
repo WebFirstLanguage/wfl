@@ -39,3 +39,13 @@ file using fixed error categories and typed metadata; it never prints the
 transcript and does not change a failing gate into a pass. Synthetic tests
 verify redaction, malformed data, and input bounds. The account-side cause
 cannot be inferred from the masked job log alone.
+
+Follow-up on September 12: the compatibility audit also found that new default
+native bindings blocked existing constants and user actions with the same
+names. Test-only revision `06cb22a1` reproduces five failing cases, including
+execution through the real CLI, alongside three passing collision-protection
+controls. The fix distinguishes untouched new defaults from user bindings so
+local declarations can shadow the defaults without modifying the enclosing
+scope. Explicitly stored aliases remain user bindings, and existing constant
+and action collision rules remain enforced. User actions also retain their own
+arity checks when their names match the new helpers.
