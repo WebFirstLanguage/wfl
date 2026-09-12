@@ -1000,6 +1000,13 @@ impl Analyzer {
             } => {
                 self.analyze_expression(value);
 
+                // Resolve a self-alias before its new variable hides the
+                // implicit native: `store session_cookie as session_cookie`.
+                // An existing user symbol must never acquire native identity.
+                let captures_default_native = matches!(value, Expression::Variable(source, _, _) if source == name)
+                    && crate::builtins::is_explicit_call_builtin_name(name)
+                    && self.current_scope.resolve(name).is_none();
+
                 let symbol = Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Variable {
@@ -1030,7 +1037,17 @@ impl Analyzer {
                             if *is_constant && let Some(key) = self.get_symbol_binding_key(name) {
                                 self.constant_bindings.insert(key);
                             }
-                            self.update_action_alias(name, value)
+                            if captures_default_native {
+                                if let Some(key) = self.current_scope.resolve_binding_key(name) {
+                                    self.action_aliases.insert(
+                                        key.clone(),
+                                        AliasState::Builtin { name: name.clone() },
+                                    );
+                                    self.record_alias_mutation(key);
+                                }
+                            } else {
+                                self.update_action_alias(name, value);
+                            }
                         }
                     }
                 }

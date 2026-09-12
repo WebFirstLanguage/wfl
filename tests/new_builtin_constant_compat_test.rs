@@ -233,6 +233,42 @@ fn unshadowed_and_self_aliased_new_natives_keep_arity_checks() {
 }
 
 #[test]
+fn self_aliased_new_natives_execute_with_their_original_contracts() {
+    let token = "a".repeat(64);
+    for declaration in ["store", "store new constant"] {
+        let source = format!(
+            "{declaration} session_cookie as session_cookie\ndisplay session_cookie of \"{token}\"\ndisplay call session_cookie with \"{token}\"\n"
+        );
+        let (output, status) = common::run_src(&source);
+        let cookie =
+            format!("__Host-wfl_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict");
+        assert_eq!(status, Some(0), "{source}: {output}");
+        assert_eq!(output.trim(), format!("{cookie}\n{cookie}"));
+    }
+    let source = "store create_session_store as create_session_store\nstore session_create as session_create\nstore session_lookup as session_lookup\nstore sessions as create_session_store of 3600 and 900 and 10\nstore issued as call session_create with sessions and \"account\"\ndisplay session_lookup of sessions and issued[\"id\"]\n";
+    let (output, status) = common::run_src(source);
+    assert_eq!(status, Some(0), "{output}");
+    assert_eq!(output.trim(), "account");
+}
+
+#[test]
+fn scalar_self_assignment_cannot_invent_a_native_alias() {
+    let source = "store session_cookie as \"scalar\"\nchange session_cookie to session_cookie\nstore bad as call session_cookie with \"value\"\n";
+    let tokens = wfl::lexer::lex_wfl_with_positions(source);
+    let program = wfl::parser::Parser::new(&tokens).parse().unwrap();
+    let errors = wfl::typechecker::TypeChecker::new()
+        .check_types(&program)
+        .expect_err("copying a scalar binding must not turn it into a native")
+        .into_diagnostics();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("not an action")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn local_user_action_named_after_a_new_builtin_uses_its_own_contract() {
     let source = "define action called local_runner:\n    define action called session_create with parameters label:\n        return \"local:\" with label\n    end action\n    return (session_create of \"first\") with (call session_create with \"second\")\nend action\ndisplay call local_runner\n";
     let (output, status) = common::run_src(source);
