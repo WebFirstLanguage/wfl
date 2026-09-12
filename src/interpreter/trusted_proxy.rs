@@ -6,11 +6,15 @@ const MAX_CONFIG_BYTES: usize = 8192;
 const MAX_FORWARDED_BYTES: usize = 4096;
 const MAX_FORWARDED_HOPS: usize = 32;
 
+/// Validated IP/CIDR allowlist used to decide which forwarding hops may speak
+/// for their observed peers. An empty or default policy trusts no address.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TrustedProxyPolicy {
     networks: Vec<(IpAddr, u8)>,
 }
 
+/// Normalize IPv4-mapped IPv6 addresses so socket peers and forwarding entries
+/// use the same IPv4 identity; all other IPv6 addresses retain their family.
 fn canonical_ip(address: IpAddr) -> IpAddr {
     match address {
         IpAddr::V6(address) => address
@@ -21,7 +25,10 @@ fn canonical_ip(address: IpAddr) -> IpAddr {
 }
 
 impl TrustedProxyPolicy {
-    /// Shared loader/checker parsing so config repair cannot remove valid trust.
+    /// Parse the comma-separated configuration value with the same validation
+    /// used by the runtime and config checker. An empty value clears trust;
+    /// malformed entries, trailing commas, and size/count excesses reject the
+    /// whole value rather than returning a partially trusted list.
     pub(crate) fn parse_config(value: &str) -> Result<Vec<String>, &'static str> {
         if value.len() > MAX_CONFIG_BYTES {
             return Err("trusted proxies exceed 8192 bytes");
@@ -39,7 +46,10 @@ impl TrustedProxyPolicy {
         Ok(entries)
     }
 
-    /// Reject the entire policy on an invalid entry; partial trust is unsafe.
+    /// Validate at most 128 IP/CIDR entries within 8192 bytes including commas.
+    /// Bare IPs match exactly; CIDRs match their address family and prefix.
+    /// IPv4-mapped IPv6 CIDRs are converted to IPv4 and require a prefix of at
+    /// least 96. Reject the entire policy on any invalid entry.
     pub(crate) fn parse(entries: &[String]) -> Result<Self, &'static str> {
         if entries.len() > MAX_PROXIES
             || entries
@@ -84,6 +94,9 @@ impl TrustedProxyPolicy {
         Ok(Self { networks })
     }
 
+    /// Match a canonical address against the validated networks. Host bits in
+    /// a configured CIDR do not affect membership, and ordinary IPv4/IPv6
+    /// networks never match across families.
     fn trusts(&self, address: IpAddr) -> bool {
         let address = canonical_ip(address);
         self.networks
@@ -101,9 +114,13 @@ impl TrustedProxyPolicy {
             })
     }
 
-    /// The socket peer is authoritative unless it is explicitly trusted.
-    /// Validate the complete header before taking the rightmost untrusted hop.
-    /// Duplicate physical header fields are ambiguous and are never combined.
+    /// Return the socket peer unless its allowlisted address supplies one valid
+    /// `X-Forwarded-For` field. Validate the entire field before walking it right
+    /// to left and stopping at the first untrusted hop. If every hop is trusted,
+    /// return the leftmost address; without a socket peer, return `None`.
+    ///
+    /// Duplicate fields, more than 32 addresses or 4096 bytes, or any malformed
+    /// address fall back to the peer. `Forwarded` and `X-Real-IP` are ignored.
     pub(crate) fn originating_ip(
         &self,
         peer: Option<IpAddr>,

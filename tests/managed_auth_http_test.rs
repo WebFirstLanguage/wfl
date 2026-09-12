@@ -134,7 +134,6 @@ display projected_json
         AuthServer::start_with_files(&application, &[("request_context.wfl", page)]).await;
     let client = client();
     let alice = issue(&client, &server, "alice").await;
-    let protected = format!("{}/protected", server.base_url);
 
     let ordinary = alice
         .request(&client, &server, "/protected")

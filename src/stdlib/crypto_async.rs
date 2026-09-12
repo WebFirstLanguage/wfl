@@ -2,8 +2,9 @@
 //! PR-0b).
 //!
 //! The password-hashing / KDF builtins (`argon2_hash`, `bcrypt_hash`,
-//! `scrypt_hash`, `pbkdf2_hash`, `pbkdf2_hmac_sha256`, `hash_password`, and the
-//! verify counterparts) are *deliberately* slow — Argon2 is memory-hard, PBKDF2
+//! `scrypt_hash`, `pbkdf2_hash`, `pbkdf2_hmac_sha256`, `hash_password`,
+//! `hash_password_with_policy`, and the verify counterparts) are *deliberately*
+//! slow — Argon2 is memory-hard, PBKDF2
 //! runs 600k rounds. Run inline on the single interpreter thread, one login-like
 //! call stalls the whole process (a cooperative-scheduling DoS).
 //!
@@ -18,6 +19,12 @@
 //! The returned future is a boxed `Pin<Box<dyn Future>>` ([`RoutedFuture`]); it
 //! is awaited from the interpreter future, which runs via `block_on` (never
 //! `tokio::spawn`), so awaiting a `Send` `JoinHandle` from inside it is sound.
+//!
+//! Configured hashing shares admission and active-work limits across every
+//! interpreter and Tokio runtime in the process. This prevents creating more
+//! interpreters from multiplying its Argon2 memory allowance. These are process
+//! resource limits, not tenant quotas: one interpreter can occupy all admission
+//! slots, and embedders must arrange their own tenant scheduling when needed.
 
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -35,10 +42,13 @@ use zeroize::Zeroizing;
 /// it. It is awaited only on the interpreter thread.
 pub type RoutedFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>>>;
 
-// Separate admission and active-work bounds keep both memory-hard allocations
-// and queued password copies bounded. These limits apply to configured hashing.
+/// Process-wide bound on configured hashes, including unpolled routed futures,
+/// asynchronous waiters, and work already submitted to the blocking pool.
 static POLICY_HASH_ADMISSION: LazyLock<Arc<Semaphore>> =
     LazyLock::new(|| Arc::new(Semaphore::new(16)));
+/// Process-wide bound on configured hashes submitted to blocking workers.
+/// At the maximum policy this permits at most 512 MiB of Argon2 working memory,
+/// excluding interpreter, worker, and other hashing/allocation overhead.
 static POLICY_HASH_ACTIVE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(2)));
 
 /// Route a CPU-heavy crypto builtin onto the blocking pool.
@@ -55,6 +65,12 @@ static POLICY_HASH_ACTIVE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(
 ///
 /// `constant_time_equals` and `secure_random_bytes` are intentionally *not*
 /// routed: they are fast and routing them would only add a scheduling hop.
+///
+/// `hash_password_with_policy` reserves process-wide admission when this
+/// function is called. Polling the returned future reports validation or busy
+/// errors; dropping it before worker submission releases its reservation.
+/// Already submitted work retains both permits until the worker exits, even
+/// if the calling interpreter or its future is dropped.
 ///
 /// Public so the interpreter dispatch (and the `tests/crypto_async_test.rs`
 /// integration tests) can drive it; not part of the stable language surface.
@@ -78,6 +94,13 @@ pub fn route(name: &str, args: &[Value]) -> Option<RoutedFuture> {
     Some(fut)
 }
 
+/// Validate a password and policy before reserving one of sixteen admission
+/// slots, then wait asynchronously for one of two shared worker permits.
+///
+/// Admission is deliberately shared across interpreters, rather than reset
+/// by each new interpreter. No per-interpreter fairness is promised. Password
+/// copies are zeroized on drop, and submitted jobs own their permits until
+/// completion so cancellation cannot admit overlapping memory-hard work.
 fn policy_hash_route(args: &[Value]) -> RoutedFuture {
     const FUNC: &str = "hash_password_with_policy";
     let extracted = (|| {

@@ -1003,6 +1003,9 @@ pub(crate) struct PasswordHashPolicy {
 }
 
 impl PasswordHashPolicy {
+    /// Validate memory (19456..=262144 KiB), iterations (2..=10), lanes (1..=16),
+    /// and their combined memory-times-iterations ceiling of 1048576 before
+    /// converting to Argon2's parameter widths. This performs no hashing.
     fn new(memory_kib: u64, iterations: u64, parallelism: u64) -> Result<Self, RuntimeError> {
         if !(19456..=262144).contains(&memory_kib)
             || !(2..=10).contains(&iterations)
@@ -1024,6 +1027,8 @@ impl PasswordHashPolicy {
         })
     }
 
+    /// Export the five public policy fields as a mutable WFL object. Consumers
+    /// must pass it through `extract_password_policy` again before use.
     fn to_value(self) -> Value {
         Value::Object(Rc::new(RefCell::new(HashMap::from([
             ("algorithm".into(), Value::Text(Arc::from("argon2id"))),
@@ -1035,6 +1040,9 @@ impl PasswordHashPolicy {
     }
 }
 
+/// Construct a policy with `password_hash_policy of memory_kib and iterations
+/// and parallelism`. Returns an object pinned to Argon2id v19; wrong arity,
+/// non-integer inputs, or costs outside the bounded policy raise an error.
 pub fn native_password_hash_policy(args: Vec<Value>) -> Result<Value, RuntimeError> {
     const FUNC: &str = "password_hash_policy";
     check_arg_count(FUNC, &args, 3)?;
@@ -1048,6 +1056,8 @@ pub fn native_password_hash_policy(args: Vec<Value>) -> Result<Value, RuntimeErr
 
 /// Policy objects are ordinary mutable WFL maps, so validate every use. Never
 /// rely on a caller retaining the constructor's values or on a marker field.
+/// Returns an owned parameter snapshot that can cross the blocking-worker
+/// boundary without carrying an interpreter value or observing later mutations.
 pub(crate) fn extract_password_policy(value: &Value) -> Result<PasswordHashPolicy, RuntimeError> {
     const FUNC: &str = "password_hash_policy";
     let invalid = || {
@@ -1086,6 +1096,13 @@ pub(crate) fn extract_password_policy(value: &Value) -> Result<PasswordHashPolic
     )
 }
 
+/// Hash a password with validated parameters and a fresh random 16-byte salt,
+/// returning an Argon2id v19 PHC string with a 32-byte digest.
+///
+/// Reject passwords longer than 4096 bytes before expensive work. This helper
+/// runs synchronously and does not acquire admission permits; interpreted calls
+/// reach it through `crypto_async::route`, which owns scheduling and password
+/// copy cleanup. Direct native callers are responsible for their own scheduling.
 pub(crate) fn password_hash_with_policy_str(
     password: &str,
     policy: PasswordHashPolicy,
@@ -1106,6 +1123,10 @@ pub(crate) fn password_hash_with_policy_str(
         .map_err(|error| RuntimeError::new(format!("{FUNC}: hashing failed: {error}"), 0, 0))
 }
 
+/// Implement `hash_password_with_policy of password and policy` after checking
+/// arity, text input, and all policy fields. Returns a salted Argon2id PHC string.
+/// This synchronous native is the embedding seam; interpreter dispatch uses
+/// `crypto_async::route` to enforce shared admission and off-thread execution.
 pub fn native_hash_password_with_policy(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("hash_password_with_policy", &args, 2)?;
     let password = expect_text(&args[0])?;
@@ -1118,6 +1139,8 @@ pub fn native_hash_password_with_policy(args: Vec<Value>) -> Result<Value, Runti
 /// Inspect stored metadata without authenticating a password or performing KDF
 /// work. Only call this after verification in a login flow. Parameter conflicts
 /// fail explicitly rather than recommending a rehash that lowers another cost.
+/// Usage: `password_needs_rehash of stored_hash and policy` returns a boolean;
+/// malformed, unsupported, oversized, or incomplete metadata raises an error.
 pub fn native_password_needs_rehash(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("password_needs_rehash", &args, 2)?;
     let stored = expect_text(&args[0])?;
@@ -1125,6 +1148,11 @@ pub fn native_password_needs_rehash(args: Vec<Value>) -> Result<Value, RuntimeEr
     Ok(Value::Bool(password_needs_rehash_str(&stored, policy)?))
 }
 
+/// Compare at most 1024 bytes of stored metadata with the desired policy.
+/// Recognized bcrypt, scrypt, and PBKDF2 formats request migration; Argon2id v19
+/// already meeting all costs and salt/digest minima does not. A needed Argon2
+/// upgrade that would reduce another cost or digest length is an error. Parsing
+/// never proves the stored digest authentic and never executes its cost values.
 fn password_needs_rehash_str(
     stored: &str,
     policy: PasswordHashPolicy,

@@ -880,7 +880,8 @@ end loop
 
 The page file `pages/home.wfl` is a normal WFL program. Because the request
 was passed along with `with req`, the page sees the same request variables a
-server sees: `method`, `path`, `query`, `client_ip`, `originating_ip`, `body` and `headers`:
+server sees: `method`, `path`, `query`, `client_ip`, `originating_ip`, `body`,
+`headers`, and the authentication metadata `ambiguous_auth_headers`:
 
 ```wfl
 display "<h1>Welcome!</h1>"
@@ -889,6 +890,9 @@ display "<p>You asked for " with path with " using " with method with "</p>"
 
 Everything the page displays is captured into `page_output` instead of being
 printed, ready to send to the browser.
+
+Preserve `ambiguous_auth_headers` when reconstructing an authentication request
+context in a page: it carries the transport's duplicate-header and encoding checks.
 
 ### The execute file statement
 

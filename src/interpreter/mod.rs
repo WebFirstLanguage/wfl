@@ -5789,6 +5789,20 @@ impl Interpreter {
                         ));
                     }
                     vars.push(("originating_ip".to_string(), origin.deep_clone()));
+                    // Header maps cannot represent repeated physical fields or
+                    // non-text values. Preserve the transport's rejection bit
+                    // when a page reconstructs request context for an auth guard.
+                    let ambiguity = match props.get("ambiguous_auth_headers") {
+                        None => false,
+                        Some(Value::Bool(value)) => *value,
+                        Some(_) => return Err(RuntimeError::new(
+                            "Execute file request context field 'ambiguous_auth_headers' must be a boolean"
+                                .to_string(),
+                            line,
+                            column,
+                        )),
+                    };
+                    vars.push(("ambiguous_auth_headers".to_string(), Value::Bool(ambiguity)));
                     vars
                 }
                 _ => {

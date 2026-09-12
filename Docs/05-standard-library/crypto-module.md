@@ -244,8 +244,16 @@ authenticity; use trusted stored records and the successful verification flow.
 
 In interpreted WFL, configured hashing runs on the blocking worker pool with at
 most two active configured hashes and sixteen admitted operations per process.
+These limits are shared by all embedded interpreters and Tokio runtimes in the
+same host process. Creating another interpreter does not increase the configured
+hashing memory allowance. One interpreter can occupy all sixteen slots, causing
+another interpreter's configured hash to return a busy error; WFL does not
+provide per-tenant quotas or fairness. Embedders that need tenant isolation must
+schedule admission themselves or use separate processes.
+
 Additional calls fail with a busy error. Waiting does not occupy the interpreter
-thread. Dropping a waiting operation releases its admission; a job already
+thread. A routed future reserves admission when created, even before it is
+polled. Dropping a waiting operation releases its admission; a job already
 submitted to the worker pool retains its permits and its zeroizing password
 copy until it finishes. Active Argon2 work cannot be interrupted. The original
 WFL password value remains owned by the application as with other string values.

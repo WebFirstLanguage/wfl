@@ -20,10 +20,12 @@ const MAX_ACCOUNT_BYTES: usize = 1024;
 const COOKIE_NAME: &str = "__Host-wfl_session";
 type TokenHash = [u8; 32];
 
+/// Add the authentication context to an error without including bearer tokens.
 fn error(message: &str) -> RuntimeError {
     RuntimeError::new(format!("managed authentication: {message}"), 0, 0)
 }
 
+/// Require a finite positive integer within a policy's inclusive resource limit.
 fn bounded_count(value: &Value, name: &str, max: u64) -> Result<u64, RuntimeError> {
     match value {
         Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 1.0 && *n <= max as f64 => {
@@ -35,6 +37,7 @@ fn bounded_count(value: &Value, name: &str, max: u64) -> Result<u64, RuntimeErro
     }
 }
 
+/// Validate a nonempty account key of at most 1,024 UTF-8 bytes without normalizing it.
 fn account(value: &Value) -> Result<&str, RuntimeError> {
     let Value::Text(account) = value else {
         return Err(error("account key must be text"));
@@ -45,6 +48,7 @@ fn account(value: &Value) -> Result<&str, RuntimeError> {
     Ok(account)
 }
 
+/// Accept only the exact lowercase hexadecimal encoding emitted for 256-bit tokens.
 fn valid_token(token: &str) -> bool {
     token.len() == 64
         && token
@@ -52,10 +56,13 @@ fn valid_token(token: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Derive a store key or comparison digest without retaining the bearer token.
 fn token_hash(token: &str) -> TokenHash {
     Sha256::digest(token.as_bytes()).into()
 }
 
+/// Generate 256 bits from the OS random source and wipe temporary token material.
+/// Entropy failure returns an error so issuance cannot fall back to predictable data.
 fn new_token() -> Result<Zeroizing<String>, RuntimeError> {
     let mut bytes = Zeroizing::new([0u8; 32]);
     rand::rngs::SysRng
@@ -70,6 +77,7 @@ fn new_token() -> Result<Zeroizing<String>, RuntimeError> {
     Ok(token)
 }
 
+/// Stored authentication state; neither the session ID nor the CSRF token is retained.
 struct Session {
     account: String,
     csrf_hash: TokenHash,
@@ -78,6 +86,7 @@ struct Session {
 }
 
 impl Session {
+    /// Expire at the first of the idle and absolute deadlines.
     fn deadline(&self) -> Instant {
         self.absolute_end.min(self.idle_end)
     }
@@ -94,6 +103,7 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// Remove sessions whose deadline is at or before `now` from both indexes.
     fn prune(&mut self, now: Instant) {
         while let Some(&(deadline, key)) = self.expiry.first() {
             if deadline > now {
@@ -104,12 +114,15 @@ impl SessionStore {
         }
     }
 
+    /// Revoke one session and remove its matching expiration entry together.
     fn remove(&mut self, key: &TokenHash) -> Option<Session> {
         let session = self.sessions.remove(key)?;
         self.expiry.remove(&(session.deadline(), *key));
         Some(session)
     }
 
+    /// Refresh idle activity while preserving absolute expiry and one index entry.
+    /// Callers must prune expired sessions before attempting a refresh.
     fn touch(&mut self, key: &TokenHash, now: Instant) -> Option<String> {
         let session = self.sessions.get_mut(key)?;
         self.expiry.remove(&(session.deadline(), *key));
@@ -118,6 +131,7 @@ impl SessionStore {
         Some(session.account.clone())
     }
 
+    /// Create or rotate a session using OS randomness; rotation retains absolute expiry.
     fn issue(
         &mut self,
         account: &str,
@@ -127,6 +141,8 @@ impl SessionStore {
         self.issue_using(account, now, prior, new_token)
     }
 
+    /// Commit fresh credentials only after both tokens and collision checks succeed.
+    /// The private token factory permits deterministic entropy-failure tests.
     fn issue_using(
         &mut self,
         account: &str,
@@ -173,6 +189,7 @@ impl SessionStore {
     }
 }
 
+/// Require a native store capability; text and objects cannot forge one.
 fn expect_store(value: &Value) -> Result<&Rc<RefCell<SessionStore>>, RuntimeError> {
     match value {
         Value::SessionStore(store) => Ok(store),
@@ -180,6 +197,9 @@ fn expect_store(value: &Value) -> Result<&Rc<RefCell<SessionStore>>, RuntimeErro
     }
 }
 
+/// Create an opaque store from absolute seconds, idle seconds, and capacity.
+/// Durations are positive whole seconds up to 30 days, idle cannot exceed
+/// absolute lifetime, and capacity is 1–100,000. Invalid arguments return errors.
 pub fn native_create_session_store(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("create_session_store", &args, 3)?;
     let absolute = bounded_count(&args[0], "absolute seconds", MAX_SECONDS)?;
@@ -194,6 +214,8 @@ pub fn native_create_session_store(args: Vec<Value>) -> Result<Value, RuntimeErr
     }))))
 }
 
+/// Issue `{id, csrf_token, account}` from a store and a validated account key.
+/// Full stores deny issuance without eviction; entropy failures return errors.
 pub fn native_session_create(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_create", &args, 2)?;
     expect_store(&args[0])?
@@ -201,6 +223,9 @@ pub fn native_session_create(args: Vec<Value>) -> Result<Value, RuntimeError> {
         .issue(account(&args[1])?, Instant::now(), None)
 }
 
+/// Look up a store and session ID, refreshing idle activity only on success.
+/// Return account text for a live session or `nothing` for malformed, expired,
+/// revoked, or unknown IDs; wrong argument types and arity return errors.
 pub fn native_session_lookup(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_lookup", &args, 2)?;
     let mut store = expect_store(&args[0])?.borrow_mut();
@@ -215,6 +240,9 @@ pub fn native_session_lookup(args: Vec<Value>) -> Result<Value, RuntimeError> {
         .map_or(Value::Nothing, |s| Value::Text(s.into())))
 }
 
+/// Replace a live session's ID and CSRF token atomically, preserving its account
+/// and absolute deadline. Return a fresh record or `nothing` for an invalid ID.
+/// Entropy failure leaves the previous session intact until its existing expiry.
 pub fn native_session_rotate(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_rotate", &args, 2)?;
     let mut store = expect_store(&args[0])?.borrow_mut();
@@ -232,6 +260,7 @@ pub fn native_session_rotate(args: Vec<Value>) -> Result<Value, RuntimeError> {
     store.issue(&account, now, Some(key))
 }
 
+/// Revoke a store's session ID, returning true only when a live session was removed.
 pub fn native_session_revoke(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_revoke", &args, 2)?;
     let mut store = expect_store(&args[0])?.borrow_mut();
@@ -242,6 +271,8 @@ pub fn native_session_revoke(args: Vec<Value>) -> Result<Value, RuntimeError> {
     ))
 }
 
+/// Revoke every live session matching an exact account key and return the count.
+/// Other accounts remain valid; expired sessions are pruned before counting.
 pub fn native_session_revoke_account(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_revoke_account", &args, 2)?;
     let mut store = expect_store(&args[0])?.borrow_mut();
@@ -258,8 +289,9 @@ pub fn native_session_revoke_account(args: Vec<Value>) -> Result<Value, RuntimeE
     Ok(Value::Number(keys.len() as f64))
 }
 
-// A strict cookie reader rather than parse_cookies (which intentionally has
-// general-purpose last-value semantics). Ambiguity must never select a token.
+/// Read one managed session cookie, rejecting duplicates, malformed components,
+/// controls, comma-joined values, and headers longer than 8,192 bytes.
+/// Unlike general-purpose `parse_cookies`, this never selects an ambiguous token.
 fn session_id_from_cookie(cookie: &str) -> Option<&str> {
     if cookie.len() > 8192 || cookie.bytes().any(|b| b.is_ascii_control() || b == b',') {
         return None;
@@ -277,6 +309,7 @@ fn session_id_from_cookie(cookie: &str) -> Option<&str> {
     id
 }
 
+/// Read exactly one case-insensitive text header; duplicate spellings are invalid.
 fn header<'a>(headers: &'a HashMap<String, Value>, name: &str) -> Option<&'a str> {
     let mut values = headers
         .iter()
@@ -290,6 +323,11 @@ fn header<'a>(headers: &'a HashMap<String, Value>, name: &str) -> Option<&'a str
     Some(value)
 }
 
+/// Validate a request against a store without installing a global middleware.
+/// Every method needs a live session; methods other than GET, HEAD, and OPTIONS
+/// also need that session's CSRF token. Ambiguous or malformed metadata denies
+/// access, and only successful checks refresh idle activity. Bad store arguments
+/// return errors; invalid request credentials return false.
 pub fn native_session_csrf_guard(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_csrf_guard", &args, 2)?;
     let mut store = expect_store(&args[0])?.borrow_mut();
@@ -332,6 +370,8 @@ pub fn native_session_csrf_guard(args: Vec<Value>) -> Result<Value, RuntimeError
     Ok(Value::Bool(true))
 }
 
+/// Format a well-formed ID as a Secure, HttpOnly, SameSite=Strict, Path=/ cookie.
+/// This validates token encoding, not store membership; malformed IDs return errors.
 pub fn native_session_cookie(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("session_cookie", &args, 1)?;
     let id = expect_text(&args[0])?;
@@ -345,6 +385,7 @@ pub fn native_session_cookie(args: Vec<Value>) -> Result<Value, RuntimeError> {
     ))
 }
 
+/// Attempts consumed by one account within its independently indexed fixed window.
 struct RateWindow {
     count: u64,
 }
@@ -360,6 +401,8 @@ pub struct AccountRateLimiter {
 }
 
 impl AccountRateLimiter {
+    /// Consume one attempt if the account budget and store capacity permit it.
+    /// Denials neither extend the window nor evict another account's budget.
     fn allow(&mut self, account: &str, now: Instant) -> bool {
         while let Some((deadline, key)) = self.expiry.first() {
             if *deadline > now {
@@ -386,6 +429,9 @@ impl AccountRateLimiter {
     }
 }
 
+/// Create a fixed-window limiter from attempt limit, window seconds, and capacity.
+/// Attempts and capacity are integers from 1–100,000; windows are positive whole
+/// seconds up to 30 days. Invalid policy arguments return errors.
 pub fn native_create_account_rate_limiter(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("create_account_rate_limiter", &args, 3)?;
     let attempts = bounded_count(&args[0], "attempt limit", MAX_CAPACITY)?;
@@ -402,6 +448,9 @@ pub fn native_create_account_rate_limiter(args: Vec<Value>) -> Result<Value, Run
     ))))
 }
 
+/// Consume an attempt for an exact account key before checking its password.
+/// Return false when that budget is exhausted or a new key cannot fit; wrong
+/// argument types, arity, and invalid account keys return errors.
 pub fn native_account_rate_limit_allow(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("account_rate_limit_allow", &args, 2)?;
     let Value::AccountRateLimiter(limiter) = &args[0] else {
@@ -414,6 +463,7 @@ pub fn native_account_rate_limit_allow(args: Vec<Value>) -> Result<Value, Runtim
     ))
 }
 
+/// Register managed session, CSRF, cookie, and account-limiter functions together.
 pub fn register_auth(env: &mut Environment) {
     env.define_native("create_session_store", native_create_session_store);
     env.define_native("session_create", native_session_create);

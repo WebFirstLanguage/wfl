@@ -98,6 +98,10 @@ cookies, repeated physical Cookie/CSRF headers, invalid header encoding, cookie
 headers exceeding 8,192 bytes, and malformed tokens are rejected. The request's
 `ambiguous_auth_headers` flag carries the transport's duplicate/encoding
 decision to the guard. Pass the original request object to preserve it.
+`execute file ... with req` also forwards this boolean to the executed page;
+include it when reconstructing request context there. Older caller-created
+contexts without the flag receive `no`, while a present nonboolean flag is
+rejected before the page runs.
 
 ```wfl
 // CI-SKIP: request-loop fragment; requires a listener and authenticated client
