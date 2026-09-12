@@ -203,7 +203,7 @@ class Peer:
                     })}
                 elif args[0] == "tag":
                     result = {"code": 0, "out": ""}
-                elif args[0] in ("pull", "smoke"):
+                elif args[0] in ("pull", "smoke", "rm"):
                     result = {"code": 0, "out": "verified immutable image"}
                 elif args[0] == "push":
                     name = args[1].rsplit(":", 1)[1]
@@ -243,7 +243,7 @@ class Peer:
 
 
 DOCKER_ADAPTER = r'''
-import json, os, pathlib, sys, urllib.request
+import json, os, pathlib, sys, time, urllib.request
 args = sys.argv[1:]
 if args[0] == "--smoke":
     config = os.environ["DOCKER_CONFIG"]
@@ -265,6 +265,8 @@ request = urllib.request.Request(
 )
 with urllib.request.urlopen(request, timeout=3) as response:
     result = json.load(response)
+if args[0] == "run" and os.environ.get("TEST_DOCKER_SLEEP"):
+    time.sleep(5)
 print(result["out"])
 sys.exit(result["code"])
 '''
@@ -639,8 +641,16 @@ class PublisherTests(unittest.TestCase):
     def test_different_rebuild_recovers_and_smoke_tests_immutable_candidate(self):
         with Peer() as peer:
             peer.published()
-            peer.tags[f"nightly-{VERSION}"] = tag(f"nightly-{VERSION}", DIGEST)
-            peer.manifest_config = OTHER_DIGEST
+            peer.fail_command = "push " + IMAGE + ":nightly"
+            with self.assertRaises(self.publisher.PublishError):
+                self.publish(peer)
+            self.assertEqual(OLD_DIGEST, peer.tags["nightly"]["digest"])
+            self.assertEqual(DIGEST, peer.tags[f"nightly-{VERSION}"]["digest"])
+            # A later build of the same WFL version can have different base
+            # metadata/timestamps/revision. Recover the retained tested bytes.
+            peer.config_digest = OTHER_DIGEST
+            peer.fail_command = None
+            peer.commands.clear()
             self.publish(peer)
             immutable = IMAGE + "@" + DIGEST
             args = [item["args"] for item in peer.commands]
@@ -714,6 +724,29 @@ class PublisherTests(unittest.TestCase):
                 self.assertNotIn(SECRET, " ".join(command["args"]))
                 self.assertFalse(command["token_in_environment"])
                 self.assertFalse(Path(command["config"]).exists())
+
+    def test_version_container_is_isolated_and_removed_after_client_timeout(self):
+        with Peer() as peer:
+            peer.published()
+            previous = os.environ.get("TEST_DOCKER_SLEEP")
+            os.environ["TEST_DOCKER_SLEEP"] = "1"
+            try:
+                with self.docker(peer) as docker:
+                    docker.timeout = 1
+                    with self.assertRaises(self.publisher.PublishError):
+                        self.publisher.publish(self.hub(peer), VERSION, "wfl-nightly-candidate:test", docker)
+            finally:
+                if previous is None:
+                    os.environ.pop("TEST_DOCKER_SLEEP", None)
+                else:
+                    os.environ["TEST_DOCKER_SLEEP"] = previous
+            commands = [item["args"] for item in peer.commands]
+            run = next(args for args in commands if args[0] == "run")
+            self.assertIn("--pull=never", run)
+            self.assertEqual("none", run[run.index("--network") + 1])
+            name = run[run.index("--name") + 1]
+            self.assertIn(["rm", "--force", name], commands)
+            self.assert_no_mutation(peer)
 
 
 if __name__ == "__main__":
