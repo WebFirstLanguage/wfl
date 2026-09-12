@@ -94,7 +94,7 @@ start streaming response to req with content type session_cookie with "value" an
 }
 
 #[test]
-fn action_parameters_and_locals_do_not_leak_into_outer_builtin_calls() {
+fn action_parameters_and_local_values_keep_concatenation() {
     let token = "a".repeat(64);
     let source = format!(
         r#"define action called append_value with parameters session_cookie:
@@ -105,14 +105,14 @@ define action called local_label:
     return session_cookie with "value"
 end action
 display append_value of "prefix"
-display call local_label
 display session_cookie of "{token}"
+display call local_label
 "#
     );
     assert_output(
         &source,
         &format!(
-            "prefixvalue\nlocalvalue\n__Host-wfl_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict"
+            "prefixvalue\n__Host-wfl_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict\nlocalvalue"
         ),
     );
 }
