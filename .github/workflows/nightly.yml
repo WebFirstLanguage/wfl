@@ -33,6 +33,8 @@ jobs:
       should_build: ${{ steps.check.outputs.should_build }}
       version:      ${{ steps.version.outputs.version }}
       short_sha:    ${{ steps.version.outputs.short_sha }}
+      docker_should_build: ${{ steps.docker-plan.outputs.should_build }}
+      docker_version: ${{ steps.docker-plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,13 +117,27 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
+      # Registry state is independent of the GitHub release marker: the first
+      # image and a previously interrupted publish must still be repairable.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the published Docker runtime version
+        id: docker-plan
+        if: github.ref == 'refs/heads/main'
+        env:
+          DOCKERHUB_IMAGE: bsbyrdwfl/wfl
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: python scripts/docker/publish.py plan --repo . --github-output "$GITHUB_OUTPUT"
+
 # ------------------------------------------------------------
   # BUILD JOB (Windows only)
   # ------------------------------------------------------------
   build:
     name: Build WFL for Windows
     needs: check-for-changes
-    if: needs.check-for-changes.outputs.should_build == 'true'
+    if: needs.check-for-changes.outputs.should_build == 'true' || needs.check-for-changes.outputs.docker_should_build == 'true'
     # 4 -> 8 vCPU. This job has died on its own timeout twice (runs
     # 30190411454, and again after PRs #641/#643 added 26 test files), and a
     # cancelled job never runs its cache-save post step - so each failure left
@@ -458,7 +474,7 @@ jobs:
   build-linux:
     name: Build WFL for Linux (static musl)
     needs: check-for-changes
-    if: needs.check-for-changes.outputs.should_build == 'true'
+    if: needs.check-for-changes.outputs.should_build == 'true' || needs.check-for-changes.outputs.docker_should_build == 'true'
     # Rust release codegen genuinely scales with cores, so this is one of the
     # few places a bigger runner pays for itself instead of idling.
     runs-on: blacksmith-8vcpu-ubuntu-2404
@@ -633,6 +649,97 @@ jobs:
           path: dist/wfl-${{ needs.check-for-changes.outputs.version }}-linux-x86_64-${{ needs.check-for-changes.outputs.short_sha }}.tar.gz
           if-no-files-found: error
           retention-days: 7
+
+  # Run the complete CI suite on this exact revision, including version-bump
+  # commits that intentionally skipped push CI. No Hub credentials are inherited.
+  docker-release-checks:
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.docker_should_build == 'true'
+    uses: ./.github/workflows/ci.yml
+    # Maximum required by CI's version-bump job; that job is push-only and skips
+    # on nightly schedule/dispatch. Every test job retains contents: read.
+    permissions:
+      contents: write
+
+  # Package the same static Linux binary for other projects' WFL test scripts.
+  # The small x64 runner only packages and tests it; Rust compiled in build-linux.
+  docker-nightly:
+    name: Publish WFL test runtime image
+    needs: [check-for-changes, build, build-linux, docker-release-checks]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      needs.check-for-changes.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped') &&
+      (needs.docker-release-checks.result == 'success' ||
+       (needs.check-for-changes.outputs.docker_should_build != 'true' && needs.docker-release-checks.result == 'skipped'))
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+    concurrency:
+      group: dockerhub-wfl-nightly
+      cancel-in-progress: false
+    env:
+      DOCKERHUB_IMAGE: bsbyrdwfl/wfl
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Recheck inside the destination-wide lock. Queued jobs are not FIFO.
+      - name: Recheck the current image before building
+        id: plan
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: python scripts/docker/publish.py plan --repo . --github-output "$GITHUB_OUTPUT"
+      - name: Require release checks if registry state now needs publication
+        if: steps.plan.outputs.should_build == 'true'
+        env:
+          RELEASE_CHECKS_RESULT: ${{ needs.docker-release-checks.result }}
+        run: test "$RELEASE_CHECKS_RESULT" = success
+      - uses: actions/download-artifact@v4
+        if: steps.plan.outputs.should_build == 'true'
+        with:
+          name: wfl-${{ needs.check-for-changes.outputs.version }}-linux-x86_64.tar.gz
+          path: target/docker-artifact
+      - name: Stage the tested Linux binary
+        if: steps.plan.outputs.should_build == 'true'
+        env:
+          ARTIFACT_VERSION: ${{ needs.check-for-changes.outputs.version }}
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p target/docker-unpack target/docker-context
+          tar -xzf "target/docker-artifact/wfl-${ARTIFACT_VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz" -C target/docker-unpack
+          cp "target/docker-unpack/wfl-${ARTIFACT_VERSION}-linux-x86_64/wfl" target/docker-context/wfl
+          cp LICENSE .wflcfg target/docker-context/
+      - name: Build the candidate without publishing
+        if: steps.plan.outputs.should_build == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          REVISION: ${{ github.sha }}
+          DOCKER_BUILDKIT: '1'
+        run: |
+          docker build --platform linux/amd64 \
+            --file scripts/docker/Dockerfile \
+            --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
+            --tag "wfl-nightly-candidate:$REVISION" target/docker-context
+      - name: Run consumer WFL scripts in the candidate
+        if: steps.plan.outputs.should_build == 'true'
+        env:
+          IMAGE: wfl-nightly-candidate:${{ github.sha }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: python scripts/docker/smoke_test.py "$IMAGE" --version "$VERSION"
+      # With an unchanged version this only repairs pending owned-tag cleanup.
+      # Credentials are never passed into the image build or consumer scripts.
+      - name: Publish verified image and retire the previous nightly
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          CANDIDATE: wfl-nightly-candidate:${{ github.sha }}
+        run: python scripts/docker/publish.py publish --repo . --candidate "$CANDIDATE"
 
   # ------------------------------------------------------------
   # RELEASE JOB

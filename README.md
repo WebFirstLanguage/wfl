@@ -73,6 +73,9 @@ target/release/wfl
 Windows users can install from the MSI in [Releases](https://github.com/WebFirstLanguage/wfl/releases).
 Full instructions: [Docs/02-getting-started/installation.md](Docs/02-getting-started/installation.md).
 
+Other projects can run their WFL test scripts with the
+[nightly Docker runtime](Docs/guides/docker-testing.md), without installing Rust.
+
 ### Handy CLI flags
 
 | Command | What it does |
