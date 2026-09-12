@@ -180,6 +180,58 @@ fn user_actions_named_after_new_builtins_execute_in_the_real_binary() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn user_overloads_named_after_new_builtins_support_of_and_explicit_calls() {
+    let mut failures = Vec::new();
+    for name in NEW_BUILTINS {
+        let source = format!(
+            "define action called {name} with parameters value:\n    return \"one:\" with value\nend action\ndefine action called {name} with parameters left_value and right_value:\n    return \"two:\" with left_value with right_value\nend action\ndisplay {name} of \"value\"\ndisplay call {name} with \"value\" and \"extra\"\n"
+        );
+        let (output, status) = common::run_src(&source);
+        if status != Some(0) || output.trim() != "one:value\ntwo:valueextra" {
+            failures.push(format!("{name}: status={status:?}, output={output}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn user_action_aliases_named_after_new_builtins_support_both_call_forms() {
+    let mut failures = Vec::new();
+    for name in NEW_BUILTINS {
+        let source = format!(
+            "define action called user_action with parameters value:\n    return \"user:\" with value\nend action\nstore {name} as user_action\ndisplay {name} of \"value\"\ndisplay call {name} with \"value\"\n"
+        );
+        let (output, status) = common::run_src(&source);
+        if status != Some(0) || output.trim() != "user:value\nuser:value" {
+            failures.push(format!("{name}: status={status:?}, output={output}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn unshadowed_and_self_aliased_new_natives_keep_arity_checks() {
+    for source in [
+        "store bad as call session_create\n",
+        "store bad as session_create of \"value\"\n",
+        "store session_create as session_create\nstore bad as call session_create\n",
+    ] {
+        let tokens = wfl::lexer::lex_wfl_with_positions(source);
+        let program = wfl::parser::Parser::new(&tokens).parse().unwrap();
+        let errors = wfl::typechecker::TypeChecker::new()
+            .check_types(&program)
+            .expect_err("native arity must still be checked")
+            .into_diagnostics();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("expects 2 arguments")),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn action_local_user_actions_shadow_inherited_defaults_and_keep_overloads() {
     let mut failures = Vec::new();
