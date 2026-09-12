@@ -50,6 +50,19 @@ class DockerWorkflowPolicyTests(unittest.TestCase):
         self.assertNotIn("cache-to:", publish)
         self.assertNotIn("cache-from:", publish)
 
+    def test_publication_waits_for_same_revision_full_ci_and_windows_build(self):
+        checks = job(self.nightly, "docker-release-checks")
+        self.assertIn("uses: ./.github/workflows/ci.yml", checks)
+        self.assertIn("outputs.docker_should_build == 'true'", checks)
+        publish = job(self.nightly, "docker-nightly")
+        self.assertIn("needs: [check-for-changes, build, build-linux, docker-release-checks]", publish)
+        self.assertIn("needs.build.result == 'success'", publish)
+        self.assertIn("needs.docker-release-checks.result == 'success'", publish)
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", ci)
+        bump = job(ci, "bump-version")
+        self.assertIn("github.event_name == 'push'", bump)
+
     def test_pull_requests_exercise_real_container_without_hub_credentials(self):
         validation = (ROOT / ".github/workflows/docker-image.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request:", validation)

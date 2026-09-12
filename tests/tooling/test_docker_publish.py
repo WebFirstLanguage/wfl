@@ -61,10 +61,19 @@ class Peer:
         self.fail_command = None
         self.version_output = f"WebFirst Language (WFL) version {VERSION}\n"
         self.label_version = VERSION
+        self.remote_version = VERSION
+        self.remote_label_version = VERSION
         self.config_digest = CONFIG_DIGEST
         self.manifest_config = CONFIG_DIGEST
         self.push_digest = DIGEST
         self.rolling_digest = DIGEST
+        self.blocked_paths = set()
+        self.incomplete_paths = set()
+        self.bad_status_paths = set()
+        self.release_responses = threading.Event()
+        self.advance_after_version_push = False
+        self.current_reads = 0
+        self.replace_on_current_read = None
         self.server = None
 
     @property
@@ -97,6 +106,18 @@ class Peer:
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 path = urlsplit(self.path).path.rstrip("/")
                 peer.requests.append((self.command, self.path, dict(self.headers), body))
+                if path in peer.bad_status_paths:
+                    self.wfile.write(("invalid-http-status " + SECRET + "\r\n\r\n").encode())
+                    return
+                if path in peer.blocked_paths:
+                    peer.release_responses.wait(timeout=3)
+                if path in peer.incomplete_paths:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", "100")
+                    self.end_headers()
+                    self.wfile.write(b"{")
+                    return
                 override = peer.overrides.get((self.command, path))
                 if override:
                     status, response, headers = override
@@ -136,6 +157,11 @@ class Peer:
                     return
                 if path.startswith(TAGS_PATH + "/"):
                     name = path.rsplit("/", 1)[1]
+                    if name == "nightly" and self.command == "GET":
+                        peer.current_reads += 1
+                        if peer.current_reads == peer.replace_on_current_read:
+                            peer.tags["nightly"] = tag("nightly", OTHER_DIGEST)
+                            peer.tags["nightly-26.9.5"] = tag("nightly-26.9.5", OTHER_DIGEST)
                     if name not in peer.tags:
                         self.send_data(404, {"detail": "tag not found"})
                     elif self.command == "DELETE":
@@ -157,24 +183,34 @@ class Peer:
                 if args[0] == "login":
                     result = {"code": 0, "out": "Login Succeeded"}
                 elif args[:2] == ["image", "inspect"]:
+                    immutable = "@sha256:" in args[2]
                     result = {"code": 0, "out": json.dumps([{
-                        "Id": peer.config_digest,
+                        "Id": peer.manifest_config if immutable else peer.config_digest,
                         "Architecture": "amd64",
                         "Os": "linux",
-                        "Config": {"Labels": {"org.opencontainers.image.version": peer.label_version}},
+                        "Config": {"Labels": {"org.opencontainers.image.version":
+                            peer.remote_label_version if immutable else peer.label_version}},
                     }])}
                 elif args[0] == "run":
-                    result = {"code": 0, "out": peer.version_output}
+                    result = {"code": 0, "out": (
+                        f"WebFirst Language (WFL) version {peer.remote_version}\n"
+                        if any("@sha256:" in arg for arg in args) else peer.version_output
+                    )}
                 elif args[:2] == ["manifest", "inspect"]:
                     result = {"code": 0, "out": json.dumps({
                         "schemaVersion": 2, "config": {"digest": peer.manifest_config},
                     })}
                 elif args[0] == "tag":
                     result = {"code": 0, "out": ""}
+                elif args[0] in ("pull", "smoke"):
+                    result = {"code": 0, "out": "verified immutable image"}
                 elif args[0] == "push":
                     name = args[1].rsplit(":", 1)[1]
                     digest = peer.rolling_digest if name == "nightly" else peer.push_digest
                     peer.tags[name] = tag(name, digest)
+                    if name != "nightly" and peer.advance_after_version_push:
+                        peer.tags["nightly"] = tag("nightly", OTHER_DIGEST)
+                        peer.tags["nightly-26.9.5"] = tag("nightly-26.9.5", OTHER_DIGEST)
                     result = {"code": 0, "out": f"{name}: digest: {peer.push_digest} size: 1234\n"}
                 else:
                     result = {"code": 1, "out": "unexpected Docker operation: " + command}
@@ -190,7 +226,7 @@ class Peer:
                 for key, value in (headers or {}).items():
                     self.send_header(key, value)
                 self.end_headers()
-                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     self.wfile.write(payload)
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -199,6 +235,7 @@ class Peer:
         return self
 
     def __exit__(self, *_args):
+        self.release_responses.set()
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=3)
@@ -207,9 +244,13 @@ class Peer:
 DOCKER_ADAPTER = r'''
 import json, os, pathlib, sys, urllib.request
 args = sys.argv[1:]
-assert args[0] == "--config", args
-config = args[1]
-args = args[2:]
+if args[0] == "--smoke":
+    config = os.environ["DOCKER_CONFIG"]
+    args = ["smoke"] + args[1:]
+else:
+    assert args[0] == "--config", args
+    config = args[1]
+    args = args[2:]
 stdin = sys.stdin.read() if args[0] == "login" else ""
 if args[0] == "login":
     assert args == ["login", "docker.io", "--username", "bsbyrdwfl", "--password-stdin"], args
@@ -278,6 +319,7 @@ class PublisherTests(unittest.TestCase):
             with self.publisher.Docker(
                 USERNAME, SECRET, command=(sys.executable, str(self.adapter)), timeout=5,
             ) as docker:
+                docker.smoke_command = (sys.executable, str(self.adapter), "--smoke")
                 yield docker
         finally:
             for key, value in previous.items():
@@ -393,6 +435,32 @@ class PublisherTests(unittest.TestCase):
                 self.assertNotIn(BEARER, str(caught.exception))
                 self.assert_no_mutation(peer)
 
+    def test_registry_timeout_does_not_become_first_publish(self):
+        with Peer() as peer:
+            peer.blocked_paths.add(TAGS_PATH + "/nightly")
+            hub = self.publisher.Hub(
+                USERNAME, SECRET, IMAGE, origin=peer.origin,
+                allow_loopback=True, timeout=0.05,
+            )
+            with self.assertRaises(self.publisher.PublishError):
+                self.publisher.plan(hub, VERSION)
+            self.assert_no_mutation(peer)
+
+    def test_incomplete_http_response_is_reported_as_safe_publication_failure(self):
+        with Peer() as peer:
+            peer.incomplete_paths.add(TAGS_PATH)
+            with self.assertRaises(self.publisher.PublishError):
+                self.publisher.plan(self.hub(peer), VERSION)
+            self.assert_no_mutation(peer)
+
+    def test_malformed_http_status_cannot_escape_with_secret_in_error(self):
+        with Peer() as peer:
+            peer.bad_status_paths.add(TAGS_PATH)
+            with self.assertRaises(self.publisher.PublishError) as caught:
+                self.publisher.plan(self.hub(peer), VERSION)
+            self.assertNotIn(SECRET, str(caught.exception))
+            self.assert_no_mutation(peer)
+
     def test_redirects_are_not_followed_even_on_same_origin(self):
         with Peer() as peer:
             peer.overrides[("POST", "/v2/auth/token")] = (
@@ -483,6 +551,28 @@ class PublisherTests(unittest.TestCase):
             self.assert_no_mutation(peer)
             self.assertFalse(peer.commands)
 
+    def test_newer_publication_during_versioned_push_prevents_rolling_overwrite(self):
+        with Peer() as peer:
+            peer.published()
+            peer.advance_after_version_push = True
+            with self.assertRaises(self.publisher.PublishError):
+                self.publish(peer)
+            self.assertEqual(OTHER_DIGEST, peer.tags["nightly"]["digest"])
+            pushes = [item["args"][1] for item in peer.commands if item["args"][0] == "push"]
+            self.assertEqual([IMAGE + ":nightly-" + VERSION], pushes)
+            self.assertFalse(peer.deleted)
+
+    def test_current_image_change_during_cleanup_prevents_deletion(self):
+        with Peer() as peer:
+            peer.published(VERSION, DIGEST)
+            peer.tags[f"nightly-{OLD}"] = tag(f"nightly-{OLD}", OLD_DIGEST)
+            peer.replace_on_current_read = 3
+            with self.assertRaises(self.publisher.PublishError):
+                self.publish(peer, candidate=None)
+            self.assertEqual(OTHER_DIGEST, peer.tags["nightly"]["digest"])
+            self.assertIn(f"nightly-{OLD}", peer.tags)
+            self.assertFalse(peer.deleted)
+
     def test_wrong_candidate_version_or_label_cannot_be_published(self):
         for mismatch in ("binary", "label"):
             with self.subTest(mismatch=mismatch), Peer() as peer:
@@ -536,13 +626,39 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual([IMAGE + ":nightly"], pushes)
             self.assertEqual(DIGEST, peer.tags["nightly"]["digest"])
 
-    def test_conflicting_existing_candidate_is_never_overwritten(self):
+    def test_different_rebuild_recovers_and_smoke_tests_immutable_candidate(self):
         with Peer() as peer:
             peer.published()
-            peer.tags[f"nightly-{VERSION}"] = tag(f"nightly-{VERSION}", OTHER_DIGEST)
+            peer.tags[f"nightly-{VERSION}"] = tag(f"nightly-{VERSION}", DIGEST)
             peer.manifest_config = OTHER_DIGEST
+            self.publish(peer)
+            immutable = IMAGE + "@" + DIGEST
+            args = [item["args"] for item in peer.commands]
+            self.assertIn(["pull", immutable], args)
+            self.assertIn(["smoke", immutable, "--version", VERSION], args)
+            self.assertIn(["tag", immutable, IMAGE + ":nightly"], args)
+            self.assertFalse([item for item in args if item == ["push", IMAGE + ":nightly-" + VERSION]])
+            self.assertLess(args.index(["smoke", immutable, "--version", VERSION]),
+                            args.index(["push", IMAGE + ":nightly"]))
+
+    def test_recovery_smoke_failure_keeps_previous_and_staged_images(self):
+        with Peer() as peer:
+            peer.published()
+            peer.tags[f"nightly-{VERSION}"] = tag(f"nightly-{VERSION}", DIGEST)
+            peer.fail_command = "smoke " + IMAGE + "@" + DIGEST + " --version " + VERSION
             with self.assertRaises(self.publisher.PublishError):
-                self.publish(peer)
+                self.publish(peer, candidate=None)
+            self.assertEqual(OLD_DIGEST, peer.tags["nightly"]["digest"])
+            self.assertEqual(DIGEST, peer.tags[f"nightly-{VERSION}"]["digest"])
+            self.assert_no_mutation(peer)
+
+    def test_recovery_rejects_wrong_remote_binary_version(self):
+        with Peer() as peer:
+            peer.published()
+            peer.tags[f"nightly-{VERSION}"] = tag(f"nightly-{VERSION}", DIGEST)
+            peer.remote_version = OLD
+            with self.assertRaises(self.publisher.PublishError):
+                self.publish(peer, candidate=None)
             self.assert_no_mutation(peer)
 
     def test_cleanup_failure_is_reported_and_later_same_version_repairs_it(self):
