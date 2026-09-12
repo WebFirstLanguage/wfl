@@ -2,7 +2,7 @@ use super::helpers::{check_arg_count, check_arg_range, expect_number, expect_tex
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use argon2::Argon2;
+use argon2::{Algorithm, Argon2, Params, Version};
 // argon2, scrypt and pbkdf2 all depend on the same `password-hash` crate, so the
 // traits and types re-exported here apply to `Scrypt` and `Pbkdf2` as well.
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
@@ -11,6 +11,9 @@ use hmac::{Hmac, Mac};
 use pbkdf2::{Pbkdf2, pbkdf2_hmac};
 use scrypt::Scrypt;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
@@ -989,6 +992,257 @@ pub fn native_hash_password(args: Vec<Value>) -> Result<Value, RuntimeError> {
     )?)))
 }
 
+/// Explicit policies pin Argon2id v19 with a 16-byte salt and 32-byte digest.
+/// Bounds apply before allocating Argon2 memory; the work ceiling is expressed
+/// as KiB * passes. Existing one-argument hashing retains its original defaults.
+#[derive(Clone, Copy)]
+pub(crate) struct PasswordHashPolicy {
+    memory_kib: u32,
+    iterations: u32,
+    parallelism: u32,
+}
+
+impl PasswordHashPolicy {
+    /// Validate memory (19456..=262144 KiB), iterations (2..=10), lanes (1..=16),
+    /// and their combined memory-times-iterations ceiling of 1048576 before
+    /// converting to Argon2's parameter widths. This performs no hashing.
+    fn new(memory_kib: u64, iterations: u64, parallelism: u64) -> Result<Self, RuntimeError> {
+        if !(19456..=262144).contains(&memory_kib)
+            || !(2..=10).contains(&iterations)
+            || !(1..=16).contains(&parallelism)
+            || memory_kib * iterations > 1_048_576
+        {
+            return Err(RuntimeError::new(
+                "password_hash_policy: require memory_kib 19456..262144, iterations 2..10, \
+                 parallelism 1..16, and memory_kib * iterations at most 1048576"
+                    .into(),
+                0,
+                0,
+            ));
+        }
+        Ok(Self {
+            memory_kib: memory_kib as u32,
+            iterations: iterations as u32,
+            parallelism: parallelism as u32,
+        })
+    }
+
+    /// Export the five public policy fields as a mutable WFL object. Consumers
+    /// must pass it through `extract_password_policy` again before use.
+    fn to_value(self) -> Value {
+        Value::Object(Rc::new(RefCell::new(HashMap::from([
+            ("algorithm".into(), Value::Text(Arc::from("argon2id"))),
+            ("version".into(), Value::Number(19.0)),
+            ("memory_kib".into(), Value::Number(self.memory_kib as f64)),
+            ("iterations".into(), Value::Number(self.iterations as f64)),
+            ("parallelism".into(), Value::Number(self.parallelism as f64)),
+        ]))))
+    }
+}
+
+/// Construct a policy with `password_hash_policy of memory_kib and iterations
+/// and parallelism`. Returns an object pinned to Argon2id v19; wrong arity,
+/// non-integer inputs, or costs outside the bounded policy raise an error.
+pub fn native_password_hash_policy(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    const FUNC: &str = "password_hash_policy";
+    check_arg_count(FUNC, &args, 3)?;
+    Ok(PasswordHashPolicy::new(
+        expect_count(FUNC, "memory_kib", &args[0])?,
+        expect_count(FUNC, "iterations", &args[1])?,
+        expect_count(FUNC, "parallelism", &args[2])?,
+    )?
+    .to_value())
+}
+
+/// Policy objects are ordinary mutable WFL maps, so validate every use. Never
+/// rely on a caller retaining the constructor's values or on a marker field.
+/// Returns an owned parameter snapshot that can cross the blocking-worker
+/// boundary without carrying an interpreter value or observing later mutations.
+pub(crate) fn extract_password_policy(value: &Value) -> Result<PasswordHashPolicy, RuntimeError> {
+    const FUNC: &str = "password_hash_policy";
+    let invalid = || {
+        RuntimeError::new(
+            "password_hash_policy: expected a policy from password_hash_policy".into(),
+            0,
+            0,
+        )
+    };
+    let Value::Object(fields) = value else {
+        return Err(invalid());
+    };
+    let fields = fields.borrow();
+    if fields.len() != 5
+        || !matches!(fields.get("algorithm"), Some(Value::Text(algorithm)) if algorithm.as_ref() == "argon2id")
+        || !matches!(fields.get("version"), Some(Value::Number(19.0)))
+    {
+        return Err(invalid());
+    }
+    PasswordHashPolicy::new(
+        expect_count(
+            FUNC,
+            "memory_kib",
+            fields.get("memory_kib").ok_or_else(invalid)?,
+        )?,
+        expect_count(
+            FUNC,
+            "iterations",
+            fields.get("iterations").ok_or_else(invalid)?,
+        )?,
+        expect_count(
+            FUNC,
+            "parallelism",
+            fields.get("parallelism").ok_or_else(invalid)?,
+        )?,
+    )
+}
+
+/// Hash a password with validated parameters and a fresh random 16-byte salt,
+/// returning an Argon2id v19 PHC string with a 32-byte digest.
+///
+/// Reject passwords longer than 4096 bytes before expensive work. This helper
+/// runs synchronously and does not acquire admission permits; interpreted calls
+/// reach it through `crypto_async::route`, which owns scheduling and password
+/// copy cleanup. Direct native callers are responsible for their own scheduling.
+pub(crate) fn password_hash_with_policy_str(
+    password: &str,
+    policy: PasswordHashPolicy,
+) -> Result<String, RuntimeError> {
+    const FUNC: &str = "hash_password_with_policy";
+    check_password_len(FUNC, password)?;
+    let parameters = Params::new(
+        policy.memory_kib,
+        policy.iterations,
+        policy.parallelism,
+        Some(32),
+    )
+    .map_err(|_| RuntimeError::new(format!("{FUNC}: invalid Argon2 parameters"), 0, 0))?;
+    let salt = random_salt()?;
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, parameters)
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|error| RuntimeError::new(format!("{FUNC}: hashing failed: {error}"), 0, 0))
+}
+
+/// Implement `hash_password_with_policy of password and policy` after checking
+/// arity, text input, and all policy fields. Returns a salted Argon2id PHC string.
+/// This synchronous native is the embedding seam; interpreter dispatch uses
+/// `crypto_async::route` to enforce shared admission and off-thread execution.
+pub fn native_hash_password_with_policy(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("hash_password_with_policy", &args, 2)?;
+    let password = expect_text(&args[0])?;
+    let policy = extract_password_policy(&args[1])?;
+    Ok(Value::Text(Arc::from(password_hash_with_policy_str(
+        &password, policy,
+    )?)))
+}
+
+/// Inspect stored metadata without authenticating a password or performing KDF
+/// work. Only call this after verification in a login flow. Parameter conflicts
+/// fail explicitly rather than recommending a rehash that lowers another cost.
+/// Usage: `password_needs_rehash of stored_hash and policy` returns a boolean;
+/// malformed, unsupported, oversized, or incomplete metadata raises an error.
+pub fn native_password_needs_rehash(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("password_needs_rehash", &args, 2)?;
+    let stored = expect_text(&args[0])?;
+    let policy = extract_password_policy(&args[1])?;
+    Ok(Value::Bool(password_needs_rehash_str(&stored, policy)?))
+}
+
+/// Compare at most 1024 bytes of stored metadata with the desired policy.
+/// Recognized bcrypt, scrypt, and PBKDF2 formats request migration; Argon2id v19
+/// already meeting all costs and salt/digest minima does not. A needed Argon2
+/// upgrade that would reduce another cost or digest length is an error. Parsing
+/// never proves the stored digest authentic and never executes its cost values.
+fn password_needs_rehash_str(
+    stored: &str,
+    policy: PasswordHashPolicy,
+) -> Result<bool, RuntimeError> {
+    let invalid = || {
+        RuntimeError::new(
+            "password_needs_rehash: malformed or unsupported stored password hash".into(),
+            0,
+            0,
+        )
+    };
+    if stored.len() > 1024 {
+        return Err(invalid());
+    }
+    if stored.starts_with("$2") {
+        // Parsing decodes the salt and digest but performs no bcrypt work.
+        let parts = stored.parse::<bcrypt::HashParts>().map_err(|_| invalid())?;
+        if !(4..=31).contains(&parts.get_cost())
+            || !(stored.starts_with("$2a$")
+                || stored.starts_with("$2b$")
+                || stored.starts_with("$2y$"))
+        {
+            return Err(invalid());
+        }
+        return Ok(true);
+    }
+    let parsed = PasswordHash::new(stored).map_err(|_| invalid())?;
+    let output = parsed.hash.ok_or_else(invalid)?;
+    let mut salt_buffer = [0u8; 64];
+    let salt_length = parsed
+        .salt
+        .ok_or_else(invalid)?
+        .decode_b64(&mut salt_buffer)
+        .map_err(|_| invalid())?
+        .len();
+    if salt_length < 8 {
+        return Err(invalid());
+    }
+    match parsed.algorithm.as_str() {
+        "scrypt" => {
+            for name in ["ln", "r", "p"] {
+                parsed.params.get_decimal(name).ok_or_else(invalid)?;
+            }
+            scrypt::Params::try_from(&parsed).map_err(|_| invalid())?;
+            return Ok(true);
+        }
+        "pbkdf2-sha256" | "pbkdf2-sha512" => {
+            let rounds = parsed.params.get_decimal("i").ok_or_else(invalid)?;
+            if rounds == 0 {
+                return Err(invalid());
+            }
+            pbkdf2::Params::try_from(&parsed).map_err(|_| invalid())?;
+            return Ok(true);
+        }
+        "argon2id" | "argon2i" | "argon2d" => {}
+        _ => return Err(invalid()),
+    }
+    if !matches!(parsed.version, Some(16 | 19)) || parsed.params.iter().count() != 3 {
+        return Err(invalid());
+    }
+    for name in ["m", "t", "p"] {
+        parsed.params.get_decimal(name).ok_or_else(invalid)?;
+    }
+    let parameters = Params::try_from(&parsed).map_err(|_| invalid())?;
+    let costs = [
+        parameters.m_cost(),
+        parameters.t_cost(),
+        parameters.p_cost(),
+    ];
+    let desired = [policy.memory_kib, policy.iterations, policy.parallelism];
+    let needs_upgrade = parsed.algorithm.as_str() != "argon2id"
+        || parsed.version != Some(19)
+        || salt_length < 16
+        || output.len() < 32
+        || costs.iter().zip(desired).any(|(old, new)| *old < new);
+    if !needs_upgrade {
+        return Ok(false);
+    }
+    if output.len() > 32 || costs.iter().zip(desired).any(|(old, new)| *old > new) {
+        return Err(RuntimeError::new(
+            "password_needs_rehash: policy upgrade would lower an existing cost or digest length; \
+             choose a policy that preserves existing costs or review the migration explicitly"
+                .into(),
+            0,
+            0,
+        ));
+    }
+    Ok(true)
+}
+
 /// Verify a password against a stored hash produced by any of the password
 /// hashing functions (Argon2, bcrypt, scrypt, PBKDF2). Returns a boolean.
 /// Usage: verify_password of "my password" and stored_hash
@@ -1242,6 +1496,12 @@ pub fn register_crypto(env: &mut Environment) {
     env.define_native("secure_random_bytes", native_secure_random_bytes);
     // Password hashing
     env.define_native("hash_password", native_hash_password);
+    env.define_native("password_hash_policy", native_password_hash_policy);
+    env.define_native(
+        "hash_password_with_policy",
+        native_hash_password_with_policy,
+    );
+    env.define_native("password_needs_rehash", native_password_needs_rehash);
     env.define_native("verify_password", native_verify_password);
     env.define_native("argon2_hash", native_argon2_hash);
     env.define_native("argon2_verify", native_argon2_verify);

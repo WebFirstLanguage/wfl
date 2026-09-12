@@ -8,6 +8,10 @@ use std::rc::{Rc, Weak};
 pub struct Environment {
     pub values: HashMap<String, Value>,
     pub constants: HashSet<String>,
+    /// Newly introduced natives remain fallbacks until a user writes their
+    /// binding. Track registration provenance separately from the value so a
+    /// user-stored native alias retains normal duplicate-declaration checks.
+    default_native_names: HashSet<String>,
     pub parent: Option<Weak<RefCell<Environment>>>,
     /// When true, provides module isolation: values from parent scopes are deep cloned
     /// to prevent mutations, and assignment to parent variables is prevented.
@@ -28,6 +32,7 @@ impl Environment {
         Rc::new(RefCell::new(Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
+            default_native_names: HashSet::new(),
             parent: None,
             isolated: false,
             included_files: HashSet::new(),
@@ -41,6 +46,7 @@ impl Environment {
         Rc::new(RefCell::new(Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
+            default_native_names: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
             included_files: HashSet::new(),
@@ -55,6 +61,7 @@ impl Environment {
         Rc::new(RefCell::new(Self {
             values: HashMap::new(),
             constants: HashSet::new(),
+            default_native_names: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
             included_files: HashSet::new(),
@@ -72,6 +79,7 @@ impl Environment {
         Rc::new(RefCell::new(Self {
             values: HashMap::new(),
             constants: HashSet::new(),
+            default_native_names: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
             isolated: true,
             included_files: HashSet::new(),
@@ -101,6 +109,11 @@ impl Environment {
     }
 
     pub fn define(&mut self, name: &str, value: Value) -> Result<(), String> {
+        if self.visible_binding_is_default_native(name) {
+            self.define_or_replace(name, value);
+            return Ok(());
+        }
+
         // Check if the variable already exists in current scope
         if self.values.contains_key(name) {
             return Err(format!(
@@ -127,7 +140,8 @@ impl Environment {
     /// parameter count or in at least one position where both declare
     /// concrete, different parameter types — mirroring the analyzer's
     /// definition-time rules. Collisions with non-function bindings and
-    /// parent-scope shadowing keep the same errors as [`Self::define`].
+    /// parent-scope shadowing keep the same errors as [`Self::define`], except
+    /// that newly introduced default natives do not reserve user action names.
     /// Returns the value now bound to `name`.
     pub fn define_or_merge_action(
         &mut self,
@@ -156,6 +170,14 @@ impl Environment {
         define_directly: bool,
     ) -> Result<Value, String> {
         use super::value::OverloadedFunction;
+
+        if self.local_binding_is_default_native(name)
+            || (!define_directly && self.visible_binding_is_default_native(name))
+        {
+            let value = Value::Function(func);
+            self.define_or_replace(name, value.clone());
+            return Ok(value);
+        }
 
         let merged = match self.values.get(name) {
             Some(Value::Function(existing)) => {
@@ -257,10 +279,36 @@ impl Environment {
         name: &'static str,
         func: crate::interpreter::value::NativeFunction,
     ) {
-        let _ = self.define(
-            name,
-            crate::interpreter::value::Value::NativeFunction(name, func),
-        );
+        if self.define(name, Value::NativeFunction(name, func)).is_ok()
+            && crate::builtins::is_explicit_call_builtin_name(name)
+        {
+            self.default_native_names.insert(name.to_string());
+        }
+    }
+
+    /// Only untouched registrations may yield to user declarations. Native
+    /// aliases and constants holding native functions are ordinary bindings.
+    fn local_binding_is_default_native(&self, name: &str) -> bool {
+        self.default_native_names.contains(name)
+            && !self.constants.contains(name)
+            && matches!(self.values.get(name), Some(Value::NativeFunction(native_name, _)) if *native_name == name)
+    }
+
+    /// The nearest binding decides whether a declaration can shadow a default;
+    /// an intervening user binding must retain its usual collision protection.
+    fn visible_binding_is_default_native(&self, name: &str) -> bool {
+        if self.values.contains_key(name) {
+            return self.local_binding_is_default_native(name);
+        }
+        let mut current = self.parent.as_ref().and_then(Weak::upgrade);
+        while let Some(scope) = current {
+            let parent = scope.borrow();
+            if parent.values.contains_key(name) {
+                return parent.local_binding_is_default_native(name);
+            }
+            current = parent.parent.as_ref().and_then(Weak::upgrade);
+        }
+        false
     }
 
     /// Defines or overwrites a binding in the current scope, shadowing any
@@ -271,12 +319,18 @@ impl Environment {
         // A refreshed implicit binding is never a constant; clear any stale
         // constant marker so the binding's state stays consistent.
         self.constants.remove(name);
+        self.default_native_names.remove(name);
         self.values.insert(name.to_string(), value);
     }
 
     /// Defines a variable in the current scope without checking parent scopes for shadowing.
     /// This is an optimization for when existence in parent scopes has already been checked.
     pub fn define_direct(&mut self, name: &str, value: Value) -> Result<(), String> {
+        if self.local_binding_is_default_native(name) {
+            self.define_or_replace(name, value);
+            return Ok(());
+        }
+
         // Check if the variable already exists in current scope
         if self.values.contains_key(name) {
             return Err(format!(
@@ -322,6 +376,17 @@ impl Environment {
         value: Value,
         is_constant: bool,
     ) -> Result<(), String> {
+        // A new native must not steal a previously valid local declaration,
+        // including in isolated modules. Claim it locally without mutating the
+        // original registration or any sibling scope that still uses it.
+        if self.visible_binding_is_default_native(name) {
+            self.define_or_replace(name, value);
+            if is_constant {
+                self.constants.insert(name.to_string());
+            }
+            return Ok(());
+        }
+
         // Check current scope
         if let Some(val_ref) = self.values.get_mut(name) {
             if is_constant {
@@ -334,6 +399,7 @@ impl Environment {
             }
             // Use assignment instead of definition
             *val_ref = value;
+            self.default_native_names.remove(name);
             return Ok(());
         }
 
@@ -351,6 +417,12 @@ impl Environment {
     }
 
     pub fn define_constant(&mut self, name: &str, value: Value) -> Result<(), String> {
+        if self.visible_binding_is_default_native(name) {
+            self.define_or_replace(name, value);
+            self.constants.insert(name.to_string());
+            return Ok(());
+        }
+
         // Check if the variable/constant already exists
         if self.values.contains_key(name) {
             return Err(format!(
@@ -374,6 +446,7 @@ impl Environment {
     }
 
     pub fn define_constant_direct(&mut self, name: &str, value: Value) -> Result<(), String> {
+        self.default_native_names.remove(name);
         self.values.insert(name.to_string(), value);
         self.constants.insert(name.to_string());
         Ok(())
@@ -384,6 +457,7 @@ impl Environment {
     pub fn clear(&mut self) {
         self.values.clear();
         self.constants.clear();
+        self.default_native_names.clear();
         // A recycled loop scope starts logically fresh: the definitions an
         // include installed are gone, so its marker must go with them.
         self.included_files.clear();
@@ -457,6 +531,7 @@ impl Environment {
                 }
 
                 *val_ref = value;
+                parent.default_native_names.remove(name);
                 return Some(Ok(()));
             }
 
@@ -479,6 +554,7 @@ impl Environment {
                 return Err(format!("Cannot modify constant '{name}'"));
             }
             *val_ref = value;
+            self.default_native_names.remove(name);
             return Ok(());
         }
 
@@ -498,21 +574,26 @@ impl Environment {
     /// Remove and return a binding from this scope only. Used for temporary
     /// clause-local aliases that must reveal any outer/local binding again
     /// after a handler finishes.
-    pub fn take_local_binding(&mut self, name: &str) -> Option<(Value, bool)> {
+    pub fn take_local_binding(&mut self, name: &str) -> Option<(Value, bool, bool)> {
         let value = self.values.remove(name)?;
         let was_constant = self.constants.remove(name);
-        Some((value, was_constant))
+        let was_default_native = self.default_native_names.remove(name);
+        Some((value, was_constant, was_default_native))
     }
 
     /// Replace the current local binding with a previously saved one, or remove
     /// it when no binding existed before the temporary override.
-    pub fn restore_local_binding(&mut self, name: &str, saved: Option<(Value, bool)>) {
+    pub fn restore_local_binding(&mut self, name: &str, saved: Option<(Value, bool, bool)>) {
         self.values.remove(name);
         self.constants.remove(name);
-        if let Some((value, was_constant)) = saved {
+        self.default_native_names.remove(name);
+        if let Some((value, was_constant, was_default_native)) = saved {
             self.values.insert(name.to_string(), value);
             if was_constant {
                 self.constants.insert(name.to_string());
+            }
+            if was_default_native {
+                self.default_native_names.insert(name.to_string());
             }
         }
     }

@@ -19,6 +19,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_toml(analyzer);
     register_web(analyzer);
     register_crypto(analyzer);
+    register_auth(analyzer);
     register_filesystem(analyzer);
     register_time(analyzer);
 }
@@ -388,6 +389,24 @@ fn register_web(analyzer: &mut Analyzer) {
 fn register_crypto(analyzer: &mut Analyzer) {
     register(
         analyzer,
+        &["password_hash_policy"],
+        repeated(Type::Number, 3),
+        map(Type::Text, Type::Any),
+    );
+    register(
+        analyzer,
+        &["hash_password_with_policy"],
+        vec![Type::Text, map(Type::Text, Type::Any)],
+        Type::Text,
+    );
+    register(
+        analyzer,
+        &["password_needs_rehash"],
+        vec![Type::Text, map(Type::Text, Type::Any)],
+        Type::Boolean,
+    );
+    register(
+        analyzer,
         &["wflhash256", "wflhash512", "sha256"],
         vec![Type::Text],
         Type::Text,
@@ -451,6 +470,42 @@ fn register_crypto(analyzer: &mut Analyzer) {
         vec![Type::Text, Type::Text],
         Type::Boolean,
     );
+}
+
+fn register_auth(analyzer: &mut Analyzer) {
+    // Opaque capabilities have no surface type annotation yet. Runtime guards
+    // accept only native handles, never objects/text that resemble a handle.
+    register(
+        analyzer,
+        &["create_session_store", "create_account_rate_limiter"],
+        repeated(Type::Number, 3),
+        Type::Any,
+    );
+    register(
+        analyzer,
+        &["session_create", "session_rotate", "session_lookup"],
+        vec![Type::Any, Type::Text],
+        Type::Any,
+    );
+    register(
+        analyzer,
+        &["session_revoke", "account_rate_limit_allow"],
+        vec![Type::Any, Type::Text],
+        Type::Boolean,
+    );
+    register(
+        analyzer,
+        &["session_revoke_account"],
+        vec![Type::Any, Type::Text],
+        Type::Number,
+    );
+    register(
+        analyzer,
+        &["session_csrf_guard"],
+        vec![Type::Any, Type::Any],
+        Type::Boolean,
+    );
+    register(analyzer, &["session_cookie"], vec![Type::Text], Type::Text);
 }
 
 fn register_filesystem(analyzer: &mut Analyzer) {

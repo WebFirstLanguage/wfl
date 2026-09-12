@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod core;
 pub mod crypto;
 pub mod crypto_async;
@@ -18,6 +19,7 @@ pub mod web;
 use crate::interpreter::environment::Environment;
 
 pub fn register_stdlib(env: &mut Environment) {
+    auth::register_auth(env);
     core::register_core(env);
     crypto::register_crypto(env);
     filesystem::register_filesystem(env);

@@ -23,6 +23,9 @@ pub enum Value {
     DateTime(Rc<chrono::NaiveDateTime>),
     Pattern(Rc<CompiledPattern>),
     Binary(Arc<[u8]>),
+    /// Opaque shared capabilities: cannot be forged or serialized from WFL.
+    SessionStore(Rc<RefCell<crate::stdlib::auth::SessionStore>>),
+    AccountRateLimiter(Rc<RefCell<crate::stdlib::auth::AccountRateLimiter>>),
     Null,
     Nothing, // Used for void returns
 
@@ -247,6 +250,8 @@ impl Value {
             Value::DateTime(_) => "DateTime",
             Value::Pattern(_) => "Pattern",
             Value::Binary(_) => "Binary",
+            Value::SessionStore(_) => "SessionStore",
+            Value::AccountRateLimiter(_) => "AccountRateLimiter",
             Value::Null => "Null",
             Value::Nothing => "Nothing",
             Value::ContainerDefinition(_def) => "Container",
@@ -270,6 +275,7 @@ impl Value {
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
             Value::Pattern(_) => true,
             Value::Binary(b) => !b.is_empty(),
+            Value::SessionStore(_) | Value::AccountRateLimiter(_) => true,
             Value::Nothing => false,
             Value::ContainerDefinition(_) => true,
             Value::ContainerInstance(_) => true,
@@ -326,7 +332,9 @@ impl Value {
             Value::ContainerInstance(instance) => {
                 Value::ContainerInstance(Self::deep_clone_container_instance(instance, memo))
             }
-            // For all other types, use regular clone (they're either primitives or immutable Rc types)
+            // Auth handles deliberately share revocation/rate state even across
+            // isolated modules; cloning them must never fork security decisions.
+            // Other types use regular clone (primitives or immutable Rc types).
             _ => self.clone(),
         }
     }
@@ -464,6 +472,8 @@ impl Value {
             Value::DateTime(dt) => write!(f, "DateTime({dt})"),
             Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Binary(b) => write!(f, "[Binary: {} bytes]", b.len()),
+            Value::SessionStore(_) => write!(f, "[SessionStore]"),
+            Value::AccountRateLimiter(_) => write!(f, "[AccountRateLimiter]"),
             Value::Null => write!(f, "null"),
             Value::ContainerDefinition(def) => write!(f, "<container {}>", def.name),
             Value::ContainerInstance(instance) => {
@@ -574,6 +584,8 @@ impl Value {
             Value::DateTime(dt) => write!(f, "{}", dt.format("%Y-%m-%d %H:%M:%S")),
             Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Binary(b) => write!(f, "[Binary: {} bytes]", b.len()),
+            Value::SessionStore(_) => write!(f, "[SessionStore]"),
+            Value::AccountRateLimiter(_) => write!(f, "[AccountRateLimiter]"),
             Value::Null => write!(f, "nothing"),
             Value::ContainerDefinition(def) => write!(f, "container {}", def.name),
             Value::ContainerInstance(instance) => {
@@ -624,6 +636,10 @@ impl PartialEq for Value {
             (Value::Time(a), Value::Time(b)) => return a == b,
             (Value::DateTime(a), Value::DateTime(b)) => return a == b,
             (Value::Pattern(a), Value::Pattern(b)) => return Rc::ptr_eq(a, b),
+            (Value::SessionStore(a), Value::SessionStore(b)) => return Rc::ptr_eq(a, b),
+            (Value::AccountRateLimiter(a), Value::AccountRateLimiter(b)) => {
+                return Rc::ptr_eq(a, b);
+            }
             (Value::Binary(a), Value::Binary(b)) => {
                 if Arc::ptr_eq(a, b) {
                     return true;
@@ -752,6 +768,8 @@ fn eq_with_visited(
         }
         (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
         (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
+        (Value::SessionStore(a), Value::SessionStore(b)) => Rc::ptr_eq(a, b),
+        (Value::AccountRateLimiter(a), Value::AccountRateLimiter(b)) => Rc::ptr_eq(a, b),
         (Value::Binary(a), Value::Binary(b)) => Arc::ptr_eq(a, b) || a == b,
 
         (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,

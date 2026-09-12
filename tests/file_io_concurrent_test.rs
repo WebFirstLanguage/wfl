@@ -10,14 +10,27 @@ use wfl::parser::Parser;
 mod file_io_concurrent_tests {
     use super::*;
 
-    fn cleanup_test_files(files: &[&str]) {
-        for file in files {
-            let _ = fs::remove_file(file);
+    async fn execute_wfl_code(
+        code: &str,
+        directory: &Path,
+        filenames: &[&str],
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Every test owns its files, including on assertion failure. Absolute
+        // paths keep concurrent tests independent without changing process cwd.
+        // Forward slashes are accepted on Windows and avoid WFL string escapes.
+        let directory_text = directory.to_string_lossy().replace('\\', "/");
+        let mut code = code.replace(
+            "list files in \".\"",
+            &format!("list files in \"{directory_text}\""),
+        );
+        for filename in filenames {
+            let path = directory
+                .join(filename)
+                .to_string_lossy()
+                .replace('\\', "/");
+            code = code.replace(&format!("\"{filename}\""), &format!("\"{path}\""));
         }
-    }
-
-    async fn execute_wfl_code(code: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let tokens = lex_wfl_with_positions(code);
+        let tokens = lex_wfl_with_positions(&code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
 
@@ -41,8 +54,8 @@ mod file_io_concurrent_tests {
 
     #[tokio::test]
     async fn test_concurrent_file_writes() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["concurrent_1.txt", "concurrent_2.txt", "concurrent_3.txt"];
-        cleanup_test_files(&test_files);
 
         // This test should verify that multiple async file operations can run concurrently
         let code = r#"
@@ -70,7 +83,7 @@ mod file_io_concurrent_tests {
             end check
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Concurrent file writes failed: {:?}",
@@ -84,12 +97,12 @@ mod file_io_concurrent_tests {
             ("concurrent_3.txt", "Data for file 3"),
         ] {
             assert!(
-                Path::new(file).exists(),
+                directory.path().join(file).exists(),
                 "Concurrent file {} was not created",
                 file
             );
-            let content =
-                fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
+            let content = fs::read_to_string(directory.path().join(file))
+                .unwrap_or_else(|_| panic!("Could not read {}", file));
             assert_eq!(
                 content.trim(),
                 expected_content,
@@ -97,18 +110,24 @@ mod file_io_concurrent_tests {
                 file
             );
         }
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_concurrent_file_read_write() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["read_write_1.txt", "read_write_2.txt"];
-        cleanup_test_files(&test_files);
 
         // Create initial files
-        fs::write("read_write_1.txt", "Initial content 1").expect("Failed to create test file");
-        fs::write("read_write_2.txt", "Initial content 2").expect("Failed to create test file");
+        fs::write(
+            directory.path().join("read_write_1.txt"),
+            "Initial content 1",
+        )
+        .expect("Failed to create test file");
+        fs::write(
+            directory.path().join("read_write_2.txt"),
+            "Initial content 2",
+        )
+        .expect("Failed to create test file");
 
         // This test verifies concurrent read and write operations
         let code = r#"
@@ -127,7 +146,7 @@ mod file_io_concurrent_tests {
             display "Wrote to file 2 completed"
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Concurrent read/write failed: {:?}",
@@ -135,27 +154,27 @@ mod file_io_concurrent_tests {
         );
 
         // Verify operations completed correctly
-        let content1 = fs::read_to_string("read_write_1.txt").expect("Could not read file 1");
+        let content1 = fs::read_to_string(directory.path().join("read_write_1.txt"))
+            .expect("Could not read file 1");
         assert_eq!(
             content1.trim(),
             "Initial content 1",
             "File 1 content changed unexpectedly"
         );
 
-        let content2 = fs::read_to_string("read_write_2.txt").expect("Could not read file 2");
+        let content2 = fs::read_to_string(directory.path().join("read_write_2.txt"))
+            .expect("Could not read file 2");
         assert_eq!(
             content2.trim(),
             "New content for file 2",
             "File 2 content not updated correctly"
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_file_locking_behavior() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["locking_test.txt"];
-        cleanup_test_files(&test_files);
 
         // This test should verify proper file locking behavior during concurrent access
         let code = r#"
@@ -175,7 +194,7 @@ mod file_io_concurrent_tests {
             display "Final file content: " with final_content
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "File locking test failed: {:?}",
@@ -183,8 +202,8 @@ mod file_io_concurrent_tests {
         );
 
         // Verify the file content is correct
-        let content =
-            fs::read_to_string("locking_test.txt").expect("Could not read locking test file");
+        let content = fs::read_to_string(directory.path().join("locking_test.txt"))
+            .expect("Could not read locking test file");
         assert!(
             content.contains("First write operation"),
             "First write not found in file"
@@ -193,19 +212,20 @@ mod file_io_concurrent_tests {
             content.contains("Second write to same handle"),
             "Second write not found in file"
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_async_directory_operations() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["async_dir_1.txt", "async_dir_2.log", "async_dir_3.dat"];
-        cleanup_test_files(&test_files);
 
         // Create test files for directory listing
         for (i, file) in test_files.iter().enumerate() {
-            fs::write(file, format!("Content for file {}", i + 1))
-                .expect("Failed to create test file");
+            fs::write(
+                directory.path().join(file),
+                format!("Content for file {}", i + 1),
+            )
+            .expect("Failed to create test file");
         }
 
         // This test verifies async directory listing operations
@@ -229,23 +249,21 @@ mod file_io_concurrent_tests {
             end check
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Async directory operations failed: {:?}",
             result.err()
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_large_concurrent_file_operations() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files: Vec<String> = (0..10)
             .map(|i| format!("large_concurrent_{}.txt", i))
             .collect();
         let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
-        cleanup_test_files(&test_file_refs);
 
         // This test creates many files concurrently to test resource management
         let code = r#"
@@ -289,7 +307,7 @@ mod file_io_concurrent_tests {
             display "Created " with total_files with " files concurrently"
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_file_refs).await;
         assert!(
             result.is_ok(),
             "Large concurrent file operations failed: {:?}",
@@ -300,11 +318,11 @@ mod file_io_concurrent_tests {
         for i in 0..5 {
             let filename = format!("large_concurrent_{}.txt", i);
             assert!(
-                Path::new(&filename).exists(),
+                directory.path().join(&filename).exists(),
                 "File {} was not created",
                 filename
             );
-            let content = fs::read_to_string(&filename)
+            let content = fs::read_to_string(directory.path().join(&filename))
                 .unwrap_or_else(|_| panic!("Could not read {}", filename));
             assert_eq!(
                 content.trim(),
@@ -313,14 +331,12 @@ mod file_io_concurrent_tests {
                 filename
             );
         }
-
-        cleanup_test_files(&test_file_refs);
     }
 
     #[tokio::test]
     async fn test_file_flush_race_condition() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["flush_race_test.txt"];
-        cleanup_test_files(&test_files);
 
         // This test specifically targets the race condition where file content
         // might not be flushed to disk before the file is closed
@@ -338,7 +354,7 @@ mod file_io_concurrent_tests {
             display "Read content: " with file_content
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "File flush race condition test failed: {:?}",
@@ -346,25 +362,23 @@ mod file_io_concurrent_tests {
         );
 
         // Verify the file content was properly written and flushed
-        let content =
-            fs::read_to_string("flush_race_test.txt").expect("Could not read flush test file");
+        let content = fs::read_to_string(directory.path().join("flush_race_test.txt"))
+            .expect("Could not read flush test file");
         assert_eq!(
             content.trim(),
             "This content must be flushed to disk before close!",
             "File content was not properly flushed to disk - race condition detected!"
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_multiple_rapid_write_close_cycles() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = [
             "rapid_cycle_1.txt",
             "rapid_cycle_2.txt",
             "rapid_cycle_3.txt",
         ];
-        cleanup_test_files(&test_files);
 
         // This test performs multiple rapid write-close cycles to stress test flushing
         let code = r#"
@@ -408,7 +422,7 @@ mod file_io_concurrent_tests {
             display "Successful rapid cycles: " with success_count
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Multiple rapid write-close cycles failed: {:?}",
@@ -424,11 +438,11 @@ mod file_io_concurrent_tests {
         .iter()
         {
             assert!(
-                Path::new(file).exists(),
+                directory.path().join(file).exists(),
                 "Rapid cycle file {} was not created",
                 file
             );
-            let content = fs::read_to_string(file)
+            let content = fs::read_to_string(directory.path().join(file))
                 .unwrap_or_else(|_| panic!("Could not read rapid cycle file {}", file));
             assert_eq!(
                 content.trim(),
@@ -437,7 +451,5 @@ mod file_io_concurrent_tests {
                 file
             );
         }
-
-        cleanup_test_files(&test_files);
     }
 }

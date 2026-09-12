@@ -2832,6 +2832,18 @@ impl TypeChecker {
             "constant_time_equals" => Type::Boolean,
 
             // Password hashing: *_hash produce a string, *_verify produce a boolean
+            "hash_password_with_policy" | "session_cookie" => Type::Text,
+            "password_hash_policy" => Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
+            "password_needs_rehash"
+            | "session_revoke"
+            | "session_csrf_guard"
+            | "account_rate_limit_allow" => Type::Boolean,
+            "session_revoke_account" => Type::Number,
+            "create_session_store"
+            | "create_account_rate_limiter"
+            | "session_create"
+            | "session_lookup"
+            | "session_rotate" => Type::Any,
             "hash_password" | "argon2_hash" | "bcrypt_hash" | "scrypt_hash" | "pbkdf2_hash" => {
                 Type::Text
             }
@@ -7181,6 +7193,7 @@ impl TypeChecker {
                     ("path", Type::Text),
                     ("query", Type::Text),
                     ("client_ip", Type::Text),
+                    ("originating_ip", Type::Text),
                     ("body", Type::Text),
                     ("body_bytes", Type::Binary),
                     (
@@ -7680,13 +7693,25 @@ impl TypeChecker {
     }
 
     /// Whether this call site resolves to the standard-library native rather
-    /// than a stored callable or a user action using a future-reserved name.
+    /// than a stored callable or a user action using an explicit-call or
+    /// future-reserved name.
     fn should_use_builtin_contract(&self, name: &str, line: usize, column: usize) -> bool {
         if !Analyzer::is_builtin_function(name)
             || self
                 .analyzer
                 .alias_call_resolution(name, line, column)
                 .is_some()
+        {
+            return false;
+        }
+        // New native defaults may be replaced by source action definitions.
+        // Their signatures belong to the program analyzer; native contracts
+        // live separately in `builtin_contracts`. Preserve legacy names' rules.
+        if builtins::is_explicit_call_builtin_name(name)
+            && self
+                .analyzer
+                .get_symbol(name)
+                .is_some_and(|symbol| matches!(symbol.kind, SymbolKind::Function { .. }))
         {
             return false;
         }
@@ -8163,7 +8188,8 @@ impl TypeChecker {
                     // through the signature list. This also gives a
                     // forward-referenced single action its provisional
                     // Unknown return without inventing a missing-type error.
-                    if !builtins::is_implemented_builtin_function(callee)
+                    if (!builtins::is_implemented_builtin_function(callee)
+                        || builtins::is_explicit_call_builtin_name(callee))
                         && let Some(signatures) = self.action_signatures(callee)
                     {
                         return self.infer_overloaded_call_type(
