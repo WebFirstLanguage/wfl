@@ -807,6 +807,23 @@ class PublisherTests(unittest.TestCase):
             self.assertNotIn(f"nightly-{OLD}", peer.tags)
             self.assertFalse(peer.commands)
 
+    def test_replacement_cannot_succeed_when_cleanup_listing_omits_known_previous_tag(self):
+        with Peer() as peer:
+            peer.published()
+            original = list(peer.tags.values())
+            candidate = tag(f"nightly-{VERSION}", DIGEST)
+            peer.list_replies = [
+                {"count": 2, "next": None, "results": original},
+                {"count": 3, "next": None, "results": [*original, candidate]},
+                {"count": 0, "next": None, "results": [tag("nightly", DIGEST), candidate]},
+            ]
+            with self.assertRaisesRegex(self.publisher.PublishError, "cleanup"):
+                self.publish(peer)
+            self.assertEqual(DIGEST, peer.tags["nightly"]["digest"])
+            self.assertEqual(DIGEST, peer.tags[f"nightly-{VERSION}"]["digest"])
+            self.assertEqual(OLD_DIGEST, peer.tags[f"nightly-{OLD}"]["digest"])
+            self.assertFalse(peer.deleted)
+
     def test_cleanup_reads_all_pages_and_preserves_unrelated_tags(self):
         with Peer() as peer:
             peer.published(VERSION, DIGEST)
