@@ -232,6 +232,8 @@ class Hub:
             count = page.get("count")
             if not isinstance(results, list) or type(count) is not int or not 0 <= count <= 10000:
                 raise PublishError("Docker Hub returned malformed tag pagination")
+            if len(results) > 100 or len(tags) + len(results) > 10000:
+                raise PublishError("Docker Hub tag enumeration exceeded the page or record limit")
             if expected_count is not None and count != expected_count:
                 raise PublishError("Docker Hub tag listing changed during pagination; run again")
             expected_count = count
@@ -245,24 +247,30 @@ class Hub:
                 if name == "nightly" or managed_version(name) is not None:
                     tag_digest(item)
                 tags[name] = item
-            following = page.get("next")
+            if "next" not in page:
+                raise PublishError("Docker Hub did not explicitly identify the next page or listing end")
+            following = page["next"]
             if following is None:
+                if len(results) == 100 and count < len(tags):
+                    raise PublishError("Docker Hub returned a potentially truncated full final page")
                 path = None
                 continue
             if not isinstance(following, str):
                 raise PublishError("Docker Hub returned an invalid pagination URL")
             parsed = urlsplit(following)
             origin = urlsplit(self.origin)
-            query = parse_qs(parsed.query)
+            query = parse_qs(parsed.query, keep_blank_values=True)
             if (
                 parsed.scheme != origin.scheme or parsed.netloc != origin.netloc
                 or parsed.path.rstrip("/") != self.tags_path or parsed.fragment
-                or not query or set(query) - {"page", "page_size"}
-                or any(len(values) != 1 or not values[0].isdigit() for values in query.values())
+                or query != {"page": [str(len(seen) + 1)], "page_size": ["100"]}
             ):
                 raise PublishError("Docker Hub pagination URL is outside the expected tag endpoint")
             path = self.tags_path + "?" + parsed.query
-        if expected_count != len(tags):
+        # Hub's aggregate count can lag real tag records after a push. An
+        # undercount is safe only after following all pages to an unambiguous
+        # end; an overcount still means records are missing.
+        if expected_count > len(tags):
             raise PublishError("Docker Hub returned an incomplete tag list")
         return tags
 
@@ -413,6 +421,9 @@ def cleanup(hub, version, digest):
     require_tag(hub, "nightly", digest)
     require_tag(hub, current_tag, digest)
     tags = hub.list_tags()
+    for name in ("nightly", current_tag):
+        if name not in tags or tag_digest(tags[name]) != digest:
+            raise PublishError("Docker Hub cleanup listing does not match the current image")
     obsolete = [name for name in tags if managed_version(name) is not None
                 and version_tuple(managed_version(name)) < version_tuple(version)]
     deleted = []
@@ -467,6 +478,9 @@ def publish(hub, version, candidate, docker):
     require_tag(hub, "nightly", digest)
     require_tag(hub, name, digest)
     removed = cleanup(hub, version, digest)
+    previous = initial["current_version"]
+    if previous is not None and hub.get_tag(MANAGED_PREFIX + previous, missing=True) is not None:
+        raise PublishError("Previous nightly tag still exists; cleanup incomplete")
     return {"action": "published", "version": version, "digest": digest, "deleted": removed}
 
 

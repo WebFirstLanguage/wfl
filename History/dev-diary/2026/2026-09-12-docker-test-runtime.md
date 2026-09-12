@@ -24,3 +24,18 @@ SQLite, standard input, caller UID mapping, and unexpected output files.
 Usage is documented in [the Docker guide](../../../Docs/guides/docker-testing.md).
 Validation and release evidence are recorded in
 [the testing record](../../../Engineering/evidence/docker-nightly-testing.md).
+
+## 2026-09-12 addendum — Docker Hub tag-count interoperability
+
+The first live nightly passed its release gates and container tests, then
+stopped before promoting `nightly`. Docker Hub had accepted `nightly-26.9.4`
+but returned a tag-list total of zero with one actual result. Repeated public
+reads with page sizes 10 and 100 confirmed the mismatch. The original exact
+count assertion treated a stale aggregate as a truncated list.
+
+The repair accepts an underreported total while retaining strict page and
+record bounds, digest checks, and rejection of genuinely incomplete listings.
+Cleanup also requires the enumerated current tags to match their verified
+digests. The failed deployment remains evidence, and recovery uses the already
+tested immutable version image. Regression and deployment evidence are in
+[the repair record](../../../Engineering/evidence/docker-hub-tag-count-repair.md).
