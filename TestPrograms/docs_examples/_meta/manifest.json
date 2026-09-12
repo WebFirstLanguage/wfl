@@ -724,6 +724,22 @@
     ],
     "doc_purpose": "Second branch of the diamond include example. Layers 2-3 are skipped: it calls an action that lives in a file it includes, and single-file analysis reports that as a non-fatal warning with a nonzero exit; layer 5 runs the real multi-file program."
   },
+  "docs_examples/stdlib_functions/managed_auth.wfl": {
+    "doc_section": "Docs/05-standard-library/auth-module.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["stdlib", "authentication", "sessions", "csrf", "rate-limits"],
+    "doc_purpose": "Creates an in-memory session store and account limiter, issues a secure cookie, rotates a session, and revokes account sessions."
+  },
+  "docs_examples/stdlib_functions/password_policy.wfl": {
+    "doc_section": "Docs/05-standard-library/crypto-module.md#maintaining-password-hash-costs",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["stdlib", "crypto", "passwords", "argon2", "rehash"],
+    "doc_purpose": "Verifies an existing account password before upgrading its Argon2id memory and iteration costs."
+  },
   "docs_examples/modules/diamond/main.wfl": {
     "doc_section": "Docs/04-advanced-features/modules.md",
     "type": "executable",

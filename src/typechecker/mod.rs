@@ -2832,6 +2832,18 @@ impl TypeChecker {
             "constant_time_equals" => Type::Boolean,
 
             // Password hashing: *_hash produce a string, *_verify produce a boolean
+            "hash_password_with_policy" | "session_cookie" => Type::Text,
+            "password_hash_policy" => Type::Map(Box::new(Type::Text), Box::new(Type::Any)),
+            "password_needs_rehash"
+            | "session_revoke"
+            | "session_csrf_guard"
+            | "account_rate_limit_allow" => Type::Boolean,
+            "session_revoke_account" => Type::Number,
+            "create_session_store"
+            | "create_account_rate_limiter"
+            | "session_create"
+            | "session_lookup"
+            | "session_rotate" => Type::Any,
             "hash_password" | "argon2_hash" | "bcrypt_hash" | "scrypt_hash" | "pbkdf2_hash" => {
                 Type::Text
             }
@@ -7181,6 +7193,7 @@ impl TypeChecker {
                     ("path", Type::Text),
                     ("query", Type::Text),
                     ("client_ip", Type::Text),
+                    ("originating_ip", Type::Text),
                     ("body", Type::Text),
                     ("body_bytes", Type::Binary),
                     (

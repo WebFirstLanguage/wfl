@@ -41,6 +41,9 @@ pub struct WflConfig {
     pub subprocess_config: SubprocessConfig,
     // Web server network binding
     pub web_server_bind_address: String,
+    /// Explicit IP/CIDR allowlist for X-Forwarded-For processing. Empty means
+    /// trust no proxies. Invalid policies are discarded atomically.
+    pub web_server_trusted_proxies: Vec<String>,
     // Web server TLS defaults: used by `listen ... secured` when the listen
     // statement does not name certificate/key files itself
     pub web_server_tls_cert_file: Option<String>,
@@ -184,6 +187,7 @@ impl Default for WflConfig {
             subprocess_config: SubprocessConfig::default(),
             // Web server network binding default
             web_server_bind_address: "127.0.0.1".to_string(),
+            web_server_trusted_proxies: Vec::new(),
             // No TLS defaults: a `listen ... secured` statement must either
             // name its certificate/key files or these must be set in .wflcfg
             web_server_tls_cert_file: None,
@@ -693,6 +697,21 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         );
                     }
                 }
+                "web_server_trusted_proxies" => {
+                    match crate::interpreter::trusted_proxy::TrustedProxyPolicy::parse_config(value)
+                    {
+                        Ok(entries) => config.web_server_trusted_proxies = entries,
+                        Err(reason) => {
+                            // Never retain inherited trust or accept only the valid
+                            // subset after an invalid local override.
+                            config.web_server_trusted_proxies.clear();
+                            log::warn!(
+                                "Invalid web_server_trusted_proxies in {}: {reason}; trusting no proxies",
+                                file.display()
+                            );
+                        }
+                    }
+                }
                 "web_server_tls_cert_file" => {
                     let path = value.trim().to_string();
                     if path.is_empty() {
@@ -1070,6 +1089,36 @@ mod tests {
     // Mutex to serialize config tests that modify environment variables
     // This prevents test interference when tests run in parallel
     static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn trusted_proxy_config_defaults_and_invalid_overrides_fail_closed() {
+        let mut config = WflConfig::default();
+        assert!(config.web_server_trusted_proxies.is_empty());
+        let path = Path::new(".wflcfg");
+        for value in [
+            "",
+            "invalid",
+            "127.0.0.1,",
+            &"127.0.0.1,".repeat(129),
+            &" ".repeat(8200),
+        ] {
+            parse_config_text(
+                &mut config,
+                "web_server_trusted_proxies = 127.0.0.1, ::1/128",
+                path,
+            );
+            assert_eq!(config.web_server_trusted_proxies, ["127.0.0.1", "::1/128"]);
+            parse_config_text(
+                &mut config,
+                &format!("web_server_trusted_proxies = {value}"),
+                path,
+            );
+            assert!(
+                config.web_server_trusted_proxies.is_empty(),
+                "invalid override retained trust: {value:?}"
+            );
+        }
+    }
 
     #[cfg(test)]
     fn set_test_env_var(val: Option<&str>) {

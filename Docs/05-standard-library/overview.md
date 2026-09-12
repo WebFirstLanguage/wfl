@@ -157,7 +157,8 @@ store upper as touppercase of "text"
 - Seeding: `random_seed`
 
 ### Security (Crypto)
-- Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2)
+- Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2), plus bounded policy and rehash helpers
+- [Managed authentication](auth-module.md): session stores, rotation and revocation, request CSRF guards, secure cookies, and account attempt limits
 - Authenticated encryption: `seal`, `unseal` (XChaCha20-Poly1305) — for secrets you must read back
 - Standard hashing/MAC: `sha256`, `hmac_sha256`
 - WFLHASH (experimental): `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256` — dual-hash with `sha256` for production

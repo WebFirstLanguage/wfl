@@ -1,0 +1,30 @@
+describe "Managed authentication lifecycle":
+    test "rotation, revocation and opaque state":
+        store sessions as create_session_store of 3600 and 900 and 100
+        store issued as session_create of sessions and "account-42"
+        store account as session_lookup of sessions and issued["id"]
+        expect account to be "account-42"
+        store rotated as session_rotate of sessions and issued["id"]
+        store old_account as session_lookup of sessions and issued["id"]
+        expect old_account to be nothing
+        store cookie as session_cookie of rotated["id"]
+        store secure as contains of cookie and "Secure; HttpOnly; SameSite=Strict"
+        expect secure to be yes
+        store removed as session_revoke_account of sessions and "account-42"
+        expect removed to be 1
+        store revoked_account as session_lookup of sessions and rotated["id"]
+        expect revoked_account to be nothing
+    end test
+
+    test "account limits deny further attempts without evicting blocked accounts":
+        store attempts as create_account_rate_limiter of 2 and 60 and 1
+        store first_attempt as account_rate_limit_allow of attempts and "account-42"
+        store second_attempt as account_rate_limit_allow of attempts and "account-42"
+        store third_attempt as account_rate_limit_allow of attempts and "account-42"
+        store other_attempt as account_rate_limit_allow of attempts and "another-account"
+        expect first_attempt to be yes
+        expect second_attempt to be yes
+        expect third_attempt to be no
+        expect other_attempt to be no
+    end test
+end describe

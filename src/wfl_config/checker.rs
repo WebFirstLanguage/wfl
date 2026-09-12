@@ -464,6 +464,21 @@ impl ConfigChecker {
         );
 
         expected_settings.insert(
+            "web_server_trusted_proxies".to_string(),
+            ExpectedSetting {
+                name: "web_server_trusted_proxies".to_string(),
+                config_type: ConfigType::StringList,
+                required: false,
+                default_value: Some(String::new()),
+                description:
+                    "Trusted proxy IPs/CIDRs for validated originating_ip (empty trusts none)"
+                        .to_string(),
+                valid_values: None,
+                category: "Web Server".to_string(),
+            },
+        );
+
+        expected_settings.insert(
             "web_server_tls_cert_file".to_string(),
             ExpectedSetting {
                 name: "web_server_tls_cert_file".to_string(),
@@ -847,8 +862,26 @@ impl ConfigChecker {
                         }
                     }
                     ConfigType::StringList => {
-                        // StringList is comma-separated values, basic validation
-                        // Empty string is valid
+                        // Empty lists are valid. Proxy trust shares the loader's
+                        // strict validation and bounds, including CIDR families.
+                        if key == "web_server_trusted_proxies"
+                            && let Err(reason) =
+                                crate::interpreter::trusted_proxy::TrustedProxyPolicy::parse_config(
+                                    value,
+                                )
+                        {
+                            issues.push(ConfigIssue {
+                                file_path: file_path.to_path_buf(),
+                                kind: ConfigIssueKind::InvalidValue,
+                                issue_type: ConfigIssueType::Error,
+                                message: format!("Invalid value for {key}: {reason}"),
+                                setting_name: Some(key.to_string()),
+                                line_number: Some(line_number + 1),
+                                fix_message: Some(
+                                    "Clear proxy trust (the secure default)".to_string(),
+                                ),
+                            });
+                        }
                     }
                     ConfigType::IpAddress => {
                         // Validate IP address format

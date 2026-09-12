@@ -25,7 +25,8 @@ use crate::stdlib::crypto;
 use crate::stdlib::helpers::{check_arg_count, expect_text};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use tokio::sync::Semaphore;
 use zeroize::Zeroizing;
 
 /// Boxed future produced by [`route`]. A plain `std` type (rather than a
@@ -34,6 +35,12 @@ use zeroize::Zeroizing;
 /// it. It is awaited only on the interpreter thread.
 pub type RoutedFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>>>;
 
+// Separate admission and active-work bounds keep both memory-hard allocations
+// and queued password copies bounded. These limits apply to configured hashing.
+static POLICY_HASH_ADMISSION: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(16)));
+static POLICY_HASH_ACTIVE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(2)));
+
 /// Route a CPU-heavy crypto builtin onto the blocking pool.
 ///
 /// Returns `None` for any name that is not a heavy crypto builtin — the caller
@@ -41,9 +48,10 @@ pub type RoutedFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>
 /// (see below), returns a future that performs argument validation on the
 /// interpreter thread and the heavy computation on `spawn_blocking`.
 ///
-/// Routed set (11): `argon2_hash`, `argon2_verify`, `scrypt_hash`,
+/// Routed set (12): `argon2_hash`, `argon2_verify`, `scrypt_hash`,
 /// `scrypt_verify`, `bcrypt_hash`, `bcrypt_verify`, `pbkdf2_hash`,
-/// `pbkdf2_verify`, `hash_password`, `verify_password`, `pbkdf2_hmac_sha256`.
+/// `pbkdf2_verify`, `hash_password`, `verify_password`, `pbkdf2_hmac_sha256`,
+/// `hash_password_with_policy`.
 ///
 /// `constant_time_equals` and `secure_random_bytes` are intentionally *not*
 /// routed: they are fast and routing them would only add a scheduling hop.
@@ -58,6 +66,7 @@ pub fn route(name: &str, args: &[Value]) -> Option<RoutedFuture> {
         "bcrypt_hash" => hash_route("bcrypt_hash", args, crypto::bcrypt_hash_str),
         // hash_password is Argon2id under the hood (see native_hash_password).
         "hash_password" => hash_route("hash_password", args, crypto::argon2_hash_str),
+        "hash_password_with_policy" => policy_hash_route(args),
         "argon2_verify" => verify_route("argon2_verify", args, crypto::argon2_verify_str),
         "scrypt_verify" => verify_route("scrypt_verify", args, crypto::scrypt_verify_str),
         "pbkdf2_verify" => verify_route("pbkdf2_verify", args, crypto::pbkdf2_verify_str),
@@ -67,6 +76,58 @@ pub fn route(name: &str, args: &[Value]) -> Option<RoutedFuture> {
         _ => return None,
     };
     Some(fut)
+}
+
+fn policy_hash_route(args: &[Value]) -> RoutedFuture {
+    const FUNC: &str = "hash_password_with_policy";
+    let extracted = (|| {
+        check_arg_count(FUNC, args, 2)?;
+        let policy = crypto::extract_password_policy(&args[1])?;
+        let password = expect_text(&args[0])?;
+        if password.len() > crypto::MAX_PASSWORD_LENGTH {
+            return Err(RuntimeError::new(
+                format!(
+                    "{FUNC}: password exceeds maximum length ({} bytes)",
+                    crypto::MAX_PASSWORD_LENGTH
+                ),
+                0,
+                0,
+            ));
+        }
+        let admission = POLICY_HASH_ADMISSION
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| {
+                RuntimeError::new(
+                    format!(
+                        "{FUNC}: configured hashing is busy (16 admitted operations); try later"
+                    ),
+                    0,
+                    0,
+                )
+            })?;
+        Ok((Zeroizing::new(password.to_string()), policy, admission))
+    })();
+    Box::pin(async move {
+        let (password, policy, admission) = extracted?;
+        let active = POLICY_HASH_ACTIVE
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| {
+                RuntimeError::new(format!("{FUNC}: hashing worker pool is closed"), 0, 0)
+            })?;
+        let hash = tokio::task::spawn_blocking(move || {
+            // A cancelled caller cannot stop an active Argon2 job. Hold both
+            // permits and the zeroizing password in the closure until it exits.
+            let _admission = admission;
+            let _active = active;
+            crypto::password_hash_with_policy_str(password.as_str(), policy)
+        })
+        .await
+        .map_err(|error| join_error(FUNC, error))??;
+        Ok(Value::Text(Arc::from(hash)))
+    })
 }
 
 /// One-argument password-hash builtins: `<func> of "password"` → PHC/MCF string.

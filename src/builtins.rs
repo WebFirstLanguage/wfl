@@ -44,6 +44,19 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "secure_random_bytes",
     // Password hashing (implemented in stdlib/crypto.rs)
     "hash_password",
+    "password_hash_policy",
+    "hash_password_with_policy",
+    "password_needs_rehash",
+    "create_session_store",
+    "session_create",
+    "session_lookup",
+    "session_rotate",
+    "session_revoke",
+    "session_revoke_account",
+    "session_csrf_guard",
+    "session_cookie",
+    "create_account_rate_limiter",
+    "account_rate_limit_allow",
     "verify_password",
     "argon2_hash",
     "argon2_verify",
@@ -273,6 +286,19 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     "constant_time_equals",
     "secure_random_bytes",
     "hash_password",
+    "password_hash_policy",
+    "hash_password_with_policy",
+    "password_needs_rehash",
+    "create_session_store",
+    "session_create",
+    "session_lookup",
+    "session_rotate",
+    "session_revoke",
+    "session_revoke_account",
+    "session_csrf_guard",
+    "session_cookie",
+    "create_account_rate_limiter",
+    "account_rate_limit_allow",
     "verify_password",
     "argon2_hash",
     "argon2_verify",
@@ -503,6 +529,17 @@ pub fn get_function_arity(name: &str) -> usize {
         "pbkdf2_hmac_sha256" => 4,
 
         // === PASSWORD HASHING FUNCTIONS ===
+        "password_hash_policy" | "create_session_store" | "create_account_rate_limiter" => 3,
+        "hash_password_with_policy"
+        | "password_needs_rehash"
+        | "session_create"
+        | "session_lookup"
+        | "session_rotate"
+        | "session_revoke"
+        | "session_revoke_account"
+        | "session_csrf_guard"
+        | "account_rate_limit_allow" => 2,
+        "session_cookie" => 1,
         // Single argument functions (the password)
         "hash_password" | "argon2_hash" | "bcrypt_hash" | "scrypt_hash" | "pbkdf2_hash" => 1,
         // Two argument functions (password and stored hash)

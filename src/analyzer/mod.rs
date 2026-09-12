@@ -2794,6 +2794,7 @@ impl Analyzer {
                     ("path", Type::Text),
                     ("query", Type::Text),
                     ("client_ip", Type::Text),
+                    ("originating_ip", Type::Text),
                     ("body", Type::Text),
                     ("body_bytes", Type::Binary),
                     (

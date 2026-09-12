@@ -175,6 +175,84 @@ store login_ok as verify_password of "correct horse battery staple" and password
 - A malformed or unrecognized stored hash simply makes `verify_password` return `no` — it never errors, so a corrupted record can't crash a login.
 - If you multi-hash on store, you **must** multi-hash with the same algorithms and order on every verify.
 
+### Maintaining password-hash costs
+
+`hash_password of password` keeps its one-argument behavior. Applications that
+manage cost upgrades can create an explicit policy:
+
+| Function | Arguments | Result |
+|---|---|---|
+| `password_hash_policy` | Memory in KiB, iterations, parallelism | Policy object |
+| `hash_password_with_policy` | Password, policy | Salted Argon2id PHC string |
+| `password_needs_rehash` | Stored hash, policy | Boolean; invalid metadata or conflicting upgrades raise an error |
+
+The policy always uses Argon2id version 19, a fresh 16-byte salt, and a 32-byte
+digest. All three numeric arguments must be finite whole numbers:
+
+| Parameter | Allowed range |
+|---|---|
+| `memory_kib` | 19,456–262,144 KiB (19–256 MiB) |
+| `iterations` | 2–10 |
+| `parallelism` | 1–16 |
+| `memory_kib * iterations` | At most 1,048,576 |
+
+The minimum follows the 19 MiB, two-pass Argon2id option in the
+[OWASP password storage guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+Benchmark a candidate policy on your deployment hardware before adopting it.
+These limits bound each configured hash, rather than specifying a universal
+latency target. Policy objects contain `algorithm`, `version`, `memory_kib`,
+`iterations`, and `parallelism`; every use revalidates their fields and bounds.
+
+Verify the password first, then inspect the stored hash and replace it only after
+successful verification. This runnable example models an existing account:
+
+```wfl
+store account_password as "correct horse battery staple"
+store previous_policy as password_hash_policy of 19456 and 2 and 1
+store stored_hash as hash_password_with_policy of account_password and previous_policy
+store current_policy as password_hash_policy of 32768 and 3 and 1
+
+store login_ok as verify_password of account_password and stored_hash
+check if login_ok:
+    store outdated as password_needs_rehash of stored_hash and current_policy
+    check if outdated:
+        change stored_hash to hash_password_with_policy of account_password and current_policy
+        display "Password hash upgraded."
+    end check
+end check
+```
+
+For a database account, use a conditional update against the hash you verified
+so a concurrent password reset cannot be overwritten by a login upgrade. Keep
+any existing password preprocessing unchanged during a cost-only migration.
+
+`password_needs_rehash` only parses metadata; it does not authenticate the
+password, run a KDF, or update storage. It returns `yes` for valid bcrypt,
+scrypt, and PBKDF2 hashes to support migration to Argon2id. For Argon2 it checks
+the algorithm, version, salt and digest lengths, and all three cost parameters.
+An Argon2id v19 hash with at least the requested costs, a salt of at least 16
+bytes, and a digest of at least 32 bytes returns `no`. An upgrade returns `yes`
+only when generating a replacement will not reduce another cost or a longer
+digest. Mixed changes, such as increasing iterations while reducing memory,
+raise an error for an explicit migration decision. This conservative comparison
+does not claim different Argon2 parameter combinations have equal strength.
+
+Malformed, incomplete, unknown, or oversized stored hashes (over 1,024 bytes)
+raise a generic metadata error. This differs from `verify_password`, which
+returns `no` for malformed hashes. Metadata inspection never verifies digest
+authenticity; use trusted stored records and the successful verification flow.
+
+In interpreted WFL, configured hashing runs on the blocking worker pool with at
+most two active configured hashes and sixteen admitted operations per process.
+Additional calls fail with a busy error. Waiting does not occupy the interpreter
+thread. Dropping a waiting operation releases its admission; a job already
+submitted to the worker pool retains its permits and its zeroizing password
+copy until it finishes. Active Argon2 work cannot be interrupted. The original
+WFL password value remains owned by the application as with other string values.
+The existing one-argument hashing functions and verification functions retain
+their prior routing and stored-cost behavior; these new admission and cost
+bounds apply to `hash_password_with_policy`.
+
 ---
 
 ## Functions
