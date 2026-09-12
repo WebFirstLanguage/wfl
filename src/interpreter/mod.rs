@@ -14611,7 +14611,7 @@ impl Interpreter {
 
                         result
                     }
-                    Value::NativeFunction(_, native_fn) => {
+                    Value::NativeFunction(native_name, native_fn) => {
                         let mut arg_values = Vec::new();
                         for arg in arguments.iter() {
                             arg_values.push(
@@ -14624,7 +14624,9 @@ impl Interpreter {
                         // point the location at the call site (natives report
                         // their position as 0,0). CPU-heavy crypto builtins are
                         // routed onto the blocking pool (Phase 0, PR-0b).
-                        if let Some(fut) = crate::stdlib::crypto_async::route(name, &arg_values) {
+                        if let Some(fut) =
+                            crate::stdlib::crypto_async::route(native_name, &arg_values)
+                        {
                             fut.await.map_err(|mut e| {
                                 e.line = *line;
                                 e.column = *column;

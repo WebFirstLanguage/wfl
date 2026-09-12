@@ -10,6 +10,11 @@ that need it. Handles share state across concurrent handlers and isolated
 modules. They cannot be constructed from text, inspected as objects, or
 serialized. Dropping the last handle releases its state.
 
+Set `execution_logging = false` when handling real credentials. Passwords and
+issued tokens are ordinary WFL text values; execution traces and diagnostic
+snapshots can contain them. Opaque store handles hide their contents, but WFL
+does not automatically redact secret text returned to your program.
+
 **Storage lifetime:** these stores live in one running program's memory.
 Restarting the program logs out all sessions and resets attempt counters.
 Separate processes have separate state. Applications requiring shared or

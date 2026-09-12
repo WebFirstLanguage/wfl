@@ -1,13 +1,13 @@
 # Standard Library Overview
 
-WFL's standard library provides 181+ built-in functions organized into 12 modules. Everything you need is already included—no package managers, no external dependencies.
+WFL's standard library provides built-in functions organized by purpose. Everything you need is already included—no package managers, no external dependencies.
 
 ## Library Architecture
 
 The standard library is organized by functionality:
 
 ```
-Standard Library (181+ functions)
+Standard Library
 ├── Core Module (3 functions)
 │   └── Essential operations
 ├── Math Module (5 functions)
@@ -22,8 +22,10 @@ Standard Library (181+ functions)
 │   └── Date and time handling
 ├── Random Module (6 functions)
 │   └── Random number generation
-├── Crypto Module (22 functions)
+├── Crypto Module (25 functions)
 │   └── Password hashing, authenticated encryption, auth/session primitives, hashing & MAC
+├── Authentication Module (10 functions)
+│   └── Managed sessions, CSRF guards, secure cookies and account attempt limits
 ├── TOML Module (3 functions)
 │   └── Reading and writing TOML configuration files
 ├── Pattern Module (3 functions)

@@ -51,3 +51,12 @@ The same validation exposed repository-relative paths in the performance
 fixture. Its unchanged executable also passed from system temporary storage;
 it now uses owned temporary directories while retaining all measured
 operations, watchdogs and performance thresholds.
+
+Final integration review caught a dispatch gap for native functions stored in
+aliases and invoked with `call`: routing used the alias spelling rather than
+the native name. A deterministic Red test occupied all configured-hash
+admission slots and showed that the aliased call still hashed successfully.
+Routing now preserves the native identity, so aliases receive the same worker
+limits and asynchronous behavior as direct calls. The authentication guide
+also calls out ordinary secret text in execution diagnostics; opaque handles
+do not provide general-purpose secret redaction.
