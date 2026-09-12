@@ -1,0 +1,6 @@
+// An intentional assertion failure consumed by scripts/docker/smoke_test.py.
+describe "Docker failure propagation":
+    test "returns a failing process status":
+        expect 1 to equal 2
+    end test
+end describe

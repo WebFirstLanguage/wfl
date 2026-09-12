@@ -1,0 +1,28 @@
+include from "module.wfl"
+
+describe "Mounted Docker project":
+    test "resolves modules relative to the source file":
+        expect module_message to equal "relative module loaded"
+    end test
+
+    test "writes and reads results in the working directory":
+        open file at "result.txt" for writing as output_handle
+        wait for write content "container-write-ok" into output_handle
+        close file output_handle
+
+        open file at "result.txt" for reading as input_handle
+        wait for store result_text as read content from input_handle
+        close file input_handle
+        expect result_text to equal "container-write-ok"
+    end test
+
+    test "runs SQLite without an external database":
+        open database at "sqlite://runtime.db" as db
+        store created as execute db with "CREATE TABLE checks (answer INTEGER)"
+        store inserted as execute db with "INSERT INTO checks (answer) VALUES (?)" and parameters [42]
+        store rows as query db with "SELECT answer FROM checks"
+        expect rows[0]["answer"] to equal 42
+        close database db
+        delete file at "runtime.db"
+    end test
+end describe
