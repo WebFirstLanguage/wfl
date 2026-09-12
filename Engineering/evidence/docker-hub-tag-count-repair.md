@@ -46,9 +46,12 @@ fields cannot normalize into an accepted page link.
 
 Before deleting any older owned tag, cleanup additionally requires the
 enumerated rolling and current-version entries to match their expected digest.
-An incomplete or stale view cannot silently report cleanup success. The change
-does not alter version ordering, tag ownership, credentials, workflow gates,
-or immutable-image recovery.
+Missing or mismatched current markers therefore stop cleanup. Enumeration
+relies on Hub's validated paging contract; neither an exact aggregate count
+nor an undercount independently reveals an older tag omitted by the provider.
+Live replacement verification explicitly checks that the known previous
+version tag is absent. The change does not alter version ordering, tag
+ownership, credentials, workflow gates, or immutable-image recovery.
 
 Regression tests exercise the provider's stale aggregate through the real
 loopback HTTP boundary, including first publication, interrupted recovery,
