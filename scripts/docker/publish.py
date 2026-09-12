@@ -247,7 +247,9 @@ class Hub:
                 if name == "nightly" or managed_version(name) is not None:
                     tag_digest(item)
                 tags[name] = item
-            following = page.get("next")
+            if "next" not in page:
+                raise PublishError("Docker Hub did not explicitly identify the next page or listing end")
+            following = page["next"]
             if following is None:
                 if len(results) == 100 and count < len(tags):
                     raise PublishError("Docker Hub returned a potentially truncated full final page")
@@ -257,12 +259,11 @@ class Hub:
                 raise PublishError("Docker Hub returned an invalid pagination URL")
             parsed = urlsplit(following)
             origin = urlsplit(self.origin)
-            query = parse_qs(parsed.query)
+            query = parse_qs(parsed.query, keep_blank_values=True)
             if (
                 parsed.scheme != origin.scheme or parsed.netloc != origin.netloc
                 or parsed.path.rstrip("/") != self.tags_path or parsed.fragment
-                or not query or set(query) - {"page", "page_size"}
-                or any(len(values) != 1 or not values[0].isdigit() for values in query.values())
+                or query != {"page": [str(len(seen) + 1)], "page_size": ["100"]}
             ):
                 raise PublishError("Docker Hub pagination URL is outside the expected tag endpoint")
             path = self.tags_path + "?" + parsed.query

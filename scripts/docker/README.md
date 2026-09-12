@@ -66,7 +66,8 @@ Docker Hub can return a stale aggregate tag count immediately after a push.
 The publisher follows the returned page links and validates the actual tag
 records. A total below the enumerated records is accepted; a total above them,
 an ambiguous full final page, changing pagination, or missing current-image
-records stops publication or cleanup. Current and versioned digests are checked
+records stops publication or cleanup. Page links must advance exactly one page
+and retain the requested page size. Current and versioned digests are checked
 independently before promotion and each deletion. A provider failure leaves any
 already uploaded version tag available for the recovery path above.
 

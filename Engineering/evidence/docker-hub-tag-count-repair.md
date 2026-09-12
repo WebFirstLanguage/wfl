@@ -40,6 +40,9 @@ indicate missing records. An overcount still indicates an incomplete list and
 fails. A full final page with an undercount is ambiguous and also fails.
 Page and actual-record limits, duplicate rejection, fixed-origin pagination,
 cross-page consistency, and direct current-tag digest checks remain enforced.
+Every page explicitly supplies `next`; each following link advances exactly
+one page and retains `page_size=100`. Missing, blank, duplicate, or extra query
+fields cannot normalize into an accepted page link.
 
 Before deleting any older owned tag, cleanup additionally requires the
 enumerated rolling and current-version entries to match their expected digest.
@@ -82,6 +85,21 @@ deletion protections.
 Independent R3 review approved the final publisher diff with no blocking
 findings and separately ran the eight new regression tests: all passed in
 11.977 seconds. Staged-tree repository hygiene and `git diff --check` passed.
+
+[PR #729 review](https://github.com/WebFirstLanguage/wfl/pull/729#discussion_r3996750220)
+identified that a page jump or smaller page size could hide records despite
+the new undercount handling. Test-only commit `c076b09a` reproduced seven
+failures in 3.752 seconds across two test methods: skipped pages, changed page
+size, missing parameters, a duplicate blank parameter, an empty extra
+parameter, and missing `next`. The repair now requires sequential pages, the
+fixed size, and explicit termination, preserving blank query values during
+validation. Updated independent R3 review approved this delta and ran both
+new methods plus valid multipage enumeration: three tests passed in 4.198
+seconds. No workflow or required-test retry was added.
+
+Final local Green after the pagination repair: the same Docker test command
+passed all 55 tests in 48.926 seconds. Final remote checks must identify the
+subsequent Green commit, rather than the earlier PR revision.
 
 Recovery proceeds through the existing serialized nightly publisher after the
 repair passes its checks. If the requested version already exists, the
