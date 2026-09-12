@@ -362,9 +362,9 @@ async fn execute_request_with_auth_ambiguity(
 #[tokio::test]
 async fn execute_file_projects_auth_ambiguity_and_accepts_legacy_contexts() {
     for (ambiguity, expected) in [
-        (None, "false\n127.0.0.1\n"),
-        (Some(Value::Bool(false)), "false\n127.0.0.1\n"),
-        (Some(Value::Bool(true)), "true\n127.0.0.1\n"),
+        (None, "no\n127.0.0.1\n"),
+        (Some(Value::Bool(false)), "no\n127.0.0.1\n"),
+        (Some(Value::Bool(true)), "yes\n127.0.0.1\n"),
     ] {
         let (result, interpreter) = execute_request_with_auth_ambiguity(
             ambiguity,
