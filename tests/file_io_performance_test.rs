@@ -11,16 +11,23 @@ use wfl::parser::Parser;
 mod file_io_performance_tests {
     use super::*;
 
-    fn cleanup_test_files(files: &[&str]) {
-        for file in files {
-            let _ = fs::remove_file(file);
-        }
-    }
-
     async fn execute_wfl_code_with_timing(
         code: &str,
+        directory: &Path,
+        filenames: &[&str],
     ) -> Result<(String, std::time::Duration), Box<dyn std::error::Error>> {
-        let tokens = lex_wfl_with_positions(code);
+        // Resolve only fixture filenames before timing the original operations.
+        // Each test owns an OS temporary directory, so filesystem latency and
+        // cleanup do not depend on the checkout volume or shared process cwd.
+        let mut code = code.to_string();
+        for filename in filenames {
+            let path = directory
+                .join(filename)
+                .to_string_lossy()
+                .replace('\\', "/");
+            code = code.replace(&format!("\"{filename}\""), &format!("\"{path}\""));
+        }
+        let tokens = lex_wfl_with_positions(&code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
 
@@ -46,9 +53,9 @@ mod file_io_performance_tests {
 
     #[tokio::test]
     async fn test_many_small_files_performance() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files: Vec<String> = (0..50).map(|i| format!("perf_small_{}.txt", i)).collect();
         let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
-        cleanup_test_files(&test_file_refs);
 
         // Create many small files to test file system overhead
         let mut code = String::from(
@@ -77,7 +84,7 @@ mod file_io_performance_tests {
         "#,
         );
 
-        let result = execute_wfl_code_with_timing(&code).await;
+        let result = execute_wfl_code_with_timing(&code, directory.path(), &test_file_refs).await;
         assert!(
             result.is_ok(),
             "Many small files performance test failed: {:?}",
@@ -96,19 +103,17 @@ mod file_io_performance_tests {
         for i in 0..5 {
             let filename = format!("perf_small_{}.txt", i);
             assert!(
-                Path::new(&filename).exists(),
+                directory.path().join(&filename).exists(),
                 "File {} was not created",
                 filename
             );
         }
-
-        cleanup_test_files(&test_file_refs);
     }
 
     #[tokio::test]
     async fn test_large_file_write_performance() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["perf_large_write.txt"];
-        cleanup_test_files(&test_files);
 
         // Write a moderately sized file to test throughput
         let large_content =
@@ -129,7 +134,7 @@ mod file_io_performance_tests {
             large_content.replace('\"', "\\\"")
         );
 
-        let result = execute_wfl_code_with_timing(&code).await;
+        let result = execute_wfl_code_with_timing(&code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Large file write performance test failed: {:?}",
@@ -146,27 +151,28 @@ mod file_io_performance_tests {
 
         // Verify the file content
         assert!(
-            Path::new("perf_large_write.txt").exists(),
+            directory.path().join("perf_large_write.txt").exists(),
             "Large file was not created"
         );
-        let file_size = fs::metadata("perf_large_write.txt").unwrap().len();
+        let file_size = fs::metadata(directory.path().join("perf_large_write.txt"))
+            .unwrap()
+            .len();
         assert!(
             file_size > 5_000,
             "File size {} is smaller than expected",
             file_size
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_large_file_read_performance() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["perf_large_read.txt"];
-        cleanup_test_files(&test_files);
 
         // Create a moderately large file first
         let large_content = "Line of data for performance testing.\n".repeat(200); // ~7.6KB
-        fs::write("perf_large_read.txt", &large_content).expect("Failed to create large test file");
+        fs::write(directory.path().join("perf_large_read.txt"), &large_content)
+            .expect("Failed to create large test file");
 
         let code = r#"
             open file at "perf_large_read.txt" for reading as large_file
@@ -180,7 +186,7 @@ mod file_io_performance_tests {
             end check
         "#;
 
-        let result = execute_wfl_code_with_timing(code).await;
+        let result = execute_wfl_code_with_timing(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Large file read performance test failed: {:?}",
@@ -194,8 +200,6 @@ mod file_io_performance_tests {
             "Large file read took too long: {:?}",
             elapsed
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
@@ -224,7 +228,7 @@ mod file_io_performance_tests {
         "#
         );
 
-        let result = execute_wfl_code_with_timing(&code).await;
+        let result = execute_wfl_code_with_timing(&code, test_dir.path(), &[]).await;
         assert!(
             result.is_ok(),
             "Directory listing performance test failed: {:?}",
@@ -242,9 +246,9 @@ mod file_io_performance_tests {
 
     #[tokio::test]
     async fn test_rapid_file_operations() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files: Vec<String> = (0..20).map(|i| format!("rapid_{}.txt", i)).collect();
         let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
-        cleanup_test_files(&test_file_refs);
 
         // Test rapid create, write, read, delete cycle
         let mut code = String::from(
@@ -280,7 +284,7 @@ mod file_io_performance_tests {
         "#,
         );
 
-        let result = execute_wfl_code_with_timing(&code).await;
+        let result = execute_wfl_code_with_timing(&code, directory.path(), &test_file_refs).await;
         assert!(
             result.is_ok(),
             "Rapid file operations test failed: {:?}",
@@ -294,17 +298,15 @@ mod file_io_performance_tests {
             "Rapid operations took too long: {:?}",
             elapsed
         );
-
-        cleanup_test_files(&test_file_refs);
     }
 
     #[tokio::test]
     async fn test_concurrent_performance() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files: Vec<String> = (0..15)
             .map(|i| format!("concurrent_perf_{}.txt", i))
             .collect();
         let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
-        cleanup_test_files(&test_file_refs);
 
         // Test performance of concurrent operations
         let mut code = String::from(
@@ -358,7 +360,7 @@ mod file_io_performance_tests {
         "#,
         );
 
-        let result = execute_wfl_code_with_timing(&code).await;
+        let result = execute_wfl_code_with_timing(&code, directory.path(), &test_file_refs).await;
         assert!(
             result.is_ok(),
             "Concurrent performance test failed: {:?}",
@@ -377,23 +379,22 @@ mod file_io_performance_tests {
         for i in 0..5 {
             let filename = format!("concurrent_perf_{}.txt", i);
             assert!(
-                Path::new(&filename).exists(),
+                directory.path().join(&filename).exists(),
                 "Concurrent file {} was not created",
                 filename
             );
         }
-
-        cleanup_test_files(&test_file_refs);
     }
 
     #[tokio::test]
     async fn test_memory_usage_large_operations() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["memory_test_large.txt", "memory_test_output.txt"];
-        cleanup_test_files(&test_files);
 
         // Create a moderately large file and copy it
         let content = "Memory usage test line.\n".repeat(500); // ~12.5KB
-        fs::write("memory_test_large.txt", &content).expect("Failed to create large test file");
+        fs::write(directory.path().join("memory_test_large.txt"), &content)
+            .expect("Failed to create large test file");
 
         let code = r#"
             // Test memory usage during large file operations
@@ -415,7 +416,7 @@ mod file_io_performance_tests {
             end check
         "#;
 
-        let result = execute_wfl_code_with_timing(code).await;
+        let result = execute_wfl_code_with_timing(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Memory usage test failed: {:?}",
@@ -431,13 +432,15 @@ mod file_io_performance_tests {
         );
 
         // Verify both files exist and have similar sizes
-        let source_size = fs::metadata("memory_test_large.txt").unwrap().len();
-        let output_size = fs::metadata("memory_test_output.txt").unwrap().len();
+        let source_size = fs::metadata(directory.path().join("memory_test_large.txt"))
+            .unwrap()
+            .len();
+        let output_size = fs::metadata(directory.path().join("memory_test_output.txt"))
+            .unwrap()
+            .len();
         assert_eq!(
             source_size, output_size,
             "File sizes don't match after copy"
         );
-
-        cleanup_test_files(&test_files);
     }
 }

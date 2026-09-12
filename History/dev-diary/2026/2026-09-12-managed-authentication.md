@@ -46,3 +46,8 @@ the unchanged test executable in system temporary storage isolated the cause.
 Each test now owns a temporary directory and uses absolute paths for both WFL
 and Rust access. Real flushes, deadlines and content assertions remain intact,
 and cleanup also occurs on failure.
+
+The same validation exposed repository-relative paths in the performance
+fixture. Its unchanged executable also passed from system temporary storage;
+it now uses owned temporary directories while retaining all measured
+operations, watchdogs and performance thresholds.
