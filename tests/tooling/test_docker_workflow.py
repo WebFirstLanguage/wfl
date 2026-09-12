@@ -58,6 +58,8 @@ class DockerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("needs: [check-for-changes, build, build-linux, docker-release-checks]", publish)
         self.assertIn("needs.build.result == 'success'", publish)
         self.assertIn("needs.docker-release-checks.result == 'success'", publish)
+        self.assertIn('test "$RELEASE_CHECKS_RESULT" = success', publish)
+        self.assertLess(publish.index('test "$RELEASE_CHECKS_RESULT" = success'), publish.index("useblacksmith/build-push-action"))
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_call:", ci)
         bump = job(ci, "bump-version")
