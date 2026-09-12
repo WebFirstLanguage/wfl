@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -400,6 +401,15 @@ class PublisherTests(unittest.TestCase):
             for request in peer.requests[1:]:
                 self.assertEqual(f"Bearer {BEARER}", request[2].get("Authorization"))
                 self.assertNotIn(SECRET, request[1])
+
+    def test_expiring_bearer_is_refreshed_before_next_authenticated_request(self):
+        with Peer() as peer:
+            hub = self.hub(peer)
+            self.publisher.plan(hub, VERSION)
+            hub.authenticated_at = time.monotonic() - 601
+            hub.get_tag("nightly", missing=True)
+            authentications = [item for item in peer.requests if item[1] == "/v2/auth/token"]
+            self.assertEqual(2, len(authentications))
 
     def test_same_and_older_version_do_not_build(self):
         for current in (VERSION, "26.9.10", "26.10.1", "27.1.1"):
