@@ -60,6 +60,7 @@ class Peer:
         self.page_size = 100
         self.reported_count = None
         self.page_counts = {}
+        self.list_replies = []
         self.next_override = None
         self.fail_command = None
         self.version_output = f"WebFirst Language (WFL) version {VERSION}\n"
@@ -142,6 +143,9 @@ class Peer:
                     self.send_data(peer.repo_status, peer.repo_body)
                     return
                 if path == TAGS_PATH:
+                    if peer.list_replies:
+                        self.send_data(200, peer.list_replies.pop(0))
+                        return
                     page = int(parse_qs(urlsplit(self.path).query).get("page", ["1"])[0])
                     ordered = sorted(peer.tags.values(), key=lambda item: item["name"])
                     offset = (page - 1) * peer.page_size
@@ -556,6 +560,30 @@ class PublisherTests(unittest.TestCase):
             peer.reported_count = 0
             self.assertEqual(set(peer.tags), set(self.hub(peer).list_tags()))
             peer.page_counts = {1: 0, 2: 1}
+            with self.assertRaises(self.publisher.PublishError):
+                self.hub(peer).list_tags()
+            self.assert_no_mutation(peer)
+
+    def test_pagination_contract_rejects_skipped_pages_changed_sizes_and_missing_parameters(self):
+        for query in (
+            "page=3&page_size=100", "page=2&page_size=10", "page_size=100", "page=2",
+            "page=2&page=&page_size=100", "page=2&page_size=100&foo=",
+        ):
+            with self.subTest(query=query), Peer() as peer:
+                peer.list_replies = [
+                    {"count": 0, "next": peer.origin + TAGS_PATH + "?" + query,
+                     "results": [tag("stable", DIGEST)]},
+                    {"count": 0, "next": None, "results": [tag("another", DIGEST)]},
+                ]
+                with self.assertRaises(self.publisher.PublishError):
+                    self.hub(peer).list_tags()
+                requests = [item for item in peer.requests if item[1].startswith(TAGS_PATH)]
+                self.assertEqual(1, len(requests))
+                self.assert_no_mutation(peer)
+
+    def test_pagination_contract_requires_explicit_terminal_next_null(self):
+        with Peer() as peer:
+            peer.list_replies = [{"count": 0, "results": [tag("stable", DIGEST)]}]
             with self.assertRaises(self.publisher.PublishError):
                 self.hub(peer).list_tags()
             self.assert_no_mutation(peer)
