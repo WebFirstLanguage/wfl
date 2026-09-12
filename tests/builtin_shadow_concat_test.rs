@@ -65,7 +65,7 @@ fn shadowed_names_concatenate_in_nested_and_clause_expressions() {
         r#"store session_cookie as "prefix"
 display "start:" with session_cookie with "value"
 store wrapped as (session_cookie with "value")
-respond to req with session_cookie with "value" and status 200
+start streaming response to req with content type session_cookie with "value" and status 200 as out
 "#,
     );
     let Statement::DisplayStatement {
@@ -80,8 +80,12 @@ respond to req with session_cookie with "value" and status 200
         panic!("store")
     };
     assert_concatenation(value);
-    let Statement::RespondStatement { content, .. } = &program.statements[3] else {
-        panic!("respond")
+    let Statement::StartStreamingResponseStatement {
+        content_type: Some(content),
+        ..
+    } = &program.statements[3]
+    else {
+        panic!("streaming response")
     };
     assert_concatenation(content);
 }
@@ -134,7 +138,7 @@ display session_cookie with "{token}"
 #[test]
 fn callable_shadow_of_an_existing_builtin_preserves_shorthand() {
     assert_output(
-        "store substring as uppercase\ndisplay substring with \"abc\"\n",
+        "store substring as touppercase\ndisplay substring with \"abc\"\n",
         "ABC",
     );
 }
@@ -142,7 +146,7 @@ fn callable_shadow_of_an_existing_builtin_preserves_shorthand() {
 #[test]
 fn request_and_caught_error_bindings_are_values_for_with() {
     let program = parse(
-        r#"wait for request comes in on server as session_cookie
+        r#"wait for request comes in on webserver as session_cookie
 display session_cookie with "value"
 "#,
     );
