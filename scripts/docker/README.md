@@ -70,6 +70,10 @@ records stops publication or cleanup. Page links must advance exactly one page
 and retain the requested page size. Current and versioned digests are checked
 independently before promotion and each deletion. A provider failure leaves any
 already uploaded version tag available for the recovery path above.
+When replacing an existing nightly, the publisher also reads the known previous
+version tag directly and requires it to be absent before reporting success.
+If a stale listing hid that tag, cleanup fails while preserving the new image;
+a subsequent same-version run can finish cleanup when the tag becomes visible.
 
 Only this workflow should manage the `nightly` and `nightly-<version>` tags.
 Run `python -m unittest discover -s tests/tooling -p 'test_docker*.py' -v`

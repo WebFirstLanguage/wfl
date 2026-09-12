@@ -49,8 +49,12 @@ enumerated rolling and current-version entries to match their expected digest.
 Missing or mismatched current markers therefore stop cleanup. Enumeration
 relies on Hub's validated paging contract; neither an exact aggregate count
 nor an undercount independently reveals an older tag omitted by the provider.
-Live replacement verification explicitly checks that the known previous
-version tag is absent. The change does not alter version ordering, tag
+For the previous nightly version observed during planning, the publisher can
+make a stronger check: after cleanup, a direct read must confirm that its tag
+is absent before reporting successful replacement. If the tag remains, the
+publisher reports incomplete cleanup while preserving the newly promoted
+image. Live replacement verification also checks the known previous tag
+explicitly. The change does not alter version ordering, tag
 ownership, credentials, workflow gates, or immutable-image recovery.
 
 Regression tests exercise the provider's stale aggregate through the real
@@ -103,6 +107,19 @@ seconds. No workflow or required-test retry was added.
 Final local Green after the pagination repair: the same Docker test command
 passed all 55 tests in 48.926 seconds. Final remote checks must identify the
 subsequent Green commit, rather than the earlier PR revision.
+
+The additional retention finding in
+[comment 3996756414](https://github.com/WebFirstLanguage/wfl/pull/729#discussion_r3996756414)
+is covered by Red commit `7c86f0a6`: a focused test failed in 1.385 seconds
+because publication reported success even though the previously observed tag
+was omitted from the cleanup listing and still existed on direct reads. The
+fix requires that known previous tag to be absent. It does not guess unknown
+tag names, delete tags omitted by the listing, or roll back the new image.
+Final local Green with this guard: all 56 publisher/workflow tests passed in
+50.368 seconds; `git diff --check` passed.
+Independent R3 review approved the three-line guard and ran five focused
+publication/recovery/cleanup tests: all passed in 7.768 seconds. No blocking
+review finding remains; final presubmit must run on the resulting PR head.
 
 Recovery proceeds through the existing serialized nightly publisher after the
 repair passes its checks. If the requested version already exists, the

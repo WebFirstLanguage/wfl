@@ -478,6 +478,9 @@ def publish(hub, version, candidate, docker):
     require_tag(hub, "nightly", digest)
     require_tag(hub, name, digest)
     removed = cleanup(hub, version, digest)
+    previous = initial["current_version"]
+    if previous is not None and hub.get_tag(MANAGED_PREFIX + previous, missing=True) is not None:
+        raise PublishError("Previous nightly tag still exists; cleanup incomplete")
     return {"action": "published", "version": version, "digest": digest, "deleted": removed}
 
 
