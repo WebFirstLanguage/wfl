@@ -7,6 +7,8 @@ use std::task::Poll;
 use std::time::Duration;
 use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
+use wfl::lexer::lex_wfl_with_positions;
+use wfl::parser::Parser;
 use wfl::stdlib::crypto_async::route;
 
 #[test]
@@ -44,6 +46,26 @@ fn configured_hashing_bounds_pending_work_and_recovers_after_cancellation() {
             .unwrap_err();
         assert!(busy.message.contains("busy"));
         assert!(!busy.message.contains("cancelled-secret"));
+
+        // Aliases invoked with `call` must retain the native's identity when
+        // choosing async routing. Otherwise this bypasses occupied admission
+        // and executes Argon2 synchronously on the interpreter thread.
+        let tokens = lex_wfl_with_positions(
+            "store alias_policy as password_hash_policy of 19456 and 2 and 1\n\
+             store alias_hasher as hash_password_with_policy\n\
+             call alias_hasher with \"aliased-secret\" and alias_policy\n",
+        );
+        let program = Parser::new(&tokens).parse().expect("parse aliased call");
+        let errors = Interpreter::new()
+            .interpret(&program)
+            .await
+            .expect_err("aliased calls must honor occupied configured-hash admission");
+        assert!(errors.iter().any(|error| error.message.contains("busy")));
+        assert!(
+            errors
+                .iter()
+                .all(|error| !error.message.contains("aliased-secret"))
+        );
         drop(reservations);
 
         // Hold the only worker to make cancellation timing observable without
