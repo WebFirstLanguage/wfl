@@ -715,23 +715,17 @@ jobs:
           tar -xzf "target/docker-artifact/wfl-${ARTIFACT_VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz" -C target/docker-unpack
           cp "target/docker-unpack/wfl-${ARTIFACT_VERSION}-linux-x86_64/wfl" target/docker-context/wfl
           cp LICENSE .wflcfg target/docker-context/
-      - uses: useblacksmith/setup-docker-builder@v2
-        if: steps.plan.outputs.should_build == 'true'
-        with:
-          cache-key: scripts/docker/Dockerfile
       - name: Build the candidate without publishing
         if: steps.plan.outputs.should_build == 'true'
-        uses: useblacksmith/build-push-action@v2
-        with:
-          context: target/docker-context
-          file: scripts/docker/Dockerfile
-          platforms: linux/amd64
-          load: true
-          push: false
-          tags: wfl-nightly-candidate:${{ github.sha }}
-          build-args: |
-            VERSION=${{ steps.plan.outputs.version }}
-            REVISION=${{ github.sha }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          REVISION: ${{ github.sha }}
+          DOCKER_BUILDKIT: '1'
+        run: |
+          docker build --platform linux/amd64 \
+            --file scripts/docker/Dockerfile \
+            --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
+            --tag "wfl-nightly-candidate:$REVISION" target/docker-context
       - name: Run consumer WFL scripts in the candidate
         if: steps.plan.outputs.should_build == 'true'
         env:

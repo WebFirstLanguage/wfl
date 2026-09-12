@@ -33,6 +33,15 @@ not evidence that the Linux container boundary has passed.
 
 ## Green and release evidence
 
+The first PR Docker workflow run, [34700711591](https://github.com/WebFirstLanguage/wfl/actions/runs/34700711591),
+failed at startup because the organization Actions allowlist disallows the two
+Blacksmith Docker actions. No jobs or tests executed. Repository policy cannot
+override that inherited allowlist (HTTP 409); no policy settings changed.
+Red commit `e719d3b1` captures the supported build path. The workflows now use
+the installed Docker CLI on the same Blacksmith runners, with no new action
+permission or downloaded replacement action. Optional remote Docker layer cache
+is not enabled.
+
 - `fc5e534a`: 31 registry/version/publication tests failed before the publisher
   existed. They exercise a real loopback HTTP transport and separately executed
   Docker process double; they do not claim live Docker Hub interoperability.

@@ -67,3 +67,8 @@ Run `python -m unittest discover -s tests/tooling -p 'test_docker*.py' -v`
 for transport, version, publication, and workflow policy tests. The
 `Docker Runtime Validation` workflow exercises the real Linux image on
 Blacksmith without Docker Hub secrets or publication.
+
+Image construction uses the Docker CLI installed on the Blacksmith runner.
+This works within the organization's existing GitHub Actions allowlist and
+does not require Blacksmith's separate Docker-builder actions or remote layer
+cache. Rust compilation still uses the existing Cargo cache.

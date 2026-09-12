@@ -87,20 +87,17 @@ jobs:
           strip target/docker-context/wfl
           cp LICENSE .wflcfg target/docker-context/
           echo "version=$(python scripts/docker/publish.py version --repo .)" >> "$GITHUB_OUTPUT"
-      - uses: useblacksmith/setup-docker-builder@v2
-        with:
-          cache-key: scripts/docker/Dockerfile
-      - uses: useblacksmith/build-push-action@v2
-        with:
-          context: target/docker-context
-          file: scripts/docker/Dockerfile
-          platforms: linux/amd64
-          load: true
-          push: false
-          tags: wfl-runtime-validation:${{ github.sha }}
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            REVISION=${{ github.sha }}
+      # Use the runner's Docker CLI within the organization's action allowlist.
+      - name: Build the image on Blacksmith
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REVISION: ${{ github.sha }}
+          DOCKER_BUILDKIT: '1'
+        run: |
+          docker build --platform linux/amd64 \
+            --file scripts/docker/Dockerfile \
+            --build-arg "VERSION=$VERSION" --build-arg "REVISION=$REVISION" \
+            --tag "wfl-runtime-validation:$REVISION" target/docker-context
       - name: Prove other projects can run their test scripts
         env:
           IMAGE: wfl-runtime-validation:${{ github.sha }}
