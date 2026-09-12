@@ -79,7 +79,12 @@ Release publication is gated on the full reusable CI workflow at the same SHA,
 Windows/Linux build results, and real candidate-container acceptance. The
 credential-free Docker validation workflow supplies PR container evidence.
 
-Still pending in this record: final remote presubmit, Linux TLS, Blacksmith
-container run, and live Docker Hub publication verification. Local
-logs are ephemeral under `target/reports/docker-nightly/`. No published image or
-live provider cleanup success is claimed here.
+Final [remote presubmit](https://github.com/WebFirstLanguage/wfl/actions/runs/34700985572)
+and [Blacksmith container acceptance](https://github.com/WebFirstLanguage/wfl/actions/runs/34700985579)
+passed, including Linux TLS and Windows integration, before PR #728 merged.
+The first live nightly subsequently uploaded the tested versioned image but
+stopped before rolling promotion on a Docker Hub tag-count mismatch. The
+[provider repair record](docker-hub-tag-count-repair.md) preserves that failure,
+the image digest, regression evidence, and the remaining live verification.
+Local logs are ephemeral under `target/reports/docker-nightly/`; rolling
+publication and live provider cleanup are not yet claimed here.
