@@ -1,9 +1,12 @@
 //! Builtin registration must not change `with` on an existing value binding.
 mod common;
 
+use wfl::interpreter::Interpreter;
+use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::{Expression, Program, Statement};
+use wfl::repl::ReplState;
 
 const NEW_BUILTINS: &[&str] = &[
     "password_hash_policy",
@@ -103,7 +106,7 @@ define action called local_label:
 end action
 display append_value of "prefix"
 display call local_label
-display session_cookie with "{token}"
+display session_cookie of "{token}"
 "#
     );
     assert_output(
@@ -125,7 +128,7 @@ store cookie_builder as session_cookie
 display cookie_builder of "{token}"
 store explicit_cookie as call cookie_builder with "{token}"
 display explicit_cookie
-display session_cookie with "{token}"
+display call session_cookie with "{token}"
 "#
     );
     let cookie = format!("__Host-wfl_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict");
@@ -144,7 +147,7 @@ fn callable_shadow_of_an_existing_builtin_preserves_shorthand() {
 }
 
 #[test]
-fn reassignment_switches_builtin_shorthand_between_values_and_callable_aliases() {
+fn legacy_shorthand_keeps_its_existing_parse_regardless_of_assignments() {
     let program = parse(
         r#"store substring as touppercase
 display substring with "abc"
@@ -154,16 +157,88 @@ change substring to touppercase
 display substring with "abc"
 "#,
     );
-    for index in [1, 5] {
+    // The legacy grammar is unchanged, including errors for scalar callees.
+    // New builtin registration must not introduce source-dependent inference.
+    for index in [1, 3, 5] {
         let Statement::DisplayStatement { value, .. } = &program.statements[index] else {
             panic!("display")
         };
         assert!(matches!(value, Expression::ActionCall { .. }));
     }
-    let Statement::DisplayStatement { value, .. } = &program.statements[3] else {
-        panic!("display")
-    };
-    assert_concatenation(value);
+}
+
+#[tokio::test]
+async fn existing_shorthand_is_unaffected_by_unexecuted_assignments() {
+    let interpreter = common::run_wfl(
+        r#"store touppercase as tolowercase
+check if no:
+    change touppercase to "prefix"
+end check
+store result as touppercase with "ABC"
+"#,
+    )
+    .await
+    .expect("the unexecuted branch cannot change the call");
+    assert_eq!(common::get_text(&interpreter, "result"), "abc");
+}
+
+#[tokio::test]
+async fn externally_injected_binding_keeps_concatenation() {
+    let mut interpreter = Interpreter::new();
+    interpreter
+        .global_env()
+        .borrow_mut()
+        .define_or_replace("session_cookie", Value::Text("prefix".into()));
+    interpreter
+        .interpret(&parse("store result as session_cookie with \"value\"\n"))
+        .await
+        .expect("injected value binding must concatenate");
+    assert_eq!(common::get_text(&interpreter, "result"), "prefixvalue");
+}
+
+#[tokio::test]
+async fn repl_binding_keeps_concatenation_across_submissions() {
+    let mut repl = ReplState::new();
+    let stored = repl
+        .process_line("store session_cookie as \"prefix\"")
+        .await
+        .unwrap();
+    assert_eq!(stored, None);
+    let output = repl
+        .process_line("session_cookie with \"value\"")
+        .await
+        .unwrap();
+    assert_eq!(output.as_deref(), Some("prefixvalue"));
+}
+
+#[test]
+fn included_binding_keeps_concatenation() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("bindings.wfl"),
+        "store session_cookie as \"prefix\"\n",
+    )
+    .unwrap();
+    let main = dir.path().join("main.wfl");
+    std::fs::write(
+        &main,
+        "include from \"bindings.wfl\"\ndisplay session_cookie with \"value\"\n",
+    )
+    .unwrap();
+    let output = std::process::Command::new(common::wfl_exe())
+        .current_dir(dir.path())
+        .arg(main)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "prefixvalue"
+    );
 }
 
 #[test]
