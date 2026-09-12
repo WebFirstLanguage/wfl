@@ -41,12 +41,12 @@ class DockerWorkflowPolicyTests(unittest.TestCase):
 
     def test_candidate_is_gated_and_tested_before_registry_mutations(self):
         publish = job(self.nightly, "docker-nightly")
-        self.assertLess(publish.index("publish.py plan"), publish.index("useblacksmith/build-push-action"))
+        self.assertLess(publish.index("publish.py plan"), publish.index("docker build --platform linux/amd64"))
         self.assertLess(publish.index("smoke_test.py"), publish.index("publish.py publish"))
         self.assertIn("steps.plan.outputs.should_build == 'true'", publish)
-        self.assertIn("load: true", publish)
-        self.assertIn("push: false", publish)
-        self.assertIn("cache-key: scripts/docker/Dockerfile", publish)
+        self.assertIn("--file scripts/docker/Dockerfile", publish)
+        self.assertNotIn("useblacksmith/", publish)
+        self.assertNotIn("docker push", publish)
         self.assertNotIn("cache-to:", publish)
         self.assertNotIn("cache-from:", publish)
 
@@ -59,7 +59,7 @@ class DockerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("needs.build.result == 'success'", publish)
         self.assertIn("needs.docker-release-checks.result == 'success'", publish)
         self.assertIn('test "$RELEASE_CHECKS_RESULT" = success', publish)
-        self.assertLess(publish.index('test "$RELEASE_CHECKS_RESULT" = success'), publish.index("useblacksmith/build-push-action"))
+        self.assertLess(publish.index('test "$RELEASE_CHECKS_RESULT" = success'), publish.index("docker build --platform linux/amd64"))
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_call:", ci)
         bump = job(ci, "bump-version")
@@ -73,7 +73,9 @@ class DockerWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("x86_64-unknown-linux-musl", validation)
         self.assertNotIn("secrets.", validation)
         self.assertNotIn("publish.py publish", validation)
-        self.assertIn("push: false", validation)
+        self.assertIn("docker build --platform linux/amd64", validation)
+        self.assertNotIn("useblacksmith/", validation)
+        self.assertNotIn("docker push", validation)
 
 
 if __name__ == "__main__":
