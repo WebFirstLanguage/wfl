@@ -20,6 +20,14 @@ impl Drop for Server {
 
 impl Server {
     async fn start(proxies: &str, tls: bool) -> Self {
+        Self::start_with_handler(
+            proxies,
+            tls,
+            "store identity as [req[\"client_ip\"], req[\"originating_ip\"]]\n        respond to req with stringify_json of identity",
+        ).await
+    }
+
+    async fn start_with_handler(proxies: &str, tls: bool, handler: &str) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let port = common::free_tcp_port();
         std::fs::write(
@@ -52,12 +60,16 @@ main loop:
         close server server_handle
         break
     otherwise:
-        store identity as [req["client_ip"], req["originating_ip"]]
-        respond to req with stringify_json of identity
+        {handler}
     end check
 end loop
 "#
             ),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("identity.wfl"),
+            "store identity as [client_ip, originating_ip]\ndisplay stringify_json of identity\n",
         )
         .unwrap();
         let log = std::fs::File::create(directory.path().join("process.log")).unwrap();
@@ -260,4 +272,51 @@ async fn trusted_proxy_identity_reaches_tls_requests() {
         .await;
     server.close().await;
     assert_identity(&identity, "198.51.100.7");
+}
+
+#[tokio::test]
+async fn originating_identity_is_refreshed_and_passed_to_executed_files() {
+    for handler in [
+        "store identity as [client_ip, originating_ip]\n        respond to req with stringify_json of identity",
+        "execute wfl file at \"identity.wfl\" with req and read output as identity\n        respond to req with identity",
+    ] {
+        let server = Server::start_with_handler("127.0.0.1", false, handler).await;
+        let forwarded = server
+            .identity(&[("x-forwarded-for", "198.51.100.7")])
+            .await;
+        let direct = server.identity(&[]).await;
+        server.close().await;
+        assert_identity(&forwarded, "198.51.100.7");
+        assert_identity(&direct, "127.0.0.1");
+    }
+}
+
+#[test]
+fn config_checker_preserves_and_validates_trusted_proxy_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(".wflcfg");
+    let checker = wfl::wfl_config::checker::ConfigChecker::new();
+    let valid = "web_server_trusted_proxies = 127.0.0.1, 2001:db8::/32\n";
+    std::fs::write(&path, valid).unwrap();
+    assert!(
+        checker.check_config_file(&path).unwrap().is_empty(),
+        "proxy policy must be recognized by --configCheck"
+    );
+    checker.fix_config_file(&path).unwrap();
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains(valid.trim()),
+        "--configFix must preserve a valid trusted-proxy policy"
+    );
+    for value in ["127.0.0.1,invalid", "127.0.0.1/33", "::1/129", "127.0.0.1,"] {
+        std::fs::write(&path, format!("web_server_trusted_proxies = {value}\n")).unwrap();
+        let issues = checker.check_config_file(&path).unwrap();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.kind == wfl::wfl_config::checker::ConfigIssueKind::InvalidValue),
+            "invalid proxy policy must be diagnosed: {value}"
+        );
+    }
 }
