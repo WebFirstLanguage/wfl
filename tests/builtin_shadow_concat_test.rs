@@ -102,7 +102,7 @@ define action called local_label:
     return session_cookie with "value"
 end action
 display append_value of "prefix"
-display local_label
+display call local_label
 display session_cookie with "{token}"
 "#
     );
@@ -138,9 +138,32 @@ display session_cookie with "{token}"
 #[test]
 fn callable_shadow_of_an_existing_builtin_preserves_shorthand() {
     assert_output(
-        "store substring as touppercase\ndisplay substring with \"abc\"\n",
-        "ABC",
+        "store touppercase as tolowercase\ndisplay touppercase with \"ABC\"\n",
+        "abc",
     );
+}
+
+#[test]
+fn reassignment_switches_builtin_shorthand_between_values_and_callable_aliases() {
+    let program = parse(
+        r#"store substring as touppercase
+display substring with "abc"
+change substring to "prefix"
+display substring with "value"
+change substring to touppercase
+display substring with "abc"
+"#,
+    );
+    for index in [1, 5] {
+        let Statement::DisplayStatement { value, .. } = &program.statements[index] else {
+            panic!("display")
+        };
+        assert!(matches!(value, Expression::ActionCall { .. }));
+    }
+    let Statement::DisplayStatement { value, .. } = &program.statements[3] else {
+        panic!("display")
+    };
+    assert_concatenation(value);
 }
 
 #[test]
