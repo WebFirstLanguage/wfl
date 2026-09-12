@@ -32,13 +32,11 @@ an unapproved root path. It was moved byte-for-byte into `Engineering/evidence/`
 the report's historical findings were not rewritten.
 
 The Claude review action separately returned an immediate error without
-printing its underlying message. Its workflow remains unchanged because the
-action validates workflow identity before starting the review. The bounded
-`scripts/report_claude_failure.py` utility can summarize a retained execution
-file using fixed error categories and typed metadata; it never prints the
-transcript and does not change a failing gate into a pass. Synthetic tests
-verify redaction, malformed data, and input bounds. The account-side cause
-cannot be inferred from the masked job log alone.
+printing its underlying message. The follow-up request also removes Claude
+from CI. Both the automatic PR review and the mention-triggered
+Claude GitHub Actions workflows were removed, along with the temporary
+diagnostic utility and its tests added during this investigation. The ordinary
+build, lint, test, and hygiene workflows remain the validation gates.
 
 Follow-up on September 12: the compatibility audit also found that new default
 native bindings blocked existing constants and user actions with the same
