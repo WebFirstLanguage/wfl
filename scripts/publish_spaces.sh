@@ -97,6 +97,9 @@ PUBLISHED=()
 # Local paths of the immutable objects, parallel to PUBLISHED, so the CDN check
 # at the end can compare what the CDN serves against the bytes we uploaded.
 PUBLISHED_PATHS=()
+# Versioned keys that already exist with different bytes. Skipped, not fatal:
+# a same-version nightly rebuild must not overwrite them or fail the workflow.
+SKIPPED=()
 
 object_exists() { # object_exists <key>
   aws s3api head-object \
@@ -134,12 +137,14 @@ published_sha256_of() {
 #
 # Versioned keys are immutable, but `Cache-Control: immutable` is a promise to
 # caches - it does not stop a later `aws s3 cp` from replacing the object. A
-# manual dispatch with a version override, or a rebuild of a version whose
-# artifacts differ, would otherwise overwrite a build people have already
-# pinned. Worse, the artifact and its sidecar are cached independently for a
-# year, so an edge could serve the old artifact beside the new checksum and a
-# correct download would look tampered with. So: identical bytes are a no-op,
-# different bytes abort the publish, and only genuinely new keys are written.
+# scheduled nightly rebuild of the same version (Windows MSI bytes are not
+# reproducible) would otherwise overwrite a build people have already pinned,
+# or abort and turn Nightly Build red. Worse, the artifact and its sidecar are
+# cached independently for a year, so an edge could serve the old artifact
+# beside the new checksum and a correct download would look tampered with.
+# So: identical bytes are a no-op, different bytes skip that artifact without
+# failing the publish, and only genuinely new keys are written. Rolling
+# pointers are updated only for artifacts this run accepted.
 #
 # A retry after a partial failure therefore completes rather than trips over the
 # objects the previous attempt already landed. That matters because the sidecar
@@ -155,8 +160,9 @@ publish_immutable() {
   have="$(published_sha256_of "releases/$base")"
 
   if [ -n "$have" ] && [ "$have" != "$want" ]; then
-    echo "::error::refusing to overwrite releases/${base}: it is already published with different bytes (published ${have}, built ${want}). Versioned keys are immutable; publish this build under a new version."
-    exit 1
+    echo "::warning::skipping releases/${base}: already published with different bytes (published ${have}, built ${want}). Versioned keys are immutable; leaving the published object in place."
+    SKIPPED+=("$base")
+    return 0
   fi
 
   sha256_line_of "$f" > "$WORK/$base.sha256"
@@ -181,11 +187,13 @@ publish_immutable() {
 # ---------------------------------------------------------------------------
 # Phase 1: immutable, versioned objects.
 #
-# Every key written here is new, so nothing an installer can already be
-# pointing at changes. With `set -e` a failure anywhere in this phase aborts
-# before a single rolling pointer moves, leaving the previous publish fully
-# intact rather than a mix of old and new. That is why the rolling pointers
-# below are deliberately NOT written next to their immutable counterparts.
+# Every key written here is either new or already published with identical
+# bytes. A same-version rebuild whose bytes differ is skipped, so nothing an
+# installer can already be pointing at changes. With `set -e` a failure
+# anywhere in this phase aborts before a single rolling pointer moves,
+# leaving the previous publish fully intact rather than a mix of old and new.
+# That is why the rolling pointers below are deliberately NOT written next to
+# their immutable counterparts.
 # ---------------------------------------------------------------------------
 if [ -n "$TARBALL" ]; then
   echo "Linux tarball: $TARBALL"
@@ -206,7 +214,21 @@ if [ -n "$VSIX" ]; then
   publish_immutable "$VSIX" application/octet-stream
 fi
 
+accepted() { # accepted <basename> -> 0 if this run accepted that versioned key
+  local name="$1" item
+  for item in "${PUBLISHED[@]}"; do
+    if [ "$item" = "$name" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [ "${#PUBLISHED[@]}" -eq 0 ]; then
+  if [ "${#SKIPPED[@]}" -gt 0 ]; then
+    echo "All versioned artifacts are already published; skipping rolling pointer and metadata updates."
+    exit 0
+  fi
   echo "::error::nothing was published - refusing to overwrite SHA256SUMS/status.json"
   exit 1
 fi
@@ -221,11 +243,11 @@ fi
 # ---------------------------------------------------------------------------
 echo "All immutable objects uploaded; updating rolling pointers..."
 
-if [ -n "$TARBALL" ]; then
+if [ -n "$TARBALL" ] && accepted "$(basename "$TARBALL")"; then
   put "$TARBALL" "releases/wfl-latest-linux-x86_64.tar.gz" application/gzip "$ROLLING"
 fi
 
-if [ -n "$MSI" ]; then
+if [ -n "$MSI" ] && accepted "$(basename "$MSI")"; then
   put "$MSI" "releases/wfl-latest-windows-x86_64.msi" application/x-msi "$ROLLING"
 fi
 

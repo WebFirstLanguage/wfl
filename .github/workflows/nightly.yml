@@ -579,8 +579,9 @@ jobs:
           cp README.md LICENSE "dist/$DIR/"
 
           # publish_spaces.sh treats versioned keys as immutable: identical bytes
-          # are a no-op and different bytes abort the publish, which is what lets
-          # a publish that half-landed be repaired by re-running the nightly.
+          # are a no-op and different bytes skip that artifact (the MSI rebuild
+          # is not bit-identical). A half-landed publish is still repaired by
+          # re-running the nightly against the objects that already match.
           # That contract only holds if the same commit packages to the same
           # bytes, so everything below that would otherwise vary run to run is
           # pinned to the commit rather than to the wall clock:
@@ -812,7 +813,9 @@ jobs:
       #
       # publish_spaces.sh is itself ordered so a partial failure cannot leave the
       # bucket describing a mixed release (immutable objects first, rolling
-      # pointers and metadata only after every upload succeeds).
+      # pointers and metadata only after every accepted upload succeeds). A
+      # same-version rebuild whose MSI bytes differ skips that key and succeeds,
+      # so scheduled nightlies stay green without overwriting a pinned installer.
       - name: Publish artifacts to DigitalOcean Spaces
         env:
           AWS_ACCESS_KEY_ID:     ${{ secrets.SPACES_ACCESS_KEY }}
