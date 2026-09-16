@@ -38,3 +38,29 @@ the MSI and the release job can then write a new date tag so later unchanged
 nights skip the binary jobs.
 
 Verified with `./scripts/test_publish_spaces.sh` (88 passed, 0 failed).
+
+## Docker runtime investigation (same request)
+
+Pulled the published image by digest and ran the real container smoke
+harness against it (not only CI publish metadata):
+
+```text
+bsbyrdwfl/wfl@sha256:a078e0a1eee7b967ff9ee99ec819b96d13c169aa860711b2636b27f6a2bba8dc
+```
+
+Anonymous Hub reads and local `docker image inspect` agree: tags
+`nightly` and `nightly-26.9.6` share that digest; config
+`sha256:f6ee3b65fd0bac0de7e059ed94831372e25209e8482eaf8365af330e44f04008`;
+linux/amd64; USER `10001:10001`; ENTRYPOINT `wfl`; CMD `--help`;
+WORKDIR `/work`; version label `26.9.6`; revision `3bf6521f`.
+
+`python3 scripts/docker/smoke_test.py <digest> --version 26.9.6` passed:
+exact version, default help, nonroot + writable home/work + CA bundle,
+mounted tests (relative include, file I/O, SQLite), failed-assertion
+exit 1, stdin, and `--user` host-owned output. A docs-style
+`--user $(id -u):$(id -g)` bind-mount of a project test file also
+passed. No runtime defect found; no image change in this PR.
+
+Residual (unchanged from the #728/#729 rollout): linux/amd64 only; no
+image vulnerability scan; Dockerfile-only fixes still need a WFL
+version bump before they publish; Hub controls layer GC.
