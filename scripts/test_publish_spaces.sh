@@ -368,32 +368,38 @@ if [ "$rc" -ne 0 ]; then ok "publish still fails when the sidecar never becomes 
   bad "publish still fails when the sidecar never becomes readable"; fi
 rm -rf "$SB"
 
-# `Cache-Control: immutable` governs caches, not bucket writes. A manual
-# dispatch with a version override, or a rebuild of a version whose artifacts
-# differ, would otherwise silently replace a published artifact - and because
-# artifact and sidecar are cached independently for a year, an edge could then
-# serve the old artifact beside the new checksum. That reads as tampering.
+# `Cache-Control: immutable` governs caches, not bucket writes. A scheduled
+# nightly rebuild of an already-published version (MSI bytes are not
+# reproducible) used to abort the whole release and turn Nightly Build red.
+# Versioned keys stay write-once: different bytes skip that artifact and
+# succeed, identical bytes stay a no-op, and rolling pointers must not move
+# to bytes that were not accepted under the versioned key.
 echo "publish_spaces.sh: an immutable key is never replaced with different bytes"
 SB="$(new_env)"
 make_artifacts "$SB" "26.7.63" "bbb2222"
 run_publish "$SB" "26.7.63" "bbb2222"
 assert_eq "0" "$?" "first publish of 26.7.63 succeeds"
 
-# Same version, different bytes: the rebuild case.
+# Same version, different bytes: the rebuild case. Skip, do not fail, and do
+# not point "latest" at the rejected rebuild.
 printf 'DIFFERENT tarball bytes\n' > "$SB/artifacts/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz"
 before="$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz")"
 before_sidecar="$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz.sha256")"
+before_latest="$(cat "$SB/bucket/releases/wfl-latest-linux-x86_64.tar.gz")"
 : > "$SB/log"
 run_publish "$SB" "26.7.63" "bbb2222"
 rc=$?
-if [ "$rc" -ne 0 ]; then ok "publish refuses to overwrite a published artifact with different bytes"; else
-  bad "publish refuses to overwrite a published artifact with different bytes"; fi
+assert_eq "0" "$rc" "already-published different bytes skip without failing the publish ($SB/out)"
 assert_eq "$before" "$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz")" \
   "the published artifact is left byte-identical"
 assert_eq "$before_sidecar" "$(cat "$SB/bucket/releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz.sha256")" \
   "the published sidecar is left byte-identical"
-assert_contains "$(cat "$SB/out")" "refusing to overwrite" \
-  "the failure names what it refused to do"
+assert_eq "$before_latest" "$(cat "$SB/bucket/releases/wfl-latest-linux-x86_64.tar.gz")" \
+  "the rolling Linux pointer stays on the published bytes, not the rejected rebuild"
+assert_eq "0" "$(put_count "$SB" "releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.gz")" \
+  "a skipped rebuild does not PUT the versioned tarball"
+assert_contains "$(cat "$SB/out")" "already published with different bytes" \
+  "the skip names the immutable collision"
 
 # Re-publishing identical bytes is the retry case, and must still work.
 make_artifacts "$SB" "26.7.63" "bbb2222"
@@ -407,6 +413,80 @@ assert_eq "0" "$(put_count "$SB" "releases/wfl-26.7.63-linux-x86_64-bbb2222.tar.
   "re-publishing identical bytes does not rewrite the sidecar"
 assert_file_exists "$SB/bucket/releases/wfl-latest-linux-x86_64.tar.gz" \
   "re-publishing identical bytes still refreshes the rolling pointer"
+rm -rf "$SB"
+
+# Nightly run 570: Linux tarball bytes match the published key; the MSI does
+# not. That must not fail the workflow, overwrite the MSI, or move the Windows
+# latest pointer onto the rejected rebuild.
+echo "publish_spaces.sh: same-version MSI rebuild skips while identical tarball is accepted"
+SB="$(new_env)"
+make_artifacts "$SB" "26.9.6" "3bf6521f"
+run_publish "$SB" "26.9.6" "3bf6521f"
+assert_eq "0" "$?" "first publish of 26.9.6 succeeds"
+published_msi="$(cat "$SB/bucket/releases/wfl-26.9.6.msi")"
+published_msi_sidecar="$(cat "$SB/bucket/releases/wfl-26.9.6.msi.sha256")"
+published_latest_msi="$(cat "$SB/bucket/releases/wfl-latest-windows-x86_64.msi")"
+published_tarball="$(cat "$SB/bucket/releases/wfl-26.9.6-linux-x86_64-3bf6521f.tar.gz")"
+printf 'rebuilt MSI bytes that are not bit-identical\n' > "$SB/artifacts/wfl-26.9.6.msi"
+: > "$SB/log"
+run_publish "$SB" "26.9.6" "3bf6521f"
+rc=$?
+assert_eq "0" "$rc" "identical tarball plus different MSI succeeds ($SB/out)"
+assert_eq "$published_msi" "$(cat "$SB/bucket/releases/wfl-26.9.6.msi")" \
+  "the published MSI is left byte-identical"
+assert_eq "$published_msi_sidecar" "$(cat "$SB/bucket/releases/wfl-26.9.6.msi.sha256")" \
+  "the published MSI sidecar is left byte-identical"
+assert_eq "$published_latest_msi" "$(cat "$SB/bucket/releases/wfl-latest-windows-x86_64.msi")" \
+  "the rolling Windows pointer stays on the published MSI"
+assert_eq "$published_tarball" "$(cat "$SB/bucket/releases/wfl-26.9.6-linux-x86_64-3bf6521f.tar.gz")" \
+  "the published tarball is left byte-identical"
+assert_eq "0" "$(put_count "$SB" "releases/wfl-26.9.6.msi")" \
+  "the different MSI is not re-uploaded"
+assert_eq "1" "$(put_count "$SB" "releases/wfl-latest-linux-x86_64.tar.gz")" \
+  "identical tarball still refreshes the rolling Linux pointer"
+assert_eq "0" "$(put_count "$SB" "releases/wfl-latest-windows-x86_64.msi")" \
+  "the rejected MSI rebuild does not refresh the rolling Windows pointer"
+assert_contains "$(cat "$SB/out")" "wfl-26.9.6.msi" \
+  "the skip names the MSI that already exists"
+rm -rf "$SB"
+
+# If every versioned artifact is already published with different bytes, the
+# run is a complete no-op: do not rewrite SHA256SUMS or status.json as if a
+# new publish landed, and do not fail the way an empty artifact dir fails.
+echo "publish_spaces.sh: all-already-published different bytes is a successful no-op"
+SB="$(new_env)"
+make_artifacts "$SB" "26.9.6" "3bf6521f"
+run_publish "$SB" "26.9.6" "3bf6521f"
+assert_eq "0" "$?" "seed publish of 26.9.6 succeeds"
+before_sums="$(cat "$SB/bucket/releases/SHA256SUMS")"
+before_status="$(cat "$SB/bucket/status.json")"
+printf 'DIFFERENT tarball bytes\n' > "$SB/artifacts/wfl-26.9.6-linux-x86_64-3bf6521f.tar.gz"
+printf 'DIFFERENT msi bytes\n' > "$SB/artifacts/wfl-26.9.6.msi"
+printf 'DIFFERENT vsix bytes\n' > "$SB/artifacts/vscode-wfl-26.9.6.vsix"
+: > "$SB/log"
+run_publish "$SB" "26.9.6" "3bf6521f"
+rc=$?
+assert_eq "0" "$rc" "all-skipped republish succeeds ($SB/out)"
+assert_eq "$before_sums" "$(cat "$SB/bucket/releases/SHA256SUMS")" \
+  "SHA256SUMS is left describing the real published artifacts"
+assert_eq "$before_status" "$(cat "$SB/bucket/status.json")" \
+  "status.json is not rewritten by an all-skipped republish"
+assert_eq "0" "$(grep -c '^PUT' "$SB/log")" \
+  "an all-skipped republish uploads nothing"
+rm -rf "$SB"
+
+# A missing artifact directory is still a failed publish. Skipping already-
+# published keys must not weaken the empty-input guard.
+echo "publish_spaces.sh: no artifacts still fails closed"
+SB="$(new_env)"
+run_publish "$SB" "26.9.7" "ccccccc"
+rc=$?
+if [ "$rc" -ne 0 ]; then ok "publish with no artifacts still fails"; else
+  bad "publish with no artifacts still fails"; fi
+assert_contains "$(cat "$SB/out")" "nothing was published" \
+  "empty input still names the missing publish"
+assert_file_absent "$SB/bucket/status.json" \
+  "empty input does not write status.json"
 rm -rf "$SB"
 
 # ---------------------------------------------------------------------------
