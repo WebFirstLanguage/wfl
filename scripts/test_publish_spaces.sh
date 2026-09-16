@@ -475,6 +475,31 @@ assert_eq "0" "$(grep -c '^PUT' "$SB/log")" \
   "an all-skipped republish uploads nothing"
 rm -rf "$SB"
 
+# A later canonical version is a new key and must still publish. The skip
+# path is only for the already-published versioned object, not a blanket
+# "once anything exists, stop writing".
+echo "publish_spaces.sh: a new version still publishes after a skipped same-version rebuild"
+SB="$(new_env)"
+make_artifacts "$SB" "26.9.6" "3bf6521f"
+run_publish "$SB" "26.9.6" "3bf6521f"
+assert_eq "0" "$?" "seed 26.9.6 publish succeeds"
+printf 'rebuilt MSI bytes\n' > "$SB/artifacts/wfl-26.9.6.msi"
+run_publish "$SB" "26.9.6" "3bf6521f"
+assert_eq "0" "$?" "same-version MSI skip succeeds"
+rm -rf "$SB/artifacts"
+mkdir -p "$SB/artifacts"
+make_artifacts "$SB" "26.9.7" "ddddddd"
+run_publish "$SB" "26.9.7" "ddddddd"
+assert_eq "0" "$?" "new version 26.9.7 still publishes ($SB/out)"
+assert_file_exists "$SB/bucket/releases/wfl-26.9.7.msi" "new version MSI is written"
+assert_eq "msi bytes for 26.9.7" "$(cat "$SB/bucket/releases/wfl-26.9.7.msi")" \
+  "new version MSI holds the new bytes"
+assert_eq "msi bytes for 26.9.6" "$(cat "$SB/bucket/releases/wfl-26.9.6.msi")" \
+  "previous version MSI is left untouched"
+assert_eq "msi bytes for 26.9.7" "$(cat "$SB/bucket/releases/wfl-latest-windows-x86_64.msi")" \
+  "rolling Windows pointer advances only for the new version"
+rm -rf "$SB"
+
 # A missing artifact directory is still a failed publish. Skipping already-
 # published keys must not weaken the empty-input guard.
 echo "publish_spaces.sh: no artifacts still fails closed"
