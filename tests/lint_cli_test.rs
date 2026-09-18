@@ -94,6 +94,39 @@ fn contextual_create_pattern_values_are_stable_in_every_lint_mode() {
     assert_clean_source_in_every_lint_mode(source);
 }
 
+/// A parser-supported try variable reference is not the start of an error block.
+#[test]
+fn contextual_try_expression_is_stable_in_every_lint_mode() {
+    assert_clean_source_in_every_lint_mode("store result as try\ndisplay result\n");
+}
+
+/// A parser-supported repeat variable reference is not the start of a loop body.
+#[test]
+fn contextual_repeat_expression_is_stable_in_every_lint_mode() {
+    assert_clean_source_in_every_lint_mode("store result as repeat\ndisplay result\n");
+}
+
+/// Pattern splitting cannot borrow a later call's named-argument colon as a body.
+#[test]
+fn pattern_split_expression_is_stable_in_every_lint_mode() {
+    let source = "define action called identity with parameters value:\n    return value\nend action\ncreate pattern comma:\n    \",\"\nend pattern\nstore pieces as split \"a,b\" on pattern comma display call identity with value: 1\ndisplay pieces\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Contextual main/loop operands cannot open a loop from a later call's colon.
+#[test]
+fn contextual_main_loop_expression_is_stable_in_every_lint_mode() {
+    let source = "define action called identity with parameters value:\n    return value\nend action\ndisplay main loop call identity with value: 1\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// A when variable cannot hide the real check body that follows on the same line.
+#[test]
+fn contextual_when_before_check_expression_is_stable_in_every_lint_mode() {
+    let source = "store result as when check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
 /// Clean source is warning-free and byte-stable through preview and publication.
 fn assert_clean_source_in_every_lint_mode(source: &str) {
     let directory = TempDir::new().unwrap();
@@ -295,7 +328,11 @@ fn version_alias_paths_follow_any_lint_option_order() {
                     assert!(diff.contains("+display \"hello\"\n"));
                     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
                 } else {
-                    assert!(output.stdout.is_empty(), "args: {args:?}");
+                    assert_eq!(
+                        String::from_utf8_lossy(&output.stdout),
+                        "✔ Auto-fixed 1 issues in place.\n",
+                        "args: {args:?}"
+                    );
                     assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
                 }
             }
@@ -348,6 +385,35 @@ fn version_alias_paths_preserve_invalid_mode_errors_without_writes() {
     }
 }
 
+/// Output-mode options cannot reinterpret a second source as a version request.
+#[test]
+fn version_alias_paths_after_output_modes_reject_extra_sources_without_writes() {
+    for filename in ["-v", "-V"] {
+        for mode in ["--diff", "--in-place"] {
+            for args in [
+                vec!["--lint", "program.wfl", mode, filename, "--fix"],
+                vec!["--lint", "--fix", "program.wfl", mode, filename],
+                vec!["--lint", filename, "--fix", mode, filename],
+            ] {
+                let dir = TempDir::new().unwrap();
+                let source_path = dir.path().join("program.wfl");
+                let alias_path = dir.path().join(filename);
+                fs::write(&source_path, DIRTY).unwrap();
+                fs::write(&alias_path, DIRTY).unwrap();
+                let output = run(dir.path(), &args);
+                assert_status(&output, 2);
+                assert!(output.stdout.is_empty(), "args: {args:?}");
+                assert!(
+                    String::from_utf8_lossy(&output.stderr).contains("one file"),
+                    "args: {args:?}"
+                );
+                assert_eq!(fs::read_to_string(&source_path).unwrap(), DIRTY);
+                assert_eq!(fs::read_to_string(&alias_path).unwrap(), DIRTY);
+            }
+        }
+    }
+}
+
 /// Missing or malformed alias-shaped inputs remain errors in both fix modes.
 #[test]
 fn version_alias_paths_preserve_source_errors_without_writes() {
@@ -393,12 +459,18 @@ fn version_alias_paths_do_not_change_explicit_version_requests() {
         assert_status(&output, 0);
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            format!("WebFirst Language (WFL) version {}\n", wfl::version::VERSION),
+            format!(
+                "WebFirst Language (WFL) version {}\n",
+                wfl::version::VERSION
+            ),
             "args: {args:?}"
         );
         assert!(output.stderr.is_empty(), "args: {args:?}");
         for filename in ["-v", "-V", "program.wfl"] {
-            assert_eq!(fs::read_to_string(dir.path().join(filename)).unwrap(), DIRTY);
+            assert_eq!(
+                fs::read_to_string(dir.path().join(filename)).unwrap(),
+                DIRTY
+            );
         }
     }
 }

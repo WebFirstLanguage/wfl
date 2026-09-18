@@ -610,3 +610,78 @@ fn test_fix_contextual_create_operands_preserve_following_indentation() {
         "contextual variable operands must preserve following statements"
     );
 }
+
+/// Expression parsing accepts these block words as variable references. Their
+/// positions, including nested arguments, must stay distinct from actual block
+/// headers and branches later on the same line.
+fn contextual_block_word_layout_sources() -> Vec<String> {
+    let mut sources = Vec::new();
+    for name in ["try", "repeat", "when"] {
+        sources.extend([
+            format!("store result as {name}\ndisplay result\n"),
+            format!(
+                "check if yes:\n    store result as ({name} + 1)\n    display result\nend check\ndisplay \"done\"\n"
+            ),
+            format!(
+                "define action called identity with parameters value:\n    return value\nend action\nstore result as call identity with value: ({name} + 1)\ndisplay result\n"
+            ),
+            format!(
+                "store result as {name} check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n"
+            ),
+            format!(
+                "store result as {name} try:\n    display \"inside\"\ncatch:\n    display \"caught\"\nend try\ndisplay \"done\"\n"
+            ),
+        ]);
+    }
+    sources.extend([
+        "store items as [try, repeat, when]\ndisplay items\n".to_owned(),
+        "check if yes:\n    store result as when check if yes:\n        display \"inside\"\n    end check\nend check\ndisplay \"done\"\n".to_owned(),
+        "store result as 1 repeat while no:\n    display result\nend repeat\ndisplay \"done\"\n".to_owned(),
+        "repeat until yes\n    display \"inside\"\nend repeat\ndisplay \"done\"\n".to_owned(),
+        "repeat forever:\n    break\nend repeat\ndisplay \"done\"\n".to_owned(),
+        "repeat: display \"inside\" until yes\ndisplay \"done\"\n".to_owned(),
+        "try:\n    display \"inside\"\nwhen error:\n    display \"caught\"\nfinally:\n    display \"cleanup\"\nend try\ndisplay \"done\"\n".to_owned(),
+        "define action called identity with parameters value:\n    return value\nend action\ncreate pattern comma:\n    \",\"\nend pattern\nstore pieces as split \"a,b\" on pattern comma display call identity with value: 1\ndisplay pieces\n".to_owned(),
+        "define action called identity with parameters value:\n    return value\nend action\ndisplay main loop call identity with value: 1\ndisplay \"done\"\n".to_owned(),
+    ]);
+    sources
+}
+
+/// Reject phantom blocks from expression operands while retaining real headers
+/// and branch boundaries, including multiple statements on one physical line.
+#[test]
+fn test_lint_contextual_block_words_respect_statement_positions() {
+    let diagnostics: Vec<_> = contextual_block_word_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "expression operands must not alter statement nesting: {diagnostics:?}"
+    );
+}
+
+/// Formatting must leave already indented sources byte-identical whether a
+/// block word is parsed as an operand or as a genuine statement header.
+#[test]
+fn test_fix_contextual_block_words_preserve_following_indentation() {
+    let sources = contextual_block_word_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "expression operands must preserve following statement indentation"
+    );
+}
