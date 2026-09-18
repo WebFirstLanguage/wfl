@@ -64,6 +64,73 @@ const DIRTY: &str = "display \"hello\"   \n";
 const CLEAN: &str = "display \"hello\"\n";
 
 #[test]
+fn lint_accepts_single_dash_source_paths_without_writing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("-program.wfl");
+    fs::write(&path, CLEAN).unwrap();
+    let clean = run(dir.path(), &["--lint", "-program.wfl"]);
+    assert_status(&clean, 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
+
+    fs::write(&path, DIRTY).unwrap();
+    let dirty = run(dir.path(), &["--lint", "-program.wfl"]);
+    assert_status(&dirty, 1);
+    assert!(String::from_utf8_lossy(&dirty.stderr).contains("trailing whitespace"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+}
+
+#[test]
+fn stdout_fix_accepts_single_dash_source_paths_without_writing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("-program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let output = run(dir.path(), &["--lint", "--fix", "-program.wfl"]);
+    assert_status(&output, 0);
+    assert_eq!(output.stdout, CLEAN.as_bytes());
+    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+}
+
+#[test]
+fn diff_accepts_single_dash_source_paths_without_writing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("-program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let output = run(dir.path(), &["--lint", "--fix", "-program.wfl", "--diff"]);
+    assert_status(&output, 0);
+    let diff = String::from_utf8_lossy(&output.stdout);
+    assert!(diff.starts_with("--- a/-program.wfl\n+++ b/-program.wfl\n"));
+    assert!(diff.contains("+display \"hello\"\n"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+}
+
+#[test]
+fn in_place_fix_accepts_single_dash_source_paths() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("-program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let output = run(
+        dir.path(),
+        &["--lint", "--fix", "-program.wfl", "--in-place"],
+    );
+    assert_status(&output, 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
+}
+
+#[test]
+fn legacy_repeated_single_dash_source_after_fix_remains_supported() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("-program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let output = run(
+        dir.path(),
+        &["--lint", "-program.wfl", "--fix", "-program.wfl", "--diff"],
+    );
+    assert_status(&output, 0);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("+display \"hello\"\n"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+}
+
+#[test]
 fn lint_reports_clean_and_dirty_files_without_changing_them() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("program.wfl");

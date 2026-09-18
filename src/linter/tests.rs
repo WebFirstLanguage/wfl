@@ -386,3 +386,38 @@ fn test_lint_layout_processes_code_after_multiline_string_closes() {
         "{diagnostics:?}"
     );
 }
+
+fn action_export_layout_sources() -> [&'static str; 2] {
+    [
+        "define action called greet:\n    display \"hello\"\nend action\nexport action greet\ndisplay \"done\"\n",
+        "define action called greet:\n    display \"hello\"\nend action\nexport action greet check if yes:\n    display \"conditional\"\nend check\ndisplay \"done\"\n",
+    ]
+}
+
+#[test]
+fn test_lint_layout_action_export_does_not_open_action_body() {
+    for source in action_export_layout_sources() {
+        let diagnostics = lint_source(&Linter::new(), source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LINT-INDENT"),
+            "an export references an existing action, rather than defining a body: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn test_fix_layout_action_export_preserves_following_indentation() {
+    for source in action_export_layout_sources() {
+        let tokens = lex_wfl_with_positions(source);
+        let program = Parser::new(&tokens).parse().unwrap();
+        let (fixed, _) = crate::fixer::CodeFixer::new()
+            .fix_checked(&program, source)
+            .unwrap();
+        assert_eq!(
+            fixed, source,
+            "exporting an action must not indent subsequent code"
+        );
+    }
+}
