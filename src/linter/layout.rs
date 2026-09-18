@@ -23,6 +23,7 @@ pub(crate) struct SourceLayout {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Block {
     Ordinary,
+    Check,
     PostconditionRepeat,
     Route,
     RouteArm,
@@ -587,6 +588,7 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>, roles: &Sour
                 | Token::KeywordCatch
                 | Token::KeywordFinally
         ) {
+            let is_check_branch = stack.last() == Some(&Block::Check);
             let branch_depth = if matches!(token, Token::KeywordWhen | Token::KeywordOtherwise)
                 && matches!(stack.last(), Some(Block::Route | Block::RouteArm))
             {
@@ -602,10 +604,14 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>, roles: &Sour
             if index == 0 {
                 depth = branch_depth;
             }
-            // Skip the branch condition. For `otherwise check if` this also
-            // skips the chained check, which shares its owner's terminator;
-            // `otherwise: check if` leaves the separately closed check next.
-            index = header_ends[index].unwrap_or(index) + 1;
+            // Only a check-owned `otherwise check if` shares its terminator.
+            // Bare-if and route branches instead contain a separately closed
+            // check. Scan onward so a later colon cannot hide an inline body.
+            let is_chained_check = is_check_branch
+                && matches!(token, Token::KeywordOtherwise)
+                && tokens.get(index + 1).map(|token| &token.token) == Some(&Token::KeywordCheck)
+                && tokens.get(index + 2).map(|token| &token.token) == Some(&Token::KeywordIf);
+            index += if is_chained_check { 3 } else { 1 };
             continue;
         }
 
@@ -636,13 +642,16 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>, roles: &Sour
             .flatten()
         {
             stack.push(block);
-            if let Some(end) = header_ends[index] {
-                index = end + 1;
+            // Consume compound opener words only. Operand roles disambiguate
+            // the remaining header, and an actual body can start on this line.
+            index += if matches!(
+                token,
+                Token::KeywordCheck | Token::KeywordDefine | Token::KeywordStatic
+            ) {
+                2
             } else {
-                // Optional-colon forms such as `check if yes` and `for each`
-                // use the rest of this line as the block header.
-                break;
-            }
+                1
+            };
         } else {
             index += 1;
         }
@@ -679,9 +688,9 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
     let second = tokens.get(1).map(|token| &token.token);
     match first {
         Token::KeywordRoute => Some(Block::Route),
+        Token::KeywordCheck => Some(Block::Check),
         Token::KeywordRepeat if second == Some(&Token::Colon) => Some(Block::PostconditionRepeat),
-        Token::KeywordCheck
-        | Token::KeywordIf
+        Token::KeywordIf
         | Token::KeywordRepeat
         | Token::KeywordTry
         | Token::KeywordDescribe

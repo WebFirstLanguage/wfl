@@ -101,3 +101,14 @@ failing tests cover expression and genuine-block forms at library and CLI
 boundaries. Layout now verifies the parsed opening position for transaction
 and conditional bodies, preserving pattern assertions and ordinary text
 variables without changing either parser or runtime behavior.
+
+### September 18 branch ownership and same-line body review
+
+The next review reproduced extra nesting in colonless else-if chains. An
+adjacent grammar audit showed that jumping to a later colon could also hide
+valid nested bodies on the same physical line. Layout now scans after the
+compound opener words and tracks whether a branch belongs to a check block,
+so chains share their terminator while bare-if and route bodies keep separate
+nested checks. Failing library and real CLI coverage is retained before the
+fix. The preceding head passed both platform gates and CodeRabbit's updated
+docstring check at 92.59%; the standalone local SQLite timeout remains open.
