@@ -1,0 +1,5 @@
+describe "Docker standard input":
+    test "executes a script received through standard input":
+        expect 2 plus 2 to equal 4
+    end test
+end describe

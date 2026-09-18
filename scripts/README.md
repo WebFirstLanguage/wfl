@@ -135,8 +135,11 @@ for byte against what was uploaded.
 
 Versioned keys are treated as write-once: re-publishing identical bytes is a
 no-op, and a build whose bytes differ from what is already published under the
-same key **aborts the publish** rather than replacing it. Re-running a publish
-that failed partway is therefore the supported way to finish it.
+same key **skips that artifact** (success) rather than replacing it or failing
+the nightly. Rolling `latest` pointers move only for artifacts this run
+accepted. Re-running a publish that failed partway is therefore still the
+supported way to finish it, and a same-version MSI rebuild no longer turns
+Nightly Build red.
 
 **Usage:**
 ```bash

@@ -41,6 +41,7 @@ Start here if you're new to WFL or want to understand the philosophy behind the 
 Hands-on guide to get you productive in under an hour.
 
 - [Installation](02-getting-started/installation.md) - Windows MSI or build from source
+- [Run WFL tests in Docker](guides/docker-testing.md) - Reusable nightly runtime for other projects
 - [Hello, World!](02-getting-started/hello-world.md) - Your first WFL program
 - [Your First Program](02-getting-started/your-first-program.md) - Step-by-step tutorial
 - [REPL Guide](02-getting-started/repl-guide.md) - Interactive experimentation

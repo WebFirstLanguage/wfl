@@ -1,0 +1,17 @@
+store sessions as create_session_store of 3600 and 900 and 10000
+store attempts as create_account_rate_limiter of 5 and 60 and 10000
+store allowed as account_rate_limit_allow of attempts and "account-42"
+check if allowed:
+    // Issue only after the application's credential check succeeds.
+    store issued as session_create of sessions and "account-42"
+    store cookie as session_cookie of issued["id"]
+    check if contains of cookie and "Secure; HttpOnly; SameSite=Strict":
+        display "Session cookie prepared"
+    end check
+    store rotated as session_rotate of sessions and issued["id"]
+    store account as session_lookup of sessions and rotated["id"]
+    check if account is equal to "account-42":
+        store revoked as session_revoke_account of sessions and account
+        display "Sessions revoked: " with revoked
+    end check
+end check

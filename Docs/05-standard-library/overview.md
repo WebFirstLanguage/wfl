@@ -1,13 +1,13 @@
 # Standard Library Overview
 
-WFL's standard library provides 181+ built-in functions organized into 12 modules. Everything you need is already included—no package managers, no external dependencies.
+WFL's standard library provides built-in functions organized by purpose. Everything you need is already included—no package managers, no external dependencies.
 
 ## Library Architecture
 
 The standard library is organized by functionality:
 
 ```
-Standard Library (181+ functions)
+Standard Library
 ├── Core Module (3 functions)
 │   └── Essential operations
 ├── Math Module (5 functions)
@@ -22,8 +22,10 @@ Standard Library (181+ functions)
 │   └── Date and time handling
 ├── Random Module (6 functions)
 │   └── Random number generation
-├── Crypto Module (22 functions)
+├── Crypto Module (25 functions)
 │   └── Password hashing, authenticated encryption, auth/session primitives, hashing & MAC
+├── Authentication Module (10 functions)
+│   └── Managed sessions, CSRF guards, secure cookies and account attempt limits
 ├── TOML Module (3 functions)
 │   └── Reading and writing TOML configuration files
 ├── Pattern Module (3 functions)
@@ -157,7 +159,8 @@ store upper as touppercase of "text"
 - Seeding: `random_seed`
 
 ### Security (Crypto)
-- Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2)
+- Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2), plus bounded policy and rehash helpers
+- [Managed authentication](auth-module.md): session stores, rotation and revocation, request CSRF guards, secure cookies, and account attempt limits
 - Authenticated encryption: `seal`, `unseal` (XChaCha20-Poly1305) — for secrets you must read back
 - Standard hashing/MAC: `sha256`, `hmac_sha256`
 - WFLHASH (experimental): `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256` — dual-hash with `sha256` for production

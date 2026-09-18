@@ -16,6 +16,7 @@ mod op_refactor_tests;
 #[cfg(test)]
 mod tests;
 mod tls;
+pub(crate) mod trusted_proxy;
 pub mod value;
 
 use self::control_flow::ControlFlow;
@@ -208,6 +209,10 @@ pub struct WflHttpRequest {
     /// handlers can feed it to `parse_query_string`.
     pub query: String,
     pub client_ip: String,
+    /// Origin derived from the socket peer and explicitly trusted proxy chain.
+    pub originating_ip: String,
+    /// Preserve ambiguity before flattening headers for the auth middleware.
+    pub ambiguous_auth_headers: bool,
     /// Raw request body bytes. Exposed to WFL both as a lossy-UTF-8 `body`
     /// text variable (backward compatible) and as a lossless `body_bytes`
     /// binary value, so binary uploads survive intact.
@@ -5771,6 +5776,33 @@ impl Interpreter {
                         // parent's request data (e.g. the headers object)
                         vars.push((key.to_string(), value.deep_clone()));
                     }
+                    // Older callers may construct the original request shape.
+                    // Preserve compatibility while forwarding the new identity
+                    // to executed files when the runtime supplied it.
+                    let origin = props.get("originating_ip").unwrap_or(&props["client_ip"]);
+                    if !matches!(origin, Value::Text(_)) {
+                        return Err(RuntimeError::new(
+                            "Execute file request context field 'originating_ip' must be text"
+                                .to_string(),
+                            line,
+                            column,
+                        ));
+                    }
+                    vars.push(("originating_ip".to_string(), origin.deep_clone()));
+                    // Header maps cannot represent repeated physical fields or
+                    // non-text values. Preserve the transport's rejection bit
+                    // when a page reconstructs request context for an auth guard.
+                    let ambiguity = match props.get("ambiguous_auth_headers") {
+                        None => false,
+                        Some(Value::Bool(value)) => *value,
+                        Some(_) => return Err(RuntimeError::new(
+                            "Execute file request context field 'ambiguous_auth_headers' must be a boolean"
+                                .to_string(),
+                            line,
+                            column,
+                        )),
+                    };
+                    vars.push(("ambiguous_auth_headers".to_string(), Value::Bool(ambiguity)));
                     vars
                 }
                 _ => {
@@ -10739,6 +10771,17 @@ impl Interpreter {
                 let max_body_size_u64 = max_body_size as u64;
                 let request_timeout = self.budget.max_request_duration();
                 let admit_budget = Arc::clone(&self.budget);
+                let trusted_proxies = Arc::new(
+                    trusted_proxy::TrustedProxyPolicy::parse(
+                        &self.config.web_server_trusted_proxies,
+                    )
+                    .unwrap_or_else(|reason| {
+                        log::warn!(
+                            "Invalid web_server_trusted_proxies: {reason}; trusting no proxies"
+                        );
+                        trusted_proxy::TrustedProxyPolicy::default()
+                    }),
+                );
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
@@ -10786,6 +10829,7 @@ impl Interpreter {
                               body_stream,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
+                            let trusted_proxies = Arc::clone(&trusted_proxies);
                             async move {
                                 // Hold the admission slot for this request's WHOLE
                                 // transport lifetime by binding the guard into this
@@ -10857,6 +10901,14 @@ impl Interpreter {
                                 let client_ip = remote_addr
                                     .map(|addr| addr.ip().to_string())
                                     .unwrap_or_else(|| "unknown".to_string());
+                                let originating_ip = trusted_proxies
+                                    .originating_ip(remote_addr.map(|addr| addr.ip()), &headers)
+                                    .map(|address| address.to_string())
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                let ambiguous_auth_headers = ["cookie", "x-csrf-token"]
+                                    .iter()
+                                    .any(|name| headers.get_all(*name).iter().count() > 1)
+                                    || headers.values().any(|value| value.to_str().is_err());
 
                                 // Convert headers to HashMap
                                 let mut header_map = HashMap::new();
@@ -10882,6 +10934,8 @@ impl Interpreter {
                                     path: path.as_str().to_string(),
                                     query,
                                     client_ip,
+                                    originating_ip,
+                                    ambiguous_auth_headers,
                                     body: body_bytes,
                                     headers: header_map,
                                     response_sender: Arc::new(tokio::sync::Mutex::new(Some(
@@ -11528,6 +11582,14 @@ impl Interpreter {
                     "client_ip".to_string(),
                     Value::Text(Arc::from(request.client_ip.clone())),
                 );
+                request_properties.insert(
+                    "originating_ip".to_string(),
+                    Value::Text(Arc::from(request.originating_ip.clone())),
+                );
+                request_properties.insert(
+                    "ambiguous_auth_headers".to_string(),
+                    Value::Bool(request.ambiguous_auth_headers),
+                );
                 // `body` is a lossy-UTF-8 text view (backward compatible);
                 // `body_bytes` is the lossless binary view for binary uploads.
                 let body_text = String::from_utf8_lossy(&request.body).into_owned();
@@ -11554,6 +11616,10 @@ impl Interpreter {
                 env_mut.define_or_replace(
                     "client_ip",
                     Value::Text(Arc::from(request.client_ip.clone())),
+                );
+                env_mut.define_or_replace(
+                    "originating_ip",
+                    Value::Text(Arc::from(request.originating_ip.clone())),
                 );
 
                 env_mut.define_or_replace("body", Value::Text(Arc::from(body_text.as_str())));
@@ -14559,7 +14625,7 @@ impl Interpreter {
 
                         result
                     }
-                    Value::NativeFunction(_, native_fn) => {
+                    Value::NativeFunction(native_name, native_fn) => {
                         let mut arg_values = Vec::new();
                         for arg in arguments.iter() {
                             arg_values.push(
@@ -14572,7 +14638,9 @@ impl Interpreter {
                         // point the location at the call site (natives report
                         // their position as 0,0). CPU-heavy crypto builtins are
                         // routed onto the blocking pool (Phase 0, PR-0b).
-                        if let Some(fut) = crate::stdlib::crypto_async::route(name, &arg_values) {
+                        if let Some(fut) =
+                            crate::stdlib::crypto_async::route(native_name, &arg_values)
+                        {
                             fut.await.map_err(|mut e| {
                                 e.line = *line;
                                 e.column = *column;

@@ -213,6 +213,7 @@ All keys currently loaded from config files, with defaults.
 | Key | Type | Default | Purpose |
 |---|---|---|---|
 | `web_server_bind_address` | IP string | `127.0.0.1` | Bind address for `listen on port` |
+| `web_server_trusted_proxies` | Comma-separated IPs/CIDRs | empty | Trusted peers for validated `originating_ip`; `client_ip` stays the socket peer |
 | `web_server_tls_cert_file` | path | *(none)* | Default PEM cert for bare `listen … secured` |
 | `web_server_tls_key_file` | path | *(none)* | Default PEM key for bare `listen … secured` |
 | `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes); enforced while streaming (chunked-safe) |
@@ -498,6 +499,41 @@ IP address the web server binds to.
 - **Example:** `web_server_bind_address = 0.0.0.0`
 
 **Security:** `0.0.0.0` exposes the server on the network. Only use when you intend external connections.
+
+#### `web_server_trusted_proxies`
+
+Explicit proxy IP addresses or CIDR networks allowed to supply an HTTP
+`X-Forwarded-For` chain. Applies to both HTTP and HTTPS listeners.
+
+- **Type:** comma-separated IPv4/IPv6 addresses or CIDRs
+- **Default:** empty (trust no proxies)
+- **Example:** `web_server_trusted_proxies = 127.0.0.1, 10.0.0.0/8, 2001:db8:1::/48`
+- **Limits:** 128 entries and 8192 bytes, including entry separators
+- **Invalid values:** clear the whole list, including previously inherited trust;
+  a warning explains the failure. An empty value also clears inherited trust.
+
+Only configure addresses belonging to proxies you control. A trusted proxy must
+overwrite client-supplied forwarding metadata or append the address it observed
+to the right of the chain. Broad ranges grant that authority to every address
+they contain. Configuration is read at server startup.
+
+The request's `client_ip` remains the socket peer. `originating_ip` uses the
+rightmost untrusted address in a validated `X-Forwarded-For` chain, starting
+with the trusted socket peer and walking right to left. If every address is
+trusted, the leftmost address is returned. IPv4-mapped IPv6 addresses are
+normalized to IPv4 for matching and originating identity; mapped CIDRs require
+prefixes of at least 96. Ordinary IPv4 and IPv6 networks match their own family.
+
+No forwarding metadata is used when the socket peer is untrusted. Missing,
+malformed, or duplicate `X-Forwarded-For` fields fall back to the socket peer.
+The entire field must contain at most 32 plain IP addresses within 4096 bytes;
+empty elements, ports, brackets, zone identifiers, and non-IP tokens are
+rejected. `Forwarded` and `X-Real-IP` are not consulted. If no socket peer is
+available, both identity fields are `"unknown"`.
+
+See [request identity](../04-advanced-features/web-servers.md#request-identity-behind-a-proxy)
+for application usage. Continue enforcing connection and real-client limits
+at the proxy; application account limits complement those transport limits.
 
 #### `web_server_tls_cert_file`
 

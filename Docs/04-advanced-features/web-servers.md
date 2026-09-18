@@ -271,6 +271,35 @@ respond to req with "ok"
 inside actions that receive `req` as a parameter (you do not need the
 loop-scoped `headers` binding).
 
+### Request identity behind a proxy
+
+`client_ip` (also `req["client_ip"]`) always identifies the socket peer, so it
+identifies the proxy when one is in front of WFL. `originating_ip` (also
+`req["originating_ip"]`) provides the separately validated originating address.
+Both are refreshed by `wait for request`; use the request property inside
+actions, and `execute file ... with req` also carries the originating address.
+
+By default WFL trusts no forwarding headers and `originating_ip` is the peer.
+Set `web_server_trusted_proxies` in `.wflcfg` to the IPs or CIDRs of proxies you
+control, for example `web_server_trusted_proxies = 127.0.0.1, 10.0.0.0/8`.
+When the peer is trusted, WFL validates the whole `X-Forwarded-For` field and
+walks right to left, stopping at the first address outside the trusted networks.
+It ignores any earlier addresses supplied by an untrusted hop. If all hops are
+trusted, the leftmost address is returned.
+
+Missing or invalid forwarding data falls back to the peer. Duplicate fields,
+chains over 32 addresses or 4096 bytes, empty entries, address ports, bracketed
+IPv6, zone identifiers, and non-IP values are rejected. IPv4-mapped IPv6 is
+normalized to IPv4. `Forwarded` and `X-Real-IP` are not used.
+
+Configure the proxy to overwrite incoming forwarding headers or append its
+observed peer, and enforce real-client connection limits there. Use
+`originating_ip` for application address limits and logs; do not interpret raw
+forwarding headers in website code. IP identity is not account authentication.
+The policy applies to HTTP and HTTPS requests; WebSocket connection identity
+continues to use its socket peer. Full policy and configuration limits are in
+the [configuration reference](../reference/configuration-reference.md#web_server_trusted_proxies).
+
 ### Query String
 
 The raw query string (without the leading `?`) is available as `query` in the
@@ -851,7 +880,8 @@ end loop
 
 The page file `pages/home.wfl` is a normal WFL program. Because the request
 was passed along with `with req`, the page sees the same request variables a
-server sees: `method`, `path`, `client_ip`, `body` and `headers`:
+server sees: `method`, `path`, `query`, `client_ip`, `originating_ip`, `body`,
+`headers`, and the authentication metadata `ambiguous_auth_headers`:
 
 ```wfl
 display "<h1>Welcome!</h1>"
@@ -860,6 +890,9 @@ display "<p>You asked for " with path with " using " with method with "</p>"
 
 Everything the page displays is captured into `page_output` instead of being
 printed, ready to send to the browser.
+
+Preserve `ambiguous_auth_headers` when reconstructing an authentication request
+context in a page: it carries the transport's duplicate-header and encoding checks.
 
 ### The execute file statement
 
@@ -1230,7 +1263,7 @@ end check
 - **Bounded request body (chunked-safe):** The request-body limit (`web_server_max_body_size`) is enforced *while the body streams in*, so a chunked upload with no `Content-Length` is bounded too — an oversized body is refused with `413 Payload Too Large` without being fully buffered.
 - **Global in-flight cap + request deadline:** The accepted-request cap is shared across every `listen` server via one budget, and one deadline (`web_server_response_timeout_seconds`, default 300s) is set at admission and covers the whole accepted-request lifetime. A body that is not fully received in time is shed with `408 Request Timeout` (so a slow "trickle" upload under the size cap cannot pin a slot), and a handler that does not answer in time is shed with `504 Gateway Timeout`. A shed or abandoned request is skipped and its bookkeeping pruned rather than run as zombie work.
 - **No middleware system** (yet) - Implement manually
-- **No built-in session management** - Implement yourself
+- **Managed sessions are process-local** - Use the [authentication helpers](../05-standard-library/auth-module.md) for bounded sessions, rotation/revocation, CSRF validation, and account attempt limits; shared or durable storage requires an application backend.
 
 All of these ceilings, together with the request timeout and body-size limits, are part of one shared [execution budget](../reference/configuration-reference.md#execution-budget-resource-limits).
 
