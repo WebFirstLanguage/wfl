@@ -143,6 +143,23 @@ fn bodyless_event_registration_is_stable_in_every_lint_mode() {
     assert_clean_source_in_every_lint_mode(source);
 }
 
+/// The `in transaction` operands of a find expression do not introduce a
+/// database block in lint, source output, diff preview, or in-place output.
+#[test]
+fn find_in_transaction_expression_is_stable_in_every_lint_mode() {
+    let source = "store transaction as \"haystack\"\nstore needle as \"hay\"\nstore hit as find needle in transaction\ndisplay hit\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// A pattern lookaround's `check` keyword must not indent either its terminator
+/// or subsequent statements in lint and all formatter output modes.
+#[test]
+fn pattern_lookaround_is_stable_in_every_lint_mode() {
+    let source =
+        "create pattern probe:\n    check ahead for {\"x\"}\nend pattern\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
 /// Clean source is warning-free and byte-stable through preview and publication.
 fn assert_clean_source_in_every_lint_mode(source: &str) {
     let directory = TempDir::new().unwrap();

@@ -729,3 +729,108 @@ fn test_fix_main_action_call_preserves_following_indentation() {
         .collect();
     assert_eq!(fixed_sources, sources);
 }
+
+/// Pattern expressions can use a variable named transaction after `in` without
+/// opening a database block. Retain the real form, its nesting, and a real
+/// header following an earlier statement on the same physical line.
+fn transaction_expression_layout_sources() -> [&'static str; 10] {
+    [
+        "store transaction as \"haystack\"\nstore needle as \"hay\"\nstore hit as find needle in transaction\ndisplay hit\n",
+        "check if yes:\n    store hit as find needle in transaction\n    display hit\nend check\ndisplay \"done\"\n",
+        "store hit as (find needle in transaction)\ndisplay hit\n",
+        "define action called identity with parameters value:\n    return value\nend action\nstore hit as call identity with value: (find needle in transaction)\ndisplay hit\n",
+        "store hit as find needle in transaction check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n",
+        "store changed as replace needle with \"x\" in transaction\ndisplay changed\n",
+        "in transaction on db:\n    display \"inside\"\nend transaction\ndisplay \"done\"\n",
+        "check if yes:\n    in transaction on db:\n        store hit as find needle in transaction\n        display hit\n    end transaction\nend check\ndisplay \"done\"\n",
+        "store marker as 1 in transaction on db:\n    display marker\nend transaction\ndisplay \"done\"\n",
+        "in TRANSACTION on db:\n    display \"inside\"\nend TRANSACTION\ndisplay \"done\"\n",
+    ]
+}
+
+/// Only a parsed transaction statement may add transaction-body indentation;
+/// the same tokens within find/replace expressions leave nesting unchanged.
+#[test]
+fn test_lint_transaction_expression_does_not_open_database_body() {
+    let diagnostics: Vec<_> = transaction_expression_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Source-preserving formatting must retain canonical expression indentation
+/// and genuine transaction bodies across nested and same-line statement forms.
+#[test]
+fn test_fix_transaction_expression_preserves_following_indentation() {
+    let sources = transaction_expression_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
+
+/// Pattern lookarounds use `check` without an if-statement body. Both directions
+/// and negations retain pattern indentation, while real checks still open and
+/// close normally inside chains and after same-line pattern declarations.
+fn pattern_lookaround_layout_sources() -> Vec<String> {
+    let mut sources: Vec<_> = ["ahead", "not ahead", "behind", "not behind"]
+        .iter()
+        .map(|direction| {
+            format!(
+                "create pattern probe:\n    check {direction} for {{\"x\"}}\nend pattern\ndisplay \"done\"\n"
+            )
+        })
+        .collect();
+    sources.extend([
+        "check if yes:\n    create pattern probe:\n        check not ahead for {\"x\"}\n    end pattern\n    display \"inside\"\nend check\ndisplay \"done\"\n".to_owned(),
+        "check if yes\n    display \"inside\"\nend check\ndisplay \"done\"\n".to_owned(),
+        "check if no:\n    display \"first\"\notherwise check if yes:\n    display \"second\"\notherwise:\n    display \"fallback\"\nend check\ndisplay \"done\"\n".to_owned(),
+        "create pattern probe: check ahead for {\"x\"} end pattern check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n".to_owned(),
+    ]);
+    sources
+}
+
+/// A pattern assertion must not add a conditional indentation level or prevent
+/// a following real check statement from being recognized.
+#[test]
+fn test_lint_pattern_lookaround_does_not_open_check_body() {
+    let diagnostics: Vec<_> = pattern_lookaround_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Preserve canonical pattern, enclosing scope, and subsequent statement
+/// indentation while retaining true conditional bodies and else-if chains.
+#[test]
+fn test_fix_pattern_lookaround_preserves_following_indentation() {
+    let sources = pattern_lookaround_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
