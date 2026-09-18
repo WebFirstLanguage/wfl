@@ -215,7 +215,7 @@ Guidelines for quality, security, performance, and collaboration — aligned wit
 
 ### Language Reference
 
-- **[Configuration Reference (`.wflcfg`)](reference/configuration-reference.md)** - **One-stop guide** for project config: all keys, defaults, CLI (`--init`, `--configCheck`, `--configFix`), lint/style, security, web server
+- **[Configuration Reference (`.wflcfg`)](reference/configuration-reference.md)** - **One-stop guide** for project config: all keys, defaults, CLI (`wfl config`, `--configCheck`, `--configFix`), lint/style, security, web server
 - **[Language Specification](reference/language-specification.md)** - Formal language spec
 - **[Syntax Reference](reference/syntax-reference.md)** - Quick syntax lookup
 - **[Keyword Reference (Quick)](reference/keyword-reference.md)** - Fast scannable keyword lookup

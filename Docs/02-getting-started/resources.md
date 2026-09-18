@@ -313,6 +313,9 @@ wfl program.wfl
 # Start REPL
 wfl
 
+# Create .wflcfg interactively in the current directory
+wfl config
+
 # Check syntax
 wfl --parse program.wfl
 

@@ -23,6 +23,7 @@ fn print_help() {
     println!();
     println!("USAGE:");
     println!("    wfl [FLAGS] [OPTIONS] [file]");
+    println!("    wfl config [dir]");
     println!();
     println!("FLAGS:");
     println!("    --help, -h         Prints this help information");
@@ -44,7 +45,7 @@ fn print_help() {
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
     println!("    --configFix        Check and fix configuration files");
-    println!("    --init [dir]       Create .wflcfg interactively (default: current directory)");
+    println!("    config [dir]      Create .wflcfg interactively (default: current directory)");
     println!();
     println!("ENVIRONMENT VARIABLES:");
     println!("    WFL_GLOBAL_CONFIG_PATH  Override the global configuration path");
@@ -55,6 +56,58 @@ fn print_help() {
     println!("    and type safety before execution, preventing many common runtime errors.");
     println!();
     println!("If no file is specified, the REPL will be started.");
+}
+
+fn run_config_command(args: &[String]) -> io::Result<()> {
+    if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h") {
+        println!("USAGE: wfl config [dir]");
+        println!(
+            "Create .wflcfg interactively in an existing directory (default: current directory)."
+        );
+        println!("Press Enter to accept defaults or skip optional settings without defaults.");
+        return Ok(());
+    }
+
+    if args.len() > 1 || args.first().is_some_and(|arg| arg.starts_with('-')) {
+        eprintln!(
+            "Error: wfl config accepts only one optional directory, without operation flags."
+        );
+        eprintln!("Usage: wfl config [dir]");
+        process::exit(2);
+    }
+
+    let target_dir = Path::new(args.first().map(String::as_str).unwrap_or("."));
+    if !target_dir.is_dir() {
+        eprintln!("Error: wfl config requires a valid directory");
+        process::exit(2);
+    }
+
+    let config_path = target_dir.join(".wflcfg");
+    if config_path.exists() {
+        eprint!(
+            "File {} already exists. Overwrite? (y/n): ",
+            config_path.display()
+        );
+        io::stderr().flush()?;
+        let mut response = String::new();
+        io::stdin().read_line(&mut response)?;
+        if !response.trim().to_lowercase().starts_with('y') {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
+    match wfl_config::run_wizard(&config_path) {
+        Ok(()) => {
+            println!("\n✅ Configuration created: {}", config_path.display());
+            println!("You can edit this file directly or run 'wfl config' again.");
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("Error: {error}");
+            process::exit(2);
+        }
+    }
 }
 
 /// Stack size for the thread that runs the interpreter.
@@ -156,6 +209,19 @@ async fn run() -> io::Result<()> {
         return Ok(());
     }
 
+    // Keep extensionless programs named `config` or `init` runnable. Explicit
+    // paths such as ./config also continue through the normal script parser.
+    if !Path::new(&args[1]).is_file() {
+        match args[1].as_str() {
+            "config" => return run_config_command(&args[2..]),
+            "init" => {
+                eprintln!("Error: use 'wfl config [dir]' to create a .wflcfg file.");
+                process::exit(2);
+            }
+            _ => {}
+        }
+    }
+
     // Check for version flag only in WFL flags (before script filename)
     // This check is moved into the main argument parsing loop below
 
@@ -166,7 +232,6 @@ async fn run() -> io::Result<()> {
     let mut fix_diff = false;
     let mut config_check_mode = false;
     let mut config_fix_mode = false;
-    let mut init_mode = false;
     let mut step_mode = false;
     let mut edit_mode = false;
     let mut lex_dump = false;
@@ -234,17 +299,8 @@ async fn run() -> io::Result<()> {
                 }
             }
             "--init" => {
-                if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
-                    eprintln!("Error: --init cannot be combined with other operation flags");
-                    process::exit(2);
-                }
-                init_mode = true;
-                i += 1;
-                // Optional: accept directory path
-                if i < args.len() && !args[i].starts_with("--") {
-                    file_path = args[i].clone();
-                    i += 1;
-                }
+                eprintln!("Error: --init has been removed. Use 'wfl config [dir]' instead.");
+                process::exit(2);
             }
             "--lint" => {
                 if analyze_mode || config_check_mode || config_fix_mode {
@@ -464,52 +520,7 @@ async fn run() -> io::Result<()> {
         }
     }
 
-    // Handle --init mode
-    if init_mode {
-        use std::io::Write;
-
-        let target_dir = if !file_path.is_empty() {
-            std::path::Path::new(&file_path)
-        } else {
-            std::path::Path::new(".")
-        };
-
-        if !target_dir.is_dir() {
-            eprintln!("Error: --init requires a valid directory");
-            process::exit(2);
-        }
-
-        let config_path = target_dir.join(".wflcfg");
-
-        // Check if file exists and prompt for overwrite
-        if config_path.exists() {
-            eprint!(
-                "File {} already exists. Overwrite? (y/n): ",
-                config_path.display()
-            );
-            std::io::stdout().flush()?;
-            let mut response = String::new();
-            std::io::stdin().read_line(&mut response)?;
-            if !response.trim().to_lowercase().starts_with('y') {
-                println!("Aborted.");
-                process::exit(0);
-            }
-        }
-
-        match wfl_config::run_wizard(&config_path) {
-            Ok(()) => {
-                println!("\n✅ Configuration created: {}", config_path.display());
-                println!("You can edit this file directly or run 'wfl --init' again.");
-                process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("Error: {e}");
-                process::exit(2);
-            }
-        }
-    }
-
-    if file_path.is_empty() && !config_check_mode && !config_fix_mode && !init_mode {
+    if file_path.is_empty() && !config_check_mode && !config_fix_mode {
         eprintln!("Error: No file path provided");
         process::exit(2);
     }

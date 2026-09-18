@@ -81,7 +81,7 @@ indent_size = 4
 ```
 
 ```bash
-wfl --init          # create interactively
+wfl config          # create interactively in the current directory
 wfl --configCheck   # validate
 ```
 

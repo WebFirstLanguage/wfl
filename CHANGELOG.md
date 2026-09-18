@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`wfl config [dir]`** runs the interactive `.wflcfg` wizard in the current
+  directory or an existing target directory. Existing files named `config` or
+  `init` continue to run as programs.
 - **Database transactions** (#664): `in transaction on db: ... end transaction`
   runs a group of statements on a single pooled connection, committing when the
   block finishes and rolling back if anything inside it fails or if `exit` stops
@@ -36,6 +39,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   drop.
 
 ### Fixed
+- **Optional TLS settings in the configuration wizard** can be skipped with
+  Enter. Unset certificate/key paths are omitted from `.wflcfg`, so accepting
+  every default now completes the wizard.
 - **`push` onto a constant list is now reported** (#673). `push with ROLES and
   "guest"` on a `store new constant` list previously ran and mutated the list,
   because `push` carries its target as an expression rather than a bare name and
@@ -61,6 +67,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `'rollback plan'` value) still runs.
 
 ### Removed
+- **`wfl --init [dir]`** has been removed in favor of `wfl config [dir]`.
+  The old flag and bare `wfl init` report migration guidance; project
+  initialization is not implemented by this change.
 - **Hand-written transaction control through `query`/`execute` no longer runs,
   including on `sqlite::memory:`** (#664). On pooled backends the pattern never
   worked, but an in-memory SQLite database is capped at a single connection, so

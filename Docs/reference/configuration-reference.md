@@ -48,8 +48,8 @@ It is **not** for application secrets or app-specific settings (ports your progr
 
 ```bash
 # Create a project config interactively (recommended)
-wfl --init
-# or: wfl --init /path/to/project
+wfl config
+# or: wfl config /path/to/project
 
 # Check existing config files for missing/invalid settings
 wfl --configCheck
@@ -80,14 +80,20 @@ Then run scripts from that project tree; WFL walks up from the **script’s dire
 
 | Command | Purpose |
 |---|---|
-| `wfl --init [dir]` | Interactive wizard; writes a commented `.wflcfg` |
+| `wfl config [dir]` | Interactive wizard; writes a commented `.wflcfg` |
 | `wfl --configCheck` | Validates local/global config against known settings |
 | `wfl --configFix` | Checks and repairs common config problems |
 | `wfl --lint <file>` | Style/quality checks driven by code-quality keys |
 | `wfl --lint --fix <file> --in-place` | Auto-fix style issues when possible |
 | `wfl --dump-env` | Environment dump (useful when diagnosing “config not loading”) |
 
-The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file.
+`wfl config` uses the current directory; `wfl config /path/to/project` uses the specified existing directory. It creates only `.wflcfg`, without creating directories or starter programs. If `.wflcfg` already exists, the command asks before replacing it. Press Enter at that confirmation to cancel.
+
+The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file. Press Enter to accept each default. For optional settings without a default, including the TLS certificate and key paths, press Enter to leave the setting out of the generated file. Skipped TLS paths do not create empty assignments; any global TLS defaults can still apply.
+
+The former `wfl --init [dir]` spelling has been removed; use `wfl config [dir]`. `wfl init` also reports guidance to use `wfl config`; it does not initialize a project.
+
+Existing program files named exactly `config` or `init` take precedence over these command names, so `wfl config` or `wfl init` still runs that file when present. You can also run them explicitly as `wfl ./config` or `wfl ./init`.
 
 ---
 

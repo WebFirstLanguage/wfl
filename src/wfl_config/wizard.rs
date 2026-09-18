@@ -30,6 +30,7 @@ impl ConfigWizard {
         println!(
             "Press Enter to accept the default value shown in brackets, or type a new value.\n"
         );
+        println!("Optional settings without a default can be skipped by pressing Enter.\n");
 
         // Get settings grouped by category - collect into owned data to avoid borrow issues
         let categories: Vec<(String, Vec<ExpectedSetting>)> = self
@@ -66,15 +67,18 @@ impl ConfigWizard {
         );
 
         for setting in &settings {
-            let value = self.prompt_setting(setting)?;
-            self.values.insert(setting.name.clone(), value);
+            if let Some(value) = self.prompt_setting(setting)? {
+                self.values.insert(setting.name.clone(), value);
+            } else {
+                self.values.remove(&setting.name);
+            }
         }
 
         println!();
         Ok(())
     }
 
-    fn prompt_setting(&mut self, setting: &ExpectedSetting) -> Result<String, io::Error> {
+    fn prompt_setting(&mut self, setting: &ExpectedSetting) -> Result<Option<String>, io::Error> {
         let prompt = self.format_prompt(setting);
 
         loop {
@@ -84,13 +88,6 @@ impl ConfigWizard {
                 .map_err(|e| io::Error::other(format!("Readline error: {e}")))?;
 
             let input = line.trim();
-
-            // Empty input means accept default
-            if input.is_empty()
-                && let Some(default) = &setting.default_value
-            {
-                return Ok(default.clone());
-            }
 
             // Validate the input
             match self.validate_input(setting, input) {
@@ -103,11 +100,17 @@ impl ConfigWizard {
         }
     }
 
-    fn validate_input(&self, setting: &ExpectedSetting, input: &str) -> Result<String, String> {
-        // Empty input is only valid if there's a default
+    fn validate_input(
+        &self,
+        setting: &ExpectedSetting,
+        input: &str,
+    ) -> Result<Option<String>, String> {
+        // Empty input accepts a default or leaves an optional setting absent.
         if input.is_empty() {
-            return if setting.default_value.is_some() {
-                Ok(setting.default_value.clone().unwrap())
+            return if let Some(default) = &setting.default_value {
+                Ok(Some(default.clone()))
+            } else if !setting.required {
+                Ok(None)
             } else {
                 Err("Value is required".to_string())
             };
@@ -195,6 +198,7 @@ impl ConfigWizard {
                 }
             }
         }
+        .map(Some)
     }
 
     fn format_prompt(&self, setting: &ExpectedSetting) -> String {
@@ -208,6 +212,8 @@ impl ConfigWizard {
         // Show default value
         if let Some(default) = &setting.default_value {
             prompt.push_str(&format!("Enter value [{}]: ", default));
+        } else if !setting.required {
+            prompt.push_str("Enter value (optional; press Enter to skip): ");
         } else {
             prompt.push_str("Enter value: ");
         }
@@ -225,7 +231,7 @@ impl ConfigWizard {
         writeln!(file, "# WebFirst Language Configuration File")?;
         writeln!(
             file,
-            "# Created by wfl --init on {}",
+            "# Created by wfl config on {}",
             chrono::Local::now().format("%Y-%m-%d")
         )?;
         writeln!(file)?;
@@ -284,8 +290,9 @@ mod tests {
             let setting = &wizard.checker.get_expected_settings()[name];
             assert!(!setting.required);
             assert!(setting.default_value.is_none());
-            assert!(
-                wizard.validate_input(setting, "").is_ok(),
+            assert_eq!(
+                wizard.validate_input(setting, "").unwrap(),
+                None,
                 "optional setting {name} must allow Enter to skip"
             );
         }
@@ -315,7 +322,12 @@ mod tests {
 
     #[test]
     fn test_generated_config_omits_unset_tls_settings() {
-        let wizard = ConfigWizard::new().unwrap();
+        let mut wizard = ConfigWizard::new().unwrap();
+        for setting in wizard.checker.get_expected_settings().values() {
+            if let Some(value) = wizard.validate_input(setting, "").unwrap() {
+                wizard.values.insert(setting.name.clone(), value);
+            }
+        }
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".wflcfg");
         wizard.generate_file(&path).unwrap();
@@ -323,6 +335,7 @@ mod tests {
         assert!(!contents.contains("web_server_tls_cert_file ="));
         assert!(!contents.contains("web_server_tls_key_file ="));
         assert!(contents.contains("web_server_bind_address = 127.0.0.1"));
+        assert!(contents.contains("allowed_shell_commands = \n"));
     }
 
     #[test]
@@ -370,14 +383,38 @@ mod tests {
         };
 
         // Test various boolean inputs
-        assert_eq!(wizard.validate_input(&setting, "y").unwrap(), "true");
-        assert_eq!(wizard.validate_input(&setting, "yes").unwrap(), "true");
-        assert_eq!(wizard.validate_input(&setting, "true").unwrap(), "true");
-        assert_eq!(wizard.validate_input(&setting, "1").unwrap(), "true");
-        assert_eq!(wizard.validate_input(&setting, "n").unwrap(), "false");
-        assert_eq!(wizard.validate_input(&setting, "no").unwrap(), "false");
-        assert_eq!(wizard.validate_input(&setting, "false").unwrap(), "false");
-        assert_eq!(wizard.validate_input(&setting, "0").unwrap(), "false");
+        assert_eq!(
+            wizard.validate_input(&setting, "y").unwrap().unwrap(),
+            "true"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "yes").unwrap().unwrap(),
+            "true"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "true").unwrap().unwrap(),
+            "true"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "1").unwrap().unwrap(),
+            "true"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "n").unwrap().unwrap(),
+            "false"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "no").unwrap().unwrap(),
+            "false"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "false").unwrap().unwrap(),
+            "false"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "0").unwrap().unwrap(),
+            "false"
+        );
 
         // Test invalid input
         assert!(wizard.validate_input(&setting, "maybe").is_err());
@@ -397,8 +434,14 @@ mod tests {
         };
 
         // Test valid integers
-        assert_eq!(wizard.validate_input(&setting, "123").unwrap(), "123");
-        assert_eq!(wizard.validate_input(&setting, "-456").unwrap(), "-456");
+        assert_eq!(
+            wizard.validate_input(&setting, "123").unwrap().unwrap(),
+            "123"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "-456").unwrap().unwrap(),
+            "-456"
+        );
 
         // Test invalid input
         assert!(wizard.validate_input(&setting, "abc").is_err());
@@ -420,18 +463,27 @@ mod tests {
 
         // Test valid IPv4
         assert_eq!(
-            wizard.validate_input(&setting, "127.0.0.1").unwrap(),
+            wizard
+                .validate_input(&setting, "127.0.0.1")
+                .unwrap()
+                .unwrap(),
             "127.0.0.1"
         );
         assert_eq!(
-            wizard.validate_input(&setting, "192.168.1.1").unwrap(),
+            wizard
+                .validate_input(&setting, "192.168.1.1")
+                .unwrap()
+                .unwrap(),
             "192.168.1.1"
         );
 
         // Test valid IPv6
-        assert_eq!(wizard.validate_input(&setting, "::1").unwrap(), "::1");
         assert_eq!(
-            wizard.validate_input(&setting, "fe80::1").unwrap(),
+            wizard.validate_input(&setting, "::1").unwrap().unwrap(),
+            "::1"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "fe80::1").unwrap().unwrap(),
             "fe80::1"
         );
 
@@ -459,9 +511,18 @@ mod tests {
         };
 
         // Test valid log levels
-        assert_eq!(wizard.validate_input(&setting, "debug").unwrap(), "debug");
-        assert_eq!(wizard.validate_input(&setting, "INFO").unwrap(), "info");
-        assert_eq!(wizard.validate_input(&setting, "Error").unwrap(), "error");
+        assert_eq!(
+            wizard.validate_input(&setting, "debug").unwrap().unwrap(),
+            "debug"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "INFO").unwrap().unwrap(),
+            "info"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "Error").unwrap().unwrap(),
+            "error"
+        );
 
         // Test invalid input
         assert!(wizard.validate_input(&setting, "trace").is_err());
