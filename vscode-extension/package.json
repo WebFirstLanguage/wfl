@@ -154,7 +154,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run test:security && npm run compile && npm run lint",
-    "lint": "eslint src",
+    "lint": "eslint src --ext .ts --max-warnings 0",
     "test": "vscode-test",
     "test:security": "node --test ../tests/tooling/js_yaml_security.test.cjs"
   },
