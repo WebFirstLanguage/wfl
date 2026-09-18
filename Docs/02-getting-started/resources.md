@@ -326,7 +326,10 @@ wfl --analyze program.wfl
 wfl --lint program.wfl
 
 # Auto-fix issues
-wfl --fix program.wfl --in-place
+wfl --lint --fix program.wfl --in-place
+
+# Preview fixes without changing the file
+wfl --lint --fix program.wfl --diff
 
 # Show version
 wfl --version

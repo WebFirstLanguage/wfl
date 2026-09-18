@@ -62,19 +62,23 @@ fn test_concatenation_simple_no_fix() {
 }
 
 #[test]
-fn test_concatenation_problematic_multiline() {
-    // Concatenations with many newlines should be reformatted
+fn test_concatenation_long_chain_preserves_parseable_source() {
+    // A newline after `with` is not accepted by WFL's expression grammar.
+    // The old test required that invalid output; keep the entire expression
+    // and its escaped literals intact instead of breaking a working program.
     let input = "store section as \"---\" with \"\\n\" with \"\\n\" with \"## File \" with file_number with \": \" with file_path with \"\\n\" with \"\\n\" with \"more\" with \"\\n\" with \"stuff\"";
     let tokens = lex_wfl_with_positions(input);
     let program = Parser::new(&tokens).parse().unwrap();
 
     let fixer = CodeFixer::new();
-    let (fixed_code, summary) = fixer.fix(&program, input);
-
-    // Should have reformatted the concatenation
-    assert_eq!(summary.concatenations_fixed, 1);
-    // Should be formatted as multiline
-    assert!(fixed_code.contains("with\n"));
+    let (fixed_code, summary) = fixer.fix_checked(&program, input).unwrap();
+    assert_eq!(fixed_code, input);
+    assert_eq!(summary.concatenations_fixed, 0);
+    assert!(
+        Parser::new(&lex_wfl_with_positions(&fixed_code))
+            .parse()
+            .is_ok()
+    );
 }
 
 #[test]

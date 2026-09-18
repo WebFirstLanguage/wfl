@@ -47,9 +47,9 @@ consistent_keyword_case = true
 | `max_line_length` | Soft cap for a single line |
 | `max_nesting_depth` | Max depth for nested control structures |
 | `indent_size` | Spaces per indent level (canonical: 4) |
-| `snake_case_variables` | Prefer snake_case for variables and actions |
-| `trailing_whitespace` | `false` means trailing spaces are not allowed |
-| `consistent_keyword_case` | Prefer consistent (lowercase) keywords |
+| `snake_case_variables` | Enable naming warnings and safe local renames |
+| `trailing_whitespace` | `false` enables warnings and removal outside strings |
+| `consistent_keyword_case` | Enable case warnings and lowercase boolean fixes |
 
 Full option list: **[Configuration Reference](../reference/configuration-reference.md)**.
 
@@ -327,7 +327,7 @@ display temp_f2 with "°F = " with temp_c2 with "°C"
 
 | Code | What it checks |
 |------|----------------|
-| `LINT-INDENT` | Indentation (4-space levels) |
+| `LINT-INDENT` | Indentation using `indent_size` (4 spaces by default) |
 | `LINT-LENGTH` | Maximum line length |
 | `LINT-COMPLEX` | Maximum nesting depth |
 | `LINT-KEYWORD` | Lowercase keywords |
@@ -340,17 +340,52 @@ display temp_f2 with "°F = " with temp_c2 with "°C"
 # Lint a program
 wfl --lint your_program.wfl
 
-# Lint and auto-fix (print fixed source)
+# Print fixed source without changing the file
 wfl --lint --fix your_program.wfl
 
-# Lint and overwrite the file
+# Apply fixes to the file
 wfl --lint --fix your_program.wfl --in-place
 
-# Lint and show a diff of proposed fixes
+# Preview a unified diff without changing the file
 wfl --lint --fix your_program.wfl --diff
 ```
 
-`--fix` must be used **with** `--lint`.
+`--fix` requires `--lint`. Both `--diff` and `--in-place` require `--fix`, and
+they cannot be combined. One source file is accepted per command.
+Filenames beginning with a single dash are accepted. The legacy forms also
+accept `-v` or `-V` as a filename immediately after `--lint` or `--fix`.
+
+Plain `--lint` exits with **0** when clean, **1** when it reports lint warnings,
+and **2** for invalid options, unreadable input, or invalid source. Linting and
+fixing parse the source without running the program.
+
+With `--fix`, standard output contains only the fixed source by default, or
+only a unified diff with `--diff`. An unchanged file produces an empty diff.
+`--in-place` replaces the file atomically after validating the output and prints
+a completion summary. Invalid source is rejected before any replacement, and
+a failed replacement leaves the original file intact.
+
+In-place fixes acquire a sibling `.wfl-fix-<hash>.lock` before checking and
+replacing the source. Another WFL writer targeting the same file fails
+without writing; fixes to other files can proceed. The lock is removed when
+the operation finishes. If a process crashes and leaves a lock, confirm that
+the owning formatter has stopped before removing the lock path named in the
+error and retrying. This cooperative lock does not control unrelated editors;
+avoid simultaneous edits, or use `--diff` to preview changes.
+
+Fixes preserve comments, string contents and escapes, expression grouping,
+language constructs, and existing line endings. With default style settings,
+they adjust indentation, remove trailing whitespace outside strings, lowercase boolean literals, and
+rename local variables and actions to snake_case when the rename is safe.
+Public API names, map keys, pattern capture names, constants, and names that
+would collide or become keywords retain their spelling. Files that import or
+export modules retain their names because other files may depend on them.
+
+A completed fix or preview exits with **0**, even when some lint warnings need
+manual changes. Long lines and deep nesting are reported without rewriting
+program logic. Naming warnings can also remain when automatic renaming would
+change data or a public contract. Run `wfl --lint your_program.wfl` again after
+applying fixes to check the remaining warnings.
 
 ### Configuration check
 

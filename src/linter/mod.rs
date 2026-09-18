@@ -5,11 +5,18 @@ use crate::parser::ast::{Program, Statement};
 use std::collections::HashMap;
 use std::path::Path;
 
+pub(crate) mod layout;
+use layout::SourceLayout;
+
 pub trait LintRule {
+    /// Stable diagnostic code used to identify and configure this rule.
     fn code(&self) -> &'static str;
 
+    /// Human-readable purpose of the rule for callers that list available checks.
     fn description(&self) -> &'static str;
 
+    /// Inspect the parsed program and registered source without modifying either.
+    /// Diagnostics must refer to the supplied reporter file identifier.
     fn apply(
         &self,
         program: &Program,
@@ -22,70 +29,194 @@ pub struct Linter {
     rules: Vec<Box<dyn LintRule>>,
     max_line_length: usize,
     max_nesting_depth: usize,
+    indent_size: usize,
+    snake_case_variables: bool,
+    trailing_whitespace: bool,
+    consistent_keyword_case: bool,
 }
 
 impl Linter {
+    /// Create the built-in style checks with the default width and depth limits.
     pub fn new() -> Self {
-        let mut linter = Self {
+        Self {
             rules: Vec::new(),
             max_line_length: 100, // Default max line length
             max_nesting_depth: 5, // Default max nesting depth
-        };
-
-        linter.add_rule(Box::new(NamingConventionRule));
-        linter.add_rule(Box::new(IndentationRule));
-        linter.add_rule(Box::new(KeywordCasingRule));
-        linter.add_rule(Box::new(TrailingWhitespaceRule));
-        linter.add_rule(Box::new(LineLengthRule));
-        linter.add_rule(Box::new(NestingDepthRule));
-
-        linter
+            indent_size: 4,
+            snake_case_variables: true,
+            trailing_whitespace: false,
+            consistent_keyword_case: true,
+        }
     }
 
+    /// Append a custom check after the configured built-in rules.
     pub fn add_rule(&mut self, rule: Box<dyn LintRule>) {
         self.rules.push(rule);
     }
 
+    /// Set the maximum physical line length, measured in Unicode characters.
     pub fn set_max_line_length(&mut self, length: usize) {
         self.max_line_length = length;
     }
 
+    /// Set the greatest permitted nesting depth for control-flow statements.
     pub fn set_max_nesting_depth(&mut self, depth: usize) {
         self.max_nesting_depth = depth;
     }
 
+    /// Set the number of spaces required for each level of source indentation.
+    pub fn set_indent_size(&mut self, size: usize) {
+        self.indent_size = size;
+    }
+
+    /// Run enabled checks and return their diagnostics plus whether none were found.
+    /// The source and path are registered for diagnostic locations; no files are written.
     pub fn lint(
         &self,
         program: &Program,
         source: &str,
         file_path: &str,
     ) -> (Vec<WflDiagnostic>, bool) {
-        println!("Starting linting process...");
         let mut reporter = DiagnosticReporter::new();
         let file_id = reporter.add_file(file_path, source);
 
         let mut all_diagnostics = Vec::new();
 
-        for rule in &self.rules {
-            println!("Applying rule: {}", rule.code());
+        let indentation = IndentationRule {
+            indent_size: self.indent_size,
+        };
+        let length = LineLengthRule {
+            max_length: self.max_line_length,
+        };
+        let nesting = NestingDepthRule {
+            max_depth: self.max_nesting_depth,
+        };
+        let builtin_rules: [&dyn LintRule; 6] = [
+            &NamingConventionRule,
+            &indentation,
+            &KeywordCasingRule,
+            &TrailingWhitespaceRule,
+            &length,
+            &nesting,
+        ];
+        for rule in builtin_rules
+            .into_iter()
+            .filter(|rule| match rule.code() {
+                "LINT-NAME" => self.snake_case_variables,
+                "LINT-WHITESPACE" => !self.trailing_whitespace,
+                "LINT-KEYWORD" => self.consistent_keyword_case,
+                _ => true,
+            })
+            .chain(self.rules.iter().map(Box::as_ref))
+        {
             let diagnostics = rule.apply(program, &mut reporter, file_id);
-            println!("Rule {} found {} issues", rule.code(), diagnostics.len());
             all_diagnostics.extend(diagnostics);
         }
 
-        println!("Linting complete. Found {} issues", all_diagnostics.len());
         let is_empty = all_diagnostics.is_empty();
         (all_diagnostics, is_empty)
     }
 
+    /// Load the directory's effective configuration for built-in checks and limits.
     pub fn load_config(&mut self, dir: &Path) {
         let config = crate::config::load_config(dir);
         self.set_max_line_length(config.max_line_length);
         self.set_max_nesting_depth(config.max_nesting_depth);
+        self.set_indent_size(config.indent_size);
+        self.snake_case_variables = config.snake_case_variables;
+        self.trailing_whitespace = config.trailing_whitespace;
+        self.consistent_keyword_case = config.consistent_keyword_case;
     }
 }
 
 struct NamingConventionRule;
+
+/// Names eligible for local style fixes. Container APIs keep their spelling;
+/// local declarations inside their method bodies are still inspected.
+pub(crate) fn naming_statements(program: &Program) -> Vec<&Statement> {
+    let mut pending: Vec<_> = program.statements.iter().rev().collect();
+    let mut statements = Vec::new();
+    while let Some(statement) = pending.pop() {
+        statements.push(statement);
+        if let Statement::ContainerDefinition {
+            methods,
+            static_methods,
+            ..
+        } = statement
+        {
+            for method in methods.iter().chain(static_methods).rev() {
+                pending.extend(statement_children(method).into_iter().rev());
+            }
+        } else {
+            pending.extend(statement_children(statement).into_iter().rev());
+        }
+    }
+    statements
+}
+
+/// Borrow executable child statements for traversal without descending recursively.
+fn statement_children(statement: &Statement) -> Vec<&Statement> {
+    match statement {
+        Statement::IfStatement {
+            then_block,
+            else_block,
+            ..
+        } => then_block
+            .iter()
+            .chain(else_block.iter().flatten())
+            .collect(),
+        Statement::SingleLineIf {
+            then_stmt,
+            else_stmt,
+            ..
+        } => std::iter::once(then_stmt.as_ref())
+            .chain(else_stmt.iter().map(Box::as_ref))
+            .collect(),
+        Statement::WhileLoop { body, .. }
+        | Statement::ForEachLoop { body, .. }
+        | Statement::CountLoop { body, .. }
+        | Statement::RepeatWhileLoop { body, .. }
+        | Statement::RepeatUntilLoop { body, .. }
+        | Statement::ForeverLoop { body, .. }
+        | Statement::MainLoop { body, .. }
+        | Statement::TransactionStatement { body, .. }
+        | Statement::ActionDefinition { body, .. }
+        | Statement::WebSocketHandlerStatement { body, .. }
+        | Statement::TestBlock { body, .. }
+        | Statement::EventHandler {
+            handler_body: body, ..
+        } => body.iter().collect(),
+        Statement::TryStatement {
+            body,
+            when_clauses,
+            otherwise_block,
+            finally_block,
+            ..
+        } => body
+            .iter()
+            .chain(when_clauses.iter().flat_map(|clause| &clause.body))
+            .chain(otherwise_block.iter().flatten())
+            .chain(finally_block.iter().flatten())
+            .collect(),
+        Statement::ContainerDefinition {
+            methods,
+            static_methods,
+            ..
+        } => methods.iter().chain(static_methods).collect(),
+        Statement::DescribeBlock {
+            setup,
+            teardown,
+            tests,
+            ..
+        } => setup
+            .iter()
+            .flatten()
+            .chain(tests)
+            .chain(teardown.iter().flatten())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
 
 impl LintRule for NamingConventionRule {
     fn code(&self) -> &'static str {
@@ -96,16 +227,16 @@ impl LintRule for NamingConventionRule {
         "Variable and action names should use snake_case"
     }
 
+    /// Report local declaration names while preserving container API spellings.
     fn apply(
         &self,
         program: &Program,
         _reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
-        println!("  NamingConventionRule: checking variable and action names");
         let mut diagnostics = Vec::new();
 
-        for statement in &program.statements {
+        for statement in naming_statements(program) {
             match statement {
                 Statement::VariableDeclaration {
                     name, line, column, ..
@@ -161,7 +292,9 @@ pub enum RuleSeverity {
     Forbid, // Rule generates errors and cannot be overridden
 }
 
-struct IndentationRule;
+struct IndentationRule {
+    indent_size: usize,
+}
 
 impl LintRule for IndentationRule {
     fn code(&self) -> &'static str {
@@ -169,12 +302,13 @@ impl LintRule for IndentationRule {
     }
 
     fn description(&self) -> &'static str {
-        "Code should be indented with 4 spaces"
+        "Code should use the configured indentation width"
     }
 
+    /// Compare significant source lines with shared layout, ignoring literal interiors.
     fn apply(
         &self,
-        _program: &Program,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
@@ -183,28 +317,14 @@ impl LintRule for IndentationRule {
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
 
-            let mut expected_indent = 0;
-
-            for (line_idx, line) in source.lines().enumerate() {
-                let line_num = line_idx + 1;
-                let trimmed = line.trim_start();
-
-                if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with('#') {
+            for line in SourceLayout::new(source, program).lines {
+                let Some(depth) = line.depth else {
                     continue;
-                }
-
-                let indent_spaces = line.len() - trimmed.len();
-
-                if (trimmed.starts_with("end ")
-                    || trimmed == "end action"
-                    || trimmed == "otherwise:"
-                    || trimmed == "end check")
-                    && expected_indent >= 4
-                {
-                    expected_indent -= 4;
-                }
-
-                if indent_spaces != expected_indent {
+                };
+                let expected_indent = depth.saturating_mul(self.indent_size);
+                let indentation = &source[line.indentation];
+                let indent_spaces = indentation.chars().count();
+                if indent_spaces != expected_indent || indentation.contains(|ch| ch != ' ') {
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
                         format!(
@@ -213,14 +333,10 @@ impl LintRule for IndentationRule {
                         Some(format!("Adjust indentation to {expected_indent} spaces")),
                         "LINT-INDENT".to_string(),
                         file_id,
-                        line_num,
+                        line.line_number,
                         1, // Column is always 1 for indentation issues
                         None,
                     ));
-                }
-
-                if trimmed.ends_with(':') || trimmed.contains("then:") {
-                    expected_indent += 4;
                 }
             }
         }
@@ -240,6 +356,7 @@ impl LintRule for KeywordCasingRule {
         "Keywords should be lowercase"
     }
 
+    /// Find mis-cased keyword words through lexing, excluding comments and strings.
     fn apply(
         &self,
         _program: &Program,
@@ -359,9 +476,10 @@ impl LintRule for TrailingWhitespaceRule {
         "Lines should not have trailing whitespace"
     }
 
+    /// Report trailing whitespace only when removing it cannot alter a string literal.
     fn apply(
         &self,
-        _program: &Program,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
@@ -369,19 +487,19 @@ impl LintRule for TrailingWhitespaceRule {
 
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
-
-            for (line_idx, line) in source.lines().enumerate() {
-                let line_num = line_idx + 1;
-
-                if line.trim_end().len() < line.len() {
+            let layout = SourceLayout::new(source, program);
+            for line in &layout.lines {
+                let text = &source[line.content.clone()];
+                let trailing = line.content.start + text.trim_end().len()..line.content.end;
+                if !trailing.is_empty() && !layout.overlaps_string(&trailing) {
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
                         "Line has trailing whitespace".to_string(),
                         Some("Remove trailing whitespace".to_string()),
                         "LINT-WHITESPACE".to_string(),
                         file_id,
-                        line_num,
-                        line.trim_end().len() + 1,
+                        line.line_number,
+                        text.trim_end().len() + 1,
                         None,
                     ));
                 }
@@ -393,7 +511,9 @@ impl LintRule for TrailingWhitespaceRule {
 }
 
 /// Rule for enforcing maximum line length
-struct LineLengthRule;
+struct LineLengthRule {
+    max_length: usize,
+}
 
 impl LintRule for LineLengthRule {
     fn code(&self) -> &'static str {
@@ -404,31 +524,31 @@ impl LintRule for LineLengthRule {
         "Lines should not exceed the maximum length"
     }
 
+    /// Count Unicode characters while retaining byte-based diagnostic locations.
     fn apply(
         &self,
-        _program: &Program,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        let max_length = 100;
+        let max_length = self.max_length;
 
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
 
-            for (line_idx, line) in source.lines().enumerate() {
-                let line_num = line_idx + 1;
-
-                if line.len() > max_length {
+            for line in SourceLayout::new(source, program).lines {
+                let text = &source[line.content];
+                if let Some((byte_column, _)) = text.char_indices().nth(max_length) {
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
                         format!("Line exceeds maximum length of {max_length} characters"),
                         Some(format!("Shorten line to {max_length} characters or less")),
                         "LINT-LENGTH".to_string(),
                         file_id,
-                        line_num,
-                        max_length + 1,
+                        line.line_number,
+                        byte_column + 1,
                         None,
                     ));
                 }
@@ -440,7 +560,9 @@ impl LintRule for LineLengthRule {
 }
 
 /// Rule for enforcing maximum nesting depth
-struct NestingDepthRule;
+struct NestingDepthRule {
+    max_depth: usize,
+}
 
 impl LintRule for NestingDepthRule {
     fn code(&self) -> &'static str {
@@ -451,6 +573,7 @@ impl LintRule for NestingDepthRule {
         "Nesting depth should not exceed the maximum"
     }
 
+    /// Walk nested statements iteratively and flag control flow beyond the configured depth.
     fn apply(
         &self,
         program: &Program,
@@ -459,80 +582,61 @@ impl LintRule for NestingDepthRule {
     ) -> Vec<WflDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        let max_depth = 5;
-
-        for statement in &program.statements {
-            check_nesting_depth(statement, 0, max_depth, &mut diagnostics, file_id);
-        }
-
-        diagnostics
-    }
-}
-
-fn check_nesting_depth(
-    statement: &Statement,
-    current_depth: usize,
-    max_depth: usize,
-    diagnostics: &mut Vec<WflDiagnostic>,
-    file_id: usize,
-) {
-    if current_depth > max_depth {
-        match statement {
-            Statement::IfStatement { line, column, .. }
-            | Statement::WhileLoop { line, column, .. }
-            | Statement::ForEachLoop { line, column, .. }
-            | Statement::CountLoop { line, column, .. } => {
+        let max_depth = self.max_depth;
+        let mut pending: Vec<_> = program
+            .statements
+            .iter()
+            .rev()
+            .map(|statement| (statement, 0))
+            .collect();
+        while let Some((statement, depth)) = pending.pop() {
+            let position = match statement {
+                Statement::IfStatement { line, column, .. }
+                | Statement::SingleLineIf { line, column, .. }
+                | Statement::WhileLoop { line, column, .. }
+                | Statement::ForEachLoop { line, column, .. }
+                | Statement::CountLoop { line, column, .. }
+                | Statement::RepeatWhileLoop { line, column, .. }
+                | Statement::RepeatUntilLoop { line, column, .. }
+                | Statement::ForeverLoop { line, column, .. }
+                | Statement::MainLoop { line, column, .. }
+                | Statement::TransactionStatement { line, column, .. }
+                | Statement::TryStatement { line, column, .. } => Some((*line, *column)),
+                _ => None,
+            };
+            let child_depth = depth + usize::from(position.is_some());
+            if let Some((line, column)) = position
+                && child_depth > max_depth
+            {
                 diagnostics.push(WflDiagnostic::new(
                     Severity::Warning,
                     format!("Nesting depth exceeds maximum of {max_depth}"),
                     Some("Refactor to reduce nesting".to_string()),
                     "LINT-COMPLEX".to_string(),
                     file_id,
-                    *line,
-                    *column,
+                    line,
+                    column,
                     None,
                 ));
             }
-            _ => {}
+            pending.extend(
+                statement_children(statement)
+                    .into_iter()
+                    .rev()
+                    .map(|child| (child, child_depth)),
+            );
         }
-    }
 
-    match statement {
-        Statement::IfStatement {
-            then_block,
-            else_block,
-            ..
-        } => {
-            for stmt in then_block {
-                check_nesting_depth(stmt, current_depth + 1, max_depth, diagnostics, file_id);
-            }
-            if let Some(else_stmts) = else_block {
-                for stmt in else_stmts {
-                    check_nesting_depth(stmt, current_depth + 1, max_depth, diagnostics, file_id);
-                }
-            }
-        }
-        Statement::WhileLoop { body, .. }
-        | Statement::ForEachLoop { body, .. }
-        | Statement::CountLoop { body, .. }
-        | Statement::TransactionStatement { body, .. } => {
-            for stmt in body {
-                check_nesting_depth(stmt, current_depth + 1, max_depth, diagnostics, file_id);
-            }
-        }
-        Statement::ActionDefinition { body, .. } => {
-            for stmt in body {
-                check_nesting_depth(stmt, current_depth, max_depth, diagnostics, file_id);
-            }
-        }
-        _ => {}
+        diagnostics
     }
 }
 
+/// Test the naming rule's lowercase, space-free convention without rewriting the name.
 fn is_snake_case(s: &str) -> bool {
     !s.contains(char::is_uppercase) && !s.contains(' ')
 }
 
+/// Produce the diagnostic's suggested spelling, preserving existing underscores.
 fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
     let mut previous_char_is_lowercase = false;

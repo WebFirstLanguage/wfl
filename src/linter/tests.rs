@@ -185,3 +185,781 @@ fn test_keyword_casing_accepts_lowercase_boolean_literals() {
         "lowercase boolean literals must not be linted, got {diagnostics:?}"
     );
 }
+
+fn lint_source(linter: &Linter, source: &str) -> Vec<WflDiagnostic> {
+    let tokens = lex_wfl_with_positions(source);
+    let program = Parser::new(&tokens)
+        .parse()
+        .unwrap_or_else(|errors| panic!("invalid regression fixture: {errors:?}"));
+    linter.lint(&program, source, "test.wfl").0
+}
+
+#[test]
+fn test_lint_max_line_length_setting_is_applied() {
+    let mut linter = Linter::new();
+    linter.set_max_line_length(12);
+    let diagnostics = lint_source(&linter, "display \"hello\"\n");
+    assert!(diagnostics.iter().any(|d| d.code == "LINT-LENGTH"));
+    linter.set_max_line_length(120);
+    assert!(
+        !lint_source(&linter, &format!("// {}\n", "x".repeat(105)))
+            .iter()
+            .any(|d| d.code == "LINT-LENGTH")
+    );
+}
+
+#[test]
+fn test_lint_line_length_counts_unicode_characters() {
+    let source = format!("display \"{}\"\n", "é".repeat(50));
+    assert!(
+        !lint_source(&Linter::new(), &source)
+            .iter()
+            .any(|d| d.code == "LINT-LENGTH")
+    );
+}
+
+#[test]
+fn test_lint_local_config_applies_indentation_width() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join(".wflcfg"), "indent_size = 2\n").unwrap();
+    let mut linter = Linter::new();
+    linter.load_config(directory.path());
+    let diagnostics = lint_source(&linter, "check if yes:\n  display \"ok\"\nend check\n");
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_indentation_handles_inline_comments_and_try_branches() {
+    let source = "try: // attempt\n    display \"ok\"\ncatch: // recovery\n    display \"error\"\nfinally:\n    display \"done\"\nend try\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_indentation_handles_route_arms_and_container_bare_end() {
+    let source = "create container Example:\n    action greet: Text\n        return \"hello\"\n    end\nend\nroute 1:\n    when 1:\n        display \"one\"\n    otherwise:\n        display \"other\"\nend route\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_does_not_treat_multiline_string_contents_as_layout() {
+    let source = "store poem as \"first\nend check:   \n  last\"\ndisplay poem\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| matches!(d.code.as_str(), "LINT-INDENT" | "LINT-WHITESPACE")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_names_inside_nested_statements() {
+    let source = "define action called greet:\n    repeat while no:\n        store BadName as 1\n    end repeat\nend action\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == "LINT-NAME" && d.message.contains("BadName")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_nesting_setting_covers_repeat_and_test_blocks() {
+    let source = "describe \"suite\":\n    test \"nested\":\n        repeat while no:\n            repeat while no:\n                display \"deep\"\n            end repeat\n        end repeat\n    end test\nend describe\n";
+    let mut linter = Linter::new();
+    linter.set_max_nesting_depth(1);
+    let diagnostics = lint_source(&linter, source);
+    assert!(
+        diagnostics.iter().any(|d| d.code == "LINT-COMPLEX"),
+        "{diagnostics:?}"
+    );
+    linter.set_max_nesting_depth(10);
+    assert!(
+        !lint_source(&linter, source)
+            .iter()
+            .any(|d| d.code == "LINT-COMPLEX")
+    );
+}
+
+#[test]
+fn test_lint_indentation_handles_colonless_loops_and_list_blocks() {
+    let source = "repeat while no\n    display \"loop\"\nend repeat\ncreate list items:\n    add \"one\"\n    add \"two\"\nend list\ncheck if yes\n    display \"ok\"\nend check\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_layout_accepts_incomplete_input_without_panicking() {
+    for source in ["export\n".to_owned(), "export ".repeat(10_000)] {
+        let (diagnostics, _) = Linter::new().lint(&Program::default(), &source, "incomplete.wfl");
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LINT-INDENT")
+        );
+    }
+}
+
+#[test]
+fn test_lint_layout_supports_cr_lf_and_crlf_line_endings() {
+    for newline in ["\n", "\r", "\r\n"] {
+        let source = ["check if yes:", "    display \"ok\"", "end check", ""].join(newline);
+        let diagnostics = lint_source(&Linter::new(), &source);
+        assert!(
+            !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+            "{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn test_lint_layout_keeps_outer_block_after_inline_inner_block() {
+    let source = "define action called greet: check if yes: display \"inside\" end check\n    display \"outside\"\nend action\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_respects_style_rule_configuration() {
+    let source = "store BadName as YES   \n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    for code in ["LINT-NAME", "LINT-KEYWORD", "LINT-WHITESPACE"] {
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic.code == code),
+            "missing default {code}"
+        );
+    }
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join(".wflcfg"), "snake_case_variables = false\nconsistent_keyword_case = false\ntrailing_whitespace = true\n").unwrap();
+    let mut linter = Linter::new();
+    linter.load_config(directory.path());
+    let diagnostics = lint_source(&linter, source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn test_lint_layout_interface_requirements_do_not_open_method_bodies() {
+    let source = "create interface Greeter:\n    requires action greet: Text\n    requires action farewell: Text\nend\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_layout_closes_inline_postcondition_repeat() {
+    let source = "repeat: display \"once\" until yes\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_layout_processes_code_after_multiline_string_closes() {
+    let source = "check if yes:\n    display \"first\nlast\" end check\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+fn action_export_layout_sources() -> [&'static str; 2] {
+    [
+        "define action called greet:\n    display \"hello\"\nend action\nexport action greet\ndisplay \"done\"\n",
+        "define action called greet:\n    display \"hello\"\nend action\nexport action greet check if yes:\n    display \"conditional\"\nend check\ndisplay \"done\"\n",
+    ]
+}
+
+#[test]
+fn test_lint_layout_action_export_does_not_open_action_body() {
+    for source in action_export_layout_sources() {
+        let diagnostics = lint_source(&Linter::new(), source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LINT-INDENT"),
+            "an export references an existing action, rather than defining a body: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn test_fix_layout_action_export_preserves_following_indentation() {
+    for source in action_export_layout_sources() {
+        let tokens = lex_wfl_with_positions(source);
+        let program = Parser::new(&tokens).parse().unwrap();
+        let (fixed, _) = crate::fixer::CodeFixer::new()
+            .fix_checked(&program, source)
+            .unwrap();
+        assert_eq!(
+            fixed, source,
+            "exporting an action must not indent subsequent code"
+        );
+    }
+}
+
+/// Named-argument colons belong to constant values; only an actual instance
+/// declaration introduces a property-initializer block.
+fn create_new_layout_sources() -> [&'static str; 3] {
+    [
+        "define action called build with parameters value:\n    return value\nend action\ncreate new constant result as call build with value: 1\ndisplay result\n",
+        "define action called build with parameters value:\n    return value\nend action\ncheck if yes:\n    create new constant result as call build with value: 1\n    display result\nend check\ndisplay \"done\"\n",
+        "create container Example:\n    property total: Number\nend\ncreate new Example as item:\n    total is 1\nend\ndisplay item.total\n",
+    ]
+}
+
+#[test]
+fn test_lint_layout_create_new_constant_does_not_open_instance_body() {
+    for source in create_new_layout_sources() {
+        let diagnostics = lint_source(&Linter::new(), source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LINT-INDENT"),
+            "constant value colons must not change block nesting: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn test_fix_layout_create_new_constant_preserves_following_indentation() {
+    for source in create_new_layout_sources() {
+        let tokens = lex_wfl_with_positions(source);
+        let program = Parser::new(&tokens).parse().unwrap();
+        let (fixed, _) = crate::fixer::CodeFixer::new()
+            .fix_checked(&program, source)
+            .unwrap();
+        assert_eq!(
+            fixed, source,
+            "constant declarations must preserve the following indentation"
+        );
+    }
+}
+
+/// Exercise both optional interface bodies and unrelated statements whose
+/// named-argument colons follow a complete bare interface header.
+fn interface_header_layout_sources() -> Vec<String> {
+    let action =
+        "define action called build with parameters value:\n    return value\nend action\n";
+    [
+        "create interface Marker display call build with value: 1\ndisplay \"done\"\n",
+        "create interface BaseAlpha\ncreate interface BaseBeta\ncreate interface Marker extends BaseAlpha, BaseBeta display call build with value: 1\ndisplay \"done\"\n",
+        "check if yes:\n    create interface Marker display call build with value: 1\n    display \"inside\"\nend check\ndisplay \"done\"\n",
+        "create interface Marker:\n    requires action greet\nend\ndisplay \"done\"\n",
+        "create interface BaseAlpha\ncreate interface BaseBeta\ncreate interface Marker extends BaseAlpha, BaseBeta:\n    requires action greet\nend\ndisplay \"done\"\n",
+        "create interface Marker check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n",
+        "create interface Base Alpha\ncreate interface Base Beta\ncreate interface Empty Marker extends Base Alpha, Base Beta\ndisplay \"done\"\n",
+    ].into_iter().map(|body| format!("{action}{body}")).collect()
+}
+
+#[test]
+fn test_lint_interface_header_colon_belongs_to_its_own_declaration() {
+    let diagnostics: Vec<_> = interface_header_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "unrelated colons cannot open interface bodies: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_fix_interface_header_preserves_following_statement_indentation() {
+    let sources = interface_header_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "interface header boundaries must preserve following statements"
+    );
+}
+
+/// `create list` is also an empty-list expression, so another statement's colon
+/// cannot turn it into a named list declaration with an initializer body.
+fn list_expression_layout_sources() -> Vec<String> {
+    let action =
+        "define action called build with parameters value:\n    return value\nend action\n";
+    [
+        "store items as create list display call build with value: 1\ndisplay items\n",
+        "check if yes:\n    store items as create list display call build with value: 1\n    display items\nend check\ndisplay \"done\"\n",
+        "create list items:\n    add 1\nend list\ndisplay items\n",
+    ].into_iter().map(|body| format!("{action}{body}")).collect()
+}
+
+#[test]
+fn test_lint_create_list_expression_does_not_open_list_body() {
+    let diagnostics: Vec<_> = list_expression_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "an empty-list expression has no body: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_fix_create_list_expression_preserves_following_indentation() {
+    let sources = list_expression_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "empty-list expressions must preserve following statements"
+    );
+}
+
+/// Contextual `create`, `map`, and `pattern` variables can be separate display
+/// operands; only a declaration's own name and colon open an initializer body.
+fn contextual_create_layout_sources() -> Vec<String> {
+    let action =
+        "define action called build with parameters value:\n    return value\nend action\n";
+    let mut sources = Vec::new();
+    for name in ["map", "pattern"] {
+        sources.push(format!(
+            "{action}store create as 1\nstore {name} as 2\ndisplay create {name} call build with value: 1\ndisplay \"done\"\n"
+        ));
+        sources.push(format!(
+            "{action}store create as 1\nstore {name} as 2\ncheck if yes:\n    display create {name} call build with value: 1\n    display \"inside\"\nend check\ndisplay \"done\"\n"
+        ));
+    }
+    sources.extend([
+        "create map scores:\n    alice is 1\nend map\ndisplay scores\n".to_owned(),
+        "create map player scores:\n    alice is 1\nend map\ndisplay player scores\n".to_owned(),
+        "create pattern greeting:\n    \"hello\"\nend pattern\ndisplay \"done\"\n".to_owned(),
+        "create pattern polite greeting:\n    \"hello\"\nend pattern\ndisplay \"done\"\n"
+            .to_owned(),
+    ]);
+    sources
+}
+
+#[test]
+fn test_lint_contextual_create_operands_do_not_open_declaration_bodies() {
+    let diagnostics: Vec<_> = contextual_create_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "contextual variable operands have no declaration body: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_fix_contextual_create_operands_preserve_following_indentation() {
+    let sources = contextual_create_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "contextual variable operands must preserve following statements"
+    );
+}
+
+/// Expression parsing accepts these block words as variable references. Their
+/// positions, including nested arguments, must stay distinct from actual block
+/// headers and branches later on the same line.
+fn contextual_block_word_layout_sources() -> Vec<String> {
+    let mut sources = Vec::new();
+    for name in ["try", "repeat", "when"] {
+        sources.extend([
+            format!("store result as {name}\ndisplay result\n"),
+            format!(
+                "check if yes:\n    store result as ({name} + 1)\n    display result\nend check\ndisplay \"done\"\n"
+            ),
+            format!(
+                "define action called identity with parameters value:\n    return value\nend action\nstore result as call identity with value: ({name} + 1)\ndisplay result\n"
+            ),
+            format!(
+                "store result as {name} check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n"
+            ),
+            format!(
+                "store result as {name} try:\n    display \"inside\"\ncatch:\n    display \"caught\"\nend try\ndisplay \"done\"\n"
+            ),
+        ]);
+    }
+    sources.extend([
+        "store items as [try, repeat, when]\ndisplay items\n".to_owned(),
+        "check if yes:\n    store result as when check if yes:\n        display \"inside\"\n    end check\nend check\ndisplay \"done\"\n".to_owned(),
+        "store result as 1 repeat while no:\n    display result\nend repeat\ndisplay \"done\"\n".to_owned(),
+        "repeat until yes\n    display \"inside\"\nend repeat\ndisplay \"done\"\n".to_owned(),
+        "repeat forever:\n    break\nend repeat\ndisplay \"done\"\n".to_owned(),
+        "repeat: display \"inside\" until yes\ndisplay \"done\"\n".to_owned(),
+        "try:\n    display \"inside\"\nwhen error:\n    display \"caught\"\nfinally:\n    display \"cleanup\"\nend try\ndisplay \"done\"\n".to_owned(),
+        "define action called identity with parameters value:\n    return value\nend action\ncreate pattern comma:\n    \",\"\nend pattern\nstore pieces as split \"a,b\" on pattern comma display call identity with value: 1\ndisplay pieces\n".to_owned(),
+        "define action called identity with parameters value:\n    return value\nend action\ndisplay main loop call identity with value: 1\ndisplay \"done\"\n".to_owned(),
+        "on websocket connect to socket_server as connection:\n    display \"connected\"\nend on\ndisplay \"done\"\n".to_owned(),
+        "define action called identity with parameters value:\n    return value\nend action\non 1 clicked display call identity with value: 1\ndisplay \"done\"\n".to_owned(),
+    ]);
+    sources
+}
+
+/// Reject phantom blocks from expression operands while retaining real headers
+/// and branch boundaries, including multiple statements on one physical line.
+#[test]
+fn test_lint_contextual_block_words_respect_statement_positions() {
+    let diagnostics: Vec<_> = contextual_block_word_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "expression operands must not alter statement nesting: {diagnostics:?}"
+    );
+}
+
+/// Formatting must leave already indented sources byte-identical whether a
+/// block word is parsed as an operand or as a genuine statement header.
+#[test]
+fn test_fix_contextual_block_words_preserve_following_indentation() {
+    let sources = contextual_block_word_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "expression operands must preserve following statement indentation"
+    );
+}
+
+/// Explicit action calls store their callee as an ActionCall name rather than
+/// a Variable expression. A following `loop` value must not turn that callee
+/// into a main-loop header, while actual main-loop statements keep their body.
+fn main_action_call_layout_sources() -> [&'static str; 3] {
+    [
+        "define action called main:\n    return 1\nend action\ndisplay call main loop\ndisplay \"done\"\n",
+        "main loop:\n    break\nend loop\ndisplay \"done\"\n",
+        "main loop concurrently:\n    break\nend loop\ndisplay \"done\"\n",
+    ]
+}
+
+/// Action-call names are expression operands, even when their spelling matches
+/// the first token of a supported block header.
+#[test]
+fn test_lint_main_action_call_does_not_open_loop() {
+    let diagnostics: Vec<_> = main_action_call_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Fixing an explicit main action call must preserve its following statement,
+/// and still retain indentation inside a genuine main-loop body.
+#[test]
+fn test_fix_main_action_call_preserves_following_indentation() {
+    let sources = main_action_call_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
+
+/// Pattern expressions can use a variable named transaction after `in` without
+/// opening a database block. Retain the real form, its nesting, and a real
+/// header following an earlier statement on the same physical line.
+fn transaction_expression_layout_sources() -> [&'static str; 10] {
+    [
+        "store transaction as \"haystack\"\nstore needle as \"hay\"\nstore hit as find needle in transaction\ndisplay hit\n",
+        "check if yes:\n    store hit as find needle in transaction\n    display hit\nend check\ndisplay \"done\"\n",
+        "store hit as (find needle in transaction)\ndisplay hit\n",
+        "define action called identity with parameters value:\n    return value\nend action\nstore hit as call identity with value: (find needle in transaction)\ndisplay hit\n",
+        "store hit as find needle in transaction check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n",
+        "store changed as replace needle with \"x\" in transaction\ndisplay changed\n",
+        "in transaction on db:\n    display \"inside\"\nend transaction\ndisplay \"done\"\n",
+        "check if yes:\n    in transaction on db:\n        store hit as find needle in transaction\n        display hit\n    end transaction\nend check\ndisplay \"done\"\n",
+        "store marker as 1 in transaction on db:\n    display marker\nend transaction\ndisplay \"done\"\n",
+        "in TRANSACTION on db:\n    display \"inside\"\nend TRANSACTION\ndisplay \"done\"\n",
+    ]
+}
+
+/// Only a parsed transaction statement may add transaction-body indentation;
+/// the same tokens within find/replace expressions leave nesting unchanged.
+#[test]
+fn test_lint_transaction_expression_does_not_open_database_body() {
+    let diagnostics: Vec<_> = transaction_expression_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Source-preserving formatting must retain canonical expression indentation
+/// and genuine transaction bodies across nested and same-line statement forms.
+#[test]
+fn test_fix_transaction_expression_preserves_following_indentation() {
+    let sources = transaction_expression_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
+
+/// Pattern lookarounds use `check` without an if-statement body. Both directions
+/// and negations retain pattern indentation, while real checks still open and
+/// close normally inside chains and after same-line pattern declarations.
+fn pattern_lookaround_layout_sources() -> Vec<String> {
+    let mut sources: Vec<_> = ["ahead", "not ahead", "behind", "not behind"]
+        .iter()
+        .map(|direction| {
+            format!(
+                "create pattern probe:\n    check {direction} for {{\"x\"}}\nend pattern\ndisplay \"done\"\n"
+            )
+        })
+        .collect();
+    sources.extend([
+        "check if yes:\n    create pattern probe:\n        check not ahead for {\"x\"}\n    end pattern\n    display \"inside\"\nend check\ndisplay \"done\"\n".to_owned(),
+        "check if yes\n    display \"inside\"\nend check\ndisplay \"done\"\n".to_owned(),
+        "check if no:\n    display \"first\"\notherwise check if yes:\n    display \"second\"\notherwise:\n    display \"fallback\"\nend check\ndisplay \"done\"\n".to_owned(),
+        "create pattern probe: check ahead for {\"x\"} end pattern check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n".to_owned(),
+    ]);
+    sources
+}
+
+/// A pattern assertion must not add a conditional indentation level or prevent
+/// a following real check statement from being recognized.
+#[test]
+fn test_lint_pattern_lookaround_does_not_open_check_body() {
+    let diagnostics: Vec<_> = pattern_lookaround_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Preserve canonical pattern, enclosing scope, and subsequent statement
+/// indentation while retaining true conditional bodies and else-if chains.
+#[test]
+fn test_fix_pattern_lookaround_preserves_following_indentation() {
+    let sources = pattern_lookaround_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
+
+/// Else-if checks share their owner's terminator even without a colon. A colon
+/// directly after otherwise instead introduces an ordinary else body, which
+/// can also contain a separately closed block on the same physical line.
+fn otherwise_chain_layout_sources() -> [&'static str; 19] {
+    [
+        "check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n",
+        "check if no\n    display \"first\"\notherwise check if no\n    display \"second\"\notherwise check if yes\n    display \"third\"\notherwise\n    display \"fallback\"\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise check if no:\n    display \"second\"\notherwise check if yes\n    display \"third\"\notherwise:\n    display \"fallback\"\nend check\ndisplay \"done\"\n",
+        "check if yes:\n    check if no:\n        display \"inner first\"\n    otherwise check if yes\n        display \"inner second\"\n    end check\notherwise check if no\n    display \"outer second\"\nend check\ndisplay \"done\"\n",
+        "repeat while no:\n    check if no\n        display \"first\"\n    otherwise check if yes\n        display \"second\"\n    end check\nend repeat\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise: check if yes\n        display \"second\"\n    end check\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise: repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n",
+        "check if no\n    display \"first\"\notherwise\n    check if yes\n        display \"second\"\n    end check\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise check if yes display \"second\"\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise check if yes repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n",
+        "route 1:\n    when 1 check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "route 1:\n    when 2:\n        display \"two\"\n    otherwise check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "define action called identity with parameters value:\n    return value\nend action\nroute 1:\n    when call identity with value: 1 check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "try:\n    display \"work\"\nwhen error: check if yes:\n        display \"when\"\n    end check\ncatch: repeat while no:\n        display \"catch\"\n    end repeat\nfinally: check if yes:\n        display \"finally\"\n    end check\nend try\ndisplay \"done\"\n",
+        "check if yes repeat forever:\n        display \"inside\"\n        break\n    end repeat\nend check\ndisplay \"done\"\n",
+        "define action called greet:\n    display \"hello\"\nend action\ndisplay \"done\"\n",
+        "create container Utility:\n    static action greet:\n        display \"hello\"\n    end\nend\ndisplay \"done\"\n",
+        "if no then\n    display \"first\"\notherwise check if yes:\n        display \"nested\"\n    end check\nend if\ndisplay \"done\"\n",
+    ]
+}
+
+/// Chains without colons retain a single owning check body; ordinary else
+/// bodies retain separately closed nested statements regardless of line breaks.
+#[test]
+fn test_lint_otherwise_chain_preserves_owner_depth() {
+    let diagnostics: Vec<_> = otherwise_chain_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Formatting canonical mixed-colon chains must neither add an extra branch
+/// level nor erase indentation from a real nested block after otherwise.
+#[test]
+fn test_fix_otherwise_chain_preserves_following_indentation() {
+    let sources = otherwise_chain_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
+
+/// Container methods and creation bodies close with bare end. A following
+/// keyword may start the next method or statement on the same line, whereas
+/// ordinary actions and control-flow blocks retain their compound terminators.
+fn method_boundary_layout_sources() -> Vec<String> {
+    let mut sources = Vec::new();
+    for first in ["action", "static action"] {
+        for second in ["action", "static action"] {
+            sources.push(format!(
+                "create container Example:\n    {first} first: text\n        return \"one\"\n    end {second} second: text\n        return \"two\"\n    end\nend\ndisplay \"done\"\n"
+            ));
+        }
+    }
+    sources.extend([
+        "create container Example:\n    action first:\n        display \"one\"\n    end\n    action second:\n        display \"two\"\n    end\nend\ndisplay \"done\"\n".to_owned(),
+        "create container Example:\n    action first:\n        display \"one\"\n    end action second:\n        display \"two\"\n    end action third:\n        display \"three\"\n    end\nend\ndisplay \"done\"\n".to_owned(),
+        "create container Example:\n    action first:\n        check if yes:\n            display \"one\"\n        end check\n    end action second:\n        repeat while no:\n            display \"two\"\n        end repeat\n    end\nend\ndisplay \"done\"\n".to_owned(),
+        "define action called first:\n    display \"one\"\nend action define action called second:\n    display \"two\"\nend action\ndisplay \"done\"\n".to_owned(),
+        "check if yes:\n    display \"one\"\nend check repeat while no:\n    display \"two\"\nend repeat\ndisplay \"done\"\n".to_owned(),
+    ]);
+    for bare_body in [
+        "create container Box:\nend",
+        "create interface Marker:\n    requires action greet\nend",
+        "create container Box:\nend\ncreate new Box as item:\nend",
+    ] {
+        for following_block in [
+            "check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n",
+            "repeat forever:\n    break\nend repeat\ndisplay \"done\"\n",
+            "try:\n    display \"inside\"\ncatch:\n    display \"caught\"\nend try\ndisplay \"done\"\n",
+            "route 1:\n    when 1:\n        display \"one\"\nend route\ndisplay \"done\"\n",
+        ] {
+            sources.push(format!("{bare_body} {following_block}"));
+        }
+    }
+    sources
+}
+
+/// A bare terminator must leave the next opener visible; a genuine compound
+/// terminator must still consume its suffix without adding a phantom body.
+#[test]
+fn test_lint_method_boundary_preserves_next_header() {
+    let diagnostics: Vec<_> = method_boundary_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Preserve canonical indentation for adjacent methods and creation bodies,
+/// including static methods, nested control flow, and following statements.
+#[test]
+fn test_fix_method_boundary_preserves_following_indentation() {
+    let sources = method_boundary_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}

@@ -9,7 +9,7 @@ use wfl::analyzer::{Analyzer, StaticAnalyzer};
 use wfl::config;
 use wfl::debug_report;
 use wfl::diagnostics::{DiagnosticReporter, Severity};
-use wfl::fixer::{CodeFixer, FixerOutputMode};
+use wfl::fixer::{CodeFixer, validate_source, write_fixed_file};
 use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::linter::Linter;
 use wfl::parser::Parser;
@@ -18,6 +18,7 @@ use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
+/// Describe supported operations and the configuration controls used by the CLI.
 fn print_help() {
     println!("WebFirst Language (WFL) Compiler and Interpreter");
     println!();
@@ -107,14 +108,14 @@ fn run_config_command(args: &[String]) -> io::Result<()> {
     }
 }
 
-/// Stack size for the thread that runs the interpreter.
-///
+/// Build the asynchronous runtime used by CLI operations and the interpreter.
 fn build_runtime() -> io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
 }
 
+/// Keep informational commands lightweight and reserve interpreter stack otherwise.
 fn main() -> io::Result<()> {
     // Trivial, non-interpreting invocations (`--help`, `--version`) never
     // recurse, so run them on the ordinary stack — don't make printing help
@@ -182,6 +183,7 @@ fn read_source_bounded(
     })
 }
 
+/// Parse operation flags, validate their combination, and dispatch the requested work.
 async fn run() -> io::Result<()> {
     // Initialize dhat profiler if enabled
     #[cfg(feature = "dhat-heap")]
@@ -234,6 +236,17 @@ async fn run() -> io::Result<()> {
 
     let mut i = 1;
     while i < args.len() {
+        // Single-dash names were accepted after --lint/--fix before those flags
+        // became order-independent. Every lint/fix option establishes a source
+        // position where -v/-V remain filenames; standalone aliases and
+        // --version still print the version.
+        let lint_options = lint_mode || fix_mode || fix_diff || fix_in_place;
+        let lint_source_position = lint_options
+            && (file_path.is_empty()
+                || matches!(
+                    args[i - 1].as_str(),
+                    "--lint" | "--fix" | "--diff" | "--in-place"
+                ));
         match args[i].as_str() {
             "--dump-env" => {
                 dump_env_mode = true;
@@ -297,13 +310,6 @@ async fn run() -> io::Result<()> {
                 }
                 lint_mode = true;
                 i += 1;
-                if i < args.len() && !args[i].starts_with("--") {
-                    file_path = args[i].clone();
-                    i += 1;
-                } else {
-                    eprintln!("Error: --lint requires a file path");
-                    process::exit(2);
-                }
             }
             "--analyze" => {
                 if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
@@ -344,41 +350,14 @@ async fn run() -> io::Result<()> {
                 }
                 fix_mode = true;
                 i += 1;
-                if i < args.len() && !args[i].starts_with("--") {
-                    file_path = args[i].clone();
-                    i += 1;
-                } else {
-                    eprintln!("Error: --fix requires a file path");
-                    process::exit(2);
-                }
-
-                while i < args.len() && args[i].starts_with("--") {
-                    match args[i].as_str() {
-                        "--in-place" => {
-                            if fix_diff {
-                                eprintln!(
-                                    "Error: --in-place and --diff flags are mutually exclusive"
-                                );
-                                process::exit(2);
-                            }
-                            fix_in_place = true;
-                            i += 1;
-                        }
-                        "--diff" => {
-                            if fix_in_place {
-                                eprintln!(
-                                    "Error: --in-place and --diff flags are mutually exclusive"
-                                );
-                                process::exit(2);
-                            }
-                            fix_diff = true;
-                            i += 1;
-                        }
-                        _ => {
-                            break;
-                        }
-                    }
-                }
+            }
+            "--in-place" => {
+                fix_in_place = true;
+                i += 1;
+            }
+            "--diff" => {
+                fix_diff = true;
+                i += 1;
             }
             "--step" => {
                 if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
@@ -420,21 +399,69 @@ async fn run() -> io::Result<()> {
                 test_mode = true;
                 i += 1;
             }
-            "--version" | "-v" | "-V" => {
+            "--version" | "-v" | "-V" if args[i] == "--version" || !lint_source_position => {
                 println!("WebFirst Language (WFL) version {}", wfl::version::VERSION);
                 return Ok(());
             }
             _ => {
+                if lint_options && args[i].starts_with("--") {
+                    eprintln!("Error: Unknown option '{}'", args[i]);
+                    process::exit(2);
+                }
                 if file_path.is_empty() {
                     file_path = args[i].clone();
                     i += 1;
-                    // All remaining arguments after the file path are script arguments
-                    break;
+                    // Lint options may occur on either side of the source path.
+                    // Executable scripts still receive every subsequent argument
+                    // verbatim, including strings that look like WFL options.
+                    if !lint_options {
+                        break;
+                    }
+                } else if lint_options
+                    && args[i] == file_path
+                    && matches!(args[i - 1].as_str(), "--lint" | "--fix")
+                {
+                    // Older releases required `--lint file --fix file`.
+                    // Preserve that spelling when both paths are identical.
+                    i += 1;
+                } else if lint_options {
+                    eprintln!("Error: --lint accepts only one file path");
+                    process::exit(2);
                 } else {
                     i += 1;
                 }
             }
         }
+    }
+
+    // Validate the completed option set before running any operation or writing
+    // output. Checking here makes conflicts independent of argument order.
+    if fix_diff && fix_in_place {
+        eprintln!("Error: --in-place and --diff flags are mutually exclusive");
+        process::exit(2);
+    }
+    if (fix_diff || fix_in_place) && !fix_mode {
+        eprintln!("Error: --diff or --in-place requires --fix");
+        process::exit(2);
+    }
+    if fix_mode && !lint_mode {
+        eprintln!("Error: --fix must be combined with --lint");
+        process::exit(2);
+    }
+    if lint_mode
+        && (analyze_mode
+            || config_check_mode
+            || config_fix_mode
+            || step_mode
+            || edit_mode
+            || lex_dump
+            || ast_dump
+            || dump_env_mode
+            || test_mode
+            || output_path.is_some())
+    {
+        eprintln!("Error: --lint cannot be combined with other operation flags");
+        process::exit(2);
     }
 
     // Handle environment dump
@@ -452,11 +479,6 @@ async fn run() -> io::Result<()> {
     } else {
         Vec::new()
     };
-
-    if fix_mode && !lint_mode {
-        eprintln!("Error: --fix must be combined with --lint");
-        process::exit(2);
-    }
 
     if config_check_mode || config_fix_mode {
         let dir = if !file_path.is_empty() {
@@ -574,7 +596,14 @@ async fn run() -> io::Result<()> {
     // Read the source under the shared source-size ceiling: read at most
     // `max_source_size + 1` bytes so an oversized file is refused without ever
     // allocating the whole thing (this holds even if metadata is unavailable).
-    let input = read_source_bounded(&file_path, &budget)?;
+    let input = match read_source_bounded(&file_path, &budget) {
+        Ok(input) => input,
+        Err(error) if lint_mode => {
+            eprintln!("Error reading '{file_path}': {error}");
+            process::exit(2);
+        }
+        Err(error) => return Err(error),
+    };
 
     // Lex under the shared run budget (installed above): a deadline /
     // cancellation / operation-ceiling breach during tokenization surfaces as a
@@ -717,6 +746,10 @@ async fn run() -> io::Result<()> {
     }
 
     if lint_mode {
+        if let Err(error) = validate_source(&input) {
+            eprintln!("Error: {error}");
+            process::exit(2);
+        }
         let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
@@ -730,15 +763,30 @@ async fn run() -> io::Result<()> {
                     fixer.set_indent_size(config.indent_size);
                     fixer.load_config(script_dir);
 
-                    let (fixed_code, summary) = fixer.fix(&program, &input);
+                    let (fixed_code, summary) = match fixer.fix_checked(&program, &input) {
+                        Ok(result) => result,
+                        Err(error) => {
+                            eprintln!("Error fixing code: {error}");
+                            process::exit(2);
+                        }
+                    };
 
                     if fix_in_place {
-                        fs::write(&file_path, &fixed_code)?;
+                        if let Err(error) =
+                            write_fixed_file(Path::new(&file_path), &input, &fixed_code)
+                        {
+                            eprintln!("Error writing '{file_path}': {error}");
+                            process::exit(2);
+                        }
                         println!("✔ Auto-fixed {} issues in place.", summary.total());
                     } else if fix_diff {
-                        println!("{}", fixer.diff(&input, &fixed_code));
+                        io::stdout().write_all(
+                            fixer
+                                .diff_for_path(Path::new(&file_path), &input, &fixed_code)
+                                .as_bytes(),
+                        )?;
                     } else {
-                        println!("Fixed code:\n{fixed_code}");
+                        io::stdout().write_all(fixed_code.as_bytes())?;
                     }
                     process::exit(0);
                 } else if !diagnostics.is_empty() {
@@ -804,53 +852,6 @@ async fn run() -> io::Result<()> {
                 } else {
                     println!("No static analysis warnings found.");
                     process::exit(0);
-                }
-            }
-            Err(errors) => {
-                eprintln!("Parse errors:");
-
-                let mut reporter = DiagnosticReporter::new();
-                let file_id = reporter.add_file(&file_path, &input);
-
-                for error in errors {
-                    let diagnostic = reporter.convert_parse_error(file_id, &error);
-                    if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                        eprintln!("Error displaying diagnostic: {e}");
-                        eprintln!("Error: {error}");
-                    }
-                }
-
-                process::exit(2);
-            }
-        }
-    } else if fix_mode {
-        let tokens_with_pos = lex_checked(&input);
-        match Parser::new(&tokens_with_pos).parse() {
-            Ok(_program) => {
-                let mut fixer = CodeFixer::new();
-                fixer.set_indent_size(config.indent_size);
-                fixer.load_config(script_dir);
-
-                let output_mode = if fix_in_place {
-                    FixerOutputMode::InPlace
-                } else if fix_diff {
-                    FixerOutputMode::Diff
-                } else {
-                    FixerOutputMode::Stdout
-                };
-
-                match fixer.fix_file(Path::new(&file_path), output_mode) {
-                    Ok(summary) => {
-                        println!("Code fixing summary:");
-                        println!("  Lines reformatted: {}", summary.lines_reformatted);
-                        println!("  Variables renamed: {}", summary.vars_renamed);
-                        println!("  Dead code removed: {}", summary.dead_code_removed);
-                        process::exit(0);
-                    }
-                    Err(e) => {
-                        eprintln!("Error fixing code: {e}");
-                        process::exit(1);
-                    }
                 }
             }
             Err(errors) => {
