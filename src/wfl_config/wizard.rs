@@ -278,6 +278,85 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_optional_tls_settings_accept_blank_input() {
+        let wizard = ConfigWizard::new().unwrap();
+        for name in ["web_server_tls_cert_file", "web_server_tls_key_file"] {
+            let setting = &wizard.checker.get_expected_settings()[name];
+            assert!(!setting.required);
+            assert!(setting.default_value.is_none());
+            assert!(
+                wizard.validate_input(setting, "").is_ok(),
+                "optional setting {name} must allow Enter to skip"
+            );
+        }
+    }
+
+    #[test]
+    fn test_required_setting_without_default_rejects_blank_input() {
+        let wizard = ConfigWizard::new().unwrap();
+        let mut setting =
+            wizard.checker.get_expected_settings()["web_server_tls_cert_file"].clone();
+        setting.required = true;
+        assert_eq!(
+            wizard.validate_input(&setting, "").unwrap_err(),
+            "Value is required"
+        );
+    }
+
+    #[test]
+    fn test_optional_tls_prompts_explain_enter_to_skip() {
+        let wizard = ConfigWizard::new().unwrap();
+        for name in ["web_server_tls_cert_file", "web_server_tls_key_file"] {
+            let prompt = wizard.format_prompt(&wizard.checker.get_expected_settings()[name]);
+            assert!(prompt.contains("optional"), "{prompt}");
+            assert!(prompt.contains("Enter to skip"), "{prompt}");
+        }
+    }
+
+    #[test]
+    fn test_generated_config_omits_unset_tls_settings() {
+        let wizard = ConfigWizard::new().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".wflcfg");
+        wizard.generate_file(&path).unwrap();
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert!(!contents.contains("web_server_tls_cert_file ="));
+        assert!(!contents.contains("web_server_tls_key_file ="));
+        assert!(contents.contains("web_server_bind_address = 127.0.0.1"));
+    }
+
+    #[test]
+    fn test_generated_config_preserves_explicit_tls_paths() {
+        let mut wizard = ConfigWizard::new().unwrap();
+        wizard.values.insert(
+            "web_server_tls_cert_file".to_string(),
+            "certificates/server certificate.pem".to_string(),
+        );
+        wizard.values.insert(
+            "web_server_tls_key_file".to_string(),
+            "certificates/server key.pem".to_string(),
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".wflcfg");
+        wizard.generate_file(&path).unwrap();
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert!(
+            contents.contains("web_server_tls_cert_file = certificates/server certificate.pem")
+        );
+        assert!(contents.contains("web_server_tls_key_file = certificates/server key.pem"));
+    }
+
+    #[test]
+    fn test_generated_config_names_config_command() {
+        let wizard = ConfigWizard::new().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".wflcfg");
+        wizard.generate_file(&path).unwrap();
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert!(contents.contains("# Created by wfl config on "));
+    }
+
+    #[test]
     fn test_validate_boolean_input() {
         let wizard = ConfigWizard::new().unwrap();
         let setting = ExpectedSetting {
