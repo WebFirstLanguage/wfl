@@ -1,237 +1,151 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
 
-// Integration tests for WFL VS Code extension with LSP server
-describe('WFL LSP Integration Tests', () => {
-  let testWorkspaceUri: vscode.Uri;
-  let testDocument: vscode.TextDocument;
-
-  before(async function() {
-    this.timeout(30000); // Allow time for extension activation
-    
-    // Get the extension
-    const extension = vscode.extensions.getExtension('wfl.vscode-wfl');
-    assert.notStrictEqual(extension, undefined, 'WFL extension should be available');
-    
-    if (extension && !extension.isActive) {
-      await extension.activate();
-    }
-    
-    // Create a temporary workspace for testing
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (workspaceFolder) {
-      testWorkspaceUri = workspaceFolder.uri;
-    } else {
-      // Create a temporary folder if no workspace is open
-      const tmpDir = path.join(__dirname, '..', '..', 'test-workspace');
-      if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
+function waitForDiagnostics(
+  uri: vscode.Uri,
+  matches: (diagnostics: readonly vscode.Diagnostic[]) => boolean
+): Promise<readonly vscode.Diagnostic[]> {
+  return new Promise((resolve, reject) => {
+    const subscription = vscode.languages.onDidChangeDiagnostics(event => {
+      if (!event.uris.some(changed => changed.toString() === uri.toString())) {
+        return;
       }
-      testWorkspaceUri = vscode.Uri.file(tmpDir);
-    }
-  });
-
-  after(async () => {
-    // Clean up test documents
-    if (testDocument && !testDocument.isClosed) {
-      await vscode.window.showTextDocument(testDocument);
-      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    }
-  });
-
-  it('Should activate extension for .wfl files', async function() {
-    this.timeout(10000);
-    
-    // Create a test WFL file
-    const testFileUri = vscode.Uri.joinPath(testWorkspaceUri, 'test.wfl');
-    const testContent = 'store x as 5\ndisplay x';
-    
-    // Create and open the document
-    const edit = new vscode.WorkspaceEdit();
-    edit.createFile(testFileUri, { overwrite: true });
-    edit.insert(testFileUri, new vscode.Position(0, 0), testContent);
-    
-    await vscode.workspace.applyEdit(edit);
-    testDocument = await vscode.workspace.openTextDocument(testFileUri);
-    
-    // Verify the document is recognized as WFL
-    assert.strictEqual(testDocument.languageId, 'wfl', 'Document should be recognized as WFL');
-    assert.strictEqual(testDocument.getText(), testContent, 'Document content should match');
-  });
-
-  it('Should provide syntax highlighting for WFL', async function() {
-    this.timeout(5000);
-    
-    if (!testDocument) {
-      this.skip();
-      return;
-    }
-    
-    // Open the document in the editor
-    const editor = await vscode.window.showTextDocument(testDocument);
-    
-    // Verify the editor is open and has the correct language
-    assert.strictEqual(editor.document.languageId, 'wfl');
-    assert.strictEqual(editor.document.fileName.endsWith('.wfl'), true);
-    
-    // Note: Testing actual syntax highlighting requires more complex setup
-    // For now, we verify the document is properly associated with WFL language
-  });
-
-  it('Should register WFL language configuration', () => {
-    // Check that WFL language is registered
-    const languages = vscode.languages.getLanguages();
-    
-    // This is async, so we need to handle it properly
-    return languages.then(langs => {
-      assert.ok(langs.includes('wfl'), 'WFL language should be registered');
+      const diagnostics = vscode.languages.getDiagnostics(uri);
+      if (matches(diagnostics)) {
+        clearTimeout(timer);
+        subscription.dispose();
+        resolve(diagnostics);
+      }
     });
+    const timer = setTimeout(() => {
+      subscription.dispose();
+      reject(new Error(`Timed out waiting for WFL diagnostics for ${uri.fsPath}`));
+    }, 10000);
   });
+}
 
-  it('Should provide document formatting capability', async function() {
-    this.timeout(10000);
-    
-    if (!testDocument) {
-      this.skip();
-      return;
-    }
+describe('WFL LSP Integration Tests', () => {
+  let workspace: vscode.Uri;
+  let fixtureFolder: vscode.Uri;
+  let document: vscode.TextDocument;
+  let sequence = 0;
 
-    // Try to format the document
-    try {
-      await vscode.window.showTextDocument(testDocument);
-      const formatCommand = 'editor.action.formatDocument';
-
-      // This might fail if LSP server is not available, which is acceptable
-      const result = await vscode.commands.executeCommand(formatCommand);
-      console.log('Format command result:', result);
-    } catch (error) {
-      console.log('Format command failed (acceptable if LSP not available):', error);
-    }
-  });
-
-  it('Should handle WFL commands', async () => {
-    // Test that WFL-specific commands are registered
-    const allCommands = await vscode.commands.getCommands();
-    
-    const wflCommands = [
-      'wfl.restartLanguageServer',
-      'wfl.selectLspExecutable',
-      'wfl.format'
-    ];
-    
-    for (const command of wflCommands) {
-      assert.ok(
-        allCommands.includes(command),
-        `Command ${command} should be registered`
-      );
+  before(async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, 'The test runner must supply an isolated workspace');
+    workspace = folder.uri;
+    const extension = vscode.extensions.getExtension('wfl.vscode-wfl');
+    assert.ok(extension, 'WFL extension should be available');
+    await extension.activate();
+    // Activation detects installed tools asynchronously before registering commands.
+    const deadline = Date.now() + 10000;
+    while (!(await vscode.commands.getCommands()).includes('wfl.format')) {
+      assert.ok(Date.now() < deadline, 'Extension commands should register within 10 seconds');
+      await new Promise(resolve => setTimeout(resolve, 25));
     }
   });
 
-  it('Should handle LSP server connection gracefully', async function() {
-    this.timeout(15000);
-    
-    if (!testDocument) {
-      this.skip();
-      return;
-    }
+  beforeEach(async () => {
+    fixtureFolder = vscode.Uri.joinPath(workspace, `test-${++sequence}`);
+    await vscode.workspace.fs.createDirectory(fixtureFolder);
+    const uri = vscode.Uri.joinPath(fixtureFolder, 'test.wfl');
+    await vscode.workspace.fs.writeFile(uri, Buffer.from('store x as 5\ndisplay x'));
+    document = await vscode.workspace.openTextDocument(uri);
+  });
 
-    // Open the document and wait a bit for LSP to potentially connect
-    await vscode.window.showTextDocument(testDocument);
-    
-    // Wait for potential LSP initialization
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Test that the document can be edited without errors
-    const edit = new vscode.WorkspaceEdit();
-    const newContent = '\n// This is a test comment';
-    edit.insert(testDocument.uri, new vscode.Position(testDocument.lineCount, 0), newContent);
-    
-    const success = await vscode.workspace.applyEdit(edit);
-    assert.ok(success, 'Should be able to edit WFL document');
-    
-    // Verify the edit was applied
-    const updatedDocument = await vscode.workspace.openTextDocument(testDocument.uri);
-    assert.ok(
-      updatedDocument.getText().includes('// This is a test comment'),
-      'Edit should be applied to document'
+  afterEach(async () => {
+    for (const dirty of vscode.workspace.textDocuments.filter(candidate =>
+      candidate.isDirty && candidate.uri.toString().startsWith(fixtureFolder.toString() + '/')
+    )) {
+      await vscode.window.showTextDocument(dirty);
+      await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    }
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await vscode.workspace.fs.delete(fixtureFolder, { recursive: true });
+  });
+
+  it('Should activate extension for .wfl files', () => {
+    assert.strictEqual(document.languageId, 'wfl');
+    assert.strictEqual(document.getText().replace(/\r\n/g, '\n'), 'store x as 5\ndisplay x');
+    assert.ok(vscode.extensions.getExtension('wfl.vscode-wfl')?.isActive);
+  });
+
+  it('Should associate an editor with the WFL language', async () => {
+    const editor = await vscode.window.showTextDocument(document);
+    assert.strictEqual(editor.document.languageId, 'wfl');
+    assert.ok(editor.document.fileName.endsWith('.wfl'));
+  });
+
+  it('Should register WFL language configuration', async () => {
+    assert.ok((await vscode.languages.getLanguages()).includes('wfl'));
+  });
+
+  it('Should provide document formatting edits', async () => {
+    const setup = new vscode.WorkspaceEdit();
+    setup.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), 'store total as 1+2');
+    assert.ok(await vscode.workspace.applyEdit(setup));
+    assert.ok(await document.save());
+    const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+      'vscode.executeFormatDocumentProvider', document.uri, { tabSize: 4, insertSpaces: true }
     );
+    assert.ok(edits?.length, 'A registered formatter must return edits');
+    const edit = new vscode.WorkspaceEdit();
+    edit.set(document.uri, edits);
+    assert.ok(await vscode.workspace.applyEdit(edit));
+    assert.ok(await document.save());
+    assert.strictEqual(document.getText(), 'store total as 1 + 2');
   });
 
-  it('Should provide diagnostics for WFL syntax errors', async function() {
-    this.timeout(10000);
-    
-    // Create a document with syntax errors
-    const errorFileUri = vscode.Uri.joinPath(testWorkspaceUri, 'error-test.wfl');
-    const errorContent = 'store x as\n// Missing value - syntax error';
-    
+  it('Should register all WFL commands', async () => {
+    const commands = await vscode.commands.getCommands();
+    for (const command of ['wfl.restartLanguageServer', 'wfl.selectLspExecutable', 'wfl.format']) {
+      assert.ok(commands.includes(command), `${command} should be registered`);
+    }
+  });
+
+  it('Should apply and save document edits', async () => {
     const edit = new vscode.WorkspaceEdit();
-    edit.createFile(errorFileUri, { overwrite: true });
-    edit.insert(errorFileUri, new vscode.Position(0, 0), errorContent);
-    
-    await vscode.workspace.applyEdit(edit);
-    const errorDocument = await vscode.workspace.openTextDocument(errorFileUri);
+    edit.insert(document.uri, new vscode.Position(document.lineCount, 0), '\n// test comment');
+    assert.ok(await vscode.workspace.applyEdit(edit));
+    assert.ok(await document.save());
+    assert.ok(document.getText().endsWith('// test comment'));
+  });
+
+  it('Should receive real LSP diagnostics and clear them after a repair', async () => {
+    const uri = vscode.Uri.joinPath(fixtureFolder, 'error-test.wfl');
+    await vscode.workspace.fs.writeFile(uri, Buffer.from('store x as\n'));
+    const received = waitForDiagnostics(uri, diagnostics => diagnostics.some(
+      diagnostic => diagnostic.severity === vscode.DiagnosticSeverity.Error
+    ));
+    const errorDocument = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(errorDocument);
-    
-    // Wait for diagnostics to potentially appear
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    // Check if diagnostics are available
-    const diagnostics = vscode.languages.getDiagnostics(errorDocument.uri);
-    
-    // Note: Diagnostics might not appear if LSP server is not running
-    // This test validates that the system can handle error documents gracefully
-    console.log(`Diagnostics found: ${diagnostics.length}`);
-    
-    // Clean up
-    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    await vscode.workspace.fs.delete(errorFileUri);
-  });
+    const diagnostics = await received;
+    assert.ok(diagnostics.some(diagnostic => diagnostic.message.length > 0));
 
-  it('Should handle configuration changes', async () => {
-    // Test configuration access
-    const config = vscode.workspace.getConfiguration('wfl');
-    
-    // Verify default configuration values
-    const serverPath = config.get<string>('serverPath');
-    const serverArgs = config.get<string[]>('serverArgs');
-    const versionMode = config.get<string>('versionMode');
-    
-    assert.strictEqual(serverPath, 'wfl-lsp', 'Default server path should be wfl-lsp');
-    assert.ok(Array.isArray(serverArgs), 'Server args should be an array');
-    assert.strictEqual(versionMode, 'warn', 'Default version mode should be warn');
-    
-    // Test format configuration
-    const formatConfig = config.get('format');
-    assert.ok(formatConfig, 'Format configuration should exist');
-  });
-
-  it('Should handle file operations correctly', async function() {
-    this.timeout(5000);
-    
-    // Test creating, opening, and closing WFL files
-    const tempFileUri = vscode.Uri.joinPath(testWorkspaceUri, 'temp-test.wfl');
-    const tempContent = 'store temp as "temporary value"';
-    
-    // Create file
+    const cleared = waitForDiagnostics(uri, diagnostics => diagnostics.length === 0);
     const edit = new vscode.WorkspaceEdit();
-    edit.createFile(tempFileUri, { overwrite: true });
-    edit.insert(tempFileUri, new vscode.Position(0, 0), tempContent);
-    
-    const success = await vscode.workspace.applyEdit(edit);
-    assert.ok(success, 'Should be able to create WFL file');
-    
-    // Open file
-    const tempDocument = await vscode.workspace.openTextDocument(tempFileUri);
-    assert.strictEqual(tempDocument.languageId, 'wfl', 'File should be recognized as WFL');
-    
-    // Show in editor
-    const editor = await vscode.window.showTextDocument(tempDocument);
-    assert.strictEqual(editor.document.uri.toString(), tempFileUri.toString());
-    
-    // Close and delete
-    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    await vscode.workspace.fs.delete(tempFileUri);
+    edit.replace(uri, new vscode.Range(0, 0, errorDocument.lineCount, 0), 'store x as 5\ndisplay x');
+    assert.ok(await vscode.workspace.applyEdit(edit));
+    assert.ok(await errorDocument.save());
+    assert.deepStrictEqual(await cleared, []);
+  });
+
+  it('Should expose defaults alongside the configured test server', () => {
+    const config = vscode.workspace.getConfiguration('wfl');
+    assert.strictEqual(config.inspect<string>('serverPath')?.defaultValue, 'wfl-lsp');
+    assert.strictEqual(config.get('serverPath'), process.env.WFL_LSP_PATH);
+    assert.deepStrictEqual(config.get('serverArgs'), []);
+    assert.strictEqual(config.get('versionMode'), 'warn');
+    assert.ok(config.get('format'));
+  });
+
+  it('Should create, read, and delete WFL files', async () => {
+    const uri = vscode.Uri.joinPath(fixtureFolder, 'temp-test.wfl');
+    await vscode.workspace.fs.writeFile(uri, Buffer.from('store temp as "temporary value"'));
+    const temporary = await vscode.workspace.openTextDocument(uri);
+    assert.strictEqual(temporary.languageId, 'wfl');
+    assert.strictEqual(temporary.getText(), 'store temp as "temporary value"');
+    await vscode.workspace.fs.delete(uri);
+    await assert.rejects(async () => vscode.workspace.fs.stat(uri));
   });
 });

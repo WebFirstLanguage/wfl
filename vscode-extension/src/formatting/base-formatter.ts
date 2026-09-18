@@ -82,7 +82,7 @@ export class BaseFormatter implements vscode.DocumentFormattingEditProvider, vsc
     // Process each line
     return lines.map((line) => {
       // Trim trailing whitespace
-      let trimmedLine = line.trimRight();
+      const trimmedLine = line.trimRight();
       
       // Skip empty lines or comment-only lines
       if (trimmedLine === '' || trimmedLine.trim().startsWith('//') || trimmedLine.trim().startsWith('/*')) {

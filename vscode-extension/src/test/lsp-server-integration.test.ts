@@ -2,243 +2,85 @@ import * as assert from 'assert';
 import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { promisify } from 'util';
+import { once } from 'events';
+import {
+  createProtocolConnection, InitializeRequest, InitializedNotification,
+  ShutdownRequest, ExitNotification
+} from 'vscode-languageclient/node';
 
-// Integration tests for WFL LSP server communication
 describe('WFL LSP Server Integration Tests', () => {
-  const lspServerPath = path.resolve(__dirname, '..', '..', '..', 'target', 'release', 'wfl-lsp.exe');
-  
-  it('Should find LSP server executable', () => {
-    // Check if LSP server exists
-    const exists = fs.existsSync(lspServerPath);
-    if (!exists) {
-      console.log(`LSP server not found at: ${lspServerPath}`);
-      console.log('This is acceptable if LSP server is not built yet');
-    }
-    
-    // This test passes regardless - we're just checking availability
-    assert.ok(true, 'LSP server availability check completed');
+  const extensionRoot = path.resolve(__dirname, '..', '..');
+  const lspServerPath = process.env.WFL_LSP_PATH || path.resolve(
+    extensionRoot, '..', 'target', 'debug', process.platform === 'win32' ? 'wfl-lsp.exe' : 'wfl-lsp'
+  );
+
+  it('Should find the built LSP server executable', () => {
+    assert.ok(fs.existsSync(lspServerPath), `LSP executable must exist: ${lspServerPath}`);
   });
 
-  it('Should be able to start LSP server process', function(done) {
-    this.timeout(10000);
-    
-    if (!fs.existsSync(lspServerPath)) {
-      console.log('Skipping LSP server process test - server not built');
-      this.skip();
-      return;
-    }
-    
-    // Try to start the LSP server process
-    const serverProcess = cp.spawn(lspServerPath, [], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let serverStarted = false;
-    
-    // Set up timeout
-    const timeout = setTimeout(() => {
-      if (!serverStarted) {
-        serverProcess.kill();
-        done(new Error('LSP server did not start within timeout'));
-      }
-    }, 5000);
-    
-    serverProcess.on('spawn', () => {
-      serverStarted = true;
-      clearTimeout(timeout);
-      
-      // Server started successfully
-      assert.ok(true, 'LSP server process started successfully');
-      
-      // Clean up
-      serverProcess.kill();
-      done();
-    });
-    
-    serverProcess.on('error', (error) => {
-      clearTimeout(timeout);
-      console.log('LSP server error (this may be expected):', error.message);
-      
-      // Even if there's an error, we consider this a successful test
-      // because it means we can attempt to start the server
-      assert.ok(true, 'LSP server process test completed');
-      done();
-    });
-    
-    serverProcess.on('exit', (code) => {
-      clearTimeout(timeout);
-      if (!serverStarted) {
-        console.log(`LSP server exited with code ${code} before spawning`);
-        assert.ok(true, 'LSP server process test completed');
-        done();
-      }
-    });
+  it('Should run the LSP executable and return its version', async () => {
+    const { stdout } = await promisify(cp.execFile)(lspServerPath, ['--version'], { timeout: 5000 });
+    assert.match(stdout.trim(), /^wfl-lsp \d+\.\d+\.\d+/);
   });
 
-  it('Should handle LSP initialization message', function(done) {
-    this.timeout(15000);
-    
-    if (!fs.existsSync(lspServerPath)) {
-      console.log('Skipping LSP initialization test - server not built');
-      this.skip();
-      return;
-    }
-    
-    // Start LSP server
-    const serverProcess = cp.spawn(lspServerPath, [], {
-      stdio: ['pipe', 'pipe', 'pipe']
+  it('Should initialize and shut down over the real stdio protocol', async () => {
+    const server = cp.spawn(lspServerPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderr = '';
+    server.stderr.on('data', data => { stderr += data.toString(); });
+    const exited = new Promise<number | null>((resolve, reject) => {
+      server.once('error', reject);
+      server.once('close', resolve);
     });
-    
-    let responseReceived = false;
-    
-    // Set up timeout
-    const timeout = setTimeout(() => {
-      if (!responseReceived) {
-        serverProcess.kill();
-        console.log('LSP server did not respond to initialization within timeout');
-        assert.ok(true, 'LSP initialization test completed (timeout is acceptable)');
-        done();
-      }
-    }, 10000);
-    
-    // Prepare LSP initialization message
-    const initMessage = {
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        processId: process.pid,
-        rootUri: null,
-        capabilities: {}
-      }
-    };
-    
-    const messageJson = JSON.stringify(initMessage);
-    const messageLength = Buffer.byteLength(messageJson, 'utf8');
-    const lspMessage = `Content-Length: ${messageLength}\r\n\r\n${messageJson}`;
-    
-    // Handle server output
-    let outputBuffer = '';
-    serverProcess.stdout?.on('data', (data) => {
-      outputBuffer += data.toString();
-      
-      // Look for LSP response
-      if (outputBuffer.includes('Content-Length:') && outputBuffer.includes('"result"')) {
-        responseReceived = true;
-        clearTimeout(timeout);
-        
-        console.log('Received LSP response:', outputBuffer.substring(0, 200) + '...');
-        assert.ok(true, 'LSP server responded to initialization');
-        
-        serverProcess.kill();
-        done();
-      }
+    // Attach an error handler immediately, including spawn failures before shutdown.
+    void exited.catch(() => undefined);
+    const connection = createProtocolConnection(server.stdout, server.stdin);
+    connection.listen();
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`LSP protocol timed out: ${stderr}`)), 10000);
     });
-    
-    serverProcess.stderr?.on('data', (data) => {
-      console.log('LSP server stderr:', data.toString());
-    });
-    
-    serverProcess.on('error', (error) => {
-      clearTimeout(timeout);
-      console.log('LSP server process error:', error.message);
-      assert.ok(true, 'LSP initialization test completed with error (acceptable)');
-      done();
-    });
-    
-    serverProcess.on('exit', (code) => {
-      clearTimeout(timeout);
-      if (!responseReceived) {
-        console.log(`LSP server exited with code ${code} before responding`);
-        assert.ok(true, 'LSP initialization test completed (early exit is acceptable)');
-        done();
-      }
-    });
-    
-    // Wait a bit for server to start, then send initialization
-    setTimeout(() => {
-      try {
-        serverProcess.stdin?.write(lspMessage);
-        serverProcess.stdin?.end();
-      } catch (error) {
-        clearTimeout(timeout);
-        console.log('Error sending LSP message:', error);
-        assert.ok(true, 'LSP initialization test completed with send error (acceptable)');
-        done();
-      }
-    }, 1000);
-  });
-
-  it('Should validate WFL document analysis capability', function() {
-    this.timeout(5000);
-    
-    // Test that we can analyze WFL documents using the same components as LSP
-    const testDocument = `store x as 5
-display x
-store y as "hello"
-display y`;
-    
-    // This test validates that the core WFL analysis components work
-    // which is what the LSP server uses internally
     try {
-      // We can't easily import WFL modules here due to path issues,
-      // but we can validate that the test document is reasonable WFL code
-      assert.ok(testDocument.includes('store'), 'Test document should contain WFL keywords');
-      assert.ok(testDocument.includes('display'), 'Test document should contain display statements');
-      assert.ok(testDocument.length > 0, 'Test document should not be empty');
-      
-      console.log('WFL document analysis validation completed');
-      assert.ok(true, 'WFL document analysis capability validated');
-    } catch (error) {
-      console.log('WFL document analysis error:', error);
-      assert.ok(true, 'WFL document analysis test completed (errors are acceptable)');
+      await Promise.race([timeout, (async () => {
+        await once(server, 'spawn');
+        const result = await connection.sendRequest(InitializeRequest.type, {
+          processId: process.pid, rootUri: null, capabilities: {}, workspaceFolders: null
+        });
+        assert.ok(result.capabilities.hoverProvider, 'Server must advertise hover support');
+        assert.ok(result.capabilities.completionProvider, 'Server must advertise completion support');
+        await connection.sendNotification(InitializedNotification.type, {});
+        assert.strictEqual(await connection.sendRequest(ShutdownRequest.type), null);
+        await connection.sendNotification(ExitNotification.type);
+        server.stdin.end();
+        assert.strictEqual(await exited, 0, `Server should exit cleanly: ${stderr}`);
+      })()]);
+    } finally {
+      clearTimeout(timer);
+      connection.dispose();
+      if (server.exitCode === null && server.signalCode === null) {
+        server.kill('SIGKILL');
+      }
+      let cleanupTimer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([exited, new Promise<never>((_, reject) => {
+          cleanupTimer = setTimeout(() => reject(new Error('LSP process did not exit after cleanup')), 2000);
+        })]);
+      } finally {
+        clearTimeout(cleanupTimer);
+      }
     }
   });
 
-  it('Should handle LSP server configuration', () => {
-    // Test that we can read LSP server configuration
-    const packageJsonPath = path.resolve(__dirname, '..', '..', 'package.json');
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    
-    // Verify LSP-related configuration
-    const config = packageJson.contributes.configuration.properties;
-    
-    assert.ok(config['wfl.serverPath'], 'Should have LSP server path configuration');
-    assert.strictEqual(
-      config['wfl.serverPath'].default,
-      'wfl-lsp',
-      'Default server path should be wfl-lsp'
-    );
-    
-    assert.ok(config['wfl.serverArgs'], 'Should have LSP server args configuration');
-    assert.ok(Array.isArray(config['wfl.serverArgs'].default), 'Server args should default to array');
-    
-    console.log('LSP server configuration validation completed');
-    assert.ok(true, 'LSP server configuration validated');
+  it('Should declare LSP configuration in the extension manifest', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(extensionRoot, 'package.json'), 'utf8'));
+    const config = manifest.contributes.configuration.properties;
+    assert.strictEqual(config['wfl.serverPath'].default, 'wfl-lsp');
+    assert.deepStrictEqual(config['wfl.serverArgs'].default, []);
   });
 
-  it('Should validate extension LSP client setup', () => {
-    // Check that the compiled extension has LSP client code
-    const extensionJsPath = path.resolve(__dirname, '..', '..', 'out', 'extension.js');
-    
-    if (fs.existsSync(extensionJsPath)) {
-      const extensionCode = fs.readFileSync(extensionJsPath, 'utf8');
-      
-      // Check for LSP client related code
-      assert.ok(
-        extensionCode.includes('LanguageClient') || extensionCode.includes('languageclient'),
-        'Extension should include LSP client code'
-      );
-      
-      assert.ok(
-        extensionCode.includes('wfl-lsp') || extensionCode.includes('serverPath'),
-        'Extension should reference LSP server configuration'
-      );
-      
-      console.log('Extension LSP client setup validation completed');
-      assert.ok(true, 'Extension LSP client setup validated');
-    } else {
-      assert.fail('Extension JavaScript file not found - compilation may have failed');
-    }
+  it('Should compile the extension LSP client', () => {
+    const extensionCode = fs.readFileSync(path.join(extensionRoot, 'out', 'extension.js'), 'utf8');
+    assert.ok(extensionCode.includes('LanguageClient'));
+    assert.ok(extensionCode.includes('serverPath'));
   });
 });

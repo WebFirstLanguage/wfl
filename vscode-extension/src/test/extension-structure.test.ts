@@ -90,7 +90,7 @@ describe('WFL Extension Structure Tests', () => {
     assert.ok(packageJson.contributes.commands, 'Should have command contributions');
     
     const commands = packageJson.contributes.commands;
-    const commandIds = commands.map((cmd: any) => cmd.command);
+    const commandIds = commands.map((cmd: { command: string }) => cmd.command);
     
     // Verify essential commands
     assert.ok(
@@ -115,7 +115,7 @@ describe('WFL Extension Structure Tests', () => {
     assert.ok(packageJson.contributes.languages, 'Should have language contributions');
     
     const languages = packageJson.contributes.languages;
-    const wflLang = languages.find((lang: any) => lang.id === 'wfl');
+    const wflLang = languages.find((lang: { id: string }) => lang.id === 'wfl');
     
     assert.ok(wflLang, 'Should have WFL language definition');
     assert.ok(wflLang.extensions.includes('.wfl'), 'Should associate with .wfl files');
@@ -130,7 +130,7 @@ describe('WFL Extension Structure Tests', () => {
     assert.ok(packageJson.contributes.grammars, 'Should have grammar contributions');
     
     const grammars = packageJson.contributes.grammars;
-    const wflGrammar = grammars.find((gram: any) => gram.language === 'wfl');
+    const wflGrammar = grammars.find((gram: { language: string }) => gram.language === 'wfl');
     
     assert.ok(wflGrammar, 'Should have WFL grammar definition');
     assert.strictEqual(wflGrammar.scopeName, 'source.wfl', 'Should have correct scope name');

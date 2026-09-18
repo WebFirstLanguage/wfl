@@ -18,22 +18,14 @@ describe('WFL Extension Tests', () => {
     }
   });
 
-  it('Should register document formatter', () => {
+  it('Should recognize an untitled WFL document', async () => {
     // Create a simple WFL document
     const content = '// This is a WFL test file\nstore test as "value"';
-    const doc = {
-      getText: () => content,
-      languageId: 'wfl',
-      uri: vscode.Uri.parse('untitled:test.wfl'),
-      version: 1
-    };
+    const doc = await vscode.workspace.openTextDocument({ language: 'wfl', content });
     
     // Check the document is identified as WFL
     assert.strictEqual(doc.languageId, 'wfl');
+    assert.strictEqual(doc.getText(), content);
   });
 
-  // Additional tests to add:
-  // - Test syntax highlighting (requires browser automation)
-  // - Test formatter with mock WFL CLI
-  // - Test LSP integration with mock server
 });

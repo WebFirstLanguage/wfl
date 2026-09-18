@@ -59,7 +59,7 @@ export class WflFormatter implements vscode.DocumentFormattingEditProvider, vsco
       // Clean up the temporary file
       try {
         fs.unlinkSync(tempFile);
-      } catch (e) {
+      } catch {
         // Ignore cleanup errors
       }
     }
@@ -134,7 +134,7 @@ export class WflFormatter implements vscode.DocumentFormattingEditProvider, vsco
       // Clean up the temporary file
       try {
         fs.unlinkSync(tempFile);
-      } catch (e) {
+      } catch {
         // Ignore cleanup errors
       }
     }

@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node';
 import { BaseFormatter } from './formatting/base-formatter';
 import { WflFormatter } from './formatting/wfl-formatter';
+import { isWflLspVersion } from './lsp-version';
 
 // Configuration type definitions
 interface WflCliConfig {
@@ -128,7 +129,7 @@ async function checkWflLsp(path: string): Promise<boolean> {
   try {
     const { stdout } = await execPromise(path, ['--version']);
     // If we got a version output, WFL LSP is available
-    return stdout.trim().startsWith('wfl-lsp version');
+    return isWflLspVersion(stdout);
   } catch {
     return false;
   }
