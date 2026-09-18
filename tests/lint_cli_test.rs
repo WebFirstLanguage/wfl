@@ -66,6 +66,38 @@ fn assert_status(output: &Output, expected: i32) {
 const DIRTY: &str = "display \"hello\"   \n";
 const CLEAN: &str = "display \"hello\"\n";
 
+/// A named argument in a legacy constant is an expression, not an instance body.
+#[test]
+fn legacy_constant_named_arguments_remain_stable_in_every_lint_mode() {
+    let directory = TempDir::new().unwrap();
+    let source = "define action called build with parameters value:\n    return value\nend action\ncreate new constant result as call build with value: 1\ndisplay result\n";
+    let path = directory.path().join("program.wfl");
+    fs::write(&path, source).unwrap();
+
+    let lint = run(directory.path(), &["--lint", "program.wfl"]);
+    assert_status(&lint, 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+    let fixed = run(directory.path(), &["--lint", "--fix", "program.wfl"]);
+    assert_status(&fixed, 0);
+    assert_eq!(fixed.stdout, source.as_bytes());
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+    let diff = run(
+        directory.path(),
+        &["--lint", "--fix", "program.wfl", "--diff"],
+    );
+    assert_status(&diff, 0);
+    assert!(diff.stdout.is_empty());
+
+    let inplace = run(
+        directory.path(),
+        &["--lint", "--fix", "program.wfl", "--in-place"],
+    );
+    assert_status(&inplace, 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+}
+
 /// A single dash belongs to the source name; lint findings must remain read-only.
 #[test]
 fn lint_accepts_single_dash_source_paths_without_writing() {

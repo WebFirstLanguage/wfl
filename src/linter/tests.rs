@@ -421,3 +421,41 @@ fn test_fix_layout_action_export_preserves_following_indentation() {
         );
     }
 }
+
+/// Named-argument colons belong to constant values; only an actual instance
+/// declaration introduces a property-initializer block.
+fn create_new_layout_sources() -> [&'static str; 3] {
+    [
+        "define action called build with parameters value:\n    return value\nend action\ncreate new constant result as call build with value: 1\ndisplay result\n",
+        "define action called build with parameters value:\n    return value\nend action\ncheck if yes:\n    create new constant result as call build with value: 1\n    display result\nend check\ndisplay \"done\"\n",
+        "create container Example:\n    property total: Number\nend\ncreate new Example as item:\n    total is 1\nend\ndisplay item.total\n",
+    ]
+}
+
+#[test]
+fn test_lint_layout_create_new_constant_does_not_open_instance_body() {
+    for source in create_new_layout_sources() {
+        let diagnostics = lint_source(&Linter::new(), source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LINT-INDENT"),
+            "constant value colons must not change block nesting: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn test_fix_layout_create_new_constant_preserves_following_indentation() {
+    for source in create_new_layout_sources() {
+        let tokens = lex_wfl_with_positions(source);
+        let program = Parser::new(&tokens).parse().unwrap();
+        let (fixed, _) = crate::fixer::CodeFixer::new()
+            .fix_checked(&program, source)
+            .unwrap();
+        assert_eq!(
+            fixed, source,
+            "constant declarations must preserve the following indentation"
+        );
+    }
+}
