@@ -6,6 +6,8 @@ pub mod control_flow;
 pub mod database;
 pub mod environment;
 pub mod error;
+#[cfg(test)]
+mod file_io_tests;
 pub(crate) mod io_capture;
 #[cfg(test)]
 mod memory_tests;
@@ -3949,6 +3951,8 @@ impl IoClient {
         file: &mut tokio::fs::File,
         operation: &str,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        file_io_tests::before_sync(operation).await;
         match file.sync_all().await {
             Ok(_) => Ok(()),
             Err(e) => {

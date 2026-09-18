@@ -1,376 +1,277 @@
+mod common;
+
 use std::fs;
+use std::path::Path;
 use tokio::time::{Duration, timeout};
 use wfl::Interpreter;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
+use wfl::interpreter::value::Value;
 
-// Tests for comprehensive error handling in file I/O operations
-#[cfg(test)]
-mod file_io_error_handling_tests {
-    use super::*;
+fn wfl_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
 
-    fn cleanup_test_files(files: &[&str]) {
-        for file in files {
-            let _ = fs::remove_file(file);
+async fn execute(code: &str) -> Interpreter {
+    timeout(Duration::from_secs(5), common::run_wfl(code))
+        .await
+        .expect("Operation timed out")
+        .expect("file I/O program failed")
+}
+
+fn assert_flag(interpreter: &Interpreter, name: &str, expected: bool) {
+    assert!(
+        matches!(common::get_global(interpreter, name), Value::Bool(value) if value == expected),
+        "{name} must be {expected}"
+    );
+}
+
+async fn expect_error(operation: &str) {
+    let interpreter = execute(&format!(
+        r#"
+        store caught_error as false
+        store completed_operation as false
+        try:
+            {operation}
+            change completed_operation to true
+        when error:
+            change caught_error to true
+        end try
+        "#
+    ))
+    .await;
+    assert_flag(&interpreter, "caught_error", true);
+    assert_flag(&interpreter, "completed_operation", false);
+}
+
+#[tokio::test]
+async fn test_nonexistent_file_read_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("missing.txt");
+    expect_error(&format!(
+        "open file at \"{}\" for reading as missing_file",
+        wfl_path(&path)
+    ))
+    .await;
+    assert!(!path.exists(), "a failed read must not create a file");
+}
+
+#[tokio::test]
+async fn test_invalid_file_path_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let missing_parent = directory.path().join("missing/child.txt");
+    for path in [
+        wfl_path(&missing_parent),
+        String::new(),
+        format!("{}/file\0name.txt", wfl_path(directory.path())),
+        wfl_path(directory.path()),
+    ] {
+        expect_error(&format!(
+            "open file at \"{path}\" for writing as invalid_file"
+        ))
+        .await;
+    }
+    assert!(!missing_parent.exists());
+
+    // Reserved-name behavior depends on the native path API (including its
+    // Windows extended-path normalization). Match that API's actual outcome.
+    let reserved = directory.path().join("con");
+    let rejected_by_os = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&reserved)
+    {
+        Ok(file) => {
+            drop(file);
+            fs::remove_file(&reserved).unwrap();
+            false
         }
-    }
-
-    async fn execute_wfl_code_expect_success(
-        code: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let tokens = lex_wfl_with_positions(code);
-        let mut parser = Parser::new(&tokens);
-        let ast = parser.parse().expect("Failed to parse WFL code");
-
-        let mut interpreter = Interpreter::new();
-
-        let result = timeout(Duration::from_secs(5), interpreter.interpret(&ast)).await;
-        match result {
-            Ok(Ok(_)) => Ok("Program executed successfully".to_string()),
-            Ok(Err(errors)) => {
-                let error_msg = errors
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                Err(Box::new(std::io::Error::other(error_msg)))
-            }
-            Err(_) => Err(Box::new(std::io::Error::other("Operation timed out"))),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_nonexistent_file_read_error() {
-        let test_files = ["nonexistent_read_test.txt"];
-        cleanup_test_files(&test_files); // Ensure file doesn't exist
-
-        // This should fail when trying to read a non-existent file
-        let code = r#"
-            try:
-                open file at "nonexistent_read_test.txt" for reading as missing_file
-                wait for store file_data as read content from missing_file
-                close file missing_file
-                display "This should not execute"
-            when error:
-                display "Correctly caught file not found error"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Error handling for non-existent file read failed: {:?}",
-            result.err()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_invalid_file_path_error() {
-        // Test with various invalid file paths
-        let invalid_paths = [
-            "invalid/path/that/does/not/exist/file.txt",
-            "",                 // Empty path
-            "con",              // Reserved Windows filename
-            "file\x00name.txt", // Null character in path
-        ];
-
-        for invalid_path in &invalid_paths {
-            let code = format!(
-                r#"
-                try:
-                    open file at "{}" for writing as invalid_file
-                    wait for write content "This should fail" into invalid_file
-                    close file invalid_file
-                    display "This should not execute"
-                when error:
-                    display "Correctly caught invalid path error"
-                end try
-            "#,
-                invalid_path
-            );
-
-            let result = execute_wfl_code_expect_success(&code).await;
-            assert!(
-                result.is_ok(),
-                "Error handling for invalid path '{}' failed: {:?}",
-                invalid_path,
-                result.err()
-            );
-
-            // Clean up after each iteration in case the invalid path created unexpected files
-            // For example, empty path "" might create "file1", "con" might create a file named "con"
-            // Only include invalid_path in cleanup if it's a valid simple filename
-            let mut files_to_cleanup = vec!["file1", "con"];
-            // Validate that invalid_path is a simple filename without path separators or null bytes
-            if !invalid_path.is_empty()
-                && !invalid_path.contains('\0')
-                && !invalid_path.contains('/')
-                && !invalid_path.contains('\\')
-            {
-                files_to_cleanup.push(invalid_path);
-            }
-            cleanup_test_files(&files_to_cleanup);
-        }
-
-        // Final cleanup for any remaining test artifacts
-        cleanup_test_files(&["file1", "con"]);
-    }
-
-    #[tokio::test]
-    async fn test_write_to_readonly_file_error() {
-        let test_files = ["readonly_test.txt"];
-        cleanup_test_files(&test_files);
-
-        // Create a file and try to make it read-only (platform dependent)
-        fs::write("readonly_test.txt", "Initial content").expect("Failed to create test file");
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata("readonly_test.txt").unwrap().permissions();
-            perms.set_mode(0o444); // Read-only
-            fs::set_permissions("readonly_test.txt", perms).expect("Failed to set permissions");
-        }
-
-        #[cfg(windows)]
-        {
-            // Windows file permissions are more complex, this test may behave differently
-        }
-
-        let code = r#"
-            try:
-                open file at "readonly_test.txt" for writing as readonly_file
-                wait for write content "This should fail on read-only file" into readonly_file
-                close file readonly_file
-                display "This should not execute if file is truly read-only"
-            when error:
-                display "Correctly caught read-only file error"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Error handling for read-only file failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
-    }
-
-    #[tokio::test]
-    async fn test_write_to_read_handle_error() {
-        let test_files = ["read_handle_test.txt"];
-        cleanup_test_files(&test_files);
-
-        // Create a test file
-        fs::write("read_handle_test.txt", "Test content").expect("Failed to create test file");
-
-        // Try to write to a file opened for reading
-        let code = r#"
-            try:
-                open file at "read_handle_test.txt" for reading as read_only_file
-                wait for write content "This should fail" into read_only_file
-                close file read_only_file
-                display "This should not execute"
-            when error:
-                display "Correctly caught write to read handle error"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Error handling for writing to read handle failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
-    }
-
-    #[tokio::test]
-    async fn test_double_close_file_error() {
-        let test_files = ["double_close_test.txt"];
-        cleanup_test_files(&test_files);
-
-        // Try to close a file handle twice
-        let code = r#"
-            try:
-                open file at "double_close_test.txt" for writing as test_file
-                wait for write content "Test content" into test_file
-                close file test_file
-                close file test_file
-                display "This should not execute if double close is an error"
-            when error:
-                display "Correctly caught double close error"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Error handling for double close failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
-    }
-
-    #[tokio::test]
-    async fn test_use_closed_file_handle_error() {
-        // The rejected write-after-close currently also drops a stray "file1"
-        // in the working directory; clean it up so the repo-hygiene
-        // working-tree gate stays green.
-        let test_files = ["closed_handle_test.txt", "file1"];
-        cleanup_test_files(&test_files);
-
-        // Try to use a file handle after closing it
-        let code = r#"
-            try:
-                open file at "closed_handle_test.txt" for writing as test_file
-                wait for write content "Initial content" into test_file
-                close file test_file
-                wait for write content "This should fail" into test_file
-                display "This should not execute"
-            when error:
-                display "Correctly caught closed file handle error"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Error handling for closed file handle failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
-    }
-
-    #[tokio::test]
-    async fn test_disk_full_simulation() {
-        // This test is challenging to implement portably, but we can test large writes
-        let test_files = ["large_write_test.txt"];
-        cleanup_test_files(&test_files);
-
-        // Try to write a moderately large string to test limits
-        let large_content = "x".repeat(10_000); // 10KB of 'x' characters - more reasonable for testing
-        let code = format!(
-            r#"
-            try:
-                open file at "large_write_test.txt" for writing as large_file
-                wait for write content "{}" into large_file
-                close file large_file
-                display "Large write completed successfully"
-            when error:
-                display "Correctly caught large write error (possibly disk full)"
-            end try
+        Err(_) => true,
+    };
+    let operation = format!(
+        r#"
+        open file at "{}" for writing as reserved_file
+        wait for write content "platform semantics" into reserved_file
+        close file reserved_file
         "#,
-            large_content
-        );
-
-        let result = execute_wfl_code_expect_success(&code).await;
-        assert!(
-            result.is_ok(),
-            "Large write test failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
+        wfl_path(&reserved)
+    );
+    if rejected_by_os {
+        expect_error(&operation).await;
+        assert!(!reserved.exists());
+    } else {
+        execute(&operation).await;
+        assert_eq!(fs::read_to_string(reserved).unwrap(), "platform semantics");
     }
+}
 
-    #[tokio::test]
-    async fn test_concurrent_access_same_file_error() {
-        let test_files = ["concurrent_access_test.txt"];
-        cleanup_test_files(&test_files);
+// Restore permissions before TempDir is dropped, including during a panic.
+struct RestorePermissions(std::path::PathBuf, fs::Permissions);
 
-        // Try to open the same file for writing multiple times (should this be an error?)
-        let code = r#"
+impl Drop for RestorePermissions {
+    fn drop(&mut self) {
+        fs::set_permissions(&self.0, self.1.clone()).expect("restore fixture permissions");
+    }
+}
+
+#[tokio::test]
+async fn test_write_to_readonly_file_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("readonly.txt");
+    fs::write(&path, "Initial content").unwrap();
+    let original = fs::metadata(&path).unwrap().permissions();
+    let _restore = RestorePermissions(path.clone(), original.clone());
+    let mut readonly = original;
+    readonly.set_readonly(true);
+    fs::set_permissions(&path, readonly).unwrap();
+
+    // Privileged Unix users may bypass mode bits. Require the same outcome as
+    // the OS access check instead of silently accepting either WFL branch.
+    let denied_by_os = fs::OpenOptions::new().write(true).open(&path).is_err();
+    let operation = format!(
+        r#"
+        open file at "{}" for writing as readonly_file
+        wait for write content "Replacement content" into readonly_file
+        close file readonly_file
+        "#,
+        wfl_path(&path)
+    );
+    if denied_by_os {
+        expect_error(&operation).await;
+        assert_eq!(fs::read_to_string(path).unwrap(), "Initial content");
+    } else {
+        execute(&operation).await;
+        assert_eq!(fs::read_to_string(path).unwrap(), "Replacement content");
+    }
+}
+
+#[tokio::test]
+async fn test_write_to_read_handle_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("read_handle.txt");
+    fs::write(&path, "Test content").unwrap();
+    expect_error(&format!(
+        r#"
+        open file at "{}" for reading as read_only_file
+        wait for write content "This should fail" into read_only_file
+        "#,
+        wfl_path(&path)
+    ))
+    .await;
+    assert_eq!(fs::read_to_string(path).unwrap(), "Test content");
+}
+
+#[tokio::test]
+async fn test_double_close_file_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("double_close.txt");
+    // Close is intentionally idempotent; require success and preserved bytes.
+    execute(&format!(
+        r#"
+        open file at "{}" for writing as test_file
+        wait for write content "Test content" into test_file
+        close file test_file
+        close file test_file
+        "#,
+        wfl_path(&path)
+    ))
+    .await;
+    assert_eq!(fs::read_to_string(path).unwrap(), "Test content");
+}
+
+#[tokio::test]
+async fn test_use_closed_file_handle_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("closed_handle.txt");
+    expect_error(&format!(
+        r#"
+        open file at "{}" for writing as test_file
+        wait for write content "Initial content" into test_file
+        close file test_file
+        wait for write content "This should fail" into test_file
+        "#,
+        wfl_path(&path)
+    ))
+    .await;
+    assert_eq!(fs::read_to_string(path).unwrap(), "Initial content");
+}
+
+#[tokio::test]
+async fn test_disk_full_simulation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("large_write.txt");
+    // This is a large-write regression, not a simulation of an exhausted disk.
+    // An unexpected write failure must fail instead of entering a catch-all.
+    let content = "x".repeat(10_000);
+    execute(&format!(
+        r#"
+        open file at "{}" for writing as large_file
+        wait for write content "{content}" into large_file
+        close file large_file
+        "#,
+        wfl_path(&path)
+    ))
+    .await;
+    assert_eq!(fs::read_to_string(path).unwrap(), content);
+}
+
+#[tokio::test]
+async fn test_concurrent_access_same_file_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("same_file.txt");
+    // Multiple handles are supported. Ordered writes leave the second write.
+    execute(&format!(
+        r#"
+        open file at "{path}" for writing as file1
+        open file at "{path}" for writing as file2
+        wait for write content "From file1" into file1
+        wait for write content "From file2" into file2
+        close file file1
+        close file file2
+        "#,
+        path = wfl_path(&path)
+    ))
+    .await;
+    assert_eq!(fs::read_to_string(path).unwrap(), "From file2");
+}
+
+#[tokio::test]
+async fn test_delete_nonexistent_file_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("missing.txt");
+    expect_error(&format!("delete file at \"{}\"", wfl_path(&path))).await;
+    assert!(!path.exists());
+}
+
+#[tokio::test]
+async fn test_nested_error_handling() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("nested.txt");
+    let missing = directory.path().join("missing/nested.txt");
+    let interpreter = execute(&format!(
+        r#"
+        store caught_inner as false
+        store caught_outer as false
+        store completed_outer as false
+        try:
+            open file at "{}" for writing as test_file
+            wait for write content "Outer try content" into test_file
+            close file test_file
             try:
-                open file at "concurrent_access_test.txt" for writing as file1
-                open file at "concurrent_access_test.txt" for writing as file2
-                wait for write content "From file1" into file1
-                wait for write content "From file2" into file2
-                close file file1
-                close file file2
-                display "Concurrent access completed - this behavior depends on implementation"
+                open file at "{}" for reading as missing_file
             when error:
-                display "Correctly caught concurrent access error"
+                change caught_inner to true
             end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Concurrent access test failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
-    }
-
-    #[tokio::test]
-    async fn test_delete_nonexistent_file_error() {
-        let test_files = ["delete_nonexistent.txt"];
-        cleanup_test_files(&test_files); // Ensure file doesn't exist
-
-        // Try to delete a file that doesn't exist
-        let code = r#"
-            try:
-                delete file at "delete_nonexistent.txt"
-                display "Delete operation completed (may succeed even if file doesn't exist)"
-            when error:
-                display "Correctly caught delete nonexistent file error"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Delete nonexistent file test failed: {:?}",
-            result.err()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_nested_error_handling() {
-        let test_files = ["nested_error_test.txt"];
-        cleanup_test_files(&test_files);
-
-        // Test nested try/catch blocks with file operations
-        let code = r#"
-            try:
-                try:
-                    open file at "nested_error_test.txt" for writing as test_file
-                    wait for write content "Outer try content" into test_file
-                    close file test_file
-                    
-                    // Inner try that should fail
-                    try:
-                        open file at "nonexistent_dir/nested_file.txt" for reading as missing_file
-                        wait for store file_data as read content from missing_file
-                        close file missing_file
-                        display "Inner try should not reach here"
-                    when error:
-                        display "Inner error caught successfully"
-                    end try
-                    
-                    display "Outer try completed successfully"
-                when error:
-                    display "Outer error caught (this should not happen)"
-                end try
-            when error:
-                display "Outermost error caught"
-            end try
-        "#;
-
-        let result = execute_wfl_code_expect_success(code).await;
-        assert!(
-            result.is_ok(),
-            "Nested error handling test failed: {:?}",
-            result.err()
-        );
-
-        cleanup_test_files(&test_files);
-    }
+            change completed_outer to true
+        when error:
+            change caught_outer to true
+        end try
+        "#,
+        wfl_path(&path),
+        wfl_path(&missing)
+    ))
+    .await;
+    assert_flag(&interpreter, "caught_inner", true);
+    assert_flag(&interpreter, "caught_outer", false);
+    assert_flag(&interpreter, "completed_outer", true);
+    assert_eq!(fs::read_to_string(path).unwrap(), "Outer try content");
+    assert!(!missing.exists());
 }
