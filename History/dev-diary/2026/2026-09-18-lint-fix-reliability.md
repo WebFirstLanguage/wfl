@@ -49,3 +49,11 @@ claiming to lock unrelated editors. Normal completion releases the lock;
 abnormal termination leaves a visible lock that requires confirming the owner
 has stopped before removal. Regression coverage checks contention, independent
 destinations, and recovery, with the details recorded in the evidence document.
+
+### Additional legacy-constant review
+
+A further review found that the colon in a named argument of the supported
+`create new constant` spelling could be mistaken for a container body. Layout
+now recognizes the actual container-instantiation header before opening a
+block. Retained failing unit and real CLI regressions cover the old constant
+syntax, nested use, real container initialization, and all lint/fix outputs.

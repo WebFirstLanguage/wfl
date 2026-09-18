@@ -246,6 +246,22 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
         Token::KeywordCount if second == Some(&Token::KeywordFrom) => Some(Block::Ordinary),
         Token::KeywordDefine if second == Some(&Token::KeywordAction) => Some(Block::Ordinary),
         Token::KeywordStatic if second == Some(&Token::KeywordAction) => Some(Block::Ordinary),
+        Token::KeywordCreate if second == Some(&Token::KeywordNew) => {
+            // Container initialization requires `new Type as name:`. The
+            // supported legacy `new constant name as value` form is a variable
+            // declaration, even when its value contains named-argument colons.
+            let mut header = tokens.iter().skip(2).map(|token| &token.token);
+            matches!(
+                (header.next(), header.next(), header.next(), header.next()),
+                (
+                    Some(Token::Identifier(_)),
+                    Some(Token::KeywordAs),
+                    Some(Token::Identifier(_)),
+                    Some(Token::Colon)
+                )
+            )
+            .then_some(Block::Ordinary)
+        }
         Token::KeywordCreate
             if matches!(
                 second,
@@ -255,7 +271,6 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
                         | Token::KeywordList
                         | Token::KeywordMap
                         | Token::KeywordPattern
-                        | Token::KeywordNew
                 )
             ) && has_colon =>
         {
