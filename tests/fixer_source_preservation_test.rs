@@ -106,6 +106,56 @@ fn does_not_merge_identifiers_that_have_the_same_snake_case_spelling() {
 }
 
 #[test]
+fn identifier_normalization_does_not_introduce_keywords_or_literal_tokens() {
+    for name in ["Store", "Display", "True", "Nothing", "Yes"] {
+        let source = format!("store {name} as 10\ndisplay {name}\n");
+        let fixed = fix(&source);
+        assert_eq!(
+            significant_tokens(&fixed),
+            significant_tokens(&source),
+            "normalizing {name} would turn an identifier into language syntax"
+        );
+    }
+}
+
+#[test]
+fn local_variable_renaming_does_not_change_external_member_access() {
+    let source = concat!(
+        "store userName as \"local\"\n",
+        "store profile as parse_json of \"{\\\"userName\\\":\\\"remote\\\"}\"\n",
+        "display profile.userName\n",
+        "display userName\n",
+    );
+    let fixed = fix(source);
+    assert!(
+        fixed.contains("profile.userName"),
+        "a member supplied by external JSON must retain its spelling: {fixed}"
+    );
+    assert_eq!(raw_string_literals(&fixed), raw_string_literals(source));
+}
+
+#[test]
+fn local_action_renaming_does_not_change_public_method_names() {
+    let source = concat!(
+        "define action called getName:\n",
+        "    give back \"local\"\n",
+        "end action\n",
+        "create container Example:\n",
+        "    action getName:\n",
+        "        give back \"method\"\n",
+        "    end\n",
+        "end\n",
+        "create new Example as sample:\n",
+        "end\n",
+        "display sample.getName()\n",
+        "call getName\n",
+    );
+    let fixed = fix(source);
+    assert!(fixed.contains("action getName:"), "{fixed}");
+    assert!(fixed.contains("sample.getName()"), "{fixed}");
+}
+
+#[test]
 fn preserves_public_container_property_and_method_names() {
     let source = concat!(
         "create container Example:\n",
