@@ -2049,6 +2049,35 @@ async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result
 /// `begin` (see [`IoClient::db_transactions`]).
 type SharedTransaction = Arc<Mutex<Option<database::DbTransaction>>>;
 
+/// Serialize operations on one descriptor, including close. Keeping the file in
+/// this slot (rather than cloning it for each operation) also retains Tokio's
+/// in-flight buffers when a waiting operation is cancelled.
+struct FileHandleState {
+    file: Option<tokio::fs::File>,
+    writable: bool,
+    needs_sync: bool,
+}
+
+impl FileHandleState {
+    fn file_mut(&mut self, handle_id: &str) -> Result<&mut tokio::fs::File, String> {
+        self.file
+            .as_mut()
+            .ok_or_else(|| format!("Invalid or closed file handle: {handle_id}"))
+    }
+
+    fn begin_write(&mut self, handle_id: &str) -> Result<&mut tokio::fs::File, String> {
+        if !self.writable {
+            return Err(format!("File handle is not open for writing: {handle_id}"));
+        }
+        // Mark dirty before the first await: a cancelled or failed write still
+        // needs flushing/synchronization when the caller later closes the file.
+        self.needs_sync = true;
+        self.file_mut(handle_id)
+    }
+}
+
+type SharedFile = Arc<Mutex<FileHandleState>>;
+
 pub struct IoClient {
     /// Shared outbound HTTP client, built on first use.
     ///
@@ -2059,7 +2088,12 @@ pub struct IoClient {
     /// start-up on such a system, even for a program that never makes a
     /// request. See [`IoClient::http_client`].
     http_client: OnceCell<reqwest::Client>,
-    file_handles: Mutex<HashMap<String, (PathBuf, tokio::fs::File)>>,
+    // Registry locks cover only lookup/insertion/removal, never disk I/O.
+    file_handles: std::sync::Mutex<HashMap<String, SharedFile>>,
+    // Handles remain ordinary Text values for display/type/equality. Their
+    // canonical Arc identifies aliases without reserving filenames such as
+    // "file1". This is lifecycle provenance, not a security capability.
+    file_handle_values: std::sync::Mutex<HashMap<String, std::sync::Weak<str>>>,
     next_file_id: Mutex<usize>,
     process_handles: Mutex<HashMap<String, ProcessHandle>>,
     next_process_id: Mutex<usize>,
@@ -2643,7 +2677,8 @@ impl IoClient {
     fn new(config: Arc<WflConfig>) -> Self {
         Self {
             http_client: OnceCell::new(),
-            file_handles: Mutex::new(HashMap::new()),
+            file_handles: std::sync::Mutex::new(HashMap::new()),
+            file_handle_values: std::sync::Mutex::new(HashMap::new()),
             next_file_id: Mutex::new(1),
             process_handles: Mutex::new(HashMap::new()),
             next_process_id: Mutex::new(1),
@@ -3791,16 +3826,68 @@ impl IoClient {
         }
     }
 
+    fn register_file(
+        &self,
+        handle_id: String,
+        file: tokio::fs::File,
+        writable: bool,
+        needs_sync: bool,
+    ) -> Arc<str> {
+        let value: Arc<str> = handle_id.as_str().into();
+        self.file_handles
+            .lock()
+            .expect("file registry poisoned")
+            .insert(
+                handle_id.clone(),
+                Arc::new(Mutex::new(FileHandleState {
+                    file: Some(file),
+                    writable,
+                    needs_sync,
+                })),
+            );
+        let mut values = self
+            .file_handle_values
+            .lock()
+            .expect("file values poisoned");
+        // Sweep every 64 opens. Dead aliases therefore add at most 63 entries
+        // between sweeps; ordinary read/write dispatch stays O(1).
+        if handle_id
+            .strip_prefix("file")
+            .and_then(|id| id.parse::<usize>().ok())
+            .is_some_and(|id| id % 64 == 0)
+        {
+            values.retain(|_, value| value.strong_count() != 0);
+        }
+        values.insert(handle_id, Arc::downgrade(&value));
+        value
+    }
+
+    fn file_handle(&self, handle_id: &str) -> Result<SharedFile, String> {
+        self.file_handles
+            .lock()
+            .expect("file registry poisoned")
+            .get(handle_id)
+            .cloned()
+            .ok_or_else(|| format!("Invalid or closed file handle: {handle_id}"))
+    }
+
+    fn is_file_handle(&self, value: &Arc<str>) -> bool {
+        self.file_handle_values
+            .lock()
+            .expect("file values poisoned")
+            .get(value.as_ref())
+            .and_then(std::sync::Weak::upgrade)
+            .is_some_and(|canonical| Arc::ptr_eq(value, &canonical))
+    }
+
     #[allow(dead_code)]
-    async fn open_file(&self, path: &str) -> Result<String, String> {
+    async fn open_file(&self, path: &str) -> Result<Arc<str>, String> {
         let handle_id = {
             let mut next_id = self.next_file_id.lock().await;
             let id = format!("file{}", *next_id);
             *next_id += 1;
             id
         };
-
-        let path_buf = PathBuf::from(path);
 
         match tokio::fs::OpenOptions::new()
             .read(true)
@@ -3810,13 +3897,7 @@ impl IoClient {
             .open(path)
             .await
         {
-            Ok(file) => {
-                let mut file_handles = self.file_handles.lock().await;
-
-                // Check if the file is already open, but don't error - just use a new handle
-                file_handles.insert(handle_id.clone(), (path_buf, file));
-                Ok(handle_id)
-            }
+            Ok(file) => Ok(self.register_file(handle_id, file, true, true)),
             Err(e) => Err(format!("Failed to open file {path}: {e}")),
         }
     }
@@ -3826,7 +3907,7 @@ impl IoClient {
         &self,
         path: &str,
         mode: FileOpenMode,
-    ) -> Result<String, RuntimeError> {
+    ) -> Result<Arc<str>, RuntimeError> {
         let handle_id = {
             let mut next_id = self.next_file_id.lock().await;
             let id = format!("file{}", *next_id);
@@ -3834,9 +3915,8 @@ impl IoClient {
             id
         };
 
-        let path_buf = PathBuf::from(path);
-
         let mut options = tokio::fs::OpenOptions::new();
+        let writable = !matches!(mode, FileOpenMode::Read | FileOpenMode::ReadBinary);
         match mode {
             FileOpenMode::Read => {
                 options.read(true).write(false).create(false);
@@ -3856,11 +3936,8 @@ impl IoClient {
         }
 
         match options.open(path).await {
-            Ok(file) => {
-                let mut file_handles = self.file_handles.lock().await;
-                file_handles.insert(handle_id.clone(), (path_buf, file));
-                Ok(handle_id)
-            }
+            // Writable opens may create/truncate without a following write.
+            Ok(file) => Ok(self.register_file(handle_id, file, writable, writable)),
             Err(e) => {
                 let error_kind = match e.kind() {
                     std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
@@ -3883,45 +3960,37 @@ impl IoClient {
         handle_id: &str,
         budget: &ExecutionBudget,
     ) -> Result<String, FileReadError> {
-        let mut file_handles = self.file_handles.lock().await;
+        let handle = self.file_handle(handle_id).map_err(FileReadError::Io)?;
+        let mut state = handle.lock().await;
+        let file = state.file_mut(handle_id).map_err(FileReadError::Io)?;
+        let bytes = read_to_end_capped(file, budget, "Failed to read file").await?;
+        Self::file_bytes_to_text(bytes)
+    }
 
-        if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now read from the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.read_file(&new_handle, budget));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => {
-                    return Err(FileReadError::Io(format!(
-                        "Invalid file handle or path: {handle_id}: {e}"
-                    )));
-                }
-            }
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => {
-                return Err(FileReadError::Io(format!(
-                    "Failed to clone file handle: {e}"
-                )));
-            }
-        };
-
-        drop(file_handles);
-
-        let bytes = read_to_end_capped(&mut file_clone, budget, "Failed to read file").await?;
+    fn file_bytes_to_text(bytes: Vec<u8>) -> Result<String, FileReadError> {
         String::from_utf8(bytes).map_err(|e| {
             FileReadError::Io(format!(
                 "Failed to read file: stream did not contain valid UTF-8: {}",
                 e.utf8_error()
             ))
         })
+    }
+
+    async fn read_file_or_path(
+        &self,
+        value: &Arc<str>,
+        budget: &ExecutionBudget,
+    ) -> Result<String, FileReadError> {
+        if self.is_file_handle(value) {
+            return self.read_file(value, budget).await;
+        }
+        // A text path owns its temporary descriptor directly. Cancellation or
+        // a failed read cannot strand an unreachable entry in the registry.
+        let mut file = tokio::fs::File::open(value.as_ref())
+            .await
+            .map_err(|e| FileReadError::Io(format!("Failed to open file {value}: {e}")))?;
+        let bytes = read_to_end_capped(&mut file, budget, "Failed to read file").await?;
+        Self::file_bytes_to_text(bytes)
     }
 
     /// Syncs file to disk with Windows-specific error handling.
@@ -3974,53 +4043,61 @@ impl IoClient {
 
     #[allow(dead_code)]
     async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
+        let handle = self.file_handle(handle_id)?;
+        let mut state = handle.lock().await;
+        let file = state.begin_write(handle_id)?;
+        file.seek(std::io::SeekFrom::Start(0))
+            .await
+            .map_err(|e| format!("Failed to seek in file: {e}"))?;
+        file.set_len(0)
+            .await
+            .map_err(|e| format!("Failed to truncate file: {e}"))?;
+        file.write_all(content.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write to file: {e}"))?;
+        Self::flush_and_sync_file(&mut state, "write").await
+    }
 
-        if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now write to the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.write_file(&new_handle, content));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
-            }
+    async fn write_file_or_path(&self, value: &Arc<str>, content: &str) -> Result<(), String> {
+        if self.is_file_handle(value) {
+            return self.write_file(value, content).await;
         }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(value.as_ref())
+            .await
+            .map_err(|e| format!("Failed to open file {value}: {e}"))?;
+        let mut state = FileHandleState {
+            file: Some(file),
+            writable: true,
+            needs_sync: true,
         };
+        state
+            .begin_write(value)?
+            .write_all(content.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write to file: {e}"))?;
+        Self::flush_and_sync_file(&mut state, "write").await
+    }
 
-        drop(file_handles);
-
-        match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
-            Ok(_) => match file_clone.set_len(0).await {
-                Ok(_) => {
-                    match AsyncWriteExt::write_all(&mut file_clone, content.as_bytes()).await {
-                        Ok(_) => {
-                            // Flush the data to ensure it's written to disk
-                            match file_clone.flush().await {
-                                Ok(_) => {
-                                    // Platform-specific sync behavior
-                                    // Sync file to disk with Windows-aware error handling
-                                    Self::sync_file_with_windows_handling(&mut file_clone, "write")
-                                        .await
-                                }
-                                Err(e) => Err(format!("Failed to flush file: {e}")),
-                            }
-                        }
-                        Err(e) => Err(format!("Failed to write to file: {e}")),
-                    }
-                }
-                Err(e) => Err(format!("Failed to truncate file: {e}")),
-            },
-            Err(e) => Err(format!("Failed to seek in file: {e}")),
-        }
+    async fn flush_and_sync_file(
+        state: &mut FileHandleState,
+        operation: &str,
+    ) -> Result<(), String> {
+        let file = state
+            .file
+            .as_mut()
+            .ok_or_else(|| "File is already closed".to_string())?;
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush file during {operation}: {e}"))?;
+        Self::sync_file_with_windows_handling(file, operation).await?;
+        // Only a completed flush+sync makes close redundant. On cancellation
+        // or an error the caller retains dirty state for later cleanup.
+        state.needs_sync = false;
+        Ok(())
     }
 
     async fn read_binary(
@@ -4028,32 +4105,13 @@ impl IoClient {
         handle_id: &str,
         budget: &ExecutionBudget,
     ) -> Result<Vec<u8>, FileReadError> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Err(FileReadError::Io(format!(
-                "Invalid file handle: {handle_id}"
-            )));
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => {
-                return Err(FileReadError::Io(format!(
-                    "Failed to clone file handle: {e}"
-                )));
-            }
-        };
-
-        drop(file_handles);
-
-        // Seek to start before reading all
-        match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
-            Ok(_) => {}
-            Err(e) => return Err(FileReadError::Io(format!("Failed to seek in file: {e}"))),
-        }
-
-        read_to_end_capped(&mut file_clone, budget, "Failed to read binary file").await
+        let handle = self.file_handle(handle_id).map_err(FileReadError::Io)?;
+        let mut state = handle.lock().await;
+        let file = state.file_mut(handle_id).map_err(FileReadError::Io)?;
+        file.seek(std::io::SeekFrom::Start(0))
+            .await
+            .map_err(|e| FileReadError::Io(format!("Failed to seek in file: {e}")))?;
+        read_to_end_capped(file, budget, "Failed to read binary file").await
     }
 
     async fn read_binary_n(
@@ -4066,27 +4124,11 @@ impl IoClient {
             .check_file_read_bytes(count)
             .map_err(FileReadError::Budget)?;
 
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Err(FileReadError::Io(format!(
-                "Invalid file handle: {handle_id}"
-            )));
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => {
-                return Err(FileReadError::Io(format!(
-                    "Failed to clone file handle: {e}"
-                )));
-            }
-        };
-
-        drop(file_handles);
-
+        let handle = self.file_handle(handle_id).map_err(FileReadError::Io)?;
+        let mut state = handle.lock().await;
+        let file = state.file_mut(handle_id).map_err(FileReadError::Io)?;
         let mut buf = vec![0u8; count];
-        match AsyncReadExt::read(&mut file_clone, &mut buf).await {
+        match file.read(&mut buf).await {
             Ok(n) => {
                 buf.truncate(n);
                 Ok(buf)
@@ -4098,101 +4140,74 @@ impl IoClient {
     }
 
     async fn write_binary(&self, handle_id: &str, data: &[u8]) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
-        };
-
-        drop(file_handles);
-
-        match AsyncWriteExt::write_all(&mut file_clone, data).await {
-            Ok(_) => match file_clone.flush().await {
-                Ok(_) => {
-                    Self::sync_file_with_windows_handling(&mut file_clone, "write_binary").await
-                }
-                Err(e) => Err(format!("Failed to flush binary file: {e}")),
-            },
-            Err(e) => Err(format!("Failed to write binary data: {e}")),
-        }
+        let handle = self.file_handle(handle_id)?;
+        let mut state = handle.lock().await;
+        state
+            .begin_write(handle_id)?
+            .write_all(data)
+            .await
+            .map_err(|e| format!("Failed to write binary data: {e}"))?;
+        Self::flush_and_sync_file(&mut state, "write_binary").await
     }
 
     async fn file_size(&self, handle_id: &str) -> Result<u64, String> {
-        let file_handles = self.file_handles.lock().await;
-
-        if let Some((path, _)) = file_handles.get(handle_id) {
-            let path = path.clone();
-            drop(file_handles);
-            match tokio::fs::metadata(&path).await {
-                Ok(meta) => Ok(meta.len()),
-                Err(e) => Err(format!("Failed to get file size: {e}")),
-            }
-        } else {
-            // Fallback: try using handle_id as a filesystem path
-            match tokio::fs::metadata(handle_id).await {
-                Ok(meta) => Ok(meta.len()),
-                Err(e) => Err(format!(
-                    "Invalid file handle '{handle_id}' and filesystem lookup failed: {e}"
-                )),
-            }
-        }
+        let handle = self.file_handle(handle_id)?;
+        let mut state = handle.lock().await;
+        state
+            .file_mut(handle_id)?
+            .metadata()
+            .await
+            .map(|meta| meta.len())
+            .map_err(|e| format!("Failed to get file size: {e}"))
     }
 
-    /// Improved file append operation - directly appends content without reading the whole file first
-    /// This is much more memory efficient, especially for large log files
+    async fn file_size_or_path(&self, value: &Arc<str>) -> Result<u64, String> {
+        if self.is_file_handle(value) {
+            return self.file_size(value).await;
+        }
+        tokio::fs::metadata(value.as_ref())
+            .await
+            .map(|meta| meta.len())
+            .map_err(|e| format!("Failed to get file size: {e}"))
+    }
+
     #[allow(dead_code)]
     async fn close_file(&self, handle_id: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
+        let Ok(handle) = self.file_handle(handle_id) else {
+            return Ok(());
+        };
+        let mut state = handle.lock().await;
+        if state.file.is_none() {
             return Ok(());
         }
-
-        // Get the file handle before removing it
-        if let Some((_, mut file)) = file_handles.remove(handle_id) {
-            // Flush the file before closing to ensure all data is written to disk
-            match file.flush().await {
-                Ok(_) => {
-                    // Sync file to disk with Windows-aware error handling
-                    Self::sync_file_with_windows_handling(&mut file, "close").await
-                }
-                Err(e) => Err(format!("Failed to flush file during close: {e}")),
-            }
+        let result = if state.needs_sync {
+            Self::flush_and_sync_file(&mut state, "close").await
         } else {
             Ok(())
-        }
+        };
+        // No await after invalidation: cancellation while waiting/flushing
+        // leaves the live descriptor available for another cleanup attempt.
+        // Already-queued operations retain the slot and observe None.
+        state.file.take();
+        self.file_handles
+            .lock()
+            .expect("file registry poisoned")
+            .remove(handle_id);
+        result
     }
 
     #[allow(dead_code)]
     async fn append_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        let (_, file) = match file_handles.get_mut(handle_id) {
-            Some(entry) => entry,
-            None => return Err(format!("Invalid file handle: {handle_id}")),
-        };
-
-        match AsyncSeekExt::seek(file, std::io::SeekFrom::End(0)).await {
-            Ok(_) => match AsyncWriteExt::write_all(file, content.as_bytes()).await {
-                Ok(_) => {
-                    // Flush the data to ensure it's written to disk
-                    match file.flush().await {
-                        Ok(_) => {
-                            // Sync file to disk with Windows-aware error handling
-                            Self::sync_file_with_windows_handling(file, "append").await
-                        }
-                        Err(e) => Err(format!("Failed to flush appended data: {e}")),
-                    }
-                }
-                Err(e) => Err(format!("Failed to append to file: {e}")),
-            },
-            Err(e) => Err(format!("Failed to seek to end of file: {e}")),
-        }
+        let handle = self.file_handle(handle_id)?;
+        let mut state = handle.lock().await;
+        let file = state.begin_write(handle_id)?;
+        file.seek(std::io::SeekFrom::End(0))
+            .await
+            .map_err(|e| format!("Failed to seek to end of file: {e}"))?;
+        file.write_all(content.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to append to file: {e}"))?;
+        Self::flush_and_sync_file(&mut state, "append").await
     }
 
     #[allow(dead_code)]
@@ -8026,7 +8041,7 @@ impl Interpreter {
                     Ok(handle) => {
                         match env
                             .borrow_mut()
-                            .define_direct(variable_name, Value::Text(handle.into()))
+                            .define_direct(variable_name, Value::Text(handle))
                         {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -8149,48 +8164,21 @@ impl Interpreter {
                     }
                 };
 
-                let is_file_path = matches!(path, Expression::Literal(Literal::String(_), _, _));
-
-                if is_file_path {
-                    match self.io_client.open_file(&path_str).await {
-                        Ok(handle) => match self.io_client.read_file(&handle, &self.budget).await {
-                            Ok(content) => {
-                                // Capture the define result and drop the env
-                                // borrow before the `close_file` await below.
-                                let define_result = env
-                                    .borrow_mut()
-                                    .define_direct(variable_name, Value::Text(content.into()));
-                                match define_result {
-                                    Ok(_) => {
-                                        let _ = self.io_client.close_file(&handle).await;
-                                        Ok((Value::Null, ControlFlow::None))
-                                    }
-                                    Err(msg) => {
-                                        let _ = self.io_client.close_file(&handle).await;
-                                        Err(RuntimeError::new(msg, *line, *column))
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let _ = self.io_client.close_file(&handle).await;
-                                Err(self.file_read_error(e, *line, *column))
-                            }
-                        },
-                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
-                    }
-                } else {
-                    match self.io_client.read_file(&path_str, &self.budget).await {
-                        Ok(content) => {
-                            match env
-                                .borrow_mut()
-                                .define_direct(variable_name, Value::Text(content.into()))
-                            {
-                                Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                                Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                            }
+                match self
+                    .io_client
+                    .read_file_or_path(&path_str, &self.budget)
+                    .await
+                {
+                    Ok(content) => {
+                        match env
+                            .borrow_mut()
+                            .define_direct(variable_name, Value::Text(content.into()))
+                        {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
-                        Err(e) => Err(self.file_read_error(e, *line, *column)),
                     }
+                    Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
             }
             Statement::WriteFileStatement {
@@ -8233,7 +8221,11 @@ impl Interpreter {
                         }
                     }
                     crate::parser::ast::WriteMode::Overwrite => {
-                        match self.io_client.write_file(&file_str, &content_str).await {
+                        match self
+                            .io_client
+                            .write_file_or_path(&file_str, &content_str)
+                            .await
+                        {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(e) => Err(RuntimeError::new(e, *line, *column)),
                         }
@@ -8403,7 +8395,11 @@ impl Interpreter {
 
                 let content_str = format!("{content_value}");
 
-                match self.io_client.write_file(&file_str, &content_str).await {
+                match self
+                    .io_client
+                    .write_file_or_path(&file_str, &content_str)
+                    .await
+                {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
@@ -8430,16 +8426,19 @@ impl Interpreter {
 
                 let content_str = format!("{content_value}");
 
-                // Check if target is a file handle (starts with "file") or a file path
-                if target_str.starts_with("file") {
-                    // This is a file handle, use append_file to respect the file's open mode
+                if self.io_client.is_file_handle(&target_str) {
+                    // Keep the existing handle form's append behavior.
                     match self.io_client.append_file(&target_str, &content_str).await {
                         Ok(_) => Ok((Value::Null, ControlFlow::None)),
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
                 } else {
                     // This is a file path, use write_file (overwrite mode)
-                    match self.io_client.write_file(&target_str, &content_str).await {
+                    match self
+                        .io_client
+                        .write_file_or_path(&target_str, &content_str)
+                        .await
+                    {
                         Ok(_) => Ok((Value::Null, ControlFlow::None)),
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
@@ -9141,7 +9140,11 @@ impl Interpreter {
                                 }
                             }
                             crate::parser::ast::WriteMode::Overwrite => {
-                                match self.io_client.write_file(&file_str, &content_str).await {
+                                match self
+                                    .io_client
+                                    .write_file_or_path(&file_str, &content_str)
+                                    .await
+                                {
                                     Ok(_) => {
                                         exec_trace!("Successfully wrote to file");
                                         Ok((Value::Null, ControlFlow::None))
@@ -9175,54 +9178,21 @@ impl Interpreter {
                             }
                         };
 
-                        let is_file_path =
-                            matches!(path, Expression::Literal(Literal::String(_), _, _));
-
-                        if is_file_path {
-                            match self.io_client.open_file(&path_str).await {
-                                Ok(handle) => {
-                                    match self.io_client.read_file(&handle, &self.budget).await {
-                                        Ok(content) => {
-                                            // Capture the define result and drop the
-                                            // env borrow before the `close_file` await.
-                                            let define_result = env.borrow_mut().define_direct(
-                                                variable_name,
-                                                Value::Text(content.into()),
-                                            );
-                                            match define_result {
-                                                Ok(_) => {
-                                                    let _ =
-                                                        self.io_client.close_file(&handle).await;
-                                                    Ok((Value::Null, ControlFlow::None))
-                                                }
-                                                Err(msg) => {
-                                                    let _ =
-                                                        self.io_client.close_file(&handle).await;
-                                                    Err(RuntimeError::new(msg, *line, *column))
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let _ = self.io_client.close_file(&handle).await;
-                                            Err(self.file_read_error(e, *line, *column))
-                                        }
-                                    }
+                        match self
+                            .io_client
+                            .read_file_or_path(&path_str, &self.budget)
+                            .await
+                        {
+                            Ok(content) => {
+                                match env
+                                    .borrow_mut()
+                                    .define_direct(variable_name, Value::Text(content.into()))
+                                {
+                                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                                 }
-                                Err(e) => Err(RuntimeError::new(e, *line, *column)),
                             }
-                        } else {
-                            match self.io_client.read_file(&path_str, &self.budget).await {
-                                Ok(content) => {
-                                    match env
-                                        .borrow_mut()
-                                        .define_direct(variable_name, Value::Text(content.into()))
-                                    {
-                                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
-                                    }
-                                }
-                                Err(e) => Err(self.file_read_error(e, *line, *column)),
-                            }
+                            Err(e) => Err(self.file_read_error(e, *line, *column)),
                         }
                     }
                     _ => self.execute_statement(inner, Rc::clone(&env)).await,
@@ -12203,7 +12173,11 @@ impl Interpreter {
                                 }
                             };
                             let content_str = format!("{content_value}");
-                            return match self.io_client.write_file(&file_str, &content_str).await {
+                            return match self
+                                .io_client
+                                .write_file_or_path(&file_str, &content_str)
+                                .await
+                            {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(e) => Err(RuntimeError::new(e, *line, *column)),
                             };
@@ -15079,7 +15053,11 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.read_file(&handle_str, &self.budget).await {
+                match self
+                    .io_client
+                    .read_file_or_path(&handle_str, &self.budget)
+                    .await
+                {
                     Ok(content) => Ok(Value::Text(content.into())),
                     Err(e) => Err(self.file_read_error(e, *line, *column)),
                 }
@@ -15190,7 +15168,7 @@ impl Interpreter {
                     }
                 };
 
-                match self.io_client.file_size(&handle_str).await {
+                match self.io_client.file_size_or_path(&handle_str).await {
                     Ok(size) => Ok(Value::Number(size as f64)),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }

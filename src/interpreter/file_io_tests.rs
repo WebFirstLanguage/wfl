@@ -84,7 +84,7 @@ fn client() -> IoClient {
     IoClient::new(Arc::new(WflConfig::default()))
 }
 
-async fn open(client: &IoClient, path: &std::path::Path, mode: FileOpenMode) -> String {
+async fn open(client: &IoClient, path: &std::path::Path, mode: FileOpenMode) -> Arc<str> {
     client
         .open_file_with_mode(path.to_str().unwrap(), mode)
         .await
@@ -387,7 +387,7 @@ fn closed_handles_never_become_paths_or_mutate_files() {
                 client.close_file(&handle).await.unwrap();
                 assert_eq!(std::fs::read(path).unwrap(), b"original");
                 assert!(
-                    !std::path::Path::new(&handle).exists(),
+                    !std::path::Path::new(handle.as_ref()).exists(),
                     "closed handle created a stray path"
                 );
             }));
