@@ -404,3 +404,74 @@ display variable_result
         "reading must not change file permissions",
     );
 }
+
+#[test]
+fn closed_dispatch_text_read_without_wait_is_rejected() {
+    assert_closed_operation_rejected(
+        "reading",
+        "store actual as read content from handle_alias",
+        b"original content\n",
+    );
+}
+
+#[test]
+fn closed_dispatch_write_content_without_wait_is_rejected() {
+    assert_closed_operation_rejected(
+        "appending",
+        "write content \"must not be written\" into handle_alias",
+        b"original content\n",
+    );
+}
+
+#[test]
+fn closed_dispatch_legacy_write_to_without_wait_is_rejected() {
+    assert_closed_operation_rejected(
+        "appending",
+        "write \"must not be written\" to handle_alias",
+        b"original content\n",
+    );
+}
+
+#[test]
+fn closed_dispatch_file_size_rejects_alias_without_reserving_a_real_path() {
+    let directory = tempfile::tempdir().expect("isolated file-size collision fixture");
+    fs::write(directory.path().join("original.txt"), b"original content\n")
+        .expect("write original file");
+    fs::write(directory.path().join("file1"), b"alternate").expect("write colliding filename");
+    let output = run_wfl(
+        directory.path(),
+        r#"
+open file at "original.txt" for reading as original_handle
+store handle_alias as original_handle
+close file original_handle
+try:
+    store rejected_size as file size of handle_alias
+when error:
+    display "REJECTED"
+end try
+store literal_size as file size of "file1"
+display literal_size
+store collision_path as "file1"
+store variable_size as file size of collision_path
+display variable_size
+store path_content as read content from collision_path
+display path_content
+"#,
+    );
+    assert_success(&output);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        ["REJECTED", "9", "9", "alternate"],
+        "closed-handle metadata must reject while independently supplied paths remain valid",
+    );
+    assert_eq!(
+        fs::read(directory.path().join("original.txt")).expect("read original file"),
+        b"original content\n",
+    );
+    assert_eq!(
+        fs::read(directory.path().join("file1")).expect("read colliding filename"),
+        b"alternate",
+    );
+}
