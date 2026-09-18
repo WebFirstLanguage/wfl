@@ -137,6 +137,39 @@ fn local_variable_renaming_does_not_change_external_member_access() {
 }
 
 #[test]
+fn local_variable_renaming_does_not_change_map_keys() {
+    let source = concat!(
+        "store userName as \"local\"\n",
+        "create map profile:\n",
+        "    userName is \"remote\"\n",
+        "end map\n",
+        "display stringify_json of profile\n",
+        "display userName\n",
+    );
+    let fixed = fix(source);
+    assert!(
+        fixed.contains("userName is \"remote\""),
+        "map keys are data, even when their spelling matches a local variable: {fixed}"
+    );
+}
+
+#[test]
+fn local_variable_renaming_does_not_change_pattern_capture_names() {
+    let source = concat!(
+        "store userName as \"local\"\n",
+        "create pattern person:\n",
+        "    capture {one or more letter} as userName\n",
+        "end pattern\n",
+        "display userName\n",
+    );
+    let fixed = fix(source);
+    assert!(
+        fixed.contains("capture {one or more letter} as userName"),
+        "pattern capture names are externally visible keys: {fixed}"
+    );
+}
+
+#[test]
 fn local_action_renaming_does_not_change_public_method_names() {
     let source = concat!(
         "define action called getName:\n",
@@ -155,6 +188,24 @@ fn local_action_renaming_does_not_change_public_method_names() {
     let fixed = fix(source);
     assert!(fixed.contains("action getName:"), "{fixed}");
     assert!(fixed.contains("sample.getName()"), "{fixed}");
+}
+
+#[test]
+fn local_variable_renaming_does_not_change_public_method_parameters() {
+    let source = concat!(
+        "store userName as \"local\"\n",
+        "create container Example:\n",
+        "    action greet needs userName: Text:\n",
+        "        display userName\n",
+        "    end\n",
+        "end\n",
+        "display userName\n",
+    );
+    let fixed = fix(source);
+    assert!(
+        fixed.contains("action greet needs userName: Text:"),
+        "public named parameters must preserve their spelling: {fixed}"
+    );
 }
 
 #[test]

@@ -358,3 +358,62 @@ fn extreme_indentation_configuration_cannot_panic_or_overwrite_source() {
         assert_eq!(fs::read_to_string(&path).unwrap(), source);
     }
 }
+
+#[test]
+fn legacy_repeated_source_after_fix_remains_supported() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let output = run(
+        dir.path(),
+        &["--lint", "program.wfl", "--fix", "program.wfl", "--diff"],
+    );
+    assert_status(&output, 0);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("+display \"hello\"\n"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+}
+
+#[test]
+fn emitted_diff_applies_and_reverses_without_losing_line_endings() {
+    for source in [
+        "display \"hello\"   \n",
+        "display \"hello\"   \r\n",
+        "display \"hello\"   ",
+        "// keep this comment\r\ndisplay \"hello\"   \r\n",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("source.wfl");
+        fs::write(&path, source).unwrap();
+        let fixed = run(dir.path(), &["--lint", "--fix", "source.wfl"]);
+        assert_status(&fixed, 0);
+        let diff = run(dir.path(), &["--lint", "--fix", "source.wfl", "--diff"]);
+        assert_status(&diff, 0);
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        fs::write(dir.path().join("changes.diff"), diff.stdout).unwrap();
+        for reverse in [false, true] {
+            let mut git = Command::new("git");
+            git.args([
+                "-c",
+                "core.autocrlf=false",
+                "apply",
+                "--no-index",
+                "--whitespace=nowarn",
+            ])
+            .current_dir(dir.path());
+            if reverse {
+                git.arg("--reverse");
+            }
+            let output = git
+                .arg("changes.diff")
+                .output()
+                .expect("Git is required to verify the CLI's unified diff contract");
+            assert_status(&output, 0);
+            let expected = if reverse {
+                source.as_bytes()
+            } else {
+                &fixed.stdout
+            };
+            assert_eq!(fs::read(&path).unwrap(), expected, "reverse={reverse}");
+        }
+    }
+}
