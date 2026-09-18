@@ -14,6 +14,12 @@ File operations are covered in detail in [File I/O](../04-advanced-features/file
 - `append content <text> into <file>` - Append to file
 - `close file <file>` - Close file handle
 
+Closing an already closed handle succeeds. Reading, writing, appending, or
+querying the size through a closed handle raises a catchable error, including
+binary operations and copies of the handle. Reopen the file to continue using
+it. Text reads and writes also accept paths directly; see the [handle lifecycle
+and path rules](../04-advanced-features/file-io.md#closing-file-handles).
+
 **See:** [File I/O Guide](../04-advanced-features/file-io.md)
 
 ## Directory Functions

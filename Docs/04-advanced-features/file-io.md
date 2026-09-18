@@ -70,6 +70,26 @@ wait for append content "<text>" into <variable>
 close file <variable>
 ```
 
+### Closing File Handles
+
+Finish using a handle with `close file`. Writes and appends flush their data
+before completing, and closing releases the open file. Closing the same handle
+again succeeds, which makes cleanup safe when more than one error path reaches
+it.
+
+After closing, reading, writing, appending, or querying the size through that
+handle raises a catchable error. This includes text and binary operations, and
+variables that hold a copy of the same handle. The rejected operation does not
+create a file named after the handle or change the original file. Open the file
+again to obtain a new handle.
+
+Text reads and writes also accept a path directly: `read content from "data.txt"`
+and `write content "Hello" into "data.txt"`. Ordinary path variables work too.
+Filenames such as `file1` remain valid, whether supplied directly or stored in a
+path variable, even after an unrelated handle has been closed.
+Direct text reads require an existing readable file, including a read-only
+file. A missing path raises an error; reading never creates the missing file.
+
 ## File Modes
 
 Three modes for opening files:
