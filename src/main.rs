@@ -23,7 +23,7 @@ fn print_help() {
     println!();
     println!("USAGE:");
     println!("    wfl [FLAGS] [OPTIONS] [file]");
-    println!("    wfl config [dir]");
+    println!("    wfl config");
     println!();
     println!("FLAGS:");
     println!("    --help, -h         Prints this help information");
@@ -45,7 +45,7 @@ fn print_help() {
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
     println!("    --configFix        Check and fix configuration files");
-    println!("    config [dir]      Create .wflcfg interactively (default: current directory)");
+    println!("    config            Set up global WFL configuration interactively");
     println!();
     println!("ENVIRONMENT VARIABLES:");
     println!("    WFL_GLOBAL_CONFIG_PATH  Override the global configuration path");
@@ -60,29 +60,25 @@ fn print_help() {
 
 fn run_config_command(args: &[String]) -> io::Result<()> {
     if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h") {
-        println!("USAGE: wfl config [dir]");
+        println!("USAGE: wfl config");
+        println!("Set up global WFL configuration interactively.");
         println!(
-            "Create .wflcfg interactively in an existing directory (default: current directory)."
+            "Configuration file: {}",
+            wfl_config::ConfigChecker::get_global_config_path().display()
         );
+        println!("WFL_GLOBAL_CONFIG_PATH overrides the global configuration path.");
         println!("Press Enter to accept defaults or skip optional settings without defaults.");
         return Ok(());
     }
 
-    if args.len() > 1 || args.first().is_some_and(|arg| arg.starts_with('-')) {
-        eprintln!(
-            "Error: wfl config accepts only one optional directory, without operation flags."
-        );
-        eprintln!("Usage: wfl config [dir]");
+    if !args.is_empty() {
+        eprintln!("Error: wfl config does not accept arguments.");
+        eprintln!("Usage: wfl config");
         process::exit(2);
     }
 
-    let target_dir = Path::new(args.first().map(String::as_str).unwrap_or("."));
-    if !target_dir.is_dir() {
-        eprintln!("Error: wfl config requires a valid directory");
-        process::exit(2);
-    }
-
-    let config_path = target_dir.join(".wflcfg");
+    let config_path = wfl_config::ConfigChecker::get_global_config_path();
+    println!("Configuration file: {}", config_path.display());
     if config_path.exists() {
         eprint!(
             "File {} already exists. Overwrite? (y/n): ",
@@ -209,17 +205,10 @@ async fn run() -> io::Result<()> {
         return Ok(());
     }
 
-    // Keep extensionless programs named `config` or `init` runnable. Explicit
-    // paths such as ./config also continue through the normal script parser.
-    if !Path::new(&args[1]).is_file() {
-        match args[1].as_str() {
-            "config" => return run_config_command(&args[2..]),
-            "init" => {
-                eprintln!("Error: use 'wfl config [dir]' to create a .wflcfg file.");
-                process::exit(2);
-            }
-            _ => {}
-        }
+    // System setup works from any directory, including one containing a file
+    // named config. Explicit program paths such as ./config remain runnable.
+    if args[1] == "config" {
+        return run_config_command(&args[2..]);
     }
 
     // Check for version flag only in WFL flags (before script filename)
@@ -297,10 +286,6 @@ async fn run() -> io::Result<()> {
                     file_path = args[i].clone();
                     i += 1;
                 }
-            }
-            "--init" => {
-                eprintln!("Error: --init has been removed. Use 'wfl config [dir]' instead.");
-                process::exit(2);
             }
             "--lint" => {
                 if analyze_mode || config_check_mode || config_fix_mode {

@@ -80,8 +80,10 @@ max_nesting_depth = 5
 indent_size = 4
 ```
 
+Write `.wflcfg` manually for project-specific overrides. The configuration wizard sets global defaults and does not create or change the project's `.wflcfg`:
+
 ```bash
-wfl config          # create interactively in the current directory
+wfl config          # configure global defaults interactively
 wfl --configCheck   # validate
 ```
 

@@ -313,7 +313,7 @@ wfl program.wfl
 # Start REPL
 wfl
 
-# Create .wflcfg interactively in the current directory
+# Configure global WFL defaults interactively
 wfl config
 
 # Check syntax

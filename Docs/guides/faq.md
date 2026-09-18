@@ -320,11 +320,13 @@ No timeline yet. WFL will reach 1.0 when:
 
 That page covers every key and default, global vs local files, `wfl config` / `--configCheck` / `--configFix`, how config drives lint/style, shell security, and web server bind/TLS/body size. Topic guides (web servers, style, project layout) still mention config in context and link back there.
 
-Create a project file with:
+Configure global WFL defaults with:
 
 ```bash
 wfl config
 ```
+
+The command takes no directory argument and leaves project `.wflcfg` files unchanged. Its destination is `C:\wfl\config` on Windows or `/etc/wfl/wfl.cfg` on Linux/macOS, unless `WFL_GLOBAL_CONFIG_PATH` overrides it.
 
 ---
 

@@ -47,9 +47,8 @@ It is **not** for application secrets or app-specific settings (ports your progr
 ## Quick start
 
 ```bash
-# Create a project config interactively (recommended)
+# Configure global defaults interactively
 wfl config
-# or: wfl config /path/to/project
 
 # Check existing config files for missing/invalid settings
 wfl --configCheck
@@ -62,7 +61,7 @@ wfl --lint my_script.wfl
 wfl --lint --fix my_script.wfl --in-place
 ```
 
-Minimal hand-written file in your project root:
+For project-specific overrides, write a `.wflcfg` in your project root:
 
 ```ini
 # .wflcfg
@@ -80,20 +79,20 @@ Then run scripts from that project tree; WFL walks up from the **script’s dire
 
 | Command | Purpose |
 |---|---|
-| `wfl config [dir]` | Interactive wizard; writes a commented `.wflcfg` |
+| `wfl config` | Interactive wizard; writes the global configuration file |
 | `wfl --configCheck` | Validates local/global config against known settings |
 | `wfl --configFix` | Checks and repairs common config problems |
 | `wfl --lint <file>` | Style/quality checks driven by code-quality keys |
 | `wfl --lint --fix <file> --in-place` | Auto-fix style issues when possible |
 | `wfl --dump-env` | Environment dump (useful when diagnosing “config not loading”) |
 
-`wfl config` uses the current directory; `wfl config /path/to/project` uses the specified existing directory. It creates only `.wflcfg`, without creating directories or starter programs. If `.wflcfg` already exists, the command asks before replacing it. Press Enter at that confirmation to cancel.
+`wfl config` takes no directory argument. It writes global defaults to `C:\wfl\config` on Windows or `/etc/wfl/wfl.cfg` on Linux/macOS. Set `WFL_GLOBAL_CONFIG_PATH` to use another global configuration file. Project `.wflcfg` files are not created or changed.
 
-The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file. Press Enter to accept each default. For optional settings without a default, including the TLS certificate and key paths, press Enter to leave the setting out of the generated file. Skipped TLS paths do not create empty assignments; any global TLS defaults can still apply.
+If the global configuration file already exists, the command asks before replacing it. Press Enter at that confirmation to cancel. Missing parent directories are created only when saving, after all answers are complete. You need permission to write to the selected global location.
 
-The former `wfl --init [dir]` spelling has been removed; use `wfl config [dir]`. `wfl init` also reports guidance to use `wfl config`; it does not initialize a project.
+The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file. Press Enter to accept each default. For optional settings without a default, including the TLS certificate and key paths, press Enter to leave the setting out of the generated file. Skipped TLS paths do not create empty assignments; TLS paths can still be supplied by a project's `.wflcfg` or the program's `secured` statement.
 
-Existing program files named exactly `config` or `init` take precedence over these command names, so `wfl config` or `wfl init` still runs that file when present. You can also run them explicitly as `wfl ./config` or `wfl ./init`.
+`wfl config` always starts the configuration command. To run a program file named exactly `config`, use an explicit path such as `wfl ./config`.
 
 ---
 

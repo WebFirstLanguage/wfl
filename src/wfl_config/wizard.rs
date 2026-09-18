@@ -26,7 +26,9 @@ impl ConfigWizard {
     pub fn run(&mut self, output_path: &Path) -> Result<(), io::Error> {
         println!("\nWebFirst Language Configuration Wizard");
         println!("======================================\n");
-        println!("This wizard will help you create a .wflcfg file with all configuration options.");
+        println!(
+            "This wizard will help you create a WFL configuration file with all configuration options."
+        );
         println!(
             "Press Enter to accept the default value shown in brackets, or type a new value.\n"
         );
@@ -225,6 +227,12 @@ impl ConfigWizard {
         use std::fs::File;
         use std::io::Write;
 
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent)?;
+        }
         let mut file = File::create(path)?;
 
         // Write header
