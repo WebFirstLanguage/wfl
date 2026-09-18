@@ -160,6 +160,59 @@ fn pattern_lookaround_is_stable_in_every_lint_mode() {
     assert_clean_source_in_every_lint_mode(source);
 }
 
+/// A colonless else-if chain shares one end check, so all lint and formatter
+/// modes must preserve both the branch body and the following top-level line.
+#[test]
+fn colonless_otherwise_chain_is_stable_in_every_lint_mode() {
+    let source = "check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// A separately closed block after otherwise is still a real body when its
+/// header shares the branch line and otherwise omits its optional colon.
+#[test]
+fn otherwise_inline_block_is_stable_in_every_lint_mode() {
+    let source = "check if no:\n    display \"first\"\notherwise repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Route arms own separately closed check blocks, including an otherwise arm;
+/// a named argument in the route pattern is not a branch-header delimiter.
+#[test]
+fn route_inline_branches_are_stable_in_every_lint_mode() {
+    for source in [
+        "route 1:\n    when 1 check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "route 1:\n    when 2:\n        display \"two\"\n    otherwise check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "define action called identity with parameters value:\n    return value\nend action\nroute 1:\n    when call identity with value: 1 check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+    ] {
+        assert_clean_source_in_every_lint_mode(source);
+    }
+}
+
+/// Error-handler branches retain real nested bodies after their explicit
+/// colons, even when each body starts on its branch's physical line.
+#[test]
+fn try_inline_branches_are_stable_in_every_lint_mode() {
+    let source = "try:\n    display \"work\"\nwhen error: check if yes:\n        display \"when\"\n    end check\ncatch: repeat while no:\n        display \"catch\"\n    end repeat\nfinally: check if yes:\n        display \"finally\"\n    end check\nend try\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// An ordinary colonless check header cannot borrow its inline child loop's
+/// colon and silently erase that child's indentation in any formatter mode.
+#[test]
+fn ordinary_inline_body_is_stable_in_every_lint_mode() {
+    let source = "check if yes repeat forever:\n        display \"inside\"\n        break\n    end repeat\nend check\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// A bare if's otherwise body contains a separately closed check statement;
+/// unlike an otherwise-check chain owned by check, it adds a nesting level.
+#[test]
+fn bare_if_otherwise_nested_check_is_stable_in_every_lint_mode() {
+    let source = "if no then\n    display \"first\"\notherwise check if yes:\n        display \"nested\"\n    end check\nend if\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
 /// Clean source is warning-free and byte-stable through preview and publication.
 fn assert_clean_source_in_every_lint_mode(source: &str) {
     let directory = TempDir::new().unwrap();

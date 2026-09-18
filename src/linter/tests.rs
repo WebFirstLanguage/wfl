@@ -834,3 +834,63 @@ fn test_fix_pattern_lookaround_preserves_following_indentation() {
         .collect();
     assert_eq!(fixed_sources, sources);
 }
+
+/// Else-if checks share their owner's terminator even without a colon. A colon
+/// directly after otherwise instead introduces an ordinary else body, which
+/// can also contain a separately closed block on the same physical line.
+fn otherwise_chain_layout_sources() -> [&'static str; 19] {
+    [
+        "check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n",
+        "check if no\n    display \"first\"\notherwise check if no\n    display \"second\"\notherwise check if yes\n    display \"third\"\notherwise\n    display \"fallback\"\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise check if no:\n    display \"second\"\notherwise check if yes\n    display \"third\"\notherwise:\n    display \"fallback\"\nend check\ndisplay \"done\"\n",
+        "check if yes:\n    check if no:\n        display \"inner first\"\n    otherwise check if yes\n        display \"inner second\"\n    end check\notherwise check if no\n    display \"outer second\"\nend check\ndisplay \"done\"\n",
+        "repeat while no:\n    check if no\n        display \"first\"\n    otherwise check if yes\n        display \"second\"\n    end check\nend repeat\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise: check if yes\n        display \"second\"\n    end check\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise: repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n",
+        "check if no\n    display \"first\"\notherwise\n    check if yes\n        display \"second\"\n    end check\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise check if yes display \"second\"\nend check\ndisplay \"done\"\n",
+        "check if no:\n    display \"first\"\notherwise check if yes repeat while no:\n        display \"inside\"\n    end repeat\nend check\ndisplay \"done\"\n",
+        "route 1:\n    when 1 check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "route 1:\n    when 2:\n        display \"two\"\n    otherwise check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "define action called identity with parameters value:\n    return value\nend action\nroute 1:\n    when call identity with value: 1 check if yes:\n            display \"inside\"\n        end check\nend route\ndisplay \"done\"\n",
+        "try:\n    display \"work\"\nwhen error: check if yes:\n        display \"when\"\n    end check\ncatch: repeat while no:\n        display \"catch\"\n    end repeat\nfinally: check if yes:\n        display \"finally\"\n    end check\nend try\ndisplay \"done\"\n",
+        "check if yes repeat forever:\n        display \"inside\"\n        break\n    end repeat\nend check\ndisplay \"done\"\n",
+        "define action called greet:\n    display \"hello\"\nend action\ndisplay \"done\"\n",
+        "create container Utility:\n    static action greet:\n        display \"hello\"\n    end\nend\ndisplay \"done\"\n",
+        "if no then\n    display \"first\"\notherwise check if yes:\n        display \"nested\"\n    end check\nend if\ndisplay \"done\"\n",
+    ]
+}
+
+/// Chains without colons retain a single owning check body; ordinary else
+/// bodies retain separately closed nested statements regardless of line breaks.
+#[test]
+fn test_lint_otherwise_chain_preserves_owner_depth() {
+    let diagnostics: Vec<_> = otherwise_chain_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Formatting canonical mixed-colon chains must neither add an extra branch
+/// level nor erase indentation from a real nested block after otherwise.
+#[test]
+fn test_fix_otherwise_chain_preserves_following_indentation() {
+    let sources = otherwise_chain_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
