@@ -213,6 +213,31 @@ fn bare_if_otherwise_nested_check_is_stable_in_every_lint_mode() {
     assert_clean_source_in_every_lint_mode(source);
 }
 
+/// A container method's bare end must not consume the action keyword starting
+/// its next method, including when the preceding method is static.
+#[test]
+fn method_boundary_is_stable_in_every_lint_mode() {
+    for first in ["action", "static action"] {
+        let source = format!(
+            "create container Example:\n    {first} first:\n        display \"one\"\n    end action second:\n        display \"two\"\n    end\nend\ndisplay \"done\"\n"
+        );
+        assert_clean_source_in_every_lint_mode(&source);
+    }
+}
+
+/// Container, interface, and instance bare ends leave following control-flow
+/// headers intact through lint, stdout formatting, diff, and in-place updates.
+#[test]
+fn creation_boundary_is_stable_in_every_lint_mode() {
+    for source in [
+        "create container Box:\nend check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n",
+        "create interface Marker:\n    requires action greet\nend repeat forever:\n    break\nend repeat\ndisplay \"done\"\n",
+        "create container Box:\nend\ncreate new Box as item:\nend repeat forever:\n    break\nend repeat\ndisplay \"done\"\n",
+    ] {
+        assert_clean_source_in_every_lint_mode(source);
+    }
+}
+
 /// Clean source is warning-free and byte-stable through preview and publication.
 fn assert_clean_source_in_every_lint_mode(source: &str) {
     let directory = TempDir::new().unwrap();

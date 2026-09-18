@@ -894,3 +894,72 @@ fn test_fix_otherwise_chain_preserves_following_indentation() {
         .collect();
     assert_eq!(fixed_sources, sources);
 }
+
+/// Container methods and creation bodies close with bare end. A following
+/// keyword may start the next method or statement on the same line, whereas
+/// ordinary actions and control-flow blocks retain their compound terminators.
+fn method_boundary_layout_sources() -> Vec<String> {
+    let mut sources = Vec::new();
+    for first in ["action", "static action"] {
+        for second in ["action", "static action"] {
+            sources.push(format!(
+                "create container Example:\n    {first} first: text\n        return \"one\"\n    end {second} second: text\n        return \"two\"\n    end\nend\ndisplay \"done\"\n"
+            ));
+        }
+    }
+    sources.extend([
+        "create container Example:\n    action first:\n        display \"one\"\n    end\n    action second:\n        display \"two\"\n    end\nend\ndisplay \"done\"\n".to_owned(),
+        "create container Example:\n    action first:\n        display \"one\"\n    end action second:\n        display \"two\"\n    end action third:\n        display \"three\"\n    end\nend\ndisplay \"done\"\n".to_owned(),
+        "create container Example:\n    action first:\n        check if yes:\n            display \"one\"\n        end check\n    end action second:\n        repeat while no:\n            display \"two\"\n        end repeat\n    end\nend\ndisplay \"done\"\n".to_owned(),
+        "define action called first:\n    display \"one\"\nend action define action called second:\n    display \"two\"\nend action\ndisplay \"done\"\n".to_owned(),
+        "check if yes:\n    display \"one\"\nend check repeat while no:\n    display \"two\"\nend repeat\ndisplay \"done\"\n".to_owned(),
+    ]);
+    for bare_body in [
+        "create container Box:\nend",
+        "create interface Marker:\n    requires action greet\nend",
+        "create container Box:\nend\ncreate new Box as item:\nend",
+    ] {
+        for following_block in [
+            "check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n",
+            "repeat forever:\n    break\nend repeat\ndisplay \"done\"\n",
+            "try:\n    display \"inside\"\ncatch:\n    display \"caught\"\nend try\ndisplay \"done\"\n",
+            "route 1:\n    when 1:\n        display \"one\"\nend route\ndisplay \"done\"\n",
+        ] {
+            sources.push(format!("{bare_body} {following_block}"));
+        }
+    }
+    sources
+}
+
+/// A bare terminator must leave the next opener visible; a genuine compound
+/// terminator must still consume its suffix without adding a phantom body.
+#[test]
+fn test_lint_method_boundary_preserves_next_header() {
+    let diagnostics: Vec<_> = method_boundary_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Preserve canonical indentation for adjacent methods and creation bodies,
+/// including static methods, nested control flow, and following statements.
+#[test]
+fn test_fix_method_boundary_preserves_following_indentation() {
+    let sources = method_boundary_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens)
+                .parse()
+                .unwrap_or_else(|errors| panic!("invalid fixture {source:?}: {errors:?}"));
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
