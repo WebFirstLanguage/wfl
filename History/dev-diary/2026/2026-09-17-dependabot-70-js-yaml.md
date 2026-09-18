@@ -11,15 +11,17 @@ Updated the override and regenerated `vscode-extension/package-lock.json`.
 Only the js-yaml package version, tarball URL, and integrity changed in the
 lockfile. ESLint, its configuration loader, and Mocha through `@vscode/test-cli`
 all resolve to the same patched version. This is a development dependency;
-the extension runtime and both Rust dependency graphs are unchanged.
+both Rust dependency graphs are unchanged. Review follow-up also repairs
+extension LSP version recognition, as described below.
 
 Risk class: **R3**, because this fixes an untrusted-input resource limit. The
 affected boundary is YAML parsing in extension development/test tools. The
 regression invokes the real installed parser with tiny inputs and explicit
 budgets, avoiding timing assertions and expensive denial-of-service payloads.
 It is invoked by `npm run test:security`, `pretest`, and `vscode:prepublish`.
-The existing nightly packaging invokes prepublish; existing PR CI does not
-run this Node suite.
+The existing nightly packaging invokes prepublish. PR CI now installs locked
+extension dependencies and runs both the security regression and full host
+suite in the existing required **Build, Test, Clippy** job.
 
 ## Acceptance criteria and Red-to-Green evidence
 
@@ -70,16 +72,53 @@ Repository checks also passed: `cargo fmt --all -- --check`,
 `python -m unittest discover -s tests/tooling -v` (89 tests), and
 `python scripts/check_repo_hygiene.py --mode static`.
 
+## PR review follow-up
+
+Review identified two merge blockers: the security regression was absent from
+presubmit, and the full extension test command failed before reaching the
+VS Code host. Both are addressed in this PR:
+
+- `tests/tooling/test_extension_workflow.py` was committed Red as
+  `fd8dbd82`; both tests failed on the missing workflow steps. CI now sets up
+  Node 20, runs `npm ci` and the bounded security regression, builds the LSP,
+  and runs `xvfb-run -a npm test`. These are unconditional steps in the existing
+  required job; a failure blocks that job. Both workflow tests now pass.
+- ESLint now discovers TypeScript files and uses the installed TypeScript
+  parser and recommended rules. Unused catch bindings and one unnecessary
+  mutable variable were corrected without changing formatter behavior.
+- The host suite uses a real built LSP and isolated workspace/profile under
+  `target/test-artifacts/vscode-extension/`. It asserts real protocol
+  initialization/shutdown, formatting results, file saves, and diagnostics
+  followed by diagnostic clearance after repairing a document. Missing
+  binaries, process errors, timeouts, pending tests, and focused tests fail.
+  Fixtures normalize platform line endings and close dirty documents during
+  cleanup; subprocess shutdown is bounded.
+- Running those real assertions exposed an activation bug: the extension
+  expected `wfl-lsp version ...`, but the current binary prints `wfl-lsp ...`.
+  A behavior-preserving extraction was committed as `896c96f4`. Test-only Red
+  commit `2e8647363fb263caf31c35afc250c176c5e36b66` then reproduced three version
+  recognition failures and the missing real diagnostics (**27 passed,
+  4 failed**). The fix accepts current and legacy banners with a valid semantic
+  version, including prerelease/build metadata, and rejects malformed or
+  unrelated output. This preserves legacy compatibility.
+
+The review follow-up's full tooling run passed **91/91**, including the two new
+workflow checks. `cargo build --locked -p wfl-lsp` passed. Local host validation
+uses Windows x64, Node 24.19.0, npm 12.0.2, and VS Code stable 1.138.0.
+The final `npm test` passed all **4 security tests**, TypeScript compilation,
+ESLint with zero warnings, and **31 host tests with zero skips**, including real
+diagnostics publication and clearance. Independent final review found no
+actionable defects. GitHub CI status is recorded in the PR evidence.
+Logs remain untracked under `target/test-artifacts/dependabot-70/`.
+
 ## Limitations and remaining findings
 
 - `npm audit` no longer reports js-yaml or any High/Critical vulnerability.
   It still exits 1 for pre-existing development-tool findings in `ajv`
   (Moderate, GHSA-2g4f-4pwh-qvx6) and `diff` (Low, GHSA-73rr-hh4g-fpgx).
-- `npm test` passes the new security suite and compilation, then fails in the
-  existing `eslint src` command: `No files matching the pattern "src" were
-  found.` The same lint command fails on the baseline. The VS Code host suite
-  therefore has not passed; no lint configuration or test assertion was
-  relaxed to hide the failure.
+- The initial validation failed at the baseline `eslint src` command before
+  reaching host tests. The review follow-up repairs lint discovery and the
+  host suite, rather than treating this baseline failure as a merge exception.
 - Sandbox filesystem/process restrictions initially prevented compilation
   and the hygiene checker; those commands passed with the necessary execution
   permission. A temporary npm launcher was corrected before running nested
@@ -89,5 +128,6 @@ Repository checks also passed: `cargo fmt --all -- --check`,
   would restore the vulnerability and is not a safe security rollback.
 - The GitHub alert remains open until the fixed dependency reaches the default
   branch and GitHub rescans it. No alert dismissal or release is part of this
-  local change. GitHub CI, standalone WFL program/web runners, and a release
-  package build were not run for this extension development-dependency patch.
+  change. Standalone WFL program/web runners and a release package build were
+  not run locally. The PR records GitHub CI results for the pushed revision,
+  including Linux/Windows integration and fuzz compilation.

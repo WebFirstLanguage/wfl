@@ -18,6 +18,7 @@ project testing profile required by that policy's §4.
 |---|---|---|
 | Linux x86-64 (ubuntu-latest), Rust stable (MSRV **1.94+**, edition 2024) | ✅ | ✅ |
 | Windows x86-64 (windows-latest), Rust stable | ✅ (integration) | ✅ |
+| VS Code extension: Linux x86-64, Node 20, VS Code stable, built WFL LSP | ✅ (host + security tests) | Security at VSIX prepublish; host suite is not a VSIX release gate |
 | macOS | — | — |
 
 > **macOS is not a gated tuple.** CI runs only `ubuntu-latest` and
@@ -37,6 +38,8 @@ runs on Tokio.
 | Format (static) | `cargo fmt --all -- --check` |
 | Lint (static) | `cargo clippy --all-targets --all-features -- -D warnings` |
 | Unit + Rust integration | `cargo test --all` |
+| Extension dependency security | `cd vscode-extension && npm ci && npm run test:security` |
+| Extension lint + VS Code host | `cargo build --locked -p wfl-lsp`, then `cd vscode-extension && npm ci && npm test` (use `xvfb-run -a npm test` on headless Linux) |
 | WFL end-to-end programs | `cargo build --release` then `./scripts/run_integration_tests.sh` (`.ps1` on Windows) |
 | Web-server end-to-end | `./scripts/run_web_tests.sh` (`.ps1` on Windows) |
 | Docs examples validation | `python scripts/validate_docs_examples.py` |
@@ -48,6 +51,8 @@ runs on Tokio.
 cargo fmt --all -- --check \
   && cargo clippy --all-targets --all-features -- -D warnings \
   && cargo test --all \
+  && cargo build --locked -p wfl-lsp \
+  && (cd vscode-extension && npm ci && xvfb-run -a npm test) \
   && cargo build --release \
   && ./scripts/run_integration_tests.sh \
   && ./scripts/run_web_tests.sh \
@@ -62,10 +67,16 @@ validated statically (layers 1–4) via the docs-examples manifest instead.
 
 ### Required services, fixtures, credentials
 
-- No external credentials or network for presubmit. Local TCP servers on
+- Test execution needs no external credentials or external network services.
+  Dependency and tool setup may download packages. Local TCP servers on
   ephemeral ports stand in for HTTP peers.
 - SQLite for DB tests; no production data.
 - TLS tests generate throwaway certs (`rcgen`).
+- Extension setup downloads locked npm packages and VS Code stable; host tests
+  use the locally built LSP, an isolated profile/workspace under
+  `target/test-artifacts/vscode-extension/`, and no external service credentials.
+  Headless Linux needs Xvfb and the VS Code shared-library dependencies. Set
+  `WFL_LSP_PATH` to test a specific local LSP binary.
 
 ### Critical user/operator journeys (release-blocking end-to-end)
 
@@ -114,6 +125,12 @@ debug/release build, `cargo test`, Linux + Windows integration, **Run WFL
 Programs**, web tests, database tests, and fuzz-target compilation. All are
 required checks; the default branch MUST stay green. The nightly build is a
 release artifact and is separately monitored.
+
+The existing **Build, Test, Clippy** job also installs locked extension
+dependencies, runs the bounded dependency security regression, and runs the
+complete `npm test` command in a real VS Code host after building the LSP.
+These steps fail the existing required job on any error; they are not limited
+to nightly packaging. Pending or focused-only extension tests are rejected.
 
 ### Evidence, runtimes, retention
 

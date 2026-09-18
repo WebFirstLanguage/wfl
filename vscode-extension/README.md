@@ -143,6 +143,33 @@ If WFL is installed but not detected:
 1. Set `wfl.cli.autoDetect` to `false`
 2. Manually specify the path to WFL CLI in `wfl.cli.path`
 
+## Development checks
+
+From the repository root, build the real language server before running the
+extension suite:
+
+```sh
+cargo build --locked -p wfl-lsp
+cd vscode-extension
+npm ci
+npm test
+```
+
+`npm test` runs the dependency security regression, TypeScript compilation,
+ESLint, and VS Code host tests. On headless Linux, use `xvfb-run -a npm test`
+with Xvfb and the VS Code system libraries installed. CI runs these checks in
+the required **Build, Test, Clippy** job.
+
+The host tests download VS Code stable and use a fresh workspace and editor
+profile under `target/test-artifacts/vscode-extension/`. They require the built
+`target/debug/wfl-lsp` executable (`wfl-lsp.exe` on Windows); set `WFL_LSP_PATH`
+to select another local build. Set `VSCODE_TEST_VERSION` to test a specific
+VS Code release. Missing servers, missing diagnostics, and skipped tests fail
+the suite.
+
+For the bounded YAML dependency check alone, run `npm run test:security` after
+`npm ci`.
+
 ## Release Notes
 
 ### 0.1.0
