@@ -375,6 +375,13 @@ fn legacy_repeated_source_after_fix_remains_supported() {
 
 #[test]
 fn emitted_diff_applies_and_reverses_without_losing_line_endings() {
+    // Resolve the executable before changing the child's directory. This also
+    // works on Windows hosts that supply Git through a bundled runtime PATH.
+    let git_name = if cfg!(windows) { "git.exe" } else { "git" };
+    let git_path = std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+        .map(|directory| directory.join(git_name))
+        .find(|candidate| candidate.is_file())
+        .expect("Git is required to verify the CLI's unified diff contract");
     for source in [
         "display \"hello\"   \n",
         "display \"hello\"   \r\n",
@@ -382,16 +389,18 @@ fn emitted_diff_applies_and_reverses_without_losing_line_endings() {
         "// keep this comment\r\ndisplay \"hello\"   \r\n",
     ] {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("source.wfl");
+        let relative_path = "nested folder/program with spaces.wfl";
+        let path = dir.path().join(relative_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, source).unwrap();
-        let fixed = run(dir.path(), &["--lint", "--fix", "source.wfl"]);
+        let fixed = run(dir.path(), &["--lint", "--fix", relative_path]);
         assert_status(&fixed, 0);
-        let diff = run(dir.path(), &["--lint", "--fix", "source.wfl", "--diff"]);
+        let diff = run(dir.path(), &["--lint", "--fix", relative_path, "--diff"]);
         assert_status(&diff, 0);
         assert_eq!(fs::read_to_string(&path).unwrap(), source);
         fs::write(dir.path().join("changes.diff"), diff.stdout).unwrap();
         for reverse in [false, true] {
-            let mut git = Command::new("git");
+            let mut git = Command::new(&git_path);
             git.args([
                 "-c",
                 "core.autocrlf=false",
@@ -415,5 +424,33 @@ fn emitted_diff_applies_and_reverses_without_losing_line_endings() {
             };
             assert_eq!(fs::read(&path).unwrap(), expected, "reverse={reverse}");
         }
+    }
+}
+
+#[test]
+fn lint_rule_configuration_is_shared_with_fixes() {
+    for (setting, source) in [
+        (
+            "snake_case_variables = false\n",
+            "store BadName as 1\ndisplay BadName\n",
+        ),
+        ("trailing_whitespace = true\n", DIRTY),
+        ("consistent_keyword_case = false\n", "display TRUE\n"),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("program.wfl");
+        fs::write(&path, source).unwrap();
+        let defaults = run(dir.path(), &["--lint", "program.wfl"]);
+        assert_status(&defaults, 1);
+        fs::write(dir.path().join(".wflcfg"), setting).unwrap();
+        let configured = run(dir.path(), &["--lint", "program.wfl"]);
+        assert_status(&configured, 0);
+        let fixed = run(dir.path(), &["--lint", "--fix", "program.wfl"]);
+        assert_status(&fixed, 0);
+        assert_eq!(fixed.stdout, source.as_bytes(), "setting: {setting}");
+        let diff = run(dir.path(), &["--lint", "--fix", "program.wfl", "--diff"]);
+        assert_status(&diff, 0);
+        assert!(diff.stdout.is_empty());
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
     }
 }
