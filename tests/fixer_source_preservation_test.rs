@@ -6,6 +6,8 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::lexer::token::Token;
 use wfl::parser::Parser;
 
+/// Require both the input and the checked formatter result to parse, so the
+/// infallible formatter's original-source fallback cannot hide a failure.
 fn fix(source: &str) -> String {
     let program = Parser::new(&lex_wfl_with_positions(source))
         .parse()
@@ -19,6 +21,8 @@ fn fix(source: &str) -> String {
     fixed
 }
 
+/// Remove physical newline tokens while retaining syntax and literal values
+/// for comparisons that permit layout changes.
 fn significant_tokens(source: &str) -> Vec<Token> {
     lex_wfl_with_positions(source)
         .into_iter()
@@ -27,6 +31,8 @@ fn significant_tokens(source: &str) -> Vec<Token> {
         .collect()
 }
 
+/// Extract original literal spans so changed escapes or multiline whitespace
+/// cannot pass merely because their decoded token values still match.
 fn raw_string_literals(source: &str) -> Vec<String> {
     lex_wfl_with_positions(source)
         .into_iter()
@@ -302,8 +308,8 @@ fn atomic_write_refuses_to_replace_a_concurrently_modified_source() {
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
-// A lock names the canonical destination, rather than its replaceable inode.
-// Its fixed-width digest also supports names near a filesystem's length limit.
+/// Construct the documented lock marker for a real source path. The canonical
+/// basename digest names the destination independently of its replaceable inode.
 fn formatter_lock_path(path: &Path) -> PathBuf {
     use sha2::{Digest, Sha256};
 
@@ -391,6 +397,8 @@ fn atomic_write_preserves_an_abandoned_lock_until_explicit_recovery() {
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
 }
 
+/// Append every nested WFL corpus file, failing on unreadable directories or
+/// entries rather than silently reducing the regression coverage.
 fn collect_programs(directory: &Path, paths: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(directory).expect("read TestPrograms directory") {
         let path = entry.expect("read TestPrograms entry").path();
@@ -402,9 +410,9 @@ fn collect_programs(directory: &Path, paths: &mut Vec<PathBuf>) {
     }
 }
 
-// Ignore permitted identifier styling, while retaining every literal, operator,
-// keyword and punctuation token. Dedicated tests above check collision handling,
-// consistent references, and public API names without normalization.
+/// Ignore identifier styling while retaining every literal, operator, keyword,
+/// and punctuation token. Separate tests check collisions, reference updates,
+/// and public API names without this normalization.
 fn tokens_with_normalized_identifier_style(source: &str) -> Vec<Token> {
     significant_tokens(source)
         .into_iter()
@@ -420,6 +428,8 @@ fn tokens_with_normalized_identifier_style(source: &str) -> Vec<Token> {
         .collect()
 }
 
+/// Compare normalized tokens, raw literal spans, and second-pass output for
+/// every parseable corpus file; require nonzero coverage and report each failure.
 #[test]
 fn all_parseable_test_programs_preserve_syntax_literals_and_idempotence() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("TestPrograms");

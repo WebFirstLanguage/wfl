@@ -691,10 +691,11 @@ fn test_fix_contextual_block_words_preserve_following_indentation() {
 /// Explicit action calls store their callee as an ActionCall name rather than
 /// a Variable expression. A following `loop` value must not turn that callee
 /// into a main-loop header, while actual main-loop statements keep their body.
-fn main_action_call_layout_sources() -> [&'static str; 2] {
+fn main_action_call_layout_sources() -> [&'static str; 3] {
     [
         "define action called main:\n    return 1\nend action\ndisplay call main loop\ndisplay \"done\"\n",
         "main loop:\n    break\nend loop\ndisplay \"done\"\n",
+        "main loop concurrently:\n    break\nend loop\ndisplay \"done\"\n",
     ]
 }
 

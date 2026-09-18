@@ -9,10 +9,14 @@ pub(crate) mod layout;
 use layout::SourceLayout;
 
 pub trait LintRule {
+    /// Stable diagnostic code used to identify and configure this rule.
     fn code(&self) -> &'static str;
 
+    /// Human-readable purpose of the rule for callers that list available checks.
     fn description(&self) -> &'static str;
 
+    /// Inspect the parsed program and registered source without modifying either.
+    /// Diagnostics must refer to the supplied reporter file identifier.
     fn apply(
         &self,
         program: &Program,
@@ -32,6 +36,7 @@ pub struct Linter {
 }
 
 impl Linter {
+    /// Create the built-in style checks with the default width and depth limits.
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
@@ -44,22 +49,28 @@ impl Linter {
         }
     }
 
+    /// Append a custom check after the configured built-in rules.
     pub fn add_rule(&mut self, rule: Box<dyn LintRule>) {
         self.rules.push(rule);
     }
 
+    /// Set the maximum physical line length, measured in Unicode characters.
     pub fn set_max_line_length(&mut self, length: usize) {
         self.max_line_length = length;
     }
 
+    /// Set the greatest permitted nesting depth for control-flow statements.
     pub fn set_max_nesting_depth(&mut self, depth: usize) {
         self.max_nesting_depth = depth;
     }
 
+    /// Set the number of spaces required for each level of source indentation.
     pub fn set_indent_size(&mut self, size: usize) {
         self.indent_size = size;
     }
 
+    /// Run enabled checks and return their diagnostics plus whether none were found.
+    /// The source and path are registered for diagnostic locations; no files are written.
     pub fn lint(
         &self,
         program: &Program,
@@ -106,6 +117,7 @@ impl Linter {
         (all_diagnostics, is_empty)
     }
 
+    /// Load the directory's effective configuration for built-in checks and limits.
     pub fn load_config(&mut self, dir: &Path) {
         let config = crate::config::load_config(dir);
         self.set_max_line_length(config.max_line_length);
@@ -142,6 +154,7 @@ pub(crate) fn naming_statements(program: &Program) -> Vec<&Statement> {
     statements
 }
 
+/// Borrow executable child statements for traversal without descending recursively.
 fn statement_children(statement: &Statement) -> Vec<&Statement> {
     match statement {
         Statement::IfStatement {
@@ -214,6 +227,7 @@ impl LintRule for NamingConventionRule {
         "Variable and action names should use snake_case"
     }
 
+    /// Report local declaration names while preserving container API spellings.
     fn apply(
         &self,
         program: &Program,
@@ -291,9 +305,10 @@ impl LintRule for IndentationRule {
         "Code should use the configured indentation width"
     }
 
+    /// Compare significant source lines with shared layout, ignoring literal interiors.
     fn apply(
         &self,
-        _program: &Program,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
@@ -302,7 +317,7 @@ impl LintRule for IndentationRule {
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
 
-            for line in SourceLayout::new(source).lines {
+            for line in SourceLayout::new(source, program).lines {
                 let Some(depth) = line.depth else {
                     continue;
                 };
@@ -341,6 +356,7 @@ impl LintRule for KeywordCasingRule {
         "Keywords should be lowercase"
     }
 
+    /// Find mis-cased keyword words through lexing, excluding comments and strings.
     fn apply(
         &self,
         _program: &Program,
@@ -460,9 +476,10 @@ impl LintRule for TrailingWhitespaceRule {
         "Lines should not have trailing whitespace"
     }
 
+    /// Report trailing whitespace only when removing it cannot alter a string literal.
     fn apply(
         &self,
-        _program: &Program,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
@@ -470,7 +487,7 @@ impl LintRule for TrailingWhitespaceRule {
 
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
-            let layout = SourceLayout::new(source);
+            let layout = SourceLayout::new(source, program);
             for line in &layout.lines {
                 let text = &source[line.content.clone()];
                 let trailing = line.content.start + text.trim_end().len()..line.content.end;
@@ -507,9 +524,10 @@ impl LintRule for LineLengthRule {
         "Lines should not exceed the maximum length"
     }
 
+    /// Count Unicode characters while retaining byte-based diagnostic locations.
     fn apply(
         &self,
-        _program: &Program,
+        program: &Program,
         reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
@@ -520,7 +538,7 @@ impl LintRule for LineLengthRule {
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
 
-            for line in SourceLayout::new(source).lines {
+            for line in SourceLayout::new(source, program).lines {
                 let text = &source[line.content];
                 if let Some((byte_column, _)) = text.char_indices().nth(max_length) {
                     diagnostics.push(WflDiagnostic::new(
@@ -555,6 +573,7 @@ impl LintRule for NestingDepthRule {
         "Nesting depth should not exceed the maximum"
     }
 
+    /// Walk nested statements iteratively and flag control flow beyond the configured depth.
     fn apply(
         &self,
         program: &Program,
@@ -612,10 +631,12 @@ impl LintRule for NestingDepthRule {
     }
 }
 
+/// Test the naming rule's lowercase, space-free convention without rewriting the name.
 fn is_snake_case(s: &str) -> bool {
     !s.contains(char::is_uppercase) && !s.contains(' ')
 }
 
+/// Produce the diagnostic's suggested spelling, preserving existing underscores.
 fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
     let mut previous_char_is_lowercase = false;

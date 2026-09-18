@@ -2,6 +2,8 @@
 
 use crate::lexer::lex_wfl_with_positions;
 use crate::lexer::token::{Token, TokenWithPosition};
+use crate::parser::ast::{Assertion, Expression, Literal, Program, Statement};
+use std::collections::HashSet;
 use std::ops::Range;
 
 pub(crate) struct LineLayout {
@@ -26,9 +28,423 @@ enum Block {
     RouteArm,
 }
 
+/// The parsed program distinguishes expression operands from identically
+/// spelled block words. Keep the token scanner for physical layout, since some
+/// statement locations are legacy end positions and cannot identify headers.
+#[derive(Default)]
+struct SourceRoles {
+    operands: HashSet<usize>,
+    body_headers: HashSet<usize>,
+}
+
+impl SourceRoles {
+    /// Traverse the existing AST without reparsing or recursing on user input.
+    /// A source-spelling check excludes synthetic route helper variables whose
+    /// locations point at real `when` headers instead of variable references.
+    fn new(source: &str, tokens: &[TokenWithPosition], program: &Program) -> Self {
+        let mut roles = Self::default();
+        let mut statements: Vec<_> = program.statements.iter().collect();
+        let mut expressions = Vec::new();
+        while let Some(statement) = statements.pop() {
+            statements.extend(super::statement_children(statement));
+            if let Statement::WaitForStatement { inner, .. } = statement {
+                statements.push(inner);
+            }
+            // Ordinary `on source event` registers a bodyless event handler;
+            // only the websocket form consumes a body and `end on` today.
+            if let Statement::WebSocketHandlerStatement { line, column, .. } = statement
+                && let Some(token) = token_at(tokens, *line, *column)
+                && token.token == Token::KeywordOn
+            {
+                roles.body_headers.insert(token.byte_start);
+            }
+            // `main` can also name an action or member in an expression. This
+            // statement's location reliably identifies the actual loop header.
+            if let Statement::MainLoop { line, column, .. } = statement
+                && let Some(token) = token_at(tokens, *line, *column)
+                && matches!(&token.token, Token::Identifier(name) if name == "main")
+            {
+                roles.body_headers.insert(token.byte_start);
+            }
+            statement_expressions(statement, &mut expressions);
+        }
+        while let Some(expression) = expressions.pop() {
+            if let Expression::Variable(name, line, column) = expression
+                && let Some(token) = token_at(tokens, *line, *column)
+            {
+                let matches_source = match &token.token {
+                    Token::Identifier(identifier) => identifier == name,
+                    _ => source[token.byte_start..token.byte_end].eq_ignore_ascii_case(name),
+                };
+                if matches_source {
+                    roles.operands.insert(token.byte_start);
+                }
+            }
+            expression_children(expression, &mut expressions);
+        }
+        roles
+    }
+}
+
+/// AST and token locations come from the same positioned lexer. Binary search
+/// avoids repeatedly scanning the source for each expression in large programs.
+fn token_at(
+    tokens: &[TokenWithPosition],
+    line: usize,
+    column: usize,
+) -> Option<&TokenWithPosition> {
+    tokens
+        .binary_search_by_key(&(line, column), |token| (token.line, token.column))
+        .ok()
+        .map(|index| &tokens[index])
+}
+
+/// Add all expression roots carried by a statement, including metadata defaults
+/// and validation expressions. Exhaustive variants make new AST forms visible
+/// to this visitor at compile time; nested statements are handled separately.
+fn statement_expressions<'a>(statement: &'a Statement, pending: &mut Vec<&'a Expression>) {
+    match statement {
+        Statement::VariableDeclaration { value, .. }
+        | Statement::Assignment { value, .. }
+        | Statement::DisplayStatement { value, .. }
+        | Statement::AddToListStatement { value, .. }
+        | Statement::RemoveFromListStatement { value, .. } => pending.push(value),
+        Statement::IfStatement { condition, .. }
+        | Statement::SingleLineIf { condition, .. }
+        | Statement::WhileLoop { condition, .. }
+        | Statement::RepeatWhileLoop { condition, .. }
+        | Statement::RepeatUntilLoop { condition, .. } => pending.push(condition),
+        Statement::ForEachLoop { collection, .. } => pending.push(collection),
+        Statement::CountLoop {
+            start, end, step, ..
+        } => {
+            pending.extend([start, end]);
+            pending.extend(step);
+        }
+        Statement::ActionDefinition { parameters, .. }
+        | Statement::EventDefinition { parameters, .. } => {
+            pending.extend(
+                parameters
+                    .iter()
+                    .filter_map(|parameter| parameter.default_value.as_ref()),
+            );
+        }
+        Statement::ReturnStatement { value, .. }
+        | Statement::CreateDateStatement { value, .. }
+        | Statement::CreateTimeStatement { value, .. } => pending.extend(value),
+        Statement::ExpressionStatement { expression, .. } => pending.push(expression),
+        Statement::OpenFileStatement { path, .. }
+        | Statement::ReadFileStatement { path, .. }
+        | Statement::CreateDirectoryStatement { path, .. }
+        | Statement::DeleteFileStatement { path, .. }
+        | Statement::DeleteDirectoryStatement { path, .. }
+        | Statement::LoadModuleStatement { path, .. }
+        | Statement::IncludeStatement { path, .. } => pending.push(path),
+        Statement::WriteFileStatement { file, content, .. }
+        | Statement::WriteToStatement { file, content, .. } => pending.extend([file, content]),
+        Statement::CloseFileStatement { file, .. } => pending.push(file),
+        Statement::OpenDatabaseStatement { url, .. } | Statement::HttpGetStatement { url, .. } => {
+            pending.push(url)
+        }
+        Statement::DatabaseQueryStatement {
+            db,
+            sql,
+            parameters,
+            ..
+        } => {
+            pending.extend([db, sql]);
+            pending.extend(parameters);
+        }
+        Statement::CloseDatabaseStatement { db, .. }
+        | Statement::TransactionStatement { db, .. } => pending.push(db),
+        Statement::CreateFileStatement { path, content, .. } => pending.extend([path, content]),
+        Statement::ExecuteCommandStatement {
+            command, arguments, ..
+        }
+        | Statement::SpawnProcessStatement {
+            command, arguments, ..
+        } => {
+            pending.push(command);
+            pending.extend(arguments);
+        }
+        Statement::ExecuteFileStatement { path, request, .. } => {
+            pending.push(path);
+            pending.extend(request);
+        }
+        Statement::ReadProcessOutputStatement { process_id, .. }
+        | Statement::KillProcessStatement { process_id, .. }
+        | Statement::WaitForProcessStatement { process_id, .. } => pending.push(process_id),
+        Statement::WaitForDurationStatement { duration, .. } => pending.push(duration),
+        Statement::HttpPostStatement { url, data, .. } => pending.extend([url, data]),
+        Statement::HttpRequestStatement {
+            url,
+            method,
+            headers,
+            body,
+            ..
+        }
+        | Statement::HttpStreamStatement {
+            url,
+            method,
+            headers,
+            body,
+            ..
+        } => {
+            pending.push(url);
+            pending.extend(method.iter().chain(headers).chain(body));
+        }
+        Statement::WaitForNextChunkStatement { source, .. }
+        | Statement::WaitForNextLineStatement { source, .. } => pending.push(source),
+        Statement::PushStatement { list, value, .. } => pending.extend([list, value]),
+        Statement::CreateListStatement { initial_values, .. } => pending.extend(initial_values),
+        Statement::MapCreation { entries, .. } => {
+            pending.extend(entries.iter().map(|(_, value)| value))
+        }
+        Statement::ContainerDefinition {
+            properties,
+            static_properties,
+            events,
+            ..
+        } => {
+            for property in properties.iter().chain(static_properties) {
+                pending.extend(&property.default_value);
+                pending.extend(
+                    property
+                        .validation_rules
+                        .iter()
+                        .flat_map(|rule| &rule.parameters),
+                );
+            }
+            pending.extend(
+                events
+                    .iter()
+                    .flat_map(|event| &event.parameters)
+                    .filter_map(|parameter| parameter.default_value.as_ref()),
+            );
+        }
+        Statement::ContainerInstantiation {
+            arguments,
+            property_initializers,
+            ..
+        } => {
+            pending.extend(arguments.iter().map(|argument| &argument.value));
+            pending.extend(property_initializers.iter().map(|property| &property.value));
+        }
+        Statement::InterfaceDefinition {
+            required_actions, ..
+        } => {
+            pending.extend(
+                required_actions
+                    .iter()
+                    .flat_map(|action| &action.parameters)
+                    .filter_map(|parameter| parameter.default_value.as_ref()),
+            );
+        }
+        Statement::EventTrigger { arguments, .. }
+        | Statement::ParentMethodCall { arguments, .. } => {
+            pending.extend(arguments.iter().map(|argument| &argument.value))
+        }
+        Statement::EventHandler { event_source, .. } => pending.push(event_source),
+        Statement::ListenStatement {
+            port,
+            tls,
+            redirect_to_port,
+            ..
+        } => {
+            pending.push(port);
+            pending.extend(redirect_to_port);
+            if let Some(tls) = tls {
+                pending.extend(tls.cert_path.iter().chain(&tls.key_path));
+            }
+        }
+        Statement::WaitForRequestStatement {
+            server, timeout, ..
+        } => {
+            pending.push(server);
+            pending.extend(timeout);
+        }
+        Statement::RespondStatement {
+            request,
+            content,
+            status,
+            content_type,
+            headers,
+            ..
+        } => {
+            pending.extend([request, content]);
+            pending.extend(status.iter().chain(content_type).chain(headers));
+        }
+        Statement::StartStreamingResponseStatement {
+            request,
+            status,
+            content_type,
+            headers,
+            ..
+        } => {
+            pending.push(request);
+            pending.extend(status.iter().chain(content_type).chain(headers));
+        }
+        Statement::StreamWriteStatement {
+            value,
+            target,
+            fallback_content,
+            ..
+        } => {
+            pending.extend([value, target]);
+            pending.extend(fallback_content.as_deref());
+        }
+        Statement::FlushStreamStatement {
+            target,
+            action_fallback,
+            ..
+        } => {
+            pending.push(target);
+            pending.extend(action_fallback);
+        }
+        Statement::ListenWebSocketStatement { port, .. } => pending.push(port),
+        Statement::WebSocketHandlerStatement { server, .. }
+        | Statement::StopAcceptingConnectionsStatement { server, .. }
+        | Statement::CloseServerStatement { server, .. } => pending.push(server),
+        Statement::SendWebSocketMessageStatement {
+            message, target, ..
+        } => pending.extend([message, target]),
+        Statement::BroadcastWebSocketMessageStatement {
+            message, server, ..
+        } => pending.extend([message, server]),
+        Statement::WriteContentStatement {
+            content, target, ..
+        }
+        | Statement::WriteBinaryStatement {
+            content, target, ..
+        } => pending.extend([content, target]),
+        Statement::ExpectStatement {
+            subject, assertion, ..
+        } => {
+            pending.push(subject);
+            match assertion {
+                Assertion::Equal(value)
+                | Assertion::Be(value)
+                | Assertion::GreaterThan(value)
+                | Assertion::LessThan(value)
+                | Assertion::Contain(value)
+                | Assertion::HaveLength(value) => pending.push(value),
+                Assertion::BeYes
+                | Assertion::BeNo
+                | Assertion::Exist
+                | Assertion::BeEmpty
+                | Assertion::BeOfType(_) => {}
+            }
+        }
+        Statement::ForeverLoop { .. }
+        | Statement::MainLoop { .. }
+        | Statement::BreakStatement { .. }
+        | Statement::ContinueStatement { .. }
+        | Statement::ExitStatement { .. }
+        | Statement::ExportStatement { .. }
+        | Statement::WaitForStatement { .. }
+        | Statement::TryStatement { .. }
+        | Statement::ClearListStatement { .. }
+        | Statement::PatternDefinition { .. }
+        | Statement::RegisterSignalHandlerStatement { .. }
+        | Statement::DescribeBlock { .. }
+        | Statement::TestBlock { .. } => {}
+    }
+}
+
+/// Add immediate expression children to an explicit worklist, preserving
+/// operand positions inside lists, calls, operators, and nested I/O forms.
+fn expression_children<'a>(expression: &'a Expression, pending: &mut Vec<&'a Expression>) {
+    match expression {
+        Expression::Literal(Literal::List(values), ..) => pending.extend(values),
+        Expression::Literal(..)
+        | Expression::Variable(..)
+        | Expression::StaticMemberAccess { .. }
+        | Expression::CurrentTimeMilliseconds { .. }
+        | Expression::CurrentTimeFormatted { .. } => {}
+        Expression::BinaryOperation { left, right, .. }
+        | Expression::Concatenation { left, right, .. } => {
+            pending.extend([left.as_ref(), right.as_ref()])
+        }
+        Expression::UnaryOperation { expression, .. }
+        | Expression::AwaitExpression { expression, .. } => pending.push(expression),
+        Expression::FunctionCall {
+            function,
+            arguments,
+            ..
+        } => {
+            pending.push(function);
+            pending.extend(arguments.iter().map(|argument| &argument.value));
+        }
+        Expression::MemberAccess { object, .. } | Expression::PropertyAccess { object, .. } => {
+            pending.push(object)
+        }
+        Expression::ActionCall { arguments, .. } => {
+            pending.extend(arguments.iter().map(|argument| &argument.value))
+        }
+        Expression::IndexAccess {
+            collection, index, ..
+        } => pending.extend([collection.as_ref(), index.as_ref()]),
+        Expression::PatternMatch { text, pattern, .. }
+        | Expression::PatternFind { text, pattern, .. }
+        | Expression::PatternSplit { text, pattern, .. } => {
+            pending.extend([text.as_ref(), pattern.as_ref()])
+        }
+        Expression::PatternReplace {
+            text,
+            pattern,
+            replacement,
+            ..
+        } => pending.extend([text.as_ref(), pattern.as_ref(), replacement.as_ref()]),
+        Expression::StringSplit {
+            text, delimiter, ..
+        } => pending.extend([text.as_ref(), delimiter.as_ref()]),
+        Expression::MethodCall {
+            object, arguments, ..
+        } => {
+            pending.push(object);
+            pending.extend(arguments.iter().map(|argument| &argument.value));
+        }
+        Expression::HeaderAccess { request, .. } => pending.push(request),
+        Expression::FileExists { path, .. }
+        | Expression::DirectoryExists { path, .. }
+        | Expression::ListFiles { path, .. } => pending.push(path),
+        Expression::ReadContent { file_handle, .. }
+        | Expression::ReadBinaryContent { file_handle, .. }
+        | Expression::FileSizeOf { file_handle, .. } => pending.push(file_handle),
+        Expression::ReadBinaryN {
+            file_handle, count, ..
+        } => pending.extend([file_handle.as_ref(), count.as_ref()]),
+        Expression::ListFilesRecursive {
+            path, extensions, ..
+        } => {
+            pending.push(path);
+            pending.extend(extensions.iter().flatten());
+        }
+        Expression::ListFilesFiltered {
+            path, extensions, ..
+        } => {
+            pending.push(path);
+            pending.extend(extensions);
+        }
+        Expression::ProcessRunning { process_id, .. } => pending.push(process_id),
+        Expression::DatabaseQuery {
+            db,
+            sql,
+            parameters,
+            ..
+        } => {
+            pending.extend([db.as_ref(), sql.as_ref()]);
+            pending.extend(parameters.as_deref());
+        }
+    }
+}
+
 impl SourceLayout {
-    pub fn new(source: &str) -> Self {
+    /// Derive physical layout using the AST parsed from this same source to
+    /// distinguish expression operands from block and branch keywords.
+    pub fn new(source: &str, program: &Program) -> Self {
         let tokens = lex_wfl_with_positions(source);
+        let roles = SourceRoles::new(source, &tokens, program);
         let string_spans: Vec<_> = tokens
             .iter()
             .filter(|token| matches!(token.token, Token::StringLiteral(_)))
@@ -71,7 +487,7 @@ impl SourceLayout {
             // A line starting inside a literal must keep its indentation, but
             // real tokens after its closing quote can still open/close blocks.
             let token_depth =
-                (!line_tokens.is_empty()).then(|| line_depth(line_tokens, &mut stack));
+                (!line_tokens.is_empty()).then(|| line_depth(line_tokens, &mut stack, &roles));
             let depth = if inside_string { None } else { token_depth };
             lines.push(LineLayout {
                 line_number: lines.len() + 1,
@@ -87,6 +503,7 @@ impl SourceLayout {
         }
     }
 
+    /// Check whether a proposed source edit intersects an original string token.
     pub fn overlaps_string(&self, range: &Range<usize>) -> bool {
         let index = self
             .string_spans
@@ -100,7 +517,7 @@ impl SourceLayout {
 /// Return this line's indentation depth and update the blocks for the next line.
 /// Only body definitions open blocks; action exports and interface requirements
 /// reference an existing action and leave the surrounding nesting unchanged.
-fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>) -> usize {
+fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>, roles: &SourceRoles) -> usize {
     // Header lookups must stay linear even for very long or incomplete lines.
     let mut header_ends = vec![None; tokens.len() + 1];
     for index in (0..tokens.len()).rev() {
@@ -113,6 +530,10 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>) -> usize {
     let mut depth = stack.len();
     let mut index = 0;
     while index < tokens.len() {
+        if roles.operands.contains(&tokens[index].byte_start) {
+            index += 1;
+            continue;
+        }
         let token = &tokens[index].token;
         if matches!(token, Token::KeywordUntil) && stack.last() == Some(&Block::PostconditionRepeat)
         {
@@ -188,7 +609,14 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>) -> usize {
             continue;
         }
         let has_colon = header_ends[index].is_some_and(|end| tokens[end].token == Token::Colon);
-        if let Some(block) = opened_block(&tokens[index..], has_colon) {
+        let needs_body_role = matches!(token, Token::KeywordOn)
+            || matches!(token, Token::Identifier(name) if name == "main");
+        let is_body_header =
+            !needs_body_role || roles.body_headers.contains(&tokens[index].byte_start);
+        if let Some(block) = is_body_header
+            .then(|| opened_block(&tokens[index..], has_colon))
+            .flatten()
+        {
             stack.push(block);
             if let Some(end) = header_ends[index] {
                 index = end + 1;

@@ -71,3 +71,23 @@ declaration header, including an interface's optional parent list. Test-only
 revision `877a1dd6` preserves the ten failing regressions before the correction.
 Independent review checked the implementation against the parser's accepted
 grammar and found no further defect.
+
+### September 18 expression-role and option-order review
+
+Fresh reviews found contextual expression words changing block nesting and
+reordered output-mode options treating version-alias filenames as version
+requests. Retained Red revisions cover the actual lint, source-preservation,
+CLI output, and error/no-write failures. The documentation follow-up explains
+the affected API and helper contracts in response to the current docstring
+coverage warning.
+
+Layout now consults expression roles from the parsed program while preserving
+the token scanner's physical-line behavior. Contextual words remain operands,
+real route and WebSocket headers remain active, and bodyless event registrations
+remain outside the block stack. The visitor uses explicit worklists and checks
+source spelling to distinguish synthetic parser nodes. Reordered CLI mode
+flags now recognize alias filenames and retain input-validation failures.
+Explicit action calls named `main` also require this distinction: only a parsed
+main-loop start opens that body, with both serial and concurrent loop fixtures
+retaining their indentation. Final local validation passed 2,382 workspace
+tests; the earlier standalone SQLite timeout remains retained and unexplained.

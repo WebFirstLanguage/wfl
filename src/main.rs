@@ -18,6 +18,7 @@ use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
+/// Describe supported operations and the configuration controls used by the CLI.
 fn print_help() {
     println!("WebFirst Language (WFL) Compiler and Interpreter");
     println!();
@@ -107,14 +108,14 @@ fn run_config_command(args: &[String]) -> io::Result<()> {
     }
 }
 
-/// Stack size for the thread that runs the interpreter.
-///
+/// Build the asynchronous runtime used by CLI operations and the interpreter.
 fn build_runtime() -> io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
 }
 
+/// Keep informational commands lightweight and reserve interpreter stack otherwise.
 fn main() -> io::Result<()> {
     // Trivial, non-interpreting invocations (`--help`, `--version`) never
     // recurse, so run them on the ordinary stack — don't make printing help
@@ -182,6 +183,7 @@ fn read_source_bounded(
     })
 }
 
+/// Parse operation flags, validate their combination, and dispatch the requested work.
 async fn run() -> io::Result<()> {
     // Initialize dhat profiler if enabled
     #[cfg(feature = "dhat-heap")]
@@ -235,10 +237,16 @@ async fn run() -> io::Result<()> {
     let mut i = 1;
     while i < args.len() {
         // Single-dash names were accepted after --lint/--fix before those flags
-        // became order-independent. In a source position even -v/-V remain
-        // filenames; standalone aliases and --version still print the version.
-        let lint_source_position = (lint_mode || fix_mode)
-            && (file_path.is_empty() || matches!(args[i - 1].as_str(), "--lint" | "--fix"));
+        // became order-independent. Every lint/fix option establishes a source
+        // position where -v/-V remain filenames; standalone aliases and
+        // --version still print the version.
+        let lint_options = lint_mode || fix_mode || fix_diff || fix_in_place;
+        let lint_source_position = lint_options
+            && (file_path.is_empty()
+                || matches!(
+                    args[i - 1].as_str(),
+                    "--lint" | "--fix" | "--diff" | "--in-place"
+                ));
         match args[i].as_str() {
             "--dump-env" => {
                 dump_env_mode = true;
@@ -396,7 +404,6 @@ async fn run() -> io::Result<()> {
                 return Ok(());
             }
             _ => {
-                let lint_options = lint_mode || fix_mode || fix_diff || fix_in_place;
                 if lint_options && args[i].starts_with("--") {
                     eprintln!("Error: Unknown option '{}'", args[i]);
                     process::exit(2);

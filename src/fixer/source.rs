@@ -118,6 +118,8 @@ struct FormatterWriteLock {
 }
 
 impl FormatterWriteLock {
+    /// Claim the canonical destination's marker without waiting or touching an
+    /// existing marker. A failed owner-information write releases this claim.
     fn acquire(destination: &Path) -> io::Result<Self> {
         let name = destination
             .file_name()
@@ -153,6 +155,8 @@ impl FormatterWriteLock {
 }
 
 impl Drop for FormatterWriteLock {
+    /// Close the owned marker and remove it best-effort; cleanup failure leaves
+    /// a marker that blocks later writers until explicit recovery.
     fn drop(&mut self) {
         // Close first for Windows. A crash, or a failed cleanup, leaves a
         // fail-closed marker for explicit recovery instead of risking a write.
@@ -161,8 +165,9 @@ impl Drop for FormatterWriteLock {
     }
 }
 
-// Compare in bounded chunks: another editor can replace or grow the file
-// between checks, so re-reading it must not bypass the source-size ceiling.
+/// Compare source bytes using fixed-size chunks and at most one extra byte.
+/// Growth, truncation, or changed content returns false; other I/O errors are
+/// propagated. This bounds rereads even when an editor replaces the file.
 fn source_is_unchanged(path: &Path, original: &str) -> io::Result<bool> {
     let mut input = fs::File::open(path)?;
     if input.metadata()?.len() != original.len() as u64 {
@@ -185,13 +190,16 @@ fn source_is_unchanged(path: &Path, original: &str) -> io::Result<bool> {
     Ok(input.read(&mut buffer[..1])? == 0)
 }
 
+/// Apply trivia and conservative identifier edits, then validate the result.
+/// The supplied AST must describe `source`; literals and untouched token spans
+/// are copied directly, and overlapping edits or invalid output are rejected.
 pub(super) fn fix_source(
     fixer: &CodeFixer,
     program: &Program,
     source: &str,
 ) -> io::Result<(String, FixerSummary)> {
     validate_source(source)?;
-    let layout = crate::linter::layout::SourceLayout::new(source);
+    let layout = crate::linter::layout::SourceLayout::new(source, program);
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
     let budget = crate::exec::budget::ExecutionBudget::current_or_default();
     let mut expanded_len = source.len();
@@ -281,6 +289,8 @@ pub(super) fn fix_source(
     Ok((fixed, summary))
 }
 
+/// Schedule local spelling edits while excluding module contracts, public
+/// names, naming collisions, and replacements that would become keywords.
 fn rename_locals(
     fixer: &CodeFixer,
     program: &Program,
@@ -455,6 +465,8 @@ fn rename_locals(
     summary.vars_renamed = renamed.len();
 }
 
+/// Protect capture and backreference spellings throughout a pattern without
+/// using recursive Rust calls for nested pattern expressions.
 fn protect_pattern_names<'a>(
     pattern: &'a crate::parser::ast::PatternExpression,
     protected: &mut HashSet<&'a str>,
