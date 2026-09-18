@@ -1,7 +1,7 @@
 //! Real CLI regressions for file-handle lifecycle and text path compatibility.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
@@ -14,6 +14,17 @@ impl Drop for ChildGuard {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+    }
+}
+
+struct RestoreFilePermissions {
+    path: PathBuf,
+    permissions: fs::Permissions,
+}
+
+impl Drop for RestoreFilePermissions {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.path, self.permissions.clone());
     }
 }
 
@@ -307,5 +318,89 @@ display length of final_chunk
     assert_eq!(
         fs::read(directory.path().join("input.bin")).expect("read original binary input"),
         [0, 1, 127, 128, 255],
+    );
+}
+
+fn assert_missing_direct_path_read_is_rejected(path_expression: &str) {
+    let directory = tempfile::tempdir().expect("isolated missing-path fixture");
+    let output = run_wfl(
+        directory.path(),
+        &format!(
+            r#"
+store missing_path as "missing.txt"
+try:
+    wait for store actual as read content from {path_expression}
+when error:
+    display "REJECTED"
+end try
+display "DONE"
+"#,
+        ),
+    );
+    assert_success(&output);
+    assert!(
+        !directory.path().join("missing.txt").exists(),
+        "a missing direct read path must not be created by reading it",
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        ["REJECTED", "DONE"],
+        "a missing direct read path must reach the error handler",
+    );
+}
+
+#[test]
+fn direct_path_read_missing_literal_reports_error_without_creating_file() {
+    assert_missing_direct_path_read_is_rejected("\"missing.txt\"");
+}
+
+#[test]
+fn direct_path_read_missing_variable_reports_error_without_creating_file() {
+    assert_missing_direct_path_read_is_rejected("missing_path");
+}
+
+#[test]
+fn direct_path_read_readonly_file_preserves_exact_contents() {
+    let directory = tempfile::tempdir().expect("isolated readonly fixture");
+    let path = directory.path().join("readonly.txt");
+    let original = b" first line\r\nsecond line \t\n";
+    fs::write(&path, original).expect("write readonly input");
+    let permissions = fs::metadata(&path)
+        .expect("inspect input permissions")
+        .permissions();
+    // Restore the original permissions before TempDir cleanup, including when
+    // the child or an assertion fails; Windows cannot delete readonly files.
+    let _restore_permissions = RestoreFilePermissions {
+        path: path.clone(),
+        permissions: permissions.clone(),
+    };
+    let mut readonly = permissions;
+    readonly.set_readonly(true);
+    fs::set_permissions(&path, readonly).expect("make input readonly");
+    let output = run_wfl(
+        directory.path(),
+        r#"
+wait for store literal_result as read content from "readonly.txt"
+display literal_result
+store source_path as "readonly.txt"
+wait for store variable_result as read content from source_path
+display variable_result
+"#,
+    );
+    assert_success(&output);
+    assert_eq!(
+        output.stdout,
+        [original.as_slice(), b"\n", original.as_slice(), b"\n"].concat(),
+        "both literal and variable direct paths must read the exact bytes",
+    );
+    assert_eq!(fs::read(&path).expect("read original input"), original);
+    assert!(
+        fs::metadata(&path)
+            .expect("inspect readonly input")
+            .permissions()
+            .readonly(),
+        "reading must not change file permissions",
     );
 }
