@@ -305,6 +305,34 @@ fn test_lint_indentation_handles_colonless_loops_and_list_blocks() {
 
 #[test]
 fn test_lint_layout_accepts_incomplete_input_without_panicking() {
-    let (diagnostics, _) = Linter::new().lint(&Program::default(), "export\n", "incomplete.wfl");
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code == "LINT-INDENT"));
+    for source in ["export\n".to_owned(), "export ".repeat(10_000)] {
+        let (diagnostics, _) = Linter::new().lint(&Program::default(), &source, "incomplete.wfl");
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LINT-INDENT")
+        );
+    }
+}
+
+#[test]
+fn test_lint_layout_supports_cr_lf_and_crlf_line_endings() {
+    for newline in ["\n", "\r", "\r\n"] {
+        let source = ["check if yes:", "    display \"ok\"", "end check", ""].join(newline);
+        let diagnostics = lint_source(&Linter::new(), &source);
+        assert!(
+            !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+            "{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn test_lint_layout_keeps_outer_block_after_inline_inner_block() {
+    let source = "define action called greet: check if yes: display \"inside\" end check\n    display \"outside\"\nend action\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
 }
