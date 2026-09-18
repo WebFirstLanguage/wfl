@@ -20,6 +20,7 @@ directories.
 
 - Base: `d13030c1`.
 - Test-only Red commit: `512d665c`, preceding implementation.
+- Green implementation commit: `f3f10ba8`.
 - `cargo test --test config_command_test`: **4 passed, 10 failed** before
   implementation. The command still wrote local configuration, accepted a
   directory, and deferred to a same-named file.
@@ -54,7 +55,24 @@ required values, defaults, and validation of booleans, numbers, and IPs.
 - `cargo test --test config_command_test --test cli_help_version_flags_test
   --test transpiler_sunset_test`: **23 passed**, including all 14 configuration
   CLI tests.
-- Remaining static/release/docs checks are recorded after they complete.
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo build --release`: passed.
+- Direct release CLI smoke: global configuration created in a nested path,
+  optional TLS keys omitted, local `.wflcfg` preserved, directory argument
+  rejected without modifying global contents.
+- Static and working-tree hygiene checks: passed, including archive checksum.
+- Independent read-only review approved implementation, coverage, and docs;
+  no actionable defects were found.
+- `python -X utf8 scripts/validate_docs_examples.py --ci --force --report`:
+  **34 passed**.
+- Canonical WFL program stage using the fresh release binary and complete
+  fixture snapshot: **142 passed, 0 failed, 24 existing canonical skips**.
+  All 217 fixture files and the copied subprocess binary were verified against
+  the current checkout. Runner assertions/timeouts were unchanged; only absolute
+  discovery/binary paths were adjusted to keep outputs under `target/`.
+- Tracked-content search found no obsolete command spelling or directory-form
+  setup invocation.
 
 Raw outputs: `target/test-artifacts/system-config/`.
 
