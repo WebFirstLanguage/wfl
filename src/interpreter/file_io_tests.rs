@@ -95,6 +95,24 @@ pub(super) async fn before_sync(operation: &str) -> Option<io::Error> {
     failure.map(|kind| io::Error::new(kind, "injected file sync failure"))
 }
 
+/// Pause after a real non-creating open reports NotFound. Tests can then
+/// establish a competing creator or cancel before any creating open starts.
+pub(super) async fn before_append_create() {
+    let gate = SYNC_PROBE.with(|probe| {
+        let probe = probe.borrow().as_ref().cloned()?;
+        let mut state = probe.borrow_mut();
+        state
+            .gates
+            .iter()
+            .position(|gate| gate.operation == "append-open")
+            .map(|index| state.gates.remove(index))
+    });
+    if let Some(mut gate) = gate {
+        let _ = gate.reached.take().unwrap().send(());
+        gate.resume.notified().await;
+    }
+}
+
 fn client() -> IoClient {
     IoClient::new(Arc::new(WflConfig::default()))
 }
@@ -268,6 +286,67 @@ async fn concurrent_append_opens_preserve_both_writes() {
         bytes.sort_unstable();
         assert_eq!(bytes, b"AB");
         assert!(client.file_handles.lock().unwrap().is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn append_open_racing_with_a_creator_preserves_the_created_contents() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("raced-append.txt");
+        let client = client();
+        let probe = SyncProbe::new();
+        let (reached, resume) = probe.gate("append-open");
+        let mut opening =
+            Box::pin(client.open_file_with_mode(path.to_str().unwrap(), FileOpenMode::Append));
+        tokio::select! {
+            result = &mut opening => panic!("open ended before creation gate: {result:?}"),
+            result = reached => result.unwrap(),
+        }
+        assert!(!path.exists());
+        // This real creation occurs between the failed first open and the
+        // fallback, deterministically establishing the race without a sleep.
+        std::fs::write(&path, "racing creator's bytes").unwrap();
+        resume.notify_one();
+        let handle = opening.await.unwrap();
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"racing creator's bytes");
+        assert_eq!(
+            probe.events(),
+            ["close"],
+            "ambiguous fallback must remain conservatively dirty"
+        );
+        assert!(client.file_handles.lock().unwrap().is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn cancelling_append_open_before_creation_has_no_later_side_effect() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cancelled-open.txt");
+        let client = client();
+        let probe = SyncProbe::new();
+        let (reached, _resume) = probe.gate("append-open");
+        let mut opening =
+            Box::pin(client.open_file_with_mode(path.to_str().unwrap(), FileOpenMode::Append));
+        tokio::select! {
+            result = &mut opening => panic!("open ended before creation gate: {result:?}"),
+            result = reached => result.unwrap(),
+        }
+        drop(opening);
+        assert!(!path.exists());
+        assert!(client.file_handles.lock().unwrap().is_empty());
+        assert!(client.file_handle_values.lock().unwrap().aliases.is_empty());
+        assert!(probe.events().is_empty());
+
+        // The cancellation must not poison a subsequent legitimate creation.
+        let handle = open(&client, &path, FileOpenMode::Append).await;
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"");
+        assert_eq!(probe.events(), ["close"]);
     })
     .await;
 }

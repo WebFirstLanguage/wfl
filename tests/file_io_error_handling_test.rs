@@ -6,10 +6,12 @@ use tokio::time::{Duration, timeout};
 use wfl::Interpreter;
 use wfl::interpreter::value::Value;
 
+/// Use forward slashes so Windows fixture paths do not become WFL string escapes.
 fn wfl_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// Parse and execute a fixture under this suite's original five-second deadline.
 async fn execute(code: &str) -> Interpreter {
     timeout(Duration::from_secs(5), common::run_wfl(code))
         .await
@@ -17,6 +19,7 @@ async fn execute(code: &str) -> Interpreter {
         .expect("file I/O program failed")
 }
 
+/// Inspect the script's outcome flags to verify which control-flow branch ran.
 fn assert_flag(interpreter: &Interpreter, name: &str, expected: bool) {
     assert!(
         matches!(common::get_global(interpreter, name), Value::Bool(value) if value == expected),
@@ -24,6 +27,7 @@ fn assert_flag(interpreter: &Interpreter, name: &str, expected: bool) {
     );
 }
 
+/// Require an error handler to run and the remaining try-block statements to be skipped.
 async fn expect_error(operation: &str) {
     let interpreter = execute(&format!(
         r#"
@@ -103,12 +107,14 @@ async fn test_invalid_file_path_error() {
     }
 }
 
-// Restore permissions before TempDir is dropped, including during a panic.
+/// Restore permissions before TempDir cleanup without replacing an earlier panic.
 struct RestorePermissions(std::path::PathBuf, fs::Permissions);
 
 impl Drop for RestorePermissions {
     fn drop(&mut self) {
-        fs::set_permissions(&self.0, self.1.clone()).expect("restore fixture permissions");
+        // A missing fixture or permission error must not cause a second panic
+        // during unwinding, which would abort the whole test process.
+        let _ = fs::set_permissions(&self.0, self.1.clone());
     }
 }
 
@@ -147,6 +153,26 @@ fn permission_restore_cleanup_restores_original_permissions() {
 
     assert_eq!(fs::metadata(&path).unwrap().permissions(), original);
     assert_eq!(fs::read_to_string(&path).unwrap(), "fixture");
+}
+
+#[test]
+fn permission_restore_cleanup_preserves_an_existing_panic() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("removed.txt");
+    fs::write(&path, "fixture").unwrap();
+    let permissions = fs::metadata(&path).unwrap().permissions();
+    fs::remove_file(&path).unwrap();
+
+    let panic = std::panic::catch_unwind(|| {
+        let _restore = RestorePermissions(path, permissions);
+        panic!("original assertion failure");
+    })
+    .expect_err("the original assertion must still propagate");
+    assert_eq!(
+        panic.downcast_ref::<&str>(),
+        Some(&"original assertion failure"),
+        "permission cleanup must preserve the original panic payload"
+    );
 }
 
 #[tokio::test]

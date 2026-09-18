@@ -2059,12 +2059,14 @@ struct FileHandleState {
 }
 
 impl FileHandleState {
+    /// Borrow the live descriptor, rejecting operations queued behind close.
     fn file_mut(&mut self, handle_id: &str) -> Result<&mut tokio::fs::File, String> {
         self.file
             .as_mut()
             .ok_or_else(|| format!("Invalid or closed file handle: {handle_id}"))
     }
 
+    /// Enforce write access and retain dirty state before a cancellable write.
     fn begin_write(&mut self, handle_id: &str) -> Result<&mut tokio::fs::File, String> {
         if !self.writable {
             return Err(format!("File handle is not open for writing: {handle_id}"));
@@ -3832,6 +3834,8 @@ impl IoClient {
         }
     }
 
+    /// Publish a descriptor and its canonical text identity without holding a
+    /// registry lock across I/O; periodically discard unreferenced identities.
     fn register_file(
         &self,
         handle_id: String,
@@ -3868,6 +3872,7 @@ impl IoClient {
         value
     }
 
+    /// Clone one file's synchronization slot under a brief registry lock.
     fn file_handle(&self, handle_id: &str) -> Result<SharedFile, String> {
         self.file_handles
             .lock()
@@ -3877,6 +3882,8 @@ impl IoClient {
             .ok_or_else(|| format!("Invalid or closed file handle: {handle_id}"))
     }
 
+    /// Recognize a handle or alias by allocation identity so independently
+    /// constructed text with the same spelling remains a filesystem path.
     fn is_file_handle(&self, value: &Arc<str>) -> bool {
         self.file_handle_values
             .lock()
@@ -3887,6 +3894,8 @@ impl IoClient {
             .is_some_and(|canonical| Arc::ptr_eq(value, &canonical))
     }
 
+    /// Open the legacy read/write form, conservatively owing sync because this
+    /// create-enabled operation may have created a new file.
     #[allow(dead_code)]
     async fn open_file(&self, path: &str) -> Result<Arc<str>, String> {
         let handle_id = {
@@ -3909,6 +3918,9 @@ impl IoClient {
         }
     }
 
+    /// Open a descriptor with the requested access and initial durability state.
+    /// Existing append and read-only handles begin clean; creation or truncation
+    /// still requires synchronization even if no write follows.
     #[allow(dead_code)]
     async fn open_file_with_mode(
         &self,
@@ -3922,29 +3934,22 @@ impl IoClient {
             id
         };
 
-        let mut options = tokio::fs::OpenOptions::new();
         let writable = !matches!(mode, FileOpenMode::Read | FileOpenMode::ReadBinary);
-        match mode {
-            FileOpenMode::Read => {
-                options.read(true).write(false).create(false);
-            }
-            FileOpenMode::Write => {
-                options.read(false).write(true).create(true).truncate(true);
-            }
-            FileOpenMode::Append => {
-                options.read(false).write(true).create(true).append(true);
-            }
-            FileOpenMode::ReadBinary => {
-                options.read(true).write(false).create(false);
-            }
-            FileOpenMode::WriteBinary => {
-                options.read(false).write(true).create(true).truncate(true);
-            }
-        }
+        let opened = if matches!(mode, FileOpenMode::Append) {
+            Self::open_append_file(path).await
+        } else {
+            tokio::fs::OpenOptions::new()
+                .read(!writable)
+                .write(writable)
+                .create(writable)
+                .truncate(writable)
+                .open(path)
+                .await
+                .map(|file| (file, writable))
+        };
 
-        match options.open(path).await {
-            // Writable opens may create/truncate without a following write.
-            Ok(file) => Ok(self.register_file(handle_id, file, writable, writable)),
+        match opened {
+            Ok((file, needs_sync)) => Ok(self.register_file(handle_id, file, writable, needs_sync)),
             Err(e) => {
                 let error_kind = match e.kind() {
                     std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
@@ -3961,6 +3966,30 @@ impl IoClient {
         }
     }
 
+    /// Open an existing append target without changing it. Only NotFound uses
+    /// the original create-enabled open, preserving dangling symlinks and paths
+    /// replaced between attempts. That fallback is conservatively dirty: it
+    /// created, or may have created, the target. There are at most two opens,
+    /// with no existence precheck or retry loop.
+    async fn open_append_file(path: &str) -> io::Result<(tokio::fs::File, bool)> {
+        let mut options = tokio::fs::OpenOptions::new();
+        options.append(true);
+        match options.open(path).await {
+            Ok(file) => Ok((file, false)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                #[cfg(test)]
+                file_io_tests::before_append_create().await;
+                options
+                    .create(true)
+                    .open(path)
+                    .await
+                    .map(|file| (file, true))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Read from a live handle's current cursor under the run's byte ceiling.
     #[allow(dead_code)]
     async fn read_file(
         &self,
@@ -3974,6 +4003,7 @@ impl IoClient {
         Self::file_bytes_to_text(bytes)
     }
 
+    /// Validate UTF-8 while retaining the ordinary file-I/O error diagnostic.
     fn file_bytes_to_text(bytes: Vec<u8>) -> Result<String, FileReadError> {
         String::from_utf8(bytes).map_err(|e| {
             FileReadError::Io(format!(
@@ -3983,6 +4013,8 @@ impl IoClient {
         })
     }
 
+    /// Dispatch canonical handles strictly; open ordinary text paths read-only
+    /// so a missing-file read cannot create a file or strand a registry entry.
     async fn read_file_or_path(
         &self,
         value: &Arc<str>,
@@ -4053,6 +4085,7 @@ impl IoClient {
         }
     }
 
+    /// Overwrite a live descriptor and finish flush/sync before reporting success.
     #[allow(dead_code)]
     async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
         let handle = self.file_handle(handle_id)?;
@@ -4070,6 +4103,8 @@ impl IoClient {
         Self::flush_and_sync_file(&mut state, "write").await
     }
 
+    /// Keep path shorthand independent of handle lifecycle while synchronizing
+    /// every successful write through either form.
     async fn write_file_or_path(&self, value: &Arc<str>, content: &str) -> Result<(), String> {
         if self.is_file_handle(value) {
             return self.write_file(value, content).await;
@@ -4094,6 +4129,8 @@ impl IoClient {
         Self::flush_and_sync_file(&mut state, "write").await
     }
 
+    /// Drain buffered writes and apply platform sync policy, clearing dirty state
+    /// only after success so cancellation or failure remains eligible for retry.
     async fn flush_and_sync_file(
         state: &mut FileHandleState,
         operation: &str,
@@ -4112,6 +4149,7 @@ impl IoClient {
         Ok(())
     }
 
+    /// Read the full binary file from offset zero under its lifecycle lock.
     async fn read_binary(
         &self,
         handle_id: &str,
@@ -4126,6 +4164,8 @@ impl IoClient {
         read_to_end_capped(file, budget, "Failed to read binary file").await
     }
 
+    /// Read up to the requested byte count at the current cursor after checking
+    /// the allocation ceiling, preserving buffered bytes for subsequent reads.
     async fn read_binary_n(
         &self,
         handle_id: &str,
@@ -4151,6 +4191,7 @@ impl IoClient {
         }
     }
 
+    /// Write binary bytes at the current cursor and await flush/sync completion.
     async fn write_binary(&self, handle_id: &str, data: &[u8]) -> Result<(), String> {
         let handle = self.file_handle(handle_id)?;
         let mut state = handle.lock().await;
@@ -4162,6 +4203,7 @@ impl IoClient {
         Self::flush_and_sync_file(&mut state, "write_binary").await
     }
 
+    /// Read descriptor metadata while serializing against operations and close.
     async fn file_size(&self, handle_id: &str) -> Result<u64, String> {
         let handle = self.file_handle(handle_id)?;
         let mut state = handle.lock().await;
@@ -4173,6 +4215,7 @@ impl IoClient {
             .map_err(|e| format!("Failed to get file size: {e}"))
     }
 
+    /// Resolve path metadata without turning a closed handle into a path lookup.
     async fn file_size_or_path(&self, value: &Arc<str>) -> Result<u64, String> {
         if self.is_file_handle(value) {
             return self.file_size(value).await;
@@ -4183,6 +4226,8 @@ impl IoClient {
             .map_err(|e| format!("Failed to get file size: {e}"))
     }
 
+    /// Close idempotently after prior operations, syncing only dirty state.
+    /// A cancelled or failed sync leaves the descriptor available for retry.
     #[allow(dead_code)]
     async fn close_file(&self, handle_id: &str) -> Result<(), String> {
         let Ok(handle) = self.file_handle(handle_id) else {
@@ -4206,6 +4251,7 @@ impl IoClient {
         Ok(())
     }
 
+    /// Append through the serialized descriptor and finish flush/sync on success.
     #[allow(dead_code)]
     async fn append_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
         let handle = self.file_handle(handle_id)?;

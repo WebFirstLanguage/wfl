@@ -8,26 +8,34 @@ use tempfile::NamedTempFile;
 
 mod common;
 
+/// Reaps the real CLI child even if a fixture assertion panics or times out.
 struct ChildGuard(Child);
 
 impl Drop for ChildGuard {
+    /// Attempts both termination and reaping without replacing a test failure.
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
 }
 
+/// Restores fixture permissions before its enclosing temporary directory is removed.
 struct RestoreFilePermissions {
     path: PathBuf,
     permissions: fs::Permissions,
 }
 
 impl Drop for RestoreFilePermissions {
+    /// Makes cleanup best-effort so a missing fixture cannot cause a second panic.
     fn drop(&mut self) {
         let _ = fs::set_permissions(&self.path, self.permissions.clone());
     }
 }
 
+/// Runs the real CLI with isolated configuration and a 30-second deadline.
+///
+/// Output goes to temporary files so pipe capacity cannot hide a timeout, and
+/// logging is disabled so directory assertions see only the program's artifacts.
 fn run_wfl(directory: &Path, source: &str) -> Output {
     fs::write(directory.join("main.wfl"), source).expect("write WFL fixture");
     let global_config = NamedTempFile::new().expect("isolated global configuration");
@@ -73,6 +81,7 @@ fn run_wfl(directory: &Path, source: &str) -> Output {
     }
 }
 
+/// Requires a successful exit and includes both captured streams on failure.
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
@@ -83,6 +92,8 @@ fn assert_success(output: &Output) {
     );
 }
 
+/// Proves a closed alias reaches the error handler without changing fixture bytes.
+/// Also rejects unexpected output files, including a path created from `file1`.
 fn assert_closed_operation_rejected(mode: &str, operation: &str, original: &[u8]) {
     let directory = tempfile::tempdir().expect("isolated lifecycle fixture");
     let original_path = directory.path().join("original.dat");
@@ -321,6 +332,7 @@ display length of final_chunk
     );
 }
 
+/// Checks that either literal or variable path reads fail without creating the path.
 fn assert_missing_direct_path_read_is_rejected(path_expression: &str) {
     let directory = tempfile::tempdir().expect("isolated missing-path fixture");
     let output = run_wfl(

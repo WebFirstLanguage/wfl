@@ -106,3 +106,26 @@ regressions. All existing test deadlines remain unchanged.
 
 The associated pull request records the complete Windows release/integration
 flow and final Linux/Windows CI results separately from these focused checks.
+
+## Automated review follow-up
+
+Devin identified an unnecessary synchronization when an existing file was
+opened for appending and closed without any write. CodeRabbit identified an
+error-suite cleanup guard that could panic during unwinding and hide the
+original assertion. Test-only commit `3540f0f5` reproduces both: the lifecycle
+suite observed two unexpected close syncs, and the removed-fixture cleanup
+test caught the guard's `NotFound` panic. Successful permission restoration
+remains explicitly asserted.
+
+The append repair opens without creation first and falls back to the original
+create-enabled append only on `NotFound`. A successful first open is clean;
+the fallback conservatively retains synchronization even if another process
+created the target in between. This avoids an existence-check race and
+preserves dangling symlink behavior with at most two opens. Tests also cover
+append cancellation, creation followed by cancelled close, concurrent append
+contents, and Unix symlinks. Permission cleanup becomes best-effort during
+destruction so its failure cannot replace the original test failure.
+
+Helper documentation now explains isolation, deadlines, handle identity,
+dirty-state retention, and cleanup contracts. The linked investigation and PR
+retain the focused Red/Green results and final validation for this follow-up.
