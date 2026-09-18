@@ -83,8 +83,18 @@ Then run scripts from that project tree; WFL walks up from the **script’s dire
 | `wfl --configCheck` | Validates local/global config against known settings |
 | `wfl --configFix` | Checks and repairs common config problems |
 | `wfl --lint <file>` | Style/quality checks driven by code-quality keys |
-| `wfl --lint --fix <file> --in-place` | Auto-fix style issues when possible |
+| `wfl --lint --fix <file>` | Print fixed source without changing the file |
+| `wfl --lint --fix <file> --diff` | Preview fixes as a unified diff |
+| `wfl --lint --fix <file> --in-place` | Atomically apply validated fixes to the file |
 | `wfl --dump-env` | Environment dump (useful when diagnosing “config not loading”) |
+
+`--fix` requires `--lint`. `--diff` and `--in-place` require `--fix` and are
+mutually exclusive. Plain lint exits with `0` for clean source, `1` for lint
+warnings, and `2` for invalid options, unreadable input, or invalid source.
+A completed fix or preview exits with `0`; run plain lint again to detect
+warnings that need manual changes. Neither operation executes the program.
+See [Code Style Guide: Commands](../06-best-practices/code-style-guide.md#commands)
+for output modes and preservation guarantees.
 
 `wfl config` takes no directory argument. It writes global defaults to `C:\wfl\config` on Windows or `/etc/wfl/wfl.cfg` on Linux/macOS. Set `WFL_GLOBAL_CONFIG_PATH` to use another global configuration file. Project `.wflcfg` files are not created or changed.
 
@@ -334,7 +344,8 @@ These settings control the WFL linter and style enforcement (`wfl --lint`). Defa
 
 #### `max_line_length`
 
-Maximum allowed line length in characters.
+Maximum allowed line length in Unicode characters. Long lines receive a lint
+warning; the fixer does not automatically wrap them.
 
 - **Type:** Integer
 - **Default:** `100`
@@ -343,6 +354,7 @@ Maximum allowed line length in characters.
 #### `max_nesting_depth`
 
 Maximum allowed nesting depth for control structures (`check if`, `repeat`, etc.).
+Excessive nesting receives a lint warning and requires a manual change.
 
 - **Type:** Integer
 - **Default:** `5`
@@ -350,7 +362,7 @@ Maximum allowed nesting depth for control structures (`check if`, `repeat`, etc.
 
 #### `indent_size`
 
-Number of spaces per indentation level.
+Number of spaces per indentation level, used by both the linter and fixer.
 
 - **Type:** Integer
 - **Default:** `4`
@@ -358,7 +370,9 @@ Number of spaces per indentation level.
 
 #### `snake_case_variables`
 
-Enforces snake_case naming for variables.
+Enables snake_case warnings for variables and actions, and safe local naming
+fixes. Set to `false` to disable both. Conflicting names and public API/data
+names are preserved even when this setting is enabled.
 
 - **Type:** Boolean
 - **Default:** `true`
@@ -366,7 +380,9 @@ Enforces snake_case naming for variables.
 
 #### `trailing_whitespace`
 
-Controls whether trailing whitespace is allowed. When `false`, trailing whitespace triggers a warning.
+Controls whether trailing whitespace is allowed. When `false`, trailing
+whitespace outside string literals triggers a warning and is removed by
+`--fix`. When `true`, it is preserved and does not trigger a warning.
 
 - **Type:** Boolean
 - **Default:** `false` (trailing whitespace not allowed)
@@ -374,7 +390,10 @@ Controls whether trailing whitespace is allowed. When `false`, trailing whitespa
 
 #### `consistent_keyword_case`
 
-Requires consistent casing for keywords throughout the script.
+Enables warnings for keyword casing and lowercase fixes for boolean literals
+such as `YES` or `False`. Set to `false` to disable these warnings and fixes.
+This setting does not change the language's case-sensitive keyword syntax;
+the fixer does not convert identifiers into keywords.
 
 - **Type:** Boolean
 - **Default:** `true`
@@ -761,6 +780,13 @@ consistent_keyword_case = true
 ```
 
 Share one `.wflcfg` per repo so the whole team formats the same way ([Collaboration Guide](../06-best-practices/collaboration-guide.md)).
+
+The linter and fixer load configuration relative to the source file, including
+the nearest ancestor `.wflcfg`. Fixes preserve comments, string contents and
+escapes, expression grouping, and line endings. Only safe local naming changes
+are automatic; public API/data names, collisions, and names in files that
+import or export modules are preserved. Long lines and excessive nesting need
+manual changes. A successful fix therefore does not guarantee a clean lint run.
 
 ### Project layout
 

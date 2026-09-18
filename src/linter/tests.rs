@@ -379,5 +379,10 @@ fn test_lint_layout_closes_inline_postcondition_repeat() {
 fn test_lint_layout_processes_code_after_multiline_string_closes() {
     let source = "check if yes:\n    display \"first\nlast\" end check\ndisplay \"done\"\n";
     let diagnostics = lint_source(&Linter::new(), source);
-    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code == "LINT-INDENT"), "{diagnostics:?}");
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
 }

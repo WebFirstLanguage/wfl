@@ -6,10 +6,20 @@ fn fixer_removes_the_same_unicode_comment_whitespace_that_lint_reports() {
     let source = "// trailing comment\u{a0}\ndisplay 1\n";
     let tokens = wfl::lexer::lex_wfl_with_positions(source);
     let program = wfl::parser::Parser::new(&tokens).parse().unwrap();
-    assert!(wfl::linter::Linter::new().lint(&program, source, "source.wfl").0.iter().any(|diagnostic| diagnostic.code == "LINT-WHITESPACE"));
+    assert!(
+        wfl::linter::Linter::new()
+            .lint(&program, source, "source.wfl")
+            .0
+            .iter()
+            .any(|diagnostic| diagnostic.code == "LINT-WHITESPACE")
+    );
     let (fixed, _) = CodeFixer::new().fix_checked(&program, source).unwrap();
     assert_eq!(fixed, "// trailing comment\ndisplay 1\n");
-    assert!(wfl::linter::Linter::new().lint(&program, &fixed, "source.wfl").1);
+    assert!(
+        wfl::linter::Linter::new()
+            .lint(&program, &fixed, "source.wfl")
+            .1
+    );
 }
 
 #[test]

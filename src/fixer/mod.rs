@@ -9,10 +9,16 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
+mod source;
+pub use source::{validate_source, write_fixed_file};
+
 pub struct CodeFixer {
     indent_size: usize,
     max_line_length: usize,
     max_concatenation_chain: usize,
+    snake_case_variables: bool,
+    trailing_whitespace: bool,
+    consistent_keyword_case: bool,
 }
 
 pub enum FixerOutputMode {
@@ -21,6 +27,7 @@ pub enum FixerOutputMode {
     Diff,    // Generate a unified diff
 }
 
+#[derive(Debug, Default)]
 pub struct FixerSummary {
     pub lines_reformatted: usize,
     pub vars_renamed: usize,
@@ -43,6 +50,9 @@ impl CodeFixer {
             indent_size: 4,
             max_line_length: 100,
             max_concatenation_chain: 5,
+            snake_case_variables: true,
+            trailing_whitespace: false,
+            consistent_keyword_case: true,
         }
     }
 
@@ -58,7 +68,26 @@ impl CodeFixer {
         self.max_concatenation_chain = max_chain;
     }
 
-    pub fn fix(&self, program: &Program, _source: &str) -> (String, FixerSummary) {
+    /// Format parsed source without discarding comments, literals, or syntax.
+    /// File/CLI callers use `fix_checked` so a validation failure is an error.
+    pub fn fix(&self, program: &Program, source: &str) -> (String, FixerSummary) {
+        if source.is_empty() && !program.statements.is_empty() {
+            // Retain AST-only printing for library clients constructing an AST.
+            return self.print_program(program);
+        }
+        self.fix_checked(program, source)
+            .unwrap_or_else(|_| (source.to_string(), FixerSummary::default()))
+    }
+
+    pub fn fix_checked(
+        &self,
+        program: &Program,
+        source: &str,
+    ) -> io::Result<(String, FixerSummary)> {
+        source::fix_source(self, program, source)
+    }
+
+    fn print_program(&self, program: &Program) -> (String, FixerSummary) {
         let _analyzer = Analyzer::new();
         let dead_code = Vec::new();
 
@@ -90,6 +119,7 @@ impl CodeFixer {
 
     pub fn fix_file(&self, path: &Path, mode: FixerOutputMode) -> io::Result<FixerSummary> {
         let source = fs::read_to_string(path)?;
+        validate_source(&source)?;
 
         let tokens = lex_wfl_with_positions(&source);
         let mut parser = Parser::new(&tokens);
@@ -103,17 +133,17 @@ impl CodeFixer {
             }
         };
 
-        let (fixed_code, summary) = self.fix(&program, &source);
+        let (fixed_code, summary) = self.fix_checked(&program, &source)?;
 
         match mode {
             FixerOutputMode::Stdout => {
                 io::stdout().write_all(fixed_code.as_bytes())?;
             }
             FixerOutputMode::InPlace => {
-                fs::write(path, fixed_code)?;
+                write_fixed_file(path, &source, &fixed_code)?;
             }
             FixerOutputMode::Diff => {
-                let diff = self.generate_diff(&source, &fixed_code);
+                let diff = self.diff_for_path(path, &source, &fixed_code);
                 io::stdout().write_all(diff.as_bytes())?;
             }
         }
@@ -1299,31 +1329,114 @@ impl CodeFixer {
         self.generate_diff(original, fixed)
     }
 
-    pub fn generate_diff(&self, original: &str, fixed: &str) -> String {
-        let mut diff = String::new();
+    /// Label a unified patch with the input path, preserving relative folders.
+    /// Absolute or parent-traversing inputs use a basename so a displayed patch
+    /// cannot direct a patch tool outside its working directory.
+    pub fn diff_for_path(&self, path: &Path, original: &str, fixed: &str) -> String {
+        use std::path::Component;
 
-        let original_lines: Vec<&str> = original.lines().collect();
-        let fixed_lines: Vec<&str> = fixed.lines().collect();
+        let diff = self.generate_diff(original, fixed);
+        if diff.is_empty() {
+            return diff;
+        }
+        let relative = if path.components().any(|component| {
+            matches!(
+                component,
+                Component::Prefix(_) | Component::RootDir | Component::ParentDir
+            )
+        }) {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "source.wfl".to_string())
+        } else {
+            path.components()
+                .filter_map(|component| match component {
+                    Component::Normal(name) => Some(name.to_string_lossy()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("/")
+        };
 
-        for i in 0..original_lines.len().max(fixed_lines.len()) {
-            if i < original_lines.len() && i < fixed_lines.len() {
-                if original_lines[i] != fixed_lines[i] {
-                    diff.push_str(&format!("-{}\n", original_lines[i]));
-                    diff.push_str(&format!("+{}\n", fixed_lines[i]));
-                }
-            } else if i < original_lines.len() {
-                diff.push_str(&format!("-{}\n", original_lines[i]));
-            } else if i < fixed_lines.len() {
-                diff.push_str(&format!("+{}\n", fixed_lines[i]));
+        // Git's quoted path convention disambiguates spaces and control bytes
+        // without changing Unicode names or platform-independent separators.
+        fn quote_path(path: &str) -> String {
+            if !path
+                .chars()
+                .any(|ch| ch.is_ascii_control() || matches!(ch, ' ' | '"' | '\\'))
+            {
+                return path.to_string();
             }
+            let mut quoted = String::from("\"");
+            for ch in path.chars() {
+                match ch {
+                    '"' => quoted.push_str("\\\""),
+                    '\\' => quoted.push_str("\\\\"),
+                    '\t' => quoted.push_str("\\t"),
+                    '\n' => quoted.push_str("\\n"),
+                    '\r' => quoted.push_str("\\r"),
+                    ch if ch.is_ascii_control() => {
+                        quoted.push_str(&format!("\\{:03o}", ch as u32));
+                    }
+                    ch => quoted.push(ch),
+                }
+            }
+            quoted.push('"');
+            quoted
         }
 
+        let original_path = quote_path(&format!("a/{relative}"));
+        let fixed_path = quote_path(&format!("b/{relative}"));
+        let hunks = diff.splitn(3, '\n').nth(2).unwrap_or_default();
+        format!("--- {original_path}\n+++ {fixed_path}\n{hunks}")
+    }
+
+    pub fn generate_diff(&self, original: &str, fixed: &str) -> String {
+        if original == fixed {
+            return String::new();
+        }
+        // A single complete hunk is linear in source size and retains enough
+        // context to apply the patch, including CRLF and missing final newlines.
+        // Avoid an unbounded quadratic LCS table for large source files.
+        let original_lines: Vec<_> = original.split_inclusive('\n').collect();
+        let fixed_lines: Vec<_> = fixed.split_inclusive('\n').collect();
+        let mut diff = format!(
+            "--- a/source.wfl\n+++ b/source.wfl\n@@ -{},{} +{},{} @@\n",
+            usize::from(!original_lines.is_empty()),
+            original_lines.len(),
+            usize::from(!fixed_lines.is_empty()),
+            fixed_lines.len()
+        );
+        let mut append = |prefix: char, line: &str| {
+            diff.push(prefix);
+            diff.push_str(line);
+            if !line.ends_with('\n') {
+                diff.push_str("\n\\ No newline at end of file\n");
+            }
+        };
+        for i in 0..original_lines.len().max(fixed_lines.len()) {
+            match (original_lines.get(i), fixed_lines.get(i)) {
+                (Some(old), Some(new)) if old == new => append(' ', old),
+                (old, new) => {
+                    if let Some(old) = old {
+                        append('-', old);
+                    }
+                    if let Some(new) = new {
+                        append('+', new);
+                    }
+                }
+            }
+        }
         diff
     }
 
     pub fn load_config(&mut self, dir: &Path) {
         let config = crate::config::load_config(dir);
         self.indent_size = config.indent_size;
+        self.max_line_length = config.max_line_length;
+        self.snake_case_variables = config.snake_case_variables;
+        self.trailing_whitespace = config.trailing_whitespace;
+        self.consistent_keyword_case = config.consistent_keyword_case;
     }
 }
 
