@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use wfl::fixer::CodeFixer;
+use wfl::fixer::{CodeFixer, validate_source, write_fixed_file};
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::lexer::token::Token;
 use wfl::parser::Parser;
@@ -10,7 +10,9 @@ fn fix(source: &str) -> String {
     let program = Parser::new(&lex_wfl_with_positions(source))
         .parse()
         .unwrap_or_else(|errors| panic!("original source must parse: {errors:?}\n{source}"));
-    let (fixed, _) = CodeFixer::new().fix(&program, source);
+    let (fixed, _) = CodeFixer::new()
+        .fix_checked(&program, source)
+        .expect("formatting valid source must succeed");
     Parser::new(&lex_wfl_with_positions(&fixed))
         .parse()
         .unwrap_or_else(|errors| panic!("fixed source must parse: {errors:?}\n{fixed}"));
@@ -107,7 +109,7 @@ fn does_not_merge_identifiers_that_have_the_same_snake_case_spelling() {
 
 #[test]
 fn identifier_normalization_does_not_introduce_keywords_or_literal_tokens() {
-    for name in ["Store", "Display", "True", "Nothing", "Yes"] {
+    for name in ["Store", "Display", "Nothing", "Undefined", "Missing"] {
         let source = format!("store {name} as 10\ndisplay {name}\n");
         let fixed = fix(&source);
         assert_eq!(
@@ -199,9 +201,54 @@ fn fixing_is_idempotent_after_safe_local_variable_renaming() {
     let program = Parser::new(&lex_wfl_with_positions(&fixed))
         .parse()
         .expect("first fix parses");
-    let (second, summary) = CodeFixer::new().fix(&program, &fixed);
+    let (second, summary) = CodeFixer::new()
+        .fix_checked(&program, &fixed)
+        .expect("second fix succeeds");
     assert_eq!(second, fixed, "a second fix must be a no-op");
     assert_eq!(summary.total(), 0, "no-op fixes must report zero changes");
+}
+
+#[test]
+fn keyword_prefixes_in_identifiers_remain_valid_source() {
+    let source = concat!(
+        "store content_type as \"text/plain\"\n",
+        "store list_items as [1, 2]\n",
+        "store is_active as yes\n",
+        "display content_type\n",
+    );
+    validate_source(source).expect("valid underscore identifiers pass strict validation");
+    assert_eq!(significant_tokens(&fix(source)), significant_tokens(source));
+}
+
+#[test]
+fn rejects_unrecognized_bytes_and_malformed_literals() {
+    for source in [
+        "store total as 1 @\n",
+        "display \"unterminated\n",
+        "display \"invalid \\q escape\"\n",
+        "store huge as 99999999999999999999999999999999999999\n",
+    ] {
+        assert!(
+            validate_source(source).is_err(),
+            "invalid source must be rejected without dropping tokens: {source:?}"
+        );
+    }
+}
+
+#[test]
+fn atomic_write_refuses_to_replace_a_concurrently_modified_source() {
+    let directory = tempfile::tempdir().expect("test directory");
+    let path = directory.path().join("program.wfl");
+    let original = "store userName as 1\n";
+    let newer = "store userName as 2\n";
+    fs::write(&path, newer).expect("write newer edit");
+
+    let error = write_fixed_file(&path, original, "store user_name as 1\n")
+        .expect_err("a stale formatter must not overwrite newer editor changes");
+
+    assert!(error.to_string().contains("changed"), "{error}");
+    assert_eq!(fs::read_to_string(&path).expect("read source"), newer);
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
 fn collect_programs(directory: &Path, paths: &mut Vec<PathBuf>) {
@@ -251,7 +298,16 @@ fn all_parseable_test_programs_preserve_syntax_literals_and_idempotence() {
         };
         parsed_count += 1;
         let relative = path.strip_prefix(&root).expect("path within TestPrograms");
-        let (fixed, _) = CodeFixer::new().fix(&program, &source);
+        let (fixed, _) = match CodeFixer::new().fix_checked(&program, &source) {
+            Ok(result) => result,
+            Err(error) => {
+                failures.push(format!(
+                    "{}: formatting failed: {error}",
+                    relative.display()
+                ));
+                continue;
+            }
+        };
         let reparsed = Parser::new(&lex_wfl_with_positions(&fixed)).parse();
         if let Err(errors) = &reparsed {
             failures.push(format!(
@@ -269,7 +325,9 @@ fn all_parseable_test_programs_preserve_syntax_literals_and_idempotence() {
             failures.push(format!("{}: changed literal source", relative.display()));
         }
         if let Ok(reparsed) = reparsed {
-            let (second, _) = CodeFixer::new().fix(&reparsed, &fixed);
+            let (second, _) = CodeFixer::new()
+                .fix_checked(&reparsed, &fixed)
+                .expect("second corpus fix succeeds");
             if second != fixed {
                 failures.push(format!("{}: not idempotent", relative.display()));
             }

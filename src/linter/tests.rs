@@ -201,17 +201,21 @@ fn test_lint_max_line_length_setting_is_applied() {
     let diagnostics = lint_source(&linter, "display \"hello\"\n");
     assert!(diagnostics.iter().any(|d| d.code == "LINT-LENGTH"));
     linter.set_max_line_length(120);
-    assert!(!lint_source(&linter, &format!("// {}\n", "x".repeat(105)))
-        .iter()
-        .any(|d| d.code == "LINT-LENGTH"));
+    assert!(
+        !lint_source(&linter, &format!("// {}\n", "x".repeat(105)))
+            .iter()
+            .any(|d| d.code == "LINT-LENGTH")
+    );
 }
 
 #[test]
 fn test_lint_line_length_counts_unicode_characters() {
     let source = format!("display \"{}\"\n", "é".repeat(50));
-    assert!(!lint_source(&Linter::new(), &source)
-        .iter()
-        .any(|d| d.code == "LINT-LENGTH"));
+    assert!(
+        !lint_source(&Linter::new(), &source)
+            .iter()
+            .any(|d| d.code == "LINT-LENGTH")
+    );
 }
 
 #[test]
@@ -221,35 +225,54 @@ fn test_lint_local_config_applies_indentation_width() {
     let mut linter = Linter::new();
     linter.load_config(directory.path());
     let diagnostics = lint_source(&linter, "check if yes:\n  display \"ok\"\nend check\n");
-    assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
 fn test_lint_indentation_handles_inline_comments_and_try_branches() {
     let source = "try: // attempt\n    display \"ok\"\ncatch: // recovery\n    display \"error\"\nfinally:\n    display \"done\"\nend try\n";
     let diagnostics = lint_source(&Linter::new(), source);
-    assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
 fn test_lint_indentation_handles_route_arms_and_container_bare_end() {
     let source = "create container Example:\n    action greet: Text\n        return \"hello\"\n    end\nend\nroute 1:\n    when 1:\n        display \"one\"\n    otherwise:\n        display \"other\"\nend route\n";
     let diagnostics = lint_source(&Linter::new(), source);
-    assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
 fn test_lint_does_not_treat_multiline_string_contents_as_layout() {
     let source = "store poem as \"first\nend check:   \n  last\"\ndisplay poem\n";
     let diagnostics = lint_source(&Linter::new(), source);
-    assert!(!diagnostics.iter().any(|d| matches!(d.code.as_str(), "LINT-INDENT" | "LINT-WHITESPACE")), "{diagnostics:?}");
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| matches!(d.code.as_str(), "LINT-INDENT" | "LINT-WHITESPACE")),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
 fn test_lint_names_inside_nested_statements() {
     let source = "define action called greet:\n    repeat while no:\n        store BadName as 1\n    end repeat\nend action\n";
     let diagnostics = lint_source(&Linter::new(), source);
-    assert!(diagnostics.iter().any(|d| d.code == "LINT-NAME" && d.message.contains("BadName")), "{diagnostics:?}");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == "LINT-NAME" && d.message.contains("BadName")),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
@@ -258,14 +281,44 @@ fn test_lint_nesting_setting_covers_repeat_and_test_blocks() {
     let mut linter = Linter::new();
     linter.set_max_nesting_depth(1);
     let diagnostics = lint_source(&linter, source);
-    assert!(diagnostics.iter().any(|d| d.code == "LINT-COMPLEX"), "{diagnostics:?}");
+    assert!(
+        diagnostics.iter().any(|d| d.code == "LINT-COMPLEX"),
+        "{diagnostics:?}"
+    );
     linter.set_max_nesting_depth(10);
-    assert!(!lint_source(&linter, source).iter().any(|d| d.code == "LINT-COMPLEX"));
+    assert!(
+        !lint_source(&linter, source)
+            .iter()
+            .any(|d| d.code == "LINT-COMPLEX")
+    );
 }
 
 #[test]
 fn test_lint_indentation_handles_colonless_loops_and_list_blocks() {
     let source = "repeat while no\n    display \"loop\"\nend repeat\ncreate list items:\n    add \"one\"\n    add \"two\"\nend list\ncheck if yes\n    display \"ok\"\nend check\n";
     let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_indentation_handles_concatenation_continuations() {
+    let source = "display \"first\" with\n    \"second\" with\n    \"third\"\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
     assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
+}
+
+#[test]
+fn test_lint_indentation_handles_postcondition_repeat() {
+    let source = "repeat:\n    display \"once\"\nuntil yes\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
+}
+
+#[test]
+fn test_lint_layout_accepts_incomplete_input_without_panicking() {
+    let (diagnostics, _) = Linter::new().lint(&Program::default(), "export\n", "incomplete.wfl");
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code == "LINT-INDENT"));
 }

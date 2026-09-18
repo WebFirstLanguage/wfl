@@ -250,3 +250,111 @@ fn lint_input_io_errors_exit_two_without_creating_files() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("UTF-8"));
     assert_eq!(fs::read(&path).unwrap(), [0xff, 0xfe]);
 }
+
+#[test]
+fn in_place_write_failure_preserves_readonly_source_and_permissions() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let original_permissions = fs::metadata(&path).unwrap().permissions();
+    let mut readonly_permissions = original_permissions.clone();
+    readonly_permissions.set_readonly(true);
+    fs::set_permissions(&path, readonly_permissions).unwrap();
+
+    let output = run(
+        dir.path(),
+        &["--lint", "--fix", "program.wfl", "--in-place"],
+    );
+    let contents = fs::read_to_string(&path).unwrap();
+    let still_readonly = fs::metadata(&path).unwrap().permissions().readonly();
+    // Restore before assertions so the temporary tree is removable on Windows
+    // even if a regression causes one of the assertions below to fail.
+    fs::set_permissions(&path, original_permissions).unwrap();
+    assert_status(&output, 2);
+    assert!(output.stdout.is_empty());
+    assert!(!output.stderr.is_empty());
+    assert_eq!(contents, DIRTY);
+    assert!(still_readonly);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn oversized_source_is_rejected_in_every_mode_without_output_or_writes() {
+    for args in [
+        vec!["--lint", "program.wfl"],
+        vec!["--lint", "--fix", "program.wfl"],
+        vec!["--lint", "--fix", "program.wfl", "--diff"],
+        vec!["--lint", "--fix", "program.wfl", "--in-place"],
+    ] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("program.wfl");
+        fs::write(&path, DIRTY).unwrap();
+        fs::write(dir.path().join(".wflcfg"), "max_source_size = 8\n").unwrap();
+        let output = run(dir.path(), &args);
+        assert_status(&output, 2);
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Source file too large"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+    }
+}
+
+#[test]
+fn lint_and_fix_share_project_indentation_settings() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("program.wfl");
+    fs::write(&path, "check if true:\n display \"hello\"\nend check\n").unwrap();
+    fs::write(dir.path().join(".wflcfg"), "indent_size = 2\n").unwrap();
+    let before = run(dir.path(), &["--lint", "program.wfl"]);
+    assert_status(&before, 1);
+    let fix = run(
+        dir.path(),
+        &["--lint", "--fix", "program.wfl", "--in-place"],
+    );
+    assert_status(&fix, 0);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "check if true:\n  display \"hello\"\nend check\n"
+    );
+    let after = run(dir.path(), &["--lint", "program.wfl"]);
+    assert_status(&after, 0);
+}
+
+#[test]
+fn lint_like_script_arguments_remain_arguments_to_the_executed_program() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("program.wfl");
+    fs::write(&path, DIRTY).unwrap();
+    let output = run(
+        dir.path(),
+        &["program.wfl", "--lint", "--fix", "--diff", "--in-place"],
+    );
+    assert_status(&output, 0);
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
+    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+}
+
+#[test]
+fn extreme_indentation_configuration_cannot_panic_or_overwrite_source() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("program.wfl");
+    let source = "check if true:\n    display \"hello\"\nend check\n";
+    fs::write(&path, source).unwrap();
+    fs::write(
+        dir.path().join(".wflcfg"),
+        format!("indent_size = {}\n", usize::MAX),
+    )
+    .unwrap();
+    let lint = run(dir.path(), &["--lint", "program.wfl"]);
+    assert_status(&lint, 1);
+    for args in [
+        vec!["--lint", "--fix", "program.wfl"],
+        vec!["--lint", "--fix", "program.wfl", "--diff"],
+        vec!["--lint", "--fix", "program.wfl", "--in-place"],
+    ] {
+        let output = run(dir.path(), &args);
+        assert_status(&output, 2);
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    }
+}
