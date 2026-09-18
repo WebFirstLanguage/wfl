@@ -227,6 +227,7 @@ fn is_end_suffix(token: &Token) -> bool {
     ) || matches!(token, Token::Identifier(name) if name.eq_ignore_ascii_case("transaction"))
 }
 
+/// Recognize body headers without borrowing a colon from a following statement.
 fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> {
     let first = &tokens.first()?.token;
     let second = tokens.get(1).map(|token| &token.token);
@@ -262,18 +263,28 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
             )
             .then_some(Block::Ordinary)
         }
+        Token::KeywordCreate if second == Some(&Token::KeywordInterface) => {
+            interface_has_body(tokens).then_some(Block::Ordinary)
+        }
         Token::KeywordCreate
             if matches!(
                 second,
-                Some(
-                    Token::KeywordContainer
-                        | Token::KeywordInterface
-                        | Token::KeywordList
-                        | Token::KeywordMap
-                        | Token::KeywordPattern
-                )
-            ) && has_colon =>
+                Some(Token::KeywordList | Token::KeywordMap | Token::KeywordPattern)
+            ) =>
         {
+            // `create list` is also an expression, and `create`, `map`, and
+            // `pattern` can be contextual variable operands in expressions.
+            // A supported declaration requires its own name and colon.
+            matches!(
+                (
+                    tokens.get(2).map(|token| &token.token),
+                    tokens.get(3).map(|token| &token.token)
+                ),
+                (Some(Token::Identifier(_)), Some(Token::Colon))
+            )
+            .then_some(Block::Ordinary)
+        }
+        Token::KeywordCreate if second == Some(&Token::KeywordContainer) && has_colon => {
             Some(Block::Ordinary)
         }
         Token::KeywordIn if matches!(second, Some(Token::Identifier(name)) if name.eq_ignore_ascii_case("transaction")) => {
@@ -285,4 +296,27 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
         Token::KeywordOn if has_colon => Some(Block::Ordinary),
         _ => None,
     }
+}
+
+/// An interface body starts only at the colon immediately after its name or
+/// comma-separated `extends` names. A bare interface can have a later statement
+/// on the same line, including one with a named-argument colon.
+fn interface_has_body(tokens: &[TokenWithPosition]) -> bool {
+    let mut header = tokens.iter().skip(2).map(|token| &token.token);
+    if !matches!(header.next(), Some(Token::Identifier(_))) {
+        return false;
+    }
+    let mut next = header.next();
+    if next == Some(&Token::KeywordExtends) {
+        loop {
+            if !matches!(header.next(), Some(Token::Identifier(_))) {
+                return false;
+            }
+            next = header.next();
+            if next != Some(&Token::Comma) {
+                break;
+            }
+        }
+    }
+    next == Some(&Token::Colon)
 }

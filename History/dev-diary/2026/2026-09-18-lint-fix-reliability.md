@@ -57,3 +57,17 @@ A further review found that the colon in a named argument of the supported
 now recognizes the actual container-instantiation header before opening a
 block. Retained failing unit and real CLI regressions cover the old constant
 syntax, nested use, real container initialization, and all lint/fix outputs.
+
+### September 18 interface and list-expression review
+
+A subsequent review reproduced false block nesting when a bare interface was
+followed on the same line by a statement with a named argument. The adjacent
+grammar audit found the same problem in the supported empty-list expression
+and contextual `create map` / `create pattern` display operands.
+Regression coverage distinguishes these forms from actual interface and list
+bodies and verifies all CLI lint/fix modes.
+The shared layout scanner now checks the colon at the end of each affected
+declaration header, including an interface's optional parent list. Test-only
+revision `877a1dd6` preserves the ten failing regressions before the correction.
+Independent review checked the implementation against the parser's accepted
+grammar and found no further defect.
