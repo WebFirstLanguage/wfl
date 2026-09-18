@@ -25,6 +25,9 @@ fn run_with_config_path(dir: &Path, args: &[&str], input: &str, config: &Path) -
         .args(args)
         .current_dir(dir)
         .env("WFL_GLOBAL_CONFIG_PATH", config)
+        // Use line-oriented prompts on every platform. With a supported Unix
+        // terminal, rustyline suppresses prompts when stdin is a pipe.
+        .env("TERM", "dumb")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

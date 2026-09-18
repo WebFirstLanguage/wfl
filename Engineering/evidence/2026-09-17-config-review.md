@@ -120,3 +120,41 @@ No new runtime concurrency, protocol, or crypto implementation was introduced.
 Earlier file-I/O failures remain tracked separately in
 [issue #732](https://github.com/WebFirstLanguage/wfl/issues/732); creating that
 issue does not turn a failed required check into a pass.
+
+## CI follow-up: portable prompts and fuzz lockfile
+
+The [CI run for `dfdd9384`](https://github.com/WebFirstLanguage/wfl/actions/runs/35296112275)
+provides Red evidence for two failures introduced by this change:
+
+- Linux build/test and integration jobs failed the stream-lifetime CLI prompt
+  assertion. The command itself succeeded, but rustyline suppresses prompts for
+  piped input when `TERM` names a supported terminal. The child-process helper
+  now sets `TERM=dumb`, selecting rustyline's line-oriented mode that prints the
+  actual prompts on every platform. All prompt and saved-value assertions remain
+  unchanged. This exercises real CLI input and output, not terminal editing.
+- The fuzz compile job rejected `fuzz/Cargo.lock` under `--locked` because the
+  atomic-save implementation made `tempfile` a runtime dependency. The separate
+  workspace lockfile now adds that dependency and its missing package closure;
+  no existing locked versions changed. The same locked check was reproduced
+  locally with exit 101 before refreshing the lockfile.
+
+Windows integration was canceled by the matrix after Linux failed. These CI
+failures are distinct from the local file-I/O timeouts tracked in issue #732.
+The overall PR remains R3; this follow-up changes only the test environment and
+dependency lockfile, with no runtime behavior change or weakened assertions.
+
+Local validation after these fixes, on Windows:
+
+- `cargo test --test config_command_test --test cli_help_version_flags_test
+  --test transpiler_sunset_test`: **26 passed**.
+- `cargo check --locked --offline --manifest-path fuzz/Cargo.toml --target-dir
+  target/test-artifacts/ci-fixes/fuzz-target`: **passed**, exit 0; this checks
+  compilation, not fuzz execution.
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+
+Raw logs are under `target/test-artifacts/ci-fixes/`. Independent read-only review
+confirmed rustyline's unsupported-terminal path prints and flushes the prompt
+before using the same direct input reader. Linux execution and the full GitHub
+matrix must be verified on the pushed revision; the earlier local full-suite
+failures remain recorded above.

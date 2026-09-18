@@ -48,3 +48,14 @@ of obsolete command terminology throughout the documentation, including the
 archived package-wizard comparison and its checksum update. These are scoped
 exceptions to the usual compatibility and archive-preservation policies, not
 changes to those policies for future work.
+
+## 2026-09-17 addendum: CI portability
+
+Linux CI exposed a platform difference in rustyline's handling of piped input:
+supported terminals suppress prompts, while the line-oriented mode prints them.
+The CLI test helper now explicitly selects that mode with `TERM=dumb`, retaining
+all prompt and configuration-value assertions. The standalone fuzz workspace
+lockfile also includes the atomic-save implementation's `tempfile` dependency,
+without changing existing dependency versions. Targeted CLI tests and the locked
+fuzz compilation pass locally; the [review evidence](../../../Engineering/evidence/2026-09-17-config-review.md)
+records the original CI failures and the remaining platform verification.
