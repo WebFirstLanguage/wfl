@@ -131,6 +131,42 @@ fn legacy_repeated_single_dash_source_after_fix_remains_supported() {
 }
 
 #[test]
+fn version_aliases_immediately_after_lint_are_source_filenames() {
+    for filename in ["-v", "-V"] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(filename);
+        fs::write(&path, DIRTY).unwrap();
+        let output = run(dir.path(), &["--lint", filename]);
+        assert_status(&output, 1);
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("trailing whitespace"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+    }
+}
+
+#[test]
+fn version_aliases_immediately_after_fix_are_source_filenames() {
+    for filename in ["-v", "-V"] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(filename);
+        fs::write(&path, DIRTY).unwrap();
+        let stdout = run(dir.path(), &["--lint", "--fix", filename]);
+        assert_status(&stdout, 0);
+        assert_eq!(stdout.stdout, CLEAN.as_bytes());
+        let legacy_diff = run(
+            dir.path(),
+            &["--lint", filename, "--fix", filename, "--diff"],
+        );
+        assert_status(&legacy_diff, 0);
+        assert!(String::from_utf8_lossy(&legacy_diff.stdout).contains("+display \"hello\"\n"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+        let in_place = run(dir.path(), &["--lint", "--fix", filename, "--in-place"]);
+        assert_status(&in_place, 0);
+        assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
+    }
+}
+
+#[test]
 fn lint_reports_clean_and_dirty_files_without_changing_them() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("program.wfl");
