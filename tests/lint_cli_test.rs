@@ -266,6 +266,143 @@ fn version_aliases_immediately_after_fix_are_source_filenames() {
     }
 }
 
+/// A preview/publication option establishes the source slot even before lint/fix.
+#[test]
+fn version_alias_paths_follow_any_lint_option_order() {
+    for filename in ["-v", "-V"] {
+        for mode in ["--diff", "--in-place"] {
+            for args in [
+                vec![mode, filename, "--fix", "--lint"],
+                vec![mode, "--time", filename, "--lint", "--fix"],
+                vec!["--time", mode, filename, "--fix", "--lint"],
+                vec!["--lint", mode, filename, "--fix"],
+                vec!["--fix", mode, filename, "--lint"],
+                vec![mode, filename, "--lint", filename, "--fix", filename],
+            ] {
+                let dir = TempDir::new().unwrap();
+                let path = dir.path().join(filename);
+                fs::write(&path, DIRTY).unwrap();
+                let output = run(dir.path(), &args);
+                assert_status(&output, 0);
+                assert!(output.stderr.is_empty(), "args: {args:?}");
+                if mode == "--diff" {
+                    let diff = String::from_utf8_lossy(&output.stdout);
+                    assert!(
+                        diff.starts_with(&format!("--- a/{filename}\n+++ b/{filename}\n")),
+                        "args: {args:?}; output: {diff}"
+                    );
+                    assert!(diff.contains("-display \"hello\"   \n"));
+                    assert!(diff.contains("+display \"hello\"\n"));
+                    assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+                } else {
+                    assert!(output.stdout.is_empty(), "args: {args:?}");
+                    assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
+                }
+            }
+        }
+    }
+}
+
+/// Alias-shaped sources cannot bypass option validation or trigger any writes.
+#[test]
+fn version_alias_paths_preserve_invalid_mode_errors_without_writes() {
+    for filename in ["-v", "-V"] {
+        for (args, expected) in [
+            (vec!["--diff", filename], "requires --fix"),
+            (vec!["--in-place", filename], "requires --fix"),
+            (vec!["--diff", filename, "--fix"], "--lint"),
+            (vec!["--in-place", filename, "--fix"], "--lint"),
+            (
+                vec!["--diff", filename, "--fix", "--lint", "--in-place"],
+                "mutually exclusive",
+            ),
+            (
+                vec!["--in-place", filename, "--lint", "--fix", "--diff"],
+                "mutually exclusive",
+            ),
+            (
+                vec!["--diff", filename, "--lint", "--fix", "extra.wfl"],
+                "one file",
+            ),
+            (
+                vec!["--in-place", filename, "--lint", "--fix", "--unknown"],
+                "Unknown option",
+            ),
+        ] {
+            let dir = TempDir::new().unwrap();
+            let path = dir.path().join(filename);
+            let other_path = dir.path().join("extra.wfl");
+            fs::write(&path, DIRTY).unwrap();
+            fs::write(&other_path, DIRTY).unwrap();
+            let output = run(dir.path(), &args);
+            assert_status(&output, 2);
+            assert!(output.stdout.is_empty(), "args: {args:?}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(expected),
+                "args: {args:?}; stderr: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
+            assert_eq!(fs::read_to_string(&other_path).unwrap(), DIRTY);
+        }
+    }
+}
+
+/// Missing or malformed alias-shaped inputs remain errors in both fix modes.
+#[test]
+fn version_alias_paths_preserve_source_errors_without_writes() {
+    for filename in ["-v", "-V"] {
+        for mode in ["--diff", "--in-place"] {
+            for source in [None, Some("display \"hello\"\n@\n")] {
+                let dir = TempDir::new().unwrap();
+                let path = dir.path().join(filename);
+                if let Some(source) = source {
+                    fs::write(&path, source).unwrap();
+                }
+                let output = run(dir.path(), &[mode, filename, "--fix", "--lint"]);
+                assert_status(&output, 2);
+                assert!(output.stdout.is_empty());
+                assert!(!output.stderr.is_empty());
+                if let Some(source) = source {
+                    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+                } else {
+                    assert!(!path.exists());
+                }
+            }
+        }
+    }
+}
+
+/// Standalone aliases and explicit long version requests retain their meaning.
+#[test]
+fn version_alias_paths_do_not_change_explicit_version_requests() {
+    let dir = TempDir::new().unwrap();
+    for filename in ["-v", "-V", "program.wfl"] {
+        fs::write(dir.path().join(filename), DIRTY).unwrap();
+    }
+    for args in [
+        vec!["-v"],
+        vec!["-V"],
+        vec!["--version"],
+        vec!["--time", "-v"],
+        vec!["--time", "-V"],
+        vec!["--diff", "--version", "--fix", "--lint"],
+        vec!["--lint", "program.wfl", "--in-place", "--version", "--fix"],
+    ] {
+        let output = run(dir.path(), &args);
+        assert_status(&output, 0);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!("WebFirst Language (WFL) version {}\n", wfl::version::VERSION),
+            "args: {args:?}"
+        );
+        assert!(output.stderr.is_empty(), "args: {args:?}");
+        for filename in ["-v", "-V", "program.wfl"] {
+            assert_eq!(fs::read_to_string(dir.path().join(filename)).unwrap(), DIRTY);
+        }
+    }
+}
+
 /// Lint status distinguishes clean input from warnings without changing either.
 #[test]
 fn lint_reports_clean_and_dirty_files_without_changing_them() {
