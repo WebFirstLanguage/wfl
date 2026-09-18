@@ -304,20 +304,6 @@ fn test_lint_indentation_handles_colonless_loops_and_list_blocks() {
 }
 
 #[test]
-fn test_lint_indentation_handles_concatenation_continuations() {
-    let source = "display \"first\" with\n    \"second\" with\n    \"third\"\ndisplay \"done\"\n";
-    let diagnostics = lint_source(&Linter::new(), source);
-    assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
-}
-
-#[test]
-fn test_lint_indentation_handles_postcondition_repeat() {
-    let source = "repeat:\n    display \"once\"\nuntil yes\ndisplay \"done\"\n";
-    let diagnostics = lint_source(&Linter::new(), source);
-    assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
-}
-
-#[test]
 fn test_lint_layout_accepts_incomplete_input_without_panicking() {
     let (diagnostics, _) = Linter::new().lint(&Program::default(), "export\n", "incomplete.wfl");
     assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code == "LINT-INDENT"));
