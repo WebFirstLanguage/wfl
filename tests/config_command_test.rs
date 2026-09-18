@@ -61,6 +61,7 @@ fn run_with_config_path(dir: &Path, args: &[&str], input: &str, config: &Path) -
     }
 }
 
+/// Builds answers in prompt order; embedded newlines supply invalid then corrected answers.
 fn answers(overrides: &[(&str, &str)]) -> String {
     let checker = ConfigChecker::new();
     let mut input = String::new();
@@ -84,6 +85,7 @@ fn combined(output: &Output) -> String {
     )
 }
 
+/// Verifies representative global defaults and the absence of optional TLS paths.
 fn assert_defaults(dir: &Path) {
     let text = fs::read_to_string(config_path(dir)).expect("global configuration created");
     assert!(text.contains("# Created by wfl config on "), "{text}");
@@ -94,6 +96,7 @@ fn assert_defaults(dir: &Path) {
         "{text}"
     );
     assert!(text.contains("max_call_depth = 1000"), "{text}");
+    assert!(text.contains("outbound_stream_max_seconds = 300"), "{text}");
     assert!(
         !text.lines().any(|line| line.starts_with("web_server_tls_")),
         "optional TLS settings must be omitted: {text}"
@@ -228,6 +231,62 @@ fn config_overwrites_only_after_confirmation_and_complete_answers() {
     let output = run(dir.path(), &["config"], &format!("y\n{}", answers(&[])));
     assert!(output.status.success(), "{}", combined(&output));
     assert_defaults(dir.path());
+}
+
+#[test]
+fn config_prompts_and_writes_outbound_stream_lifetime_on_create_and_overwrite() {
+    for value in ["60", "0"] {
+        for overwrite in [false, true] {
+            let dir = TempDir::new().unwrap();
+            let path = config_path(dir.path());
+            let mut input = String::new();
+            if overwrite {
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(&path, "outbound_stream_max_seconds = 123\n").unwrap();
+                input.push_str("y\n");
+            }
+            input.push_str(&answers(&[("outbound_stream_max_seconds", value)]));
+
+            let output = run(dir.path(), &["config"], &input);
+            assert!(output.status.success(), "{}", combined(&output));
+            assert!(
+                combined(&output).contains("outbound_stream_max_seconds - "),
+                "{}",
+                combined(&output)
+            );
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(
+                text.lines()
+                    .any(|line| line == format!("outbound_stream_max_seconds = {value}")),
+                "{text}"
+            );
+            assert!(
+                !text.contains("outbound_stream_max_seconds = 123"),
+                "{text}"
+            );
+            assert!(!dir.path().join(".wflcfg").exists());
+            let issues = ConfigChecker::new().check_config_file(&path).unwrap();
+            assert!(issues.is_empty(), "{issues:?}");
+        }
+    }
+}
+
+#[test]
+fn config_reprompts_negative_outbound_stream_lifetime() {
+    let dir = TempDir::new().unwrap();
+    let input = answers(&[("outbound_stream_max_seconds", "-1\n60")]);
+    let output = run(dir.path(), &["config"], &input);
+    assert!(output.status.success(), "{}", combined(&output));
+    assert!(
+        combined(&output).contains("non-negative integer"),
+        "{}",
+        combined(&output)
+    );
+    assert!(combined(&output).contains("Please try again."));
+    let text = fs::read_to_string(config_path(dir.path())).unwrap();
+    assert!(text.contains("outbound_stream_max_seconds = 60"), "{text}");
+    assert!(!text.contains("outbound_stream_max_seconds = -1"), "{text}");
+    assert!(!dir.path().join(".wflcfg").exists());
 }
 
 #[test]

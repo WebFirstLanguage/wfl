@@ -230,7 +230,6 @@ impl ConfigWizard {
 
     /// Serialize configuration text, propagating every output error.
     fn write_config(&self, mut file: impl io::Write) -> Result<(), io::Error> {
-
         // Write header
         writeln!(file, "# WebFirst Language Configuration File")?;
         writeln!(
@@ -301,6 +300,151 @@ pub fn run_wizard(output_path: &Path) -> Result<(), io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+
+    /// Fail after real partial output, or after rendering during flush.
+    struct FailingWriter<'a> {
+        file: &'a mut std::fs::File,
+        remaining: Option<usize>,
+    }
+
+    impl Write for FailingWriter<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.remaining == Some(0) {
+                return Err(io::Error::other("injected write failure"));
+            }
+            let limit = self.remaining.unwrap_or(bytes.len()).min(bytes.len());
+            let written = self.file.write(&bytes[..limit])?;
+            if let Some(remaining) = &mut self.remaining {
+                *remaining -= written;
+            }
+            Ok(written)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::other("injected flush failure"))
+        }
+    }
+
+    #[test]
+    fn test_config_save_failures_preserve_destination_and_clean_temporary_files() {
+        let wizard = ConfigWizard::new().unwrap();
+        for existing in [false, true] {
+            for remaining in [Some(32), None] {
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("config");
+                let original = b"# existing configuration\ntimeout_seconds = 19\n";
+                if existing {
+                    std::fs::write(&path, original).unwrap();
+                }
+                let error = write_config_file(&path, |file| {
+                    let mut writer = FailingWriter { file, remaining };
+                    wizard.write_config(&mut writer)?;
+                    writer.flush()
+                })
+                .unwrap_err();
+                assert!(error.to_string().contains("injected"), "{error}");
+                if existing {
+                    assert_eq!(std::fs::read(&path).unwrap(), original);
+                } else {
+                    assert!(
+                        !path.exists(),
+                        "a failed save must not publish partial output"
+                    );
+                }
+                assert_eq!(
+                    std::fs::read_dir(directory.path()).unwrap().count(),
+                    usize::from(existing),
+                    "failed saves must remove temporary output"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_config_save_replaces_file_without_changing_existing_readers() {
+        let wizard = ConfigWizard::new().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config");
+        let original = "# previous complete configuration\n";
+        std::fs::write(&path, original).unwrap();
+        let mut reader = std::fs::File::open(&path).unwrap();
+
+        wizard.generate_file(&path).unwrap();
+
+        let mut old_contents = String::new();
+        reader.read_to_string(&mut old_contents).unwrap();
+        assert_eq!(
+            old_contents, original,
+            "existing readers must retain the old file"
+        );
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("# Created by wfl config on "));
+        assert!(contents.contains("timeout_seconds = 60"));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn test_config_save_cleans_temporary_file_when_replacement_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config");
+        let sentinel = path.join("keep.txt");
+        let error = write_config_file(&path, |file| {
+            file.write_all(b"complete replacement")?;
+            std::fs::create_dir(&path)?;
+            std::fs::write(&sentinel, b"preserve this directory")?;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(
+            path.is_dir(),
+            "replacement failure must preserve the directory: {error}"
+        );
+        assert_eq!(std::fs::read(sentinel).unwrap(), b"preserve this directory");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_config_save_preserves_symlink_and_target_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("settings");
+        let link = directory.path().join("config");
+        std::fs::write(&target, b"old settings").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+        symlink("settings", &link).unwrap();
+
+        ConfigWizard::new().unwrap().generate_file(&link).unwrap();
+
+        assert!(link.is_symlink());
+        assert!(
+            std::fs::read_to_string(&target)
+                .unwrap()
+                .contains("timeout_seconds = 60")
+        );
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_config_save_rejects_dangling_symlink_without_creating_target() {
+        use std::os::unix::fs::symlink;
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("missing");
+        let link = directory.path().join("config");
+        symlink("missing", &link).unwrap();
+
+        assert!(ConfigWizard::new().unwrap().generate_file(&link).is_err());
+
+        assert!(link.is_symlink());
+        assert!(!target.exists());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn test_generate_file_creates_missing_parent_directories() {
@@ -468,6 +612,29 @@ mod tests {
 
         // Test invalid input
         assert!(wizard.validate_input(&setting, "maybe").is_err());
+    }
+
+    #[test]
+    fn test_validate_outbound_stream_lifetime_accepts_unsigned_range_only() {
+        let wizard = ConfigWizard::new().unwrap();
+        let setting = ExpectedSetting {
+            name: "outbound_stream_max_seconds".to_string(),
+            config_type: ConfigType::Integer,
+            required: false,
+            default_value: Some("300".to_string()),
+            description: "Total outbound stream lifetime; 0 disables the cap".to_string(),
+            valid_values: None,
+            category: "Web Server".to_string(),
+        };
+        for value in ["0", "60", "300", "18446744073709551615"] {
+            assert_eq!(
+                wizard.validate_input(&setting, value).unwrap().as_deref(),
+                Some(value)
+            );
+        }
+        for value in ["-1", "1.5", "abc", "18446744073709551616"] {
+            assert!(wizard.validate_input(&setting, value).is_err(), "{value}");
+        }
     }
 
     #[test]
