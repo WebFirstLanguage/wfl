@@ -459,3 +459,154 @@ fn test_fix_layout_create_new_constant_preserves_following_indentation() {
         );
     }
 }
+
+/// Exercise both optional interface bodies and unrelated statements whose
+/// named-argument colons follow a complete bare interface header.
+fn interface_header_layout_sources() -> Vec<String> {
+    let action =
+        "define action called build with parameters value:\n    return value\nend action\n";
+    [
+        "create interface Marker display call build with value: 1\ndisplay \"done\"\n",
+        "create interface BaseAlpha\ncreate interface BaseBeta\ncreate interface Marker extends BaseAlpha, BaseBeta display call build with value: 1\ndisplay \"done\"\n",
+        "check if yes:\n    create interface Marker display call build with value: 1\n    display \"inside\"\nend check\ndisplay \"done\"\n",
+        "create interface Marker:\n    requires action greet\nend\ndisplay \"done\"\n",
+        "create interface BaseAlpha\ncreate interface BaseBeta\ncreate interface Marker extends BaseAlpha, BaseBeta:\n    requires action greet\nend\ndisplay \"done\"\n",
+        "create interface Marker check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n",
+        "create interface Base Alpha\ncreate interface Base Beta\ncreate interface Empty Marker extends Base Alpha, Base Beta\ndisplay \"done\"\n",
+    ].into_iter().map(|body| format!("{action}{body}")).collect()
+}
+
+#[test]
+fn test_lint_interface_header_colon_belongs_to_its_own_declaration() {
+    let diagnostics: Vec<_> = interface_header_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "unrelated colons cannot open interface bodies: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_fix_interface_header_preserves_following_statement_indentation() {
+    let sources = interface_header_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "interface header boundaries must preserve following statements"
+    );
+}
+
+/// `create list` is also an empty-list expression, so another statement's colon
+/// cannot turn it into a named list declaration with an initializer body.
+fn list_expression_layout_sources() -> Vec<String> {
+    let action =
+        "define action called build with parameters value:\n    return value\nend action\n";
+    [
+        "store items as create list display call build with value: 1\ndisplay items\n",
+        "check if yes:\n    store items as create list display call build with value: 1\n    display items\nend check\ndisplay \"done\"\n",
+        "create list items:\n    add 1\nend list\ndisplay items\n",
+    ].into_iter().map(|body| format!("{action}{body}")).collect()
+}
+
+#[test]
+fn test_lint_create_list_expression_does_not_open_list_body() {
+    let diagnostics: Vec<_> = list_expression_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "an empty-list expression has no body: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_fix_create_list_expression_preserves_following_indentation() {
+    let sources = list_expression_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "empty-list expressions must preserve following statements"
+    );
+}
+
+/// Contextual `create`, `map`, and `pattern` variables can be separate display
+/// operands; only a declaration's own name and colon open an initializer body.
+fn contextual_create_layout_sources() -> Vec<String> {
+    let action =
+        "define action called build with parameters value:\n    return value\nend action\n";
+    let mut sources = Vec::new();
+    for name in ["map", "pattern"] {
+        sources.push(format!(
+            "{action}store create as 1\nstore {name} as 2\ndisplay create {name} call build with value: 1\ndisplay \"done\"\n"
+        ));
+        sources.push(format!(
+            "{action}store create as 1\nstore {name} as 2\ncheck if yes:\n    display create {name} call build with value: 1\n    display \"inside\"\nend check\ndisplay \"done\"\n"
+        ));
+    }
+    sources.extend([
+        "create map scores:\n    alice is 1\nend map\ndisplay scores\n".to_owned(),
+        "create map player scores:\n    alice is 1\nend map\ndisplay player scores\n".to_owned(),
+        "create pattern greeting:\n    \"hello\"\nend pattern\ndisplay \"done\"\n".to_owned(),
+        "create pattern polite greeting:\n    \"hello\"\nend pattern\ndisplay \"done\"\n"
+            .to_owned(),
+    ]);
+    sources
+}
+
+#[test]
+fn test_lint_contextual_create_operands_do_not_open_declaration_bodies() {
+    let diagnostics: Vec<_> = contextual_create_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "contextual variable operands have no declaration body: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_fix_contextual_create_operands_preserve_following_indentation() {
+    let sources = contextual_create_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(
+        fixed_sources, sources,
+        "contextual variable operands must preserve following statements"
+    );
+}

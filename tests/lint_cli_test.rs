@@ -66,6 +66,64 @@ fn assert_status(output: &Output, expected: i32) {
 const DIRTY: &str = "display \"hello\"   \n";
 const CLEAN: &str = "display \"hello\"\n";
 
+/// A later statement's named argument does not turn a bare interface into a body.
+#[test]
+fn bare_interface_followed_by_named_argument_is_stable_in_every_lint_mode() {
+    let source = "define action called build with parameters value:\n    return value\nend action\ncreate interface Marker display call build with value: 1\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Empty-list expressions cannot borrow a later statement's colon as a body.
+#[test]
+fn empty_list_followed_by_named_argument_is_stable_in_every_lint_mode() {
+    let source = "define action called build with parameters value:\n    return value\nend action\nstore items as create list display call build with value: 1\ndisplay items\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Contextual create/map values in an expression cannot introduce a map body.
+#[test]
+fn contextual_create_map_values_are_stable_in_every_lint_mode() {
+    let source = "define action called build with parameters value:\n    return value\nend action\nstore create as 1\nstore map as 2\ndisplay create map call build with value: 1\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Contextual create/pattern values in an expression cannot introduce a body.
+#[test]
+fn contextual_create_pattern_values_are_stable_in_every_lint_mode() {
+    let source = "define action called build with parameters value:\n    return value\nend action\nstore create as 1\nstore pattern as 2\ndisplay create pattern call build with value: 1\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Clean source is warning-free and byte-stable through preview and publication.
+fn assert_clean_source_in_every_lint_mode(source: &str) {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("program.wfl");
+    fs::write(&path, source).unwrap();
+
+    let lint = run(directory.path(), &["--lint", "program.wfl"]);
+    assert_status(&lint, 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+    let fixed = run(directory.path(), &["--lint", "--fix", "program.wfl"]);
+    assert_status(&fixed, 0);
+    assert_eq!(fixed.stdout, source.as_bytes());
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+    let diff = run(
+        directory.path(),
+        &["--lint", "--fix", "program.wfl", "--diff"],
+    );
+    assert_status(&diff, 0);
+    assert!(diff.stdout.is_empty());
+
+    let inplace = run(
+        directory.path(),
+        &["--lint", "--fix", "program.wfl", "--in-place"],
+    );
+    assert_status(&inplace, 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+}
+
 /// A named argument in a legacy constant is an expression, not an instance body.
 #[test]
 fn legacy_constant_named_arguments_remain_stable_in_every_lint_mode() {
