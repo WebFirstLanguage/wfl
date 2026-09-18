@@ -302,6 +302,92 @@ fn atomic_write_refuses_to_replace_a_concurrently_modified_source() {
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
 }
 
+// A lock names the canonical destination, rather than its replaceable inode.
+// Its fixed-width digest also supports names near a filesystem's length limit.
+fn formatter_lock_path(path: &Path) -> PathBuf {
+    use sha2::{Digest, Sha256};
+
+    let destination = fs::canonicalize(path).expect("canonical source path");
+    let name = destination.file_name().expect("source filename");
+    let digest = Sha256::digest(name.as_encoded_bytes());
+    destination.with_file_name(format!(".wfl-fix-{digest:x}.lock"))
+}
+
+#[test]
+fn atomic_write_respects_another_writer_lock_and_releases_its_own_lock() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let directory = tempfile::tempdir().expect("test directory");
+    let path = directory.path().join("program.wfl");
+    let other_path = directory.path().join("other.wfl");
+    let original = "store userName as 1\n";
+    let fixed = "store user_name as 1\n";
+    fs::write(&path, original).expect("write source");
+    fs::write(&other_path, original).expect("write unrelated source");
+    let lock_path = formatter_lock_path(&path);
+    let held_path = lock_path.clone();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let owner = std::thread::spawn(move || {
+        let lock = fs::File::create_new(&held_path).expect("claim writer lock");
+        ready_tx.send(()).expect("announce lock ownership");
+        // Bound the fixture's lifetime even if an implementation blocks on the
+        // lock rather than reporting contention immediately.
+        let released = release_rx.recv_timeout(Duration::from_secs(10));
+        drop(lock);
+        fs::remove_file(&held_path).expect("owner releases its lock");
+        released.expect("formatter must not wait for an occupied lock");
+    });
+    ready_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("writer claims lock before formatter starts");
+
+    let blocked = write_fixed_file(&path, original, fixed);
+    let preserved_source = fs::read_to_string(&path).expect("read protected source");
+    let preserved_lock = lock_path.exists();
+    let unrelated = write_fixed_file(&other_path, original, fixed);
+    let unrelated_lock_left = formatter_lock_path(&other_path).exists();
+    release_tx.send(()).expect("allow owner to release lock");
+    owner.join().expect("lock owner completes");
+
+    let error = blocked.expect_err("an active writer must exclude another formatter");
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock, "{error}");
+    assert!(error.to_string().contains("lock"), "{error}");
+    assert_eq!(preserved_source, original);
+    assert!(preserved_lock, "a non-owner must not remove the writer lock");
+    unrelated.expect("an occupied source must not block unrelated files");
+    assert_eq!(fs::read_to_string(&other_path).unwrap(), fixed);
+    assert!(!unrelated_lock_left, "successful writes release their lock");
+
+    write_fixed_file(&path, original, fixed).expect("retry after owner releases lock");
+    assert_eq!(fs::read_to_string(&path).unwrap(), fixed);
+    assert!(!lock_path.exists(), "retry must release its own lock");
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn atomic_write_preserves_an_abandoned_lock_until_explicit_recovery() {
+    let directory = tempfile::tempdir().expect("test directory");
+    let path = directory.path().join("program.wfl");
+    let original = "store userName as 1\n";
+    fs::write(&path, original).expect("write source");
+    let lock_path = formatter_lock_path(&path);
+    fs::write(&lock_path, "owner information must survive").expect("abandoned lock");
+
+    let error = write_fixed_file(&path, original, "store user_name as 1\n")
+        .expect_err("a formatter must not guess that an existing lock is abandoned");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock, "{error}");
+    assert!(error.to_string().contains("stopped"), "{error}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(
+        fs::read_to_string(&lock_path).unwrap(),
+        "owner information must survive"
+    );
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+}
+
 fn collect_programs(directory: &Path, paths: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(directory).expect("read TestPrograms directory") {
         let path = entry.expect("read TestPrograms entry").path();
