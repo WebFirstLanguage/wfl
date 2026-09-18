@@ -34,6 +34,10 @@ inject write/flush failures through a writer that forwards bytes to a real file;
 they are not claims of a physical disk-full test. Replacement failure is induced
 by creating a destination directory after the temporary contents are written.
 
+Green implementation: **`3e391455`**. Later evidence-only updates do not change
+the tested source. Independent read-only review approved this commit, inspected
+the configuration unit/CLI result logs, and found no actionable defects.
+
 ## Acceptance coverage
 
 | Behavior | Test |
@@ -54,9 +58,46 @@ by creating a destination directory after the temporary contents are written.
   --test transpiler_sunset_test`: **26 passed**, including 17 configuration tests.
 - `cargo fmt --all -- --check`: passed.
 - `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo build --release`: passed. Verified release SHA-256:
+  `ca96e3a593e85f1921529abedd55aa0fe38e1615fb4367d1fc8d038c71fb04c3`.
+- `python -X utf8 scripts/validate_docs_examples.py --ci --force --report`:
+  **36 passed**.
+- Canonical WFL program stage: **144 passed, 0 failed, 24 existing skips**
+  (168 programs discovered). The stage was extracted verbatim from
+  `scripts/run_integration_tests.ps1`, with only the binary-path variable
+  supplied before it. All 233 program fixtures were verified against the
+  current checkout in a fresh snapshot under `target/`; the copied release
+  binary matched the hash above. No assertions, timeouts, or skips changed.
+- `python scripts/check_repo_hygiene.py --mode static` and `--mode working-tree`:
+  passed before the broader workspace run.
 
-Broader validation is recorded below when completed. Raw logs live under
-`target/test-artifacts/config-review/` and are not tracked.
+Raw logs live under `target/test-artifacts/config-review/` and are not tracked.
+
+## Complete workspace result
+
+`cargo test --all --no-fail-fast` on the integrated `3e391455` implementation
+finished with **2,240 passed, 4 failed, 27 existing ignored**, exit 101.
+The only failed target was the unchanged
+`file_io_error_handling_test`: six tests passed and these four timed out:
+
+- `test_disk_full_simulation`
+- `test_double_close_file_error`
+- `test_use_closed_file_handle_error`
+- `test_concurrent_access_same_file_error`
+
+The concurrent and performance file-I/O targets each passed all seven tests
+in this run. These new results supersede the earlier seven-failure count for
+the current candidate; they do not establish the cause of the remaining
+timeouts or retroactively invalidate the earlier failures. The two additional
+error-handling timeouts were not subjected to a new baseline comparison.
+The full presubmit remains **not green** and its review thread remains open,
+with current results tracked in issue #732. Tests were not retried, relaxed,
+ignored, or skipped to obtain a passing result.
+
+Failed existing tests left four named fixture files in the checkout. Their
+paths were verified against `tests/file_io_error_handling_test.rs` and removed
+after all test processes completed; this is the already tracked test-cleanup
+problem, not a configuration-save artifact.
 
 ## Implementation and recovery
 
