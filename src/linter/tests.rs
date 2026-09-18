@@ -336,3 +336,31 @@ fn test_lint_layout_keeps_outer_block_after_inline_inner_block() {
         "{diagnostics:?}"
     );
 }
+
+#[test]
+fn test_lint_respects_style_rule_configuration() {
+    let source = "store BadName as YES   \n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    for code in ["LINT-NAME", "LINT-KEYWORD", "LINT-WHITESPACE"] {
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic.code == code),
+            "missing default {code}"
+        );
+    }
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join(".wflcfg"), "snake_case_variables = false\nconsistent_keyword_case = false\ntrailing_whitespace = true\n").unwrap();
+    let mut linter = Linter::new();
+    linter.load_config(directory.path());
+    let diagnostics = lint_source(&linter, source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn test_lint_layout_interface_requirements_do_not_open_method_bodies() {
+    let source = "create interface Greeter:\n    requires action greet: Text\n    requires action farewell: Text\nend\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
