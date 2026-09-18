@@ -364,3 +364,13 @@ fn test_lint_layout_interface_requirements_do_not_open_method_bodies() {
         "{diagnostics:?}"
     );
 }
+
+#[test]
+fn test_lint_layout_closes_inline_postcondition_repeat() {
+    let source = "repeat: display \"once\" until yes\ndisplay \"done\"\n";
+    let diagnostics = lint_source(&Linter::new(), source);
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "LINT-INDENT"),
+        "{diagnostics:?}"
+    );
+}
