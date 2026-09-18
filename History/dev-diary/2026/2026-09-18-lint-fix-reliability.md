@@ -112,3 +112,15 @@ so chains share their terminator while bare-if and route bodies keep separate
 nested checks. Failing library and real CLI coverage is retained before the
 fix. The preceding head passed both platform gates and CodeRabbit's updated
 docstring check at 92.59%; the standalone local SQLite timeout remains open.
+
+### September 18 bare terminator ownership review
+
+Review reproduced a boundary error between adjacent container methods: the
+first method's bare `end` swallowed the next `action` header. The same cause
+affected container, interface, and instance-initializer endings followed by
+control-flow blocks. Layout now records which owner permits a closing suffix,
+leaving the next statement visible after bare endings. Twenty-one accepted
+fixtures and real CLI regressions retain the failing evidence before the fix.
+Independent review approved the parser compatibility and constant-time check.
+Both platform gates passed on the preceding head; the unexplained local
+SQLite timeout remains preserved rather than replaced by those passes.

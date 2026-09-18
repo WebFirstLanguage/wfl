@@ -22,7 +22,11 @@ pub(crate) struct SourceLayout {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Block {
-    Ordinary,
+    /// A validated body whose `end` consumes a following grammar keyword.
+    SuffixedEnd,
+    /// Container methods, containers, interfaces, and instance initializers
+    /// consume only `end`; a following keyword belongs to the next statement.
+    BareEnd,
     Check,
     PostconditionRepeat,
     Route,
@@ -565,14 +569,17 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>, roles: &Sour
             if stack.last() == Some(&Block::RouteArm) {
                 stack.pop();
             }
-            stack.pop();
+            let closed = stack.pop();
             if index == 0 {
                 depth = stack.len();
             }
             index += 1;
-            // The keyword in `end check` closes a block, rather than opening
-            // another one. Bare `end` (container methods) has no such suffix.
-            if tokens
+            // Only the closed owner can claim a suffix. For example, after
+            // a method's bare `end`, `action second:` opens the next method.
+            if matches!(
+                closed,
+                Some(Block::SuffixedEnd | Block::Check | Block::Route)
+            ) && tokens
                 .get(index)
                 .is_some_and(|token| is_end_suffix(&token.token))
             {
@@ -696,12 +703,12 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
         | Token::KeywordDescribe
         | Token::KeywordTest
         | Token::KeywordSetup
-        | Token::KeywordTeardown
-        | Token::KeywordAction => Some(Block::Ordinary),
-        Token::KeywordFor if second == Some(&Token::KeywordEach) => Some(Block::Ordinary),
-        Token::KeywordCount if second == Some(&Token::KeywordFrom) => Some(Block::Ordinary),
-        Token::KeywordDefine if second == Some(&Token::KeywordAction) => Some(Block::Ordinary),
-        Token::KeywordStatic if second == Some(&Token::KeywordAction) => Some(Block::Ordinary),
+        | Token::KeywordTeardown => Some(Block::SuffixedEnd),
+        Token::KeywordAction => Some(Block::BareEnd),
+        Token::KeywordFor if second == Some(&Token::KeywordEach) => Some(Block::SuffixedEnd),
+        Token::KeywordCount if second == Some(&Token::KeywordFrom) => Some(Block::SuffixedEnd),
+        Token::KeywordDefine if second == Some(&Token::KeywordAction) => Some(Block::SuffixedEnd),
+        Token::KeywordStatic if second == Some(&Token::KeywordAction) => Some(Block::BareEnd),
         Token::KeywordCreate if second == Some(&Token::KeywordNew) => {
             // Container initialization requires `new Type as name:`. The
             // supported legacy `new constant name as value` form is a variable
@@ -716,10 +723,10 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
                     Some(Token::Colon)
                 )
             )
-            .then_some(Block::Ordinary)
+            .then_some(Block::BareEnd)
         }
         Token::KeywordCreate if second == Some(&Token::KeywordInterface) => {
-            interface_has_body(tokens).then_some(Block::Ordinary)
+            interface_has_body(tokens).then_some(Block::BareEnd)
         }
         Token::KeywordCreate
             if matches!(
@@ -737,18 +744,18 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
                 ),
                 (Some(Token::Identifier(_)), Some(Token::Colon))
             )
-            .then_some(Block::Ordinary)
+            .then_some(Block::SuffixedEnd)
         }
         Token::KeywordCreate if second == Some(&Token::KeywordContainer) && has_colon => {
-            Some(Block::Ordinary)
+            Some(Block::BareEnd)
         }
         Token::KeywordIn if matches!(second, Some(Token::Identifier(name)) if name.eq_ignore_ascii_case("transaction")) => {
-            Some(Block::Ordinary)
+            Some(Block::SuffixedEnd)
         }
         Token::Identifier(name) if name == "main" && second == Some(&Token::KeywordLoop) => {
-            Some(Block::Ordinary)
+            Some(Block::SuffixedEnd)
         }
-        Token::KeywordOn if has_colon => Some(Block::Ordinary),
+        Token::KeywordOn if has_colon => Some(Block::SuffixedEnd),
         _ => None,
     }
 }
