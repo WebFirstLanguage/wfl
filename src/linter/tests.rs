@@ -265,7 +265,7 @@ fn test_lint_nesting_setting_covers_repeat_and_test_blocks() {
 
 #[test]
 fn test_lint_indentation_handles_colonless_loops_and_list_blocks() {
-    let source = "repeat while no\n    display \"loop\"\nend repeat\ncreate list items:\n    \"one\",\n    \"two\"\nend list\ncheck if yes\n    display \"ok\"\nend check\n";
+    let source = "repeat while no\n    display \"loop\"\nend repeat\ncreate list items:\n    add \"one\"\n    add \"two\"\nend list\ncheck if yes\n    display \"ok\"\nend check\n";
     let diagnostics = lint_source(&Linter::new(), source);
     assert!(!diagnostics.iter().any(|d| d.code == "LINT-INDENT"), "{diagnostics:?}");
 }

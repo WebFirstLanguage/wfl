@@ -70,7 +70,10 @@ fn lint_reports_clean_and_dirty_files_without_changing_them() {
     fs::write(&path, CLEAN).unwrap();
     let clean = run(dir.path(), &["--lint", "program.wfl"]);
     assert_status(&clean, 0);
-    assert_eq!(String::from_utf8_lossy(&clean.stdout), "No lint warnings found.\n");
+    assert_eq!(
+        String::from_utf8_lossy(&clean.stdout),
+        "No lint warnings found.\n"
+    );
     assert!(clean.stderr.is_empty());
     assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
 
@@ -152,7 +155,12 @@ fn in_place_fixes_once_and_a_second_diff_is_empty() {
 #[test]
 fn malformed_source_never_produces_a_fix_or_changes_the_input() {
     for source in ["check if true:\n", "display \"hello\"\n@\n"] {
-        for extra in [vec![], vec!["--fix"], vec!["--fix", "--diff"], vec!["--fix", "--in-place"]] {
+        for extra in [
+            vec![],
+            vec!["--fix"],
+            vec!["--fix", "--diff"],
+            vec!["--fix", "--in-place"],
+        ] {
             let dir = TempDir::new().unwrap();
             let path = dir.path().join("program.wfl");
             fs::write(&path, source).unwrap();
@@ -171,27 +179,52 @@ fn malformed_source_never_produces_a_fix_or_changes_the_input() {
 fn invalid_lint_options_are_usage_errors_without_writes() {
     for (args, expected) in [
         (vec!["--lint", "program.wfl", "--diff"], "requires --fix"),
-        (vec!["--lint", "program.wfl", "--in-place"], "requires --fix"),
+        (
+            vec!["--lint", "program.wfl", "--in-place"],
+            "requires --fix",
+        ),
         (vec!["--diff", "program.wfl"], "requires --fix"),
         (vec!["--in-place", "program.wfl"], "requires --fix"),
         (vec!["--fix", "program.wfl"], "--lint"),
-        (vec!["--lint", "--fix", "program.wfl", "--diff", "--in-place"], "mutually exclusive"),
-        (vec!["--in-place", "--lint", "--fix", "program.wfl", "--diff"], "mutually exclusive"),
+        (
+            vec!["--lint", "--fix", "program.wfl", "--diff", "--in-place"],
+            "mutually exclusive",
+        ),
+        (
+            vec!["--in-place", "--lint", "--fix", "program.wfl", "--diff"],
+            "mutually exclusive",
+        ),
         (vec!["--lint", "--fix"], "file path"),
         (vec!["--lint", "program.wfl", "extra.wfl"], "one file"),
         (vec!["--lint", "program.wfl", "--unknown"], "Unknown option"),
-        (vec!["--step", "--lint", "program.wfl"], "cannot be combined"),
-        (vec!["--test", "--lint", "program.wfl"], "cannot be combined"),
+        (
+            vec!["--step", "--lint", "program.wfl"],
+            "cannot be combined",
+        ),
+        (
+            vec!["--test", "--lint", "program.wfl"],
+            "cannot be combined",
+        ),
         (vec!["--lex", "--lint", "program.wfl"], "cannot be combined"),
-        (vec!["--edit", "program.wfl", "--lint"], "cannot be combined"),
-        (vec!["--dump-env", "--lint", "program.wfl"], "cannot be combined"),
+        (
+            vec!["--edit", "program.wfl", "--lint"],
+            "cannot be combined",
+        ),
+        (
+            vec!["--dump-env", "--lint", "program.wfl"],
+            "cannot be combined",
+        ),
     ] {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("program.wfl");
         fs::write(&path, DIRTY).unwrap();
         let output = run(dir.path(), &args);
         assert_status(&output, 2);
-        assert!(String::from_utf8_lossy(&output.stderr).contains(expected), "args: {args:?}; stderr: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(expected),
+            "args: {args:?}; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(output.stdout.is_empty(), "args: {args:?}");
         assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
     }
