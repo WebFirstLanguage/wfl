@@ -2078,6 +2078,12 @@ impl FileHandleState {
 
 type SharedFile = Arc<Mutex<FileHandleState>>;
 
+#[derive(Default)]
+struct FileHandleValues {
+    aliases: HashMap<String, std::sync::Weak<str>>,
+    registrations_since_sweep: u8,
+}
+
 pub struct IoClient {
     /// Shared outbound HTTP client, built on first use.
     ///
@@ -2093,7 +2099,7 @@ pub struct IoClient {
     // Handles remain ordinary Text values for display/type/equality. Their
     // canonical Arc identifies aliases without reserving filenames such as
     // "file1". This is lifecycle provenance, not a security capability.
-    file_handle_values: std::sync::Mutex<HashMap<String, std::sync::Weak<str>>>,
+    file_handle_values: std::sync::Mutex<FileHandleValues>,
     next_file_id: Mutex<usize>,
     process_handles: Mutex<HashMap<String, ProcessHandle>>,
     next_process_id: Mutex<usize>,
@@ -2678,7 +2684,7 @@ impl IoClient {
         Self {
             http_client: OnceCell::new(),
             file_handles: std::sync::Mutex::new(HashMap::new()),
-            file_handle_values: std::sync::Mutex::new(HashMap::new()),
+            file_handle_values: std::sync::Mutex::new(FileHandleValues::default()),
             next_file_id: Mutex::new(1),
             process_handles: Mutex::new(HashMap::new()),
             next_process_id: Mutex::new(1),
@@ -3849,16 +3855,16 @@ impl IoClient {
             .file_handle_values
             .lock()
             .expect("file values poisoned");
-        // Sweep every 64 opens. Dead aliases therefore add at most 63 entries
-        // between sweeps; ordinary read/write dispatch stays O(1).
-        if handle_id
-            .strip_prefix("file")
-            .and_then(|id| id.parse::<usize>().ok())
-            .is_some_and(|id| id % 64 == 0)
-        {
-            values.retain(|_, value| value.strong_count() != 0);
+        // Count successful registrations, not reserved IDs: failed/cancelled
+        // opens must not let callers indefinitely miss every sweep boundary.
+        // Closed aliases remain recognized while referenced; ordinary I/O
+        // dispatch is O(1), with dead entries pruned every 64 registrations.
+        values.registrations_since_sweep += 1;
+        if values.registrations_since_sweep == 64 {
+            values.aliases.retain(|_, value| value.strong_count() != 0);
+            values.registrations_since_sweep = 0;
         }
-        values.insert(handle_id, Arc::downgrade(&value));
+        values.aliases.insert(handle_id, Arc::downgrade(&value));
         value
     }
 
@@ -3875,6 +3881,7 @@ impl IoClient {
         self.file_handle_values
             .lock()
             .expect("file values poisoned")
+            .aliases
             .get(value.as_ref())
             .and_then(std::sync::Weak::upgrade)
             .is_some_and(|canonical| Arc::ptr_eq(value, &canonical))
@@ -4185,11 +4192,9 @@ impl IoClient {
         if state.file.is_none() {
             return Ok(());
         }
-        let result = if state.needs_sync {
-            Self::flush_and_sync_file(&mut state, "close").await
-        } else {
-            Ok(())
-        };
+        if state.needs_sync {
+            Self::flush_and_sync_file(&mut state, "close").await?;
+        }
         // No await after invalidation: cancellation while waiting/flushing
         // leaves the live descriptor available for another cleanup attempt.
         // Already-queued operations retain the slot and observe None.
@@ -4198,7 +4203,7 @@ impl IoClient {
             .lock()
             .expect("file registry poisoned")
             .remove(handle_id);
-        result
+        Ok(())
     }
 
     #[allow(dead_code)]

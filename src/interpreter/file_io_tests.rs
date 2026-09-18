@@ -462,7 +462,7 @@ async fn failed_opens_cannot_prevent_dead_handle_values_from_being_pruned() {
         client.close_file(&alias).await.unwrap();
         for _ in 0..192 {
             let next_id = *client.next_file_id.lock().await;
-            if next_id % 64 == 0 {
+            if next_id.is_multiple_of(64) {
                 assert!(
                     client
                         .open_file_with_mode(missing.to_str().unwrap(), FileOpenMode::Read)
@@ -482,7 +482,7 @@ async fn failed_opens_cannot_prevent_dead_handle_values_from_being_pruned() {
                 .await
                 .is_err()
         );
-        let retained = client.file_handle_values.lock().unwrap().len();
+        let retained = client.file_handle_values.lock().unwrap().aliases.len();
         assert!(
             retained <= 65,
             "dead handle metadata grew to {retained} entries despite only one live alias"
