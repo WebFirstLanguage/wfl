@@ -223,17 +223,13 @@ impl ConfigWizard {
         prompt
     }
 
+    /// Save the collected values, using defaults for unanswered settings.
     fn generate_file(&self, path: &Path) -> Result<(), io::Error> {
-        use std::fs::File;
-        use std::io::Write;
+        write_config_file(path, |file| self.write_config(file))
+    }
 
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut file = File::create(path)?;
+    /// Serialize configuration text, propagating every output error.
+    fn write_config(&self, mut file: impl io::Write) -> Result<(), io::Error> {
 
         // Write header
         writeln!(file, "# WebFirst Language Configuration File")?;
@@ -279,6 +275,21 @@ impl ConfigWizard {
 
         Ok(())
     }
+}
+
+/// Write a configuration after creating any missing destination directories.
+fn write_config_file(
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::File::create(path)?;
+    write(&mut file)
 }
 
 /// Public entry point for running the wizard
