@@ -123,7 +123,15 @@ fn contextual_main_loop_expression_is_stable_in_every_lint_mode() {
 /// A when variable cannot hide the real check body that follows on the same line.
 #[test]
 fn contextual_when_before_check_expression_is_stable_in_every_lint_mode() {
-    let source = "store result as when check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n";
+    let source =
+        "store result as when check if yes:\n    display \"inside\"\nend check\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
+/// Registering an event has no body, even before another statement's argument colon.
+#[test]
+fn bodyless_event_registration_is_stable_in_every_lint_mode() {
+    let source = "define action called identity with parameters value:\n    return value\nend action\non 1 clicked display call identity with value: 1\ndisplay \"done\"\n";
     assert_clean_source_in_every_lint_mode(source);
 }
 

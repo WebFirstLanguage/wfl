@@ -643,6 +643,8 @@ fn contextual_block_word_layout_sources() -> Vec<String> {
         "try:\n    display \"inside\"\nwhen error:\n    display \"caught\"\nfinally:\n    display \"cleanup\"\nend try\ndisplay \"done\"\n".to_owned(),
         "define action called identity with parameters value:\n    return value\nend action\ncreate pattern comma:\n    \",\"\nend pattern\nstore pieces as split \"a,b\" on pattern comma display call identity with value: 1\ndisplay pieces\n".to_owned(),
         "define action called identity with parameters value:\n    return value\nend action\ndisplay main loop call identity with value: 1\ndisplay \"done\"\n".to_owned(),
+        "on websocket connect to socket_server as connection:\n    display \"connected\"\nend on\ndisplay \"done\"\n".to_owned(),
+        "define action called identity with parameters value:\n    return value\nend action\non 1 clicked display call identity with value: 1\ndisplay \"done\"\n".to_owned(),
     ]);
     sources
 }
