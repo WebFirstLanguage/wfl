@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -10,10 +10,18 @@ use tempfile::TempDir;
 use wfl::wfl_config::checker::ConfigChecker;
 
 fn run(dir: &Path, args: &[&str], input: &str) -> Output {
+    run_with_config_path(dir, args, input, &config_path(dir))
+}
+
+fn config_path(dir: &Path) -> PathBuf {
+    dir.join("system settings").join("config")
+}
+
+fn run_with_config_path(dir: &Path, args: &[&str], input: &str, config: &Path) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wfl"))
         .args(args)
         .current_dir(dir)
-        .env("WFL_GLOBAL_CONFIG_PATH", dir.join("absent-global.cfg"))
+        .env("WFL_GLOBAL_CONFIG_PATH", config)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -77,7 +85,7 @@ fn combined(output: &Output) -> String {
 }
 
 fn assert_defaults(dir: &Path) {
-    let text = fs::read_to_string(dir.join(".wflcfg")).expect("configuration created");
+    let text = fs::read_to_string(config_path(dir)).expect("global configuration created");
     assert!(text.contains("# Created by wfl config on "), "{text}");
     assert!(text.contains("timeout_seconds = 60"), "{text}");
     assert!(text.contains("allow_shell_execution = false"), "{text}");
@@ -93,54 +101,41 @@ fn assert_defaults(dir: &Path) {
 }
 
 #[test]
-fn config_accepts_all_defaults_in_current_directory() {
+fn config_accepts_all_defaults_in_global_configuration() {
     let dir = TempDir::new().unwrap();
     let output = run(dir.path(), &["config"], &answers(&[]));
     assert!(output.status.success(), "{}", combined(&output));
+    assert!(combined(&output).contains("create a WFL configuration file"));
     assert_defaults(dir.path());
+    assert!(!dir.path().join(".wflcfg").exists());
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
 #[test]
-fn config_accepts_existing_target_directory_with_spaces() {
+fn config_preserves_local_configuration() {
     let dir = TempDir::new().unwrap();
-    let target = dir.path().join("my app");
-    fs::create_dir(&target).unwrap();
-    let output = run(dir.path(), &["config", "my app"], &answers(&[]));
+    let local = dir.path().join(".wflcfg");
+    let original = "# project settings\ntimeout_seconds = 19\n";
+    fs::write(&local, original).unwrap();
+    let output = run(dir.path(), &["config"], &answers(&[]));
     assert!(output.status.success(), "{}", combined(&output));
-    assert_defaults(&target);
-    assert!(!dir.path().join(".wflcfg").exists());
+    assert_defaults(dir.path());
+    assert_eq!(fs::read_to_string(local).unwrap(), original);
 }
 
 #[test]
-fn removed_init_flag_explains_the_configuration_command_without_writes() {
+fn config_command_works_when_current_directory_contains_config_file() {
     let dir = TempDir::new().unwrap();
-    let output = run(dir.path(), &["--init"], &answers(&[]));
-    assert_eq!(output.status.code(), Some(2), "{}", combined(&output));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("removed") && stderr.contains("wfl config"),
-        "{stderr}"
+    let existing = dir.path().join("config");
+    fs::write(&existing, "display \"script executed\"\n").unwrap();
+    let output = run(dir.path(), &["config"], &answers(&[]));
+    assert!(output.status.success(), "{}", combined(&output));
+    assert_defaults(dir.path());
+    assert!(!combined(&output).contains("script executed"));
+    assert_eq!(
+        fs::read_to_string(existing).unwrap(),
+        "display \"script executed\"\n"
     );
-    assert!(!dir.path().join(".wflcfg").exists());
-    assert!(
-        !combined(&output).contains("Configuration Wizard"),
-        "{}",
-        combined(&output)
-    );
-}
-
-#[test]
-fn bare_init_explains_the_configuration_command() {
-    let dir = TempDir::new().unwrap();
-    let output = run(dir.path(), &["init"], "");
-    assert_eq!(output.status.code(), Some(2), "{}", combined(&output));
-    assert!(
-        combined(&output).contains("wfl config"),
-        "{}",
-        combined(&output)
-    );
-    assert!(!dir.path().join(".wflcfg").exists());
 }
 
 #[test]
@@ -150,27 +145,32 @@ fn config_help_does_not_start_the_wizard() {
         let output = run(dir.path(), args, "");
         assert!(output.status.success(), "{}", combined(&output));
         assert!(
-            combined(&output).contains("wfl config [dir]"),
+            combined(&output).contains("wfl config") && combined(&output).contains("global"),
             "{}",
             combined(&output)
         );
+        assert!(!combined(&output).contains("[dir]"));
         assert!(!dir.path().join(".wflcfg").exists());
+        assert!(!config_path(dir.path()).parent().unwrap().exists());
     }
 }
 
 #[test]
-fn config_rejects_missing_directory_and_file_target() {
+fn config_rejects_directory_and_file_arguments() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("file.wfl"), "display \"hello\"").unwrap();
-    for target in ["missing", "file.wfl"] {
-        let output = run(dir.path(), &["config", target], "");
+    fs::create_dir(dir.path().join("my app")).unwrap();
+    for target in [".", "my app", "missing", "file.wfl"] {
+        let output = run(dir.path(), &["config", target], &answers(&[]));
         assert_eq!(output.status.code(), Some(2), "{}", combined(&output));
         assert!(
-            combined(&output).contains("valid directory"),
+            combined(&output).contains("does not accept arguments"),
             "{}",
             combined(&output)
         );
         assert!(!dir.path().join(".wflcfg").exists());
+        assert!(!config_path(dir.path()).parent().unwrap().exists());
+        assert!(!combined(&output).contains("Configuration Wizard"));
     }
     assert!(!dir.path().join("missing").exists());
 }
@@ -182,8 +182,6 @@ fn config_rejects_extra_arguments_and_operation_flags_without_writes() {
         &["config", "--lint"],
         &["config", ".", "--configFix"],
         &["config", "--unknown"],
-        &["--init", ".", "--lint"],
-        &["--lint", "--init"],
     ] {
         let dir = TempDir::new().unwrap();
         let output = run(dir.path(), args, "");
@@ -194,6 +192,7 @@ fn config_rejects_extra_arguments_and_operation_flags_without_writes() {
             combined(&output)
         );
         assert!(!dir.path().join(".wflcfg").exists());
+        assert!(!config_path(dir.path()).parent().unwrap().exists());
         assert!(
             !combined(&output).contains("Configuration Wizard"),
             "{args:?}: {}",
@@ -206,7 +205,8 @@ fn config_rejects_extra_arguments_and_operation_flags_without_writes() {
 fn config_preserves_existing_file_when_overwrite_is_declined_or_input_ends() {
     for input in ["n\n", "\n", "", "y\n"] {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join(".wflcfg");
+        let path = config_path(dir.path());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
         let original = "# keep my settings\ntimeout_seconds = 17\n";
         fs::write(&path, original).unwrap();
         let output = run(dir.path(), &["config"], input);
@@ -223,7 +223,8 @@ fn config_preserves_existing_file_when_overwrite_is_declined_or_input_ends() {
 #[test]
 fn config_overwrites_only_after_confirmation_and_complete_answers() {
     let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join(".wflcfg"), "# old settings\n").unwrap();
+    fs::create_dir_all(config_path(dir.path()).parent().unwrap()).unwrap();
+    fs::write(config_path(dir.path()), "# old settings\n").unwrap();
     let output = run(dir.path(), &["config"], &format!("y\n{}", answers(&[])));
     assert!(output.status.success(), "{}", combined(&output));
     assert_defaults(dir.path());
@@ -235,6 +236,7 @@ fn config_eof_does_not_create_a_partial_configuration() {
     let output = run(dir.path(), &["config"], "\n");
     assert_eq!(output.status.code(), Some(2), "{}", combined(&output));
     assert!(!dir.path().join(".wflcfg").exists());
+    assert!(!config_path(dir.path()).parent().unwrap().exists());
 }
 
 #[test]
@@ -252,7 +254,7 @@ fn config_reprompts_invalid_input_and_preserves_explicit_tls_paths() {
         "{}",
         combined(&output)
     );
-    let text = fs::read_to_string(dir.path().join(".wflcfg")).unwrap();
+    let text = fs::read_to_string(config_path(dir.path())).unwrap();
     assert!(text.contains("debug_report_enabled = false"), "{text}");
     assert!(
         text.contains("web_server_tls_cert_file = certs/my cert.pem"),
@@ -265,11 +267,11 @@ fn config_reprompts_invalid_input_and_preserves_explicit_tls_paths() {
 }
 
 #[test]
-fn existing_scripts_named_config_or_init_still_run() {
-    for name in ["config", "init"] {
+fn explicit_program_paths_still_run() {
+    for name in ["config", "program"] {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join(name), "display \"script executed\"\n").unwrap();
-        let output = run(dir.path(), &[name], "");
+        let output = run(dir.path(), &[&format!("./{name}")], "");
         assert!(output.status.success(), "{}", combined(&output));
         assert!(
             combined(&output).contains("script executed"),
@@ -281,15 +283,36 @@ fn existing_scripts_named_config_or_init_still_run() {
 }
 
 #[test]
-fn script_arguments_named_config_or_init_remain_script_arguments() {
+fn script_arguments_named_config_remain_script_arguments() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("main.wfl"), "display \"script executed\"\n").unwrap();
-    let output = run(dir.path(), &["main.wfl", "config", "init", "--init"], "");
+    let output = run(dir.path(), &["main.wfl", "config"], "");
     assert!(output.status.success(), "{}", combined(&output));
     assert!(
         combined(&output).contains("script executed"),
         "{}",
         combined(&output)
     );
+    assert!(!dir.path().join(".wflcfg").exists());
+}
+
+#[test]
+fn global_configuration_path_can_be_relative() {
+    let dir = TempDir::new().unwrap();
+    let output = run_with_config_path(dir.path(), &["config"], &answers(&[]), Path::new("wfl.cfg"));
+    assert!(output.status.success(), "{}", combined(&output));
+    let contents = fs::read_to_string(dir.path().join("wfl.cfg")).unwrap();
+    assert!(contents.contains("timeout_seconds = 60"));
+    assert!(!dir.path().join(".wflcfg").exists());
+}
+
+#[test]
+fn global_configuration_write_failure_preserves_existing_files() {
+    let dir = TempDir::new().unwrap();
+    let blocker = dir.path().join("system settings");
+    fs::write(&blocker, "preserve this file").unwrap();
+    let output = run(dir.path(), &["config"], &answers(&[]));
+    assert_eq!(output.status.code(), Some(2), "{}", combined(&output));
+    assert_eq!(fs::read_to_string(blocker).unwrap(), "preserve this file");
     assert!(!dir.path().join(".wflcfg").exists());
 }

@@ -284,6 +284,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_generate_file_creates_missing_parent_directories() {
+        let wizard = ConfigWizard::new().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nested").join("wfl").join("config");
+        assert!(!path.parent().unwrap().exists());
+
+        wizard.generate_file(&path).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("# Created by wfl config on "));
+        assert!(contents.contains("timeout_seconds = 60"));
+        assert!(!contents.contains("web_server_tls_cert_file ="));
+        assert!(!contents.contains("web_server_tls_key_file ="));
+    }
+
+    #[test]
+    fn test_generate_file_preserves_file_blocking_parent_directory() {
+        let wizard = ConfigWizard::new().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("wfl");
+        let original = "existing file must be preserved";
+        std::fs::write(&parent, original).unwrap();
+        let path = parent.join("config");
+
+        assert!(wizard.generate_file(&path).is_err());
+
+        assert_eq!(std::fs::read_to_string(parent).unwrap(), original);
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn test_optional_tls_settings_accept_blank_input() {
         let wizard = ConfigWizard::new().unwrap();
         for name in ["web_server_tls_cert_file", "web_server_tls_key_file"] {
