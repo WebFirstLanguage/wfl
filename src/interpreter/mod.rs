@@ -4021,8 +4021,13 @@ impl IoClient {
         operation: &str,
     ) -> Result<(), String> {
         #[cfg(test)]
-        file_io_tests::before_sync(operation).await;
-        match file.sync_all().await {
+        let result = match file_io_tests::before_sync(operation).await {
+            Some(error) => Err(error),
+            None => file.sync_all().await,
+        };
+        #[cfg(not(test))]
+        let result = file.sync_all().await;
+        match result {
             Ok(_) => Ok(()),
             Err(e) => {
                 // On Windows, selectively suppress only PermissionDenied errors

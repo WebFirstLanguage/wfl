@@ -1,5 +1,6 @@
 //! Real-file lifecycle regressions. The sync probe only pauses and observes the
-//! production path; it does not replace disk writes, flushes, or synchronization.
+//! production path. Explicit sync-error injection is a component test of error
+//! propagation and retry; writes and flushes still use real temporary files.
 use super::*;
 use futures_util::poll;
 use std::task::Poll;
@@ -21,6 +22,7 @@ struct SyncGate {
 struct ProbeState {
     events: Vec<String>,
     gates: Vec<SyncGate>,
+    failures: Vec<(&'static str, io::ErrorKind)>,
 }
 
 thread_local! {
@@ -55,6 +57,10 @@ impl SyncProbe {
     fn events(&self) -> Vec<String> {
         self.0.borrow().events.clone()
     }
+
+    fn fail_next_sync(&self, operation: &'static str, kind: io::ErrorKind) {
+        self.0.borrow_mut().failures.push((operation, kind));
+    }
 }
 
 impl Drop for SyncProbe {
@@ -63,21 +69,30 @@ impl Drop for SyncProbe {
     }
 }
 
-pub(super) async fn before_sync(operation: &str) {
-    let gate = SYNC_PROBE.with(|probe| {
-        let probe = probe.borrow().as_ref().cloned()?;
+pub(super) async fn before_sync(operation: &str) -> Option<io::Error> {
+    let (gate, failure) = SYNC_PROBE.with(|probe| {
+        let Some(probe) = probe.borrow().as_ref().cloned() else {
+            return (None, None);
+        };
         let mut state = probe.borrow_mut();
         state.events.push(operation.to_string());
-        let index = state
+        let gate = state
             .gates
             .iter()
-            .position(|gate| gate.operation == operation)?;
-        Some(state.gates.remove(index))
+            .position(|gate| gate.operation == operation)
+            .map(|index| state.gates.remove(index));
+        let failure = state
+            .failures
+            .iter()
+            .position(|(name, _)| *name == operation)
+            .map(|index| state.failures.remove(index).1);
+        (gate, failure)
     });
     if let Some(mut gate) = gate {
         let _ = gate.reached.take().unwrap().send(());
         gate.resume.notified().await;
     }
+    failure.map(|kind| io::Error::new(kind, "injected file sync failure"))
 }
 
 fn client() -> IoClient {
@@ -353,6 +368,127 @@ async fn failed_write_to_read_only_handle_preserves_contents() {
         assert!(client.append_file(&handle, "append").await.is_err());
         client.close_file(&handle).await.unwrap();
         assert_eq!(std::fs::read(path).unwrap(), b"keep");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn sync_failure_during_close_remains_retriable() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("retry-close.txt");
+        let client = client();
+        let handle = open(&client, &path, FileOpenMode::Write).await;
+        let probe = SyncProbe::new();
+        let (reached, _resume) = probe.gate("write");
+        let mut write = Box::pin(client.write_file(&handle, "flushed real bytes"));
+        tokio::select! {
+            result = &mut write => panic!("write ended before gate: {result:?}"),
+            result = reached => result.unwrap(),
+        }
+        drop(write);
+        probe.fail_next_sync("close", io::ErrorKind::Other);
+        let error = client
+            .close_file(&handle)
+            .await
+            .expect_err("sync failure must propagate");
+        assert!(error.contains("injected file sync failure"));
+        client.close_file(&handle).await.expect("retry close");
+        assert_eq!(
+            probe.events(),
+            ["write", "close", "close"],
+            "failed close discarded the dirty descriptor"
+        );
+        assert_eq!(std::fs::read(path).unwrap(), b"flushed real bytes");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn failed_write_sync_is_propagated_and_close_retries_sync() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("failed-write-sync.txt");
+        let client = client();
+        let handle = open(&client, &path, FileOpenMode::Write).await;
+        let probe = SyncProbe::new();
+        probe.fail_next_sync("write", io::ErrorKind::StorageFull);
+        let error = client
+            .write_file(&handle, "written before failed sync")
+            .await
+            .expect_err("sync failure must propagate");
+        assert!(error.contains("injected file sync failure"));
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(probe.events(), ["write", "close"]);
+        assert_eq!(std::fs::read(path).unwrap(), b"written before failed sync");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn sync_permission_error_keeps_the_existing_platform_policy() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("permission-sync.txt");
+        let client = client();
+        let handle = open(&client, &path, FileOpenMode::Write).await;
+        let probe = SyncProbe::new();
+        probe.fail_next_sync("write", io::ErrorKind::PermissionDenied);
+        let result = client.write_file(&handle, "flushed contents").await;
+        #[cfg(windows)]
+        assert!(
+            result.is_ok(),
+            "Windows sync permission handling changed: {result:?}"
+        );
+        #[cfg(not(windows))]
+        assert!(result.is_err(), "non-Windows sync failure must propagate");
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"flushed contents");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn failed_opens_cannot_prevent_dead_handle_values_from_being_pruned() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("readable.txt");
+        let missing = directory.path().join("missing.txt");
+        std::fs::write(&path, "fixture").unwrap();
+        let client = client();
+        // Retain one closed alias through every sweep. Independent equal text
+        // must remain a path while this canonical alias remains a closed handle.
+        let alias = open(&client, &path, FileOpenMode::Read).await;
+        client.close_file(&alias).await.unwrap();
+        for _ in 0..192 {
+            let next_id = *client.next_file_id.lock().await;
+            if next_id % 64 == 0 {
+                assert!(
+                    client
+                        .open_file_with_mode(missing.to_str().unwrap(), FileOpenMode::Read)
+                        .await
+                        .is_err()
+                );
+                continue;
+            }
+            let handle = open(&client, &path, FileOpenMode::Read).await;
+            client.close_file(&handle).await.unwrap();
+        }
+        assert!(client.is_file_handle(&alias));
+        assert!(!client.is_file_handle(&Arc::from(alias.as_ref())));
+        assert!(
+            client
+                .read_file_or_path(&alias, &ExecutionBudget::default())
+                .await
+                .is_err()
+        );
+        let retained = client.file_handle_values.lock().unwrap().len();
+        assert!(
+            retained <= 65,
+            "dead handle metadata grew to {retained} entries despite only one live alias"
+        );
+        assert!(client.file_handles.lock().unwrap().is_empty());
+        assert!(!missing.exists());
     })
     .await;
 }
