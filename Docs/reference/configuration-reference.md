@@ -90,6 +90,10 @@ Then run scripts from that project tree; WFL walks up from the **script’s dire
 
 If the global configuration file already exists, the command asks before replacing it. Press Enter at that confirmation to cancel. Missing parent directories are created only when saving, after all answers are complete. You need permission to write to the selected global location.
 
+Saving first writes the complete configuration to a temporary file in the destination directory, then atomically replaces the target. If writing or replacement fails, the existing configuration remains unchanged. This prevents partial saves; it does not guarantee durability after power loss.
+
+An existing symbolic link is preserved and its target is updated. Dangling links, directories, and read-only targets are rejected. Existing Unix permission bits are retained; preservation of ownership or custom access-control entries is not guaranteed.
+
 The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file. Press Enter to accept each default. For optional settings without a default, including the TLS certificate and key paths, press Enter to leave the setting out of the generated file. Skipped TLS paths do not create empty assignments; TLS paths can still be supplied by a project's `.wflcfg` or the program's `secured` statement.
 
 `wfl config` always starts the configuration command. To run a program file named exactly `config`, use an explicit path such as `wfl ./config`.
@@ -615,6 +619,8 @@ Absolute total lifetime, in seconds, of a single **outbound** streaming response
 - **Type:** Integer (0 or more)
 - **Default:** `300`
 - **Example:** `outbound_stream_max_seconds = 60`
+
+The `wfl config` wizard prompts for this global default. Press Enter to accept `300` seconds, enter `60` for one minute or another non-negative integer for a custom duration, or enter `0` to disable the limit.
 
 A value of `0` disables the absolute cap (the idle timeout still applies per
 read). Positive values above 31,536,000 seconds (one year) are safely clamped to

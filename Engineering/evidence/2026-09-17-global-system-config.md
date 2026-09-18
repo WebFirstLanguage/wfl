@@ -1,5 +1,9 @@
 # Global WFL setup verification
 
+This records the initial global-setup implementation. The later
+[PR review verification](2026-09-17-config-review.md) adds atomic saves, the
+outbound stream lifetime setting, and validation against the updated main branch.
+
 ## Contract and risk
 
 `wfl config` is system setup. It accepts no directory argument, writes the

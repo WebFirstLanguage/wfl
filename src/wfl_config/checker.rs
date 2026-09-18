@@ -558,6 +558,12 @@ impl ConfigChecker {
                 "Seconds to await a handler before shedding with 504; 0 = disabled",
             );
             int_setting(
+                "outbound_stream_max_seconds",
+                "300",
+                "Web Server",
+                "Total lifetime of an outbound HTTP stream in seconds; 0 = disabled; capped at one year",
+            );
+            int_setting(
                 "web_socket_queue_bound",
                 "1024",
                 "Web Server",
@@ -1129,12 +1135,15 @@ fn is_valid_ip_address(addr: &str) -> bool {
 /// The minimum a given integer config key accepts, matching the loader's
 /// per-key validation in `src/config.rs`. `None` leaves a pre-existing key with
 /// no minimum (any non-negative integer). The budget/web keys mirror the loader:
-/// `max_operations` and `web_server_response_timeout_seconds` accept `0`
+/// `max_operations`, `web_server_response_timeout_seconds`, and
+/// `outbound_stream_max_seconds` accept `0`
 /// (unlimited/disabled), while every other budget/web ceiling requires `>= 1`
 /// (the loader's `set_positive_usize`).
 fn integer_min_for_key(key: &str) -> Option<u64> {
     match key {
-        "max_operations" | "web_server_response_timeout_seconds" => Some(0),
+        "max_operations"
+        | "web_server_response_timeout_seconds"
+        | "outbound_stream_max_seconds" => Some(0),
         "timeout_seconds"
         | "web_server_max_body_size"
         | "web_server_request_queue_bound"

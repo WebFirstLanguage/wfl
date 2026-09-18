@@ -5,6 +5,7 @@ use std::path::Path;
 
 use super::checker::{ConfigChecker, ConfigType, ExpectedSetting};
 
+/// Collect typed configuration values and save them as a complete file.
 pub struct ConfigWizard {
     editor: DefaultEditor,
     checker: ConfigChecker,
@@ -12,6 +13,7 @@ pub struct ConfigWizard {
 }
 
 impl ConfigWizard {
+    /// Initialize interactive input and the registered configuration settings.
     pub fn new() -> Result<Self, io::Error> {
         let editor = DefaultEditor::new()
             .map_err(|e| io::Error::other(format!("Failed to create editor: {e}")))?;
@@ -23,6 +25,7 @@ impl ConfigWizard {
         })
     }
 
+    /// Prompt for every setting, then save only after input completes successfully.
     pub fn run(&mut self, output_path: &Path) -> Result<(), io::Error> {
         println!("\nWebFirst Language Configuration Wizard");
         println!("======================================\n");
@@ -52,6 +55,7 @@ impl ConfigWizard {
         Ok(())
     }
 
+    /// Collect one category in a stable order, removing skipped optional values.
     fn prompt_category(
         &mut self,
         category: &str,
@@ -80,6 +84,7 @@ impl ConfigWizard {
         Ok(())
     }
 
+    /// Repeat a setting's prompt until input is valid or reading is interrupted.
     fn prompt_setting(&mut self, setting: &ExpectedSetting) -> Result<Option<String>, io::Error> {
         let prompt = self.format_prompt(setting);
 
@@ -102,6 +107,7 @@ impl ConfigWizard {
         }
     }
 
+    /// Normalize an answer, distinguishing omitted optional values from defaults.
     fn validate_input(
         &self,
         setting: &ExpectedSetting,
@@ -128,6 +134,12 @@ impl ConfigWizard {
                         Err("Invalid boolean value. Enter y/yes/true/1 or n/no/false/0".to_string())
                     }
                 }
+            }
+            ConfigType::Integer if setting.name == "outbound_stream_max_seconds" => {
+                input.parse::<u64>().map_err(|_| {
+                    format!("Invalid integer value: expected a non-negative integer, got '{input}'")
+                })?;
+                Ok(input.to_string())
             }
             ConfigType::Integer => {
                 input
@@ -203,6 +215,7 @@ impl ConfigWizard {
         .map(Some)
     }
 
+    /// Describe accepted values and how Enter handles this setting.
     fn format_prompt(&self, setting: &ExpectedSetting) -> String {
         let mut prompt = format!("{} - {}\n", setting.name, setting.description);
 
@@ -276,19 +289,77 @@ impl ConfigWizard {
     }
 }
 
-/// Write a configuration after creating any missing destination directories.
+/// Publish a complete file with a same-directory atomic replacement.
+///
+/// Write, flush, and sync errors leave the destination unchanged. Existing
+/// symlinks keep pointing at their resolved target; dangling links are rejected.
+/// Unix modes are preserved, but ownership, custom ACLs, and crash durability
+/// of the parent directory are not guaranteed by this operation.
 fn write_config_file(
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
-    if let Some(parent) = path
+    use std::io::Write;
+
+    // Preserve symlinks instead of replacing the link itself. Resolve before
+    // creating directories so dangling links fail without filesystem changes.
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let destination = match metadata {
+        Some(metadata) if metadata.is_symlink() => std::fs::canonicalize(path)?,
+        _ => path.to_path_buf(),
+    };
+    let permissions = match std::fs::metadata(&destination) {
+        Ok(metadata) => {
+            if !metadata.is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Configuration destination must be a regular file",
+                ));
+            }
+            if metadata.permissions().readonly() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Configuration destination is read-only",
+                ));
+            }
+            Some(metadata.permissions())
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let parent = destination
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent)?;
+        .unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+
+    // Use normal file attributes and File::create's permissions (0666 & umask
+    // on Unix), while tempfile owns the unique name and failure cleanup.
+    let mut temporary =
+        tempfile::Builder::new()
+            .prefix(".wfl-config-")
+            .make_in(parent, |path| {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+            })?;
+    if let Some(permissions) = permissions {
+        temporary.as_file().set_permissions(permissions)?;
     }
-    let mut file = std::fs::File::create(path)?;
-    write(&mut file)
+    write(temporary.as_file_mut())?;
+    temporary.as_file_mut().flush()?;
+    temporary.as_file().sync_all()?;
+    // Close the writer but retain cleanup on rename failure. std::fs::rename
+    // supports replacing open readers on modern Windows, unlike tempfile's
+    // MoveFileExW-only persist implementation.
+    let temporary_path = temporary.into_temp_path();
+    std::fs::rename(&temporary_path, &destination)?;
+    Ok(())
 }
 
 /// Public entry point for running the wizard
@@ -402,6 +473,23 @@ mod tests {
         );
         assert_eq!(std::fs::read(sentinel).unwrap(), b"preserve this directory");
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_config_save_new_file_permissions_match_normal_creation() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let reference = directory.path().join("reference");
+        std::fs::File::create(&reference).unwrap();
+        let path = directory.path().join("config");
+
+        ConfigWizard::new().unwrap().generate_file(&path).unwrap();
+
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            std::fs::metadata(&reference).unwrap().permissions().mode() & 0o777,
+        );
     }
 
     #[cfg(unix)]

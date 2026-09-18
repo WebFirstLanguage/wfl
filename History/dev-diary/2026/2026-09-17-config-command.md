@@ -28,3 +28,23 @@ is recorded in [the initial change evidence](../../../Engineering/evidence/2026-
 The [global-setup verification](../../../Engineering/evidence/2026-09-17-global-system-config.md)
 records the final contract, parent-directory failure paths, and project-file
 preservation checks.
+
+## 2026-09-17 addendum: review fixes and scope authorization
+
+Review of PR #731 identified two remaining gaps: saving could truncate an
+existing configuration before all bytes were written, and the global wizard
+did not expose `outbound_stream_max_seconds`. Saving now prepares the complete
+configuration in a temporary file beside the destination and atomically replaces
+the target only after preparation succeeds. Write or replacement failures
+preserve the existing file; this does not promise durability after power loss.
+The stream-lifetime prompt accepts Enter for `300` seconds, `60` or another
+non-negative duration, and `0` to disable the limit. The documentation index now
+describes both global and project configuration.
+
+The maintainer explicitly authorized this breaking CLI contract: `wfl config`
+takes no directory argument, configures global defaults, and takes precedence
+over a bare filename matching the command. The maintainer also directed removal
+of obsolete command terminology throughout the documentation, including the
+archived package-wizard comparison and its checksum update. These are scoped
+exceptions to the usual compatibility and archive-preservation policies, not
+changes to those policies for future work.

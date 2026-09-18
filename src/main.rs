@@ -58,6 +58,7 @@ fn print_help() {
     println!("If no file is specified, the REPL will be started.");
 }
 
+/// Validate global setup arguments and require confirmation before replacement.
 fn run_config_command(args: &[String]) -> io::Result<()> {
     if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h") {
         println!("USAGE: wfl config");

@@ -9,14 +9,17 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use wfl::wfl_config::checker::ConfigChecker;
 
+/// Run the real CLI with a temporary global configuration destination.
 fn run(dir: &Path, args: &[&str], input: &str) -> Output {
     run_with_config_path(dir, args, input, &config_path(dir))
 }
 
+/// Keep system settings separate from the program's working directory.
 fn config_path(dir: &Path) -> PathBuf {
     dir.join("system settings").join("config")
 }
 
+/// Feed wizard input and drain output concurrently under a bounded child lifetime.
 fn run_with_config_path(dir: &Path, args: &[&str], input: &str, config: &Path) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wfl"))
         .args(args)
@@ -77,6 +80,7 @@ fn answers(overrides: &[(&str, &str)]) -> String {
     input
 }
 
+/// Include stdout and stderr in contract assertions and failure diagnostics.
 fn combined(output: &Output) -> String {
     format!(
         "{}{}",
@@ -287,6 +291,28 @@ fn config_reprompts_negative_outbound_stream_lifetime() {
     assert!(text.contains("outbound_stream_max_seconds = 60"), "{text}");
     assert!(!text.contains("outbound_stream_max_seconds = -1"), "{text}");
     assert!(!dir.path().join(".wflcfg").exists());
+}
+
+#[test]
+fn config_preserves_read_only_global_configuration() {
+    let dir = TempDir::new().unwrap();
+    let path = config_path(dir.path());
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = "# protected global defaults\ntimeout_seconds = 19\n";
+    fs::write(&path, original).unwrap();
+    let writable = fs::metadata(&path).unwrap().permissions();
+    let mut protected = writable.clone();
+    protected.set_readonly(true);
+    fs::set_permissions(&path, protected).unwrap();
+
+    let output = run(dir.path(), &["config"], &format!("y\n{}", answers(&[])));
+    // Restore attributes even when an assertion fails, so TempDir can clean up.
+    fs::set_permissions(&path, writable).unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{}", combined(&output));
+    assert!(combined(&output).contains("read-only"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
 }
 
 #[test]
