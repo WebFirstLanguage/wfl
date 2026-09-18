@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`wfl config`** runs the interactive global configuration wizard without a
+  directory argument. It writes to the platform's global configuration path
+  (or `WFL_GLOBAL_CONFIG_PATH`) and leaves project `.wflcfg` files unchanged.
+  Run an existing program named `config` with an explicit path such as `./config`.
+  Saves replace the destination atomically after complete output, and the wizard
+  includes the outbound stream lifetime setting with its `0` disable option.
 - **Database transactions** (#664): `in transaction on db: ... end transaction`
   runs a group of statements on a single pooled connection, committing when the
   block finishes and rolling back if anything inside it fails or if `exit` stops
@@ -36,6 +42,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   drop.
 
 ### Fixed
+- **Optional TLS settings in the configuration wizard** can be skipped with
+  Enter. Unset certificate/key paths are omitted from the generated file, so accepting
+  every default now completes the wizard.
 - **`push` onto a constant list is now reported** (#673). `push with ROLES and
   "guest"` on a `store new constant` list previously ran and mutated the list,
   because `push` carries its target as an expression rather than a bare name and

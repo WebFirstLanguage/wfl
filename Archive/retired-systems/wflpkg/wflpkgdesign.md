@@ -109,7 +109,7 @@ Users interact with the package manager through the `wfl` command. Under the hoo
 | `wfl create project` | Interactive wizard — asks for name, description, author, license | P9 (Beginners), P16 (Gradual learning) |
 | `wfl create project called my-app` | Create a named project non-interactively | P1 (Natural language) |
 
-The interactive wizard follows the same pattern as `wfl --init` for `.wflcfg` files: it prompts for each field with sensible defaults, explains what each field means, and generates the `project.wfl` and directory structure.
+The interactive wizard follows the same pattern as WFL's configuration wizard: it prompts for each field with sensible defaults, explains what each field means, and generates the `project.wfl` and directory structure.
 
 ### Dependency Management
 

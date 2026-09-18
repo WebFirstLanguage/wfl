@@ -313,6 +313,9 @@ wfl program.wfl
 # Start REPL
 wfl
 
+# Configure global WFL defaults interactively
+wfl config
+
 # Check syntax
 wfl --parse program.wfl
 

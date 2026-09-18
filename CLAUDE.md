@@ -140,7 +140,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl --step <file>`: Run in single-step debug mode.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST (written under `target/reports/dumps/`).
-- `wfl --init [dir]`: Create .wflcfg interactively (default: current directory).
+- `wfl config`: Configure global WFL defaults interactively (no directory argument).
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
 - `wfl --dump-env`: Dump environment for troubleshooting.
 - `wfl --analyze <file>`: Run static analysis.
@@ -208,6 +208,21 @@ agent MUST follow:
 - **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
 - **Commands & profile**: one command per layer + the "run all presubmit" block are in root `testing.md`.
 - **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
+- **CLI prompt portability**: Piped stdin is not a terminal, and rustyline's
+  prompt output depends on `TERM` and the platform. Tests that assert rustyline
+  prompts with piped input must explicitly select line-oriented mode using
+  `.env("TERM", "dumb")` on the child `Command`; see the helper in
+  `tests/config_command_test.rs`. Keep the setting local to that child, retain
+  prompt/value/exit-status assertions, and verify Linux and Windows results.
+  Tests of terminal editing or TTY behavior need a real pseudo-terminal instead.
+- **Separate Cargo lockfiles**: The root workspace and `fuzz/` resolve
+  dependencies separately. Adding, removing, moving, or changing dependencies
+  or features can require updating `fuzz/Cargo.lock` even when the root
+  `Cargo.lock` is unchanged, especially when moving a dev-dependency into runtime
+  dependencies. Inspect both lockfiles, refresh only the required dependency
+  resolution, and commit affected lockfiles together with the manifest change.
+  Root builds/tests do not cover the standalone fuzz workspace; run its locked
+  compile check listed below. Avoid unrelated dependency upgrades.
 
 ## Commit & Pull Request Guidelines
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.
@@ -216,6 +231,15 @@ agent MUST follow:
   - `cargo fmt --all -- --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test --all --verbose`
+  - `cargo check --locked --manifest-path fuzz/Cargo.toml` (stable compile check;
+    does not run fuzz campaigns)
+- **Verify the pushed revision**: Inspect required GitHub Actions jobs for the
+  actual PR head after each push, including Linux and Windows integration and
+  fuzz compilation. Read failing job logs before attributing a failure to a
+  known issue; cancellation by matrix fail-fast is not evidence of a timeout.
+  Record the commit and run link, and distinguish passed, pending, failed, and
+  canceled checks. Preserve unexplained local failures in the evidence and
+  linked issue even if CI passes; an issue does not waive a required gate.
 
 ## Documentation Development
 - **Docs Are Part of the Feature (MANDATORY)**: Every change that adds, removes, or alters user-facing behavior — new/changed language syntax, keywords, statements, stdlib functions, CLI flags, or config options — MUST update or add the corresponding documentation in the **same change**. A feature is not complete until its docs are written. This includes:

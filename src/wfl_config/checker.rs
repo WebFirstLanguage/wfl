@@ -558,6 +558,12 @@ impl ConfigChecker {
                 "Seconds to await a handler before shedding with 504; 0 = disabled",
             );
             int_setting(
+                "outbound_stream_max_seconds",
+                "300",
+                "Web Server",
+                "Total lifetime of an outbound HTTP stream in seconds; 0 = disabled; capped at one year",
+            );
+            int_setting(
                 "web_socket_queue_bound",
                 "1024",
                 "Web Server",
@@ -1129,12 +1135,15 @@ fn is_valid_ip_address(addr: &str) -> bool {
 /// The minimum a given integer config key accepts, matching the loader's
 /// per-key validation in `src/config.rs`. `None` leaves a pre-existing key with
 /// no minimum (any non-negative integer). The budget/web keys mirror the loader:
-/// `max_operations` and `web_server_response_timeout_seconds` accept `0`
+/// `max_operations`, `web_server_response_timeout_seconds`, and
+/// `outbound_stream_max_seconds` accept `0`
 /// (unlimited/disabled), while every other budget/web ceiling requires `>= 1`
 /// (the loader's `set_positive_usize`).
 fn integer_min_for_key(key: &str) -> Option<u64> {
     match key {
-        "max_operations" | "web_server_response_timeout_seconds" => Some(0),
+        "max_operations"
+        | "web_server_response_timeout_seconds"
+        | "outbound_stream_max_seconds" => Some(0),
         "timeout_seconds"
         | "web_server_max_body_size"
         | "web_server_request_queue_bound"
@@ -1158,6 +1167,66 @@ fn integer_min_for_key(key: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_outbound_stream_lifetime_is_registered_with_runtime_default() {
+        let checker = ConfigChecker::new();
+        let setting = checker
+            .get_expected_settings()
+            .get("outbound_stream_max_seconds")
+            .expect("outbound stream lifetime must be configurable through the wizard");
+        assert_eq!(setting.config_type, ConfigType::Integer);
+        assert_eq!(setting.default_value.as_deref(), Some("300"));
+        assert!(!setting.required);
+        assert!(
+            checker
+                .get_settings_by_category()
+                .iter()
+                .flat_map(|(_, settings)| settings)
+                .any(|setting| setting.name == "outbound_stream_max_seconds")
+        );
+    }
+
+    #[test]
+    fn test_outbound_stream_lifetime_values_survive_check_and_fix() {
+        let checker = ConfigChecker::new();
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("config");
+        for value in ["60", "0"] {
+            let original = format!("outbound_stream_max_seconds = {value}\n");
+            fs::write(&config_path, &original).unwrap();
+
+            let issues = checker.check_config_file(&config_path).unwrap();
+            assert!(issues.is_empty(), "{value}: {issues:?}");
+            let after_fix = checker.fix_config_file(&config_path).unwrap();
+            assert!(after_fix.is_empty(), "{value}: {after_fix:?}");
+            assert_eq!(fs::read_to_string(&config_path).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn test_outbound_stream_lifetime_rejects_negative_and_fixes_to_default() {
+        let checker = ConfigChecker::new();
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("config");
+        fs::write(&config_path, "outbound_stream_max_seconds = -1\n").unwrap();
+
+        let issues = checker.check_config_file(&config_path).unwrap();
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert_eq!(issues[0].kind, ConfigIssueKind::InvalidType);
+        assert_eq!(issues[0].issue_type, ConfigIssueType::Error);
+        assert_eq!(
+            issues[0].setting_name.as_deref(),
+            Some("outbound_stream_max_seconds")
+        );
+
+        let after_fix = checker.fix_config_file(&config_path).unwrap();
+        assert!(after_fix.is_empty(), "{after_fix:?}");
+        assert_eq!(
+            fs::read_to_string(config_path).unwrap().trim_end(),
+            "outbound_stream_max_seconds = 300"
+        );
+    }
 
     #[test]
     fn test_check_valid_config() {

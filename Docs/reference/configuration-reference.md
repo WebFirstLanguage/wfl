@@ -47,9 +47,8 @@ It is **not** for application secrets or app-specific settings (ports your progr
 ## Quick start
 
 ```bash
-# Create a project config interactively (recommended)
-wfl --init
-# or: wfl --init /path/to/project
+# Configure global defaults interactively
+wfl config
 
 # Check existing config files for missing/invalid settings
 wfl --configCheck
@@ -62,7 +61,7 @@ wfl --lint my_script.wfl
 wfl --lint --fix my_script.wfl --in-place
 ```
 
-Minimal hand-written file in your project root:
+For project-specific overrides, write a `.wflcfg` in your project root:
 
 ```ini
 # .wflcfg
@@ -80,14 +79,24 @@ Then run scripts from that project tree; WFL walks up from the **script’s dire
 
 | Command | Purpose |
 |---|---|
-| `wfl --init [dir]` | Interactive wizard; writes a commented `.wflcfg` |
+| `wfl config` | Interactive wizard; writes the global configuration file |
 | `wfl --configCheck` | Validates local/global config against known settings |
 | `wfl --configFix` | Checks and repairs common config problems |
 | `wfl --lint <file>` | Style/quality checks driven by code-quality keys |
 | `wfl --lint --fix <file> --in-place` | Auto-fix style issues when possible |
 | `wfl --dump-env` | Environment dump (useful when diagnosing “config not loading”) |
 
-The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file.
+`wfl config` takes no directory argument. It writes global defaults to `C:\wfl\config` on Windows or `/etc/wfl/wfl.cfg` on Linux/macOS. Set `WFL_GLOBAL_CONFIG_PATH` to use another global configuration file. Project `.wflcfg` files are not created or changed.
+
+If the global configuration file already exists, the command asks before replacing it. Press Enter at that confirmation to cancel. Missing parent directories are created only when saving, after all answers are complete. You need permission to write to the selected global location.
+
+Saving first writes the complete configuration to a temporary file in the destination directory, then atomically replaces the target. If writing or replacement fails, the existing configuration remains unchanged. This prevents partial saves; it does not guarantee durability after power loss.
+
+An existing symbolic link is preserved and its target is updated. Dangling links, directories, and read-only targets are rejected. Existing Unix permission bits are retained; preservation of ownership or custom access-control entries is not guaranteed.
+
+The wizard prompts by category, shows defaults in `[brackets]`, validates input, and writes a well-commented file. Press Enter to accept each default. For optional settings without a default, including the TLS certificate and key paths, press Enter to leave the setting out of the generated file. Skipped TLS paths do not create empty assignments; TLS paths can still be supplied by a project's `.wflcfg` or the program's `secured` statement.
+
+`wfl config` always starts the configuration command. To run a program file named exactly `config`, use an explicit path such as `wfl ./config`.
 
 ---
 
@@ -610,6 +619,8 @@ Absolute total lifetime, in seconds, of a single **outbound** streaming response
 - **Type:** Integer (0 or more)
 - **Default:** `300`
 - **Example:** `outbound_stream_max_seconds = 60`
+
+The `wfl config` wizard prompts for this global default. Press Enter to accept `300` seconds, enter `60` for one minute or another non-negative integer for a custom duration, or enter `0` to disable the limit.
 
 A value of `0` disables the absolute cap (the idle timeout still applies per
 read). Positive values above 31,536,000 seconds (one year) are safely clamped to
