@@ -91,3 +91,13 @@ Explicit action calls named `main` also require this distinction: only a parsed
 main-loop start opens that body, with both serial and concurrent loop fixtures
 retaining their indentation. Final local validation passed 2,382 workspace
 tests; the earlier standalone SQLite timeout remains retained and unexplained.
+
+### September 18 transaction and pattern-header review
+
+A fresh review and the accompanying opener audit found two more shared-word
+cases: `in transaction` in a pattern expression and `check` in a pattern
+lookaround. Both incorrectly changed the formatter's nesting stack. Retained
+failing tests cover expression and genuine-block forms at library and CLI
+boundaries. Layout now verifies the parsed opening position for transaction
+and conditional bodies, preserving pattern assertions and ordinary text
+variables without changing either parser or runtime behavior.

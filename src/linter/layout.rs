@@ -66,6 +66,22 @@ impl SourceRoles {
             {
                 roles.body_headers.insert(token.byte_start);
             }
+            // Pattern find/replace expressions may contain `in transaction`;
+            // only this parsed statement's opening `in` introduces a body.
+            if let Statement::TransactionStatement { line, column, .. } = statement
+                && let Some(token) = token_at(tokens, *line, *column)
+                && token.token == Token::KeywordIn
+            {
+                roles.body_headers.insert(token.byte_start);
+            }
+            // Pattern lookarounds use `check` too. Source-token verification
+            // also excludes conditional nodes synthesized from route arms.
+            if let Statement::IfStatement { line, column, .. } = statement
+                && let Some(token) = token_at(tokens, *line, *column)
+                && token.token == Token::KeywordCheck
+            {
+                roles.body_headers.insert(token.byte_start);
+            }
             statement_expressions(statement, &mut expressions);
         }
         while let Some(expression) = expressions.pop() {
@@ -609,8 +625,10 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>, roles: &Sour
             continue;
         }
         let has_colon = header_ends[index].is_some_and(|end| tokens[end].token == Token::Colon);
-        let needs_body_role = matches!(token, Token::KeywordOn)
-            || matches!(token, Token::Identifier(name) if name == "main");
+        let needs_body_role = matches!(
+            token,
+            Token::KeywordOn | Token::KeywordIn | Token::KeywordCheck
+        ) || matches!(token, Token::Identifier(name) if name == "main");
         let is_body_header =
             !needs_body_role || roles.body_headers.contains(&tokens[index].byte_start);
         if let Some(block) = is_body_header
