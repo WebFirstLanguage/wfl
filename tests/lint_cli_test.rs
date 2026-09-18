@@ -120,6 +120,14 @@ fn contextual_main_loop_expression_is_stable_in_every_lint_mode() {
     assert_clean_source_in_every_lint_mode(source);
 }
 
+/// An explicit action named main followed by a loop operand is not a loop
+/// header; lint, source output, diff, and in-place output must all preserve it.
+#[test]
+fn explicit_main_action_call_is_stable_in_every_lint_mode() {
+    let source = "define action called main:\n    return 1\nend action\ndisplay call main loop\ndisplay \"done\"\n";
+    assert_clean_source_in_every_lint_mode(source);
+}
+
 /// A when variable cannot hide the real check body that follows on the same line.
 #[test]
 fn contextual_when_before_check_expression_is_stable_in_every_lint_mode() {

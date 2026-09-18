@@ -687,3 +687,44 @@ fn test_fix_contextual_block_words_preserve_following_indentation() {
         "expression operands must preserve following statement indentation"
     );
 }
+
+/// Explicit action calls store their callee as an ActionCall name rather than
+/// a Variable expression. A following `loop` value must not turn that callee
+/// into a main-loop header, while actual main-loop statements keep their body.
+fn main_action_call_layout_sources() -> [&'static str; 2] {
+    [
+        "define action called main:\n    return 1\nend action\ndisplay call main loop\ndisplay \"done\"\n",
+        "main loop:\n    break\nend loop\ndisplay \"done\"\n",
+    ]
+}
+
+/// Action-call names are expression operands, even when their spelling matches
+/// the first token of a supported block header.
+#[test]
+fn test_lint_main_action_call_does_not_open_loop() {
+    let diagnostics: Vec<_> = main_action_call_layout_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+/// Fixing an explicit main action call must preserve its following statement,
+/// and still retain indentation inside a genuine main-loop body.
+#[test]
+fn test_fix_main_action_call_preserves_following_indentation() {
+    let sources = main_action_call_layout_sources();
+    let fixed_sources: Vec<_> = sources
+        .iter()
+        .map(|source| {
+            let tokens = lex_wfl_with_positions(source);
+            let program = Parser::new(&tokens).parse().unwrap();
+            crate::fixer::CodeFixer::new()
+                .fix_checked(&program, source)
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(fixed_sources, sources);
+}
