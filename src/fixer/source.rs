@@ -6,11 +6,12 @@ use crate::lexer::lex_wfl_with_positions;
 use crate::lexer::token::Token;
 use crate::parser::{Parser, ast::Program};
 use logos::Logos;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Unlike the recovering compiler lexer, formatting must reject *every*
 /// unrecognized byte before it can overwrite a file or claim a clean lint.
@@ -47,7 +48,10 @@ pub fn validate_source(source: &str) -> io::Result<()> {
 
 /// Publish fully validated output with a same-directory atomic replacement.
 /// Failed writes/flushes/renames leave the original intact. Preserve symlinks
-/// and file permissions, and refuse read-only files or edits made since reading.
+/// and file permissions, and refuse read-only files or observed stale source.
+/// A sibling marker excludes cooperating WFL writers across the final source
+/// check and replacement. Editors that ignore that marker can still race the
+/// replacement; this is not a filesystem compare-and-swap operation.
 pub fn write_fixed_file(path: &Path, original: &str, fixed: &str) -> io::Result<()> {
     let destination = fs::canonicalize(path)?;
     let metadata = fs::metadata(&destination)?;
@@ -57,18 +61,27 @@ pub fn write_fixed_file(path: &Path, original: &str, fixed: &str) -> io::Result<
             "Source must be a regular file",
         ));
     }
-    if !source_is_unchanged(&destination, original)? {
-        return Err(io::Error::other(
-            "Source changed while formatting; no fixes were written",
-        ));
-    }
     if original == fixed {
+        if !source_is_unchanged(&destination, original)? {
+            return Err(io::Error::other(
+                "Source changed while formatting; no fixes were written",
+            ));
+        }
         return Ok(());
     }
     if metadata.permissions().readonly() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Source is read-only",
+        ));
+    }
+    // Lock the destination name, not the source inode: atomic replacement
+    // changes that inode, and a waiter could otherwise lock the obsolete file.
+    // Keep this guard alive through rename and temporary-file cleanup.
+    let _writer_lock = FormatterWriteLock::acquire(&destination)?;
+    if !source_is_unchanged(&destination, original)? {
+        return Err(io::Error::other(
+            "Source changed while formatting; no fixes were written",
         ));
     }
     let parent = destination
@@ -83,8 +96,8 @@ pub fn write_fixed_file(path: &Path, original: &str, fixed: &str) -> io::Result<
     temporary.write_all(fixed.as_bytes())?;
     temporary.flush()?;
     temporary.as_file().sync_all()?;
-    // Recheck immediately before publication to avoid overwriting an edit
-    // observed during preparation. This is not an interprocess editor lock.
+    // This catches edits observed during preparation. The marker excludes
+    // cooperating writers only; an arbitrary editor may ignore it entirely.
     if !source_is_unchanged(&destination, original)? {
         return Err(io::Error::other(
             "Source changed while formatting; no fixes were written",
@@ -93,6 +106,59 @@ pub fn write_fixed_file(path: &Path, original: &str, fixed: &str) -> io::Result<
     let temporary_path = temporary.into_temp_path();
     fs::rename(&temporary_path, &destination)?;
     Ok(())
+}
+
+/// Ownership is established only by atomic creation. Never open or remove an
+/// existing marker: its owner might still be preparing a replacement. Keeping
+/// the marker path stable also avoids the orphan-inode race of unlinking a
+/// reusable advisory lock file while another process has it open.
+struct FormatterWriteLock {
+    path: PathBuf,
+    file: Option<fs::File>,
+}
+
+impl FormatterWriteLock {
+    fn acquire(destination: &Path) -> io::Result<Self> {
+        let name = destination
+            .file_name()
+            .ok_or_else(|| io::Error::other("Source has no filename"))?;
+        let digest = Sha256::digest(name.as_encoded_bytes());
+        let path = destination.with_file_name(format!(".wfl-fix-{digest:x}.lock"));
+        let file = fs::File::create_new(&path).map_err(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    format!(
+                        "Formatter lock {} already exists; retry later, or remove the lock only after confirming its owner has stopped",
+                        path.display()
+                    ),
+                )
+            } else {
+                error
+            }
+        })?;
+        let mut lock = Self {
+            path,
+            file: Some(file),
+        };
+        // Build the guard before writing so even an owner-information write
+        // failure removes only the marker this process successfully created.
+        writeln!(
+            lock.file.as_mut().expect("new lock owns its file"),
+            "WFL formatter process {}",
+            std::process::id()
+        )?;
+        Ok(lock)
+    }
+}
+
+impl Drop for FormatterWriteLock {
+    fn drop(&mut self) {
+        // Close first for Windows. A crash, or a failed cleanup, leaves a
+        // fail-closed marker for explicit recovery instead of risking a write.
+        drop(self.file.take());
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 // Compare in bounded chunks: another editor can replace or grow the file

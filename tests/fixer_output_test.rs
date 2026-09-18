@@ -2,6 +2,7 @@ use std::fs;
 use wfl::fixer::{CodeFixer, FixerOutputMode};
 
 #[test]
+/// Lint and fix must agree on non-ASCII whitespace outside string literals.
 fn fixer_removes_the_same_unicode_comment_whitespace_that_lint_reports() {
     let source = "// trailing comment\u{a0}\ndisplay 1\n";
     let tokens = wfl::lexer::lex_wfl_with_positions(source);
@@ -23,6 +24,7 @@ fn fixer_removes_the_same_unicode_comment_whitespace_that_lint_reports() {
 }
 
 #[test]
+/// Check patch headers, hunk extents, and unchanged context around an edit.
 fn diff_is_a_complete_unified_patch_with_context() {
     let original = "store value as 1\ndisplay value   \ndisplay \"done\"\n";
     let fixed = "store value as 1\ndisplay value\ndisplay \"done\"\n";
@@ -41,6 +43,7 @@ fn diff_is_a_complete_unified_patch_with_context() {
 }
 
 #[test]
+/// Distinguish missing final newlines and zero-length sides of a patch.
 fn diff_reports_final_newline_changes_and_empty_files() {
     let fixer = CodeFixer::new();
     assert_eq!(fixer.diff("display 1\n", "display 1\n"), "");
@@ -56,6 +59,7 @@ fn diff_reports_final_newline_changes_and_empty_files() {
 }
 
 #[test]
+/// A recovering lexer must not allow invalid bytes to disappear during a write.
 fn inplace_rejects_lexical_errors_without_changing_source() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("invalid.wfl");
@@ -67,6 +71,7 @@ fn inplace_rejects_lexical_errors_without_changing_source() {
 }
 
 #[test]
+/// Incomplete syntax must fail without replacing the user's original bytes.
 fn inplace_rejects_parse_errors_without_changing_source() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("invalid.wfl");
@@ -78,6 +83,7 @@ fn inplace_rejects_parse_errors_without_changing_source() {
 }
 
 #[test]
+/// Refuse a read-only destination even when its directory permits replacement.
 fn inplace_retains_readonly_source_on_write_failure() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("readonly.wfl");

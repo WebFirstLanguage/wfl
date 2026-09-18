@@ -36,6 +36,7 @@ pub struct FixerSummary {
 }
 
 impl FixerSummary {
+    /// Count reported edits; an unchanged source produces zero.
     pub fn total(&self) -> usize {
         self.lines_reformatted
             + self.vars_renamed
@@ -45,6 +46,7 @@ impl FixerSummary {
 }
 
 impl CodeFixer {
+    /// Use the default WFL indentation, naming, and whitespace rules.
     pub fn new() -> Self {
         Self {
             indent_size: 4,
@@ -79,6 +81,10 @@ impl CodeFixer {
             .unwrap_or_else(|_| (source.to_string(), FixerSummary::default()))
     }
 
+    /// Return source-preserving edits only after lexical and parse validation.
+    ///
+    /// Unlike `fix`, validation and configured resource-limit failures propagate
+    /// to the caller. The supplied program must describe the supplied source.
     pub fn fix_checked(
         &self,
         program: &Program,
@@ -87,6 +93,7 @@ impl CodeFixer {
         source::fix_source(self, program, source)
     }
 
+    /// Retain the legacy printer for callers constructing an AST without source.
     fn print_program(&self, program: &Program) -> (String, FixerSummary) {
         let _analyzer = Analyzer::new();
         let dead_code = Vec::new();
@@ -117,6 +124,10 @@ impl CodeFixer {
         (output, summary)
     }
 
+    /// Validate and format one UTF-8 file, then publish the selected output.
+    ///
+    /// Source and patch modes write only to stdout. In-place mode delegates to
+    /// `write_fixed_file`, which refuses invalid or stale input before replacement.
     pub fn fix_file(&self, path: &Path, mode: FixerOutputMode) -> io::Result<FixerSummary> {
         let source = fs::read_to_string(path)?;
         validate_source(&source)?;
@@ -1325,6 +1336,7 @@ impl CodeFixer {
         }
     }
 
+    /// Build a unified patch with generic labels, or an empty string if unchanged.
     pub fn diff(&self, original: &str, fixed: &str) -> String {
         self.generate_diff(original, fixed)
     }
@@ -1360,6 +1372,7 @@ impl CodeFixer {
 
         // Git's quoted path convention disambiguates spaces and control bytes
         // without changing Unicode names or platform-independent separators.
+        /// Escape ambiguous patch labels using Git's C-style quoting convention.
         fn quote_path(path: &str) -> String {
             if !path
                 .chars()
@@ -1391,6 +1404,7 @@ impl CodeFixer {
         format!("--- {original_path}\n+++ {fixed_path}\n{hunks}")
     }
 
+    /// Emit one complete linear-space hunk, including final-newline markers.
     pub fn generate_diff(&self, original: &str, fixed: &str) -> String {
         if original == fixed {
             return String::new();
@@ -1430,6 +1444,7 @@ impl CodeFixer {
         diff
     }
 
+    /// Apply the effective project configuration used by the linter as well.
     pub fn load_config(&mut self, dir: &Path) {
         let config = crate::config::load_config(dir);
         self.indent_size = config.indent_size;

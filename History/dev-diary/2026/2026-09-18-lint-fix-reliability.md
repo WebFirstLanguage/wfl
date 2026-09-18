@@ -34,3 +34,18 @@ parseable output and exact expression preservation.
 
 See [verification evidence](../../../Engineering/evidence/2026-09-18-lint-fix.md)
 for the recorded Red revisions, acceptance coverage, and validation results.
+
+## September 18 review follow-up
+
+PR #735 review reproduced false indentation after `export action` and rejected
+single-dash filenames, including version-alias spellings in legacy positions.
+The follow-up retains failing regressions before correcting both behaviors.
+A reported unterminated single-line conditional was rejected by the existing
+parser, so it did not require a formatter or grammar change.
+
+Concurrent WFL in-place fixes now use an exclusive sibling lock across source
+validation and replacement. This coordinates formatter processes without
+claiming to lock unrelated editors. Normal completion releases the lock;
+abnormal termination leaves a visible lock that requires confirming the owner
+has stopped before removal. Regression coverage checks contention, independent
+destinations, and recovery, with the details recorded in the evidence document.

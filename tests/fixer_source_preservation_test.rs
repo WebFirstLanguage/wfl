@@ -355,7 +355,10 @@ fn atomic_write_respects_another_writer_lock_and_releases_its_own_lock() {
     assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock, "{error}");
     assert!(error.to_string().contains("lock"), "{error}");
     assert_eq!(preserved_source, original);
-    assert!(preserved_lock, "a non-owner must not remove the writer lock");
+    assert!(
+        preserved_lock,
+        "a non-owner must not remove the writer lock"
+    );
     unrelated.expect("an occupied source must not block unrelated files");
     assert_eq!(fs::read_to_string(&other_path).unwrap(), fixed);
     assert!(!unrelated_lock_left, "successful writes release their lock");

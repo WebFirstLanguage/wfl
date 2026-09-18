@@ -234,6 +234,11 @@ async fn run() -> io::Result<()> {
 
     let mut i = 1;
     while i < args.len() {
+        // Single-dash names were accepted after --lint/--fix before those flags
+        // became order-independent. In a source position even -v/-V remain
+        // filenames; standalone aliases and --version still print the version.
+        let lint_source_position = (lint_mode || fix_mode)
+            && (file_path.is_empty() || matches!(args[i - 1].as_str(), "--lint" | "--fix"));
         match args[i].as_str() {
             "--dump-env" => {
                 dump_env_mode = true;
@@ -386,13 +391,13 @@ async fn run() -> io::Result<()> {
                 test_mode = true;
                 i += 1;
             }
-            "--version" | "-v" | "-V" => {
+            "--version" | "-v" | "-V" if args[i] == "--version" || !lint_source_position => {
                 println!("WebFirst Language (WFL) version {}", wfl::version::VERSION);
                 return Ok(());
             }
             _ => {
                 let lint_options = lint_mode || fix_mode || fix_diff || fix_in_place;
-                if lint_options && args[i].starts_with('-') {
+                if lint_options && args[i].starts_with("--") {
                     eprintln!("Error: Unknown option '{}'", args[i]);
                     process::exit(2);
                 }

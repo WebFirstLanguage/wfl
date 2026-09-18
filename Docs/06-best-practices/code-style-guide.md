@@ -352,6 +352,8 @@ wfl --lint --fix your_program.wfl --diff
 
 `--fix` requires `--lint`. Both `--diff` and `--in-place` require `--fix`, and
 they cannot be combined. One source file is accepted per command.
+Filenames beginning with a single dash are accepted. The legacy forms also
+accept `-v` or `-V` as a filename immediately after `--lint` or `--fix`.
 
 Plain `--lint` exits with **0** when clean, **1** when it reports lint warnings,
 and **2** for invalid options, unreadable input, or invalid source. Linting and
@@ -362,6 +364,14 @@ only a unified diff with `--diff`. An unchanged file produces an empty diff.
 `--in-place` replaces the file atomically after validating the output and prints
 a completion summary. Invalid source is rejected before any replacement, and
 a failed replacement leaves the original file intact.
+
+In-place fixes acquire a sibling `.wfl-fix-<hash>.lock` before checking and
+replacing the source. Another WFL writer targeting the same file fails
+without writing; fixes to other files can proceed. The lock is removed when
+the operation finishes. If a process crashes and leaves a lock, confirm that
+the owning formatter has stopped before removing the lock path named in the
+error and retrying. This cooperative lock does not control unrelated editors;
+avoid simultaneous edits, or use `--diff` to preview changes.
 
 Fixes preserve comments, string contents and escapes, expression grouping,
 language constructs, and existing line endings. With default style settings,

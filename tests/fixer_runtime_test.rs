@@ -5,6 +5,7 @@ use std::io::Read;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+/// Run with isolated configuration and a deadline while draining both pipes.
 fn run(directory: &std::path::Path, args: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wfl"));
     child.current_dir(directory).args(args);
@@ -50,6 +51,7 @@ fn run(directory: &std::path::Path, args: &[&str]) -> Output {
 }
 
 #[test]
+/// Compare real program output before/after fixing and demand an empty second diff.
 fn formatting_preserves_observable_program_results() {
     let cases = [
         "// Keep expression grouping\nstore total as (1 + 2) times 3\nstore quotient as 24 divided by (2 times 3)\ndisplay total\ndisplay quotient\n",

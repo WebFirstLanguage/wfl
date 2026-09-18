@@ -8,6 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
+/// Run the real CLI with isolated configuration and a bounded child lifetime.
+/// Drain both pipes concurrently so verbose errors cannot deadlock the child.
 fn run(dir: &Path, args: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_wfl"))
         .args(args)
@@ -50,6 +52,7 @@ fn run(dir: &Path, args: &[&str]) -> Output {
     }
 }
 
+/// Include both output streams when an exit-status contract fails.
 fn assert_status(output: &Output, expected: i32) {
     assert_eq!(
         output.status.code(),
@@ -63,6 +66,7 @@ fn assert_status(output: &Output, expected: i32) {
 const DIRTY: &str = "display \"hello\"   \n";
 const CLEAN: &str = "display \"hello\"\n";
 
+/// A single dash belongs to the source name; lint findings must remain read-only.
 #[test]
 fn lint_accepts_single_dash_source_paths_without_writing() {
     let dir = TempDir::new().unwrap();
@@ -79,6 +83,7 @@ fn lint_accepts_single_dash_source_paths_without_writing() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// Source preview accepts historical dash-leading paths and never rewrites them.
 #[test]
 fn stdout_fix_accepts_single_dash_source_paths_without_writing() {
     let dir = TempDir::new().unwrap();
@@ -90,6 +95,7 @@ fn stdout_fix_accepts_single_dash_source_paths_without_writing() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// Patch headers retain the leading dash without treating it as a CLI option.
 #[test]
 fn diff_accepts_single_dash_source_paths_without_writing() {
     let dir = TempDir::new().unwrap();
@@ -103,6 +109,7 @@ fn diff_accepts_single_dash_source_paths_without_writing() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// Explicit in-place fixing updates the requested dash-leading file.
 #[test]
 fn in_place_fix_accepts_single_dash_source_paths() {
     let dir = TempDir::new().unwrap();
@@ -116,6 +123,7 @@ fn in_place_fix_accepts_single_dash_source_paths() {
     assert_eq!(fs::read_to_string(&path).unwrap(), CLEAN);
 }
 
+/// Preserve the old duplicate-path workaround when the filename starts with a dash.
 #[test]
 fn legacy_repeated_single_dash_source_after_fix_remains_supported() {
     let dir = TempDir::new().unwrap();
@@ -130,6 +138,7 @@ fn legacy_repeated_single_dash_source_after_fix_remains_supported() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// Short version aliases in the historical source position are literal filenames.
 #[test]
 fn version_aliases_immediately_after_lint_are_source_filenames() {
     for filename in ["-v", "-V"] {
@@ -144,6 +153,7 @@ fn version_aliases_immediately_after_lint_are_source_filenames() {
     }
 }
 
+/// Fix previews and publication honor filenames that coincide with version aliases.
 #[test]
 fn version_aliases_immediately_after_fix_are_source_filenames() {
     for filename in ["-v", "-V"] {
@@ -166,6 +176,7 @@ fn version_aliases_immediately_after_fix_are_source_filenames() {
     }
 }
 
+/// Lint status distinguishes clean input from warnings without changing either.
 #[test]
 fn lint_reports_clean_and_dirty_files_without_changing_them() {
     let dir = TempDir::new().unwrap();
@@ -188,6 +199,7 @@ fn lint_reports_clean_and_dirty_files_without_changing_them() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// Redirected fix output is executable source with no banners or diagnostic noise.
 #[test]
 fn fix_stdout_is_only_valid_source_and_does_not_change_the_input() {
     for args in [
@@ -210,6 +222,7 @@ fn fix_stdout_is_only_valid_source_and_does_not_change_the_input() {
     }
 }
 
+/// Flag ordering must not change the patch or turn a preview into a write.
 #[test]
 fn diff_accepts_flag_orderings_and_never_writes_the_file() {
     for args in [
@@ -233,6 +246,7 @@ fn diff_accepts_flag_orderings_and_never_writes_the_file() {
     }
 }
 
+/// Published fixes satisfy lint and reach a stable state with no second patch.
 #[test]
 fn in_place_fixes_once_and_a_second_diff_is_empty() {
     for args in [
@@ -255,6 +269,7 @@ fn in_place_fixes_once_and_a_second_diff_is_empty() {
     }
 }
 
+/// Parser and lexer failures cannot publish partial or recovered source.
 #[test]
 fn malformed_source_never_produces_a_fix_or_changes_the_input() {
     for source in ["check if true:\n", "display \"hello\"\n@\n"] {
@@ -278,6 +293,7 @@ fn malformed_source_never_produces_a_fix_or_changes_the_input() {
     }
 }
 
+/// Invalid combinations fail before executing, launching an editor, or writing.
 #[test]
 fn invalid_lint_options_are_usage_errors_without_writes() {
     for (args, expected) in [
@@ -333,6 +349,7 @@ fn invalid_lint_options_are_usage_errors_without_writes() {
     }
 }
 
+/// Missing and non-UTF-8 inputs are errors, never candidates for replacement.
 #[test]
 fn lint_input_io_errors_exit_two_without_creating_files() {
     let dir = TempDir::new().unwrap();
@@ -354,6 +371,7 @@ fn lint_input_io_errors_exit_two_without_creating_files() {
     assert_eq!(fs::read(&path).unwrap(), [0xff, 0xfe]);
 }
 
+/// A refused publication preserves bytes, readonly permissions, and directory contents.
 #[test]
 fn in_place_write_failure_preserves_readonly_source_and_permissions() {
     let dir = TempDir::new().unwrap();
@@ -381,6 +399,7 @@ fn in_place_write_failure_preserves_readonly_source_and_permissions() {
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+/// Every lint/fix mode enforces the configured source-size limit before output.
 #[test]
 fn oversized_source_is_rejected_in_every_mode_without_output_or_writes() {
     for args in [
@@ -401,6 +420,7 @@ fn oversized_source_is_rejected_in_every_mode_without_output_or_writes() {
     }
 }
 
+/// A configured indentation width must make lint and the formatter agree.
 #[test]
 fn lint_and_fix_share_project_indentation_settings() {
     let dir = TempDir::new().unwrap();
@@ -422,6 +442,7 @@ fn lint_and_fix_share_project_indentation_settings() {
     assert_status(&after, 0);
 }
 
+/// Executable scripts retain their argument boundary even for lint-like strings.
 #[test]
 fn lint_like_script_arguments_remain_arguments_to_the_executed_program() {
     let dir = TempDir::new().unwrap();
@@ -436,6 +457,7 @@ fn lint_like_script_arguments_remain_arguments_to_the_executed_program() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// Pathological indentation settings fail safely instead of overflowing allocations.
 #[test]
 fn extreme_indentation_configuration_cannot_panic_or_overwrite_source() {
     let dir = TempDir::new().unwrap();
@@ -462,6 +484,7 @@ fn extreme_indentation_configuration_cannot_panic_or_overwrite_source() {
     }
 }
 
+/// The only working fix spelling in older releases remains a supported invocation.
 #[test]
 fn legacy_repeated_source_after_fix_remains_supported() {
     let dir = TempDir::new().unwrap();
@@ -476,6 +499,8 @@ fn legacy_repeated_source_after_fix_remains_supported() {
     assert_eq!(fs::read_to_string(&path).unwrap(), DIRTY);
 }
 
+/// A real patch tool must apply and reverse emitted diffs byte-for-byte, including
+/// nested filenames with spaces, CRLF, and a missing final newline.
 #[test]
 fn emitted_diff_applies_and_reverses_without_losing_line_endings() {
     // Resolve the executable before changing the child's directory. This also
@@ -530,6 +555,7 @@ fn emitted_diff_applies_and_reverses_without_losing_line_endings() {
     }
 }
 
+/// Disabling a style rule suppresses both its lint warning and its source rewrite.
 #[test]
 fn lint_rule_configuration_is_shared_with_fixes() {
     for (setting, source) in [

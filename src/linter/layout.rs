@@ -97,6 +97,9 @@ impl SourceLayout {
     }
 }
 
+/// Return this line's indentation depth and update the blocks for the next line.
+/// Only body definitions open blocks; action exports and interface requirements
+/// reference an existing action and leave the surrounding nesting unchanged.
 fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>) -> usize {
     // Header lookups must stay linear even for very long or incomplete lines.
     let mut header_ends = vec![None; tokens.len() + 1];
@@ -175,9 +178,12 @@ fn line_depth(tokens: &[TokenWithPosition], stack: &mut Vec<Block>) -> usize {
         }
         if matches!(token, Token::KeywordAction)
             && index > 0
-            && tokens[index - 1].token == Token::KeywordRequires
+            && matches!(
+                tokens[index - 1].token,
+                Token::KeywordRequires | Token::KeywordExport
+            )
         {
-            // Interface signatures declare a requirement, never a body.
+            // Keep scanning: another statement may follow on the same line.
             index += 1;
             continue;
         }
