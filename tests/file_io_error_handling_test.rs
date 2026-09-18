@@ -112,6 +112,43 @@ impl Drop for RestorePermissions {
     }
 }
 
+#[test]
+fn permission_restore_cleanup_tolerates_a_removed_fixture() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("removed.txt");
+    fs::write(&path, "fixture").unwrap();
+    let permissions = fs::metadata(&path).unwrap().permissions();
+    let restore = RestorePermissions(path.clone(), permissions);
+    fs::remove_file(&path).unwrap();
+
+    let result = std::panic::catch_unwind(|| drop(restore));
+    assert!(
+        result.is_ok(),
+        "permission cleanup must not panic when a fixture has already been removed"
+    );
+    assert!(
+        !path.exists(),
+        "cleanup must not recreate a removed fixture"
+    );
+}
+
+#[test]
+fn permission_restore_cleanup_restores_original_permissions() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("readonly.txt");
+    fs::write(&path, "fixture").unwrap();
+    let original = fs::metadata(&path).unwrap().permissions();
+    let restore = RestorePermissions(path.clone(), original.clone());
+    let mut readonly = original.clone();
+    readonly.set_readonly(true);
+    fs::set_permissions(&path, readonly).unwrap();
+
+    drop(restore);
+
+    assert_eq!(fs::metadata(&path).unwrap().permissions(), original);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "fixture");
+}
+
 #[tokio::test]
 async fn test_write_to_readonly_file_error() {
     let directory = tempfile::tempdir().unwrap();

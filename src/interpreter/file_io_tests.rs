@@ -156,6 +156,162 @@ async fn read_only_close_never_requests_disk_sync() {
 }
 
 #[tokio::test]
+async fn append_existing_without_writing_does_not_request_disk_sync() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let client = client();
+        let probe = SyncProbe::new();
+        for (name, original) in [("empty.txt", ""), ("existing.txt", " keep these bytes \n")] {
+            let path = directory.path().join(name);
+            std::fs::write(&path, original).unwrap();
+            let handle = open(&client, &path, FileOpenMode::Append).await;
+            client.close_file(&handle).await.unwrap();
+            client.close_file(&handle).await.unwrap();
+            assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+        }
+        assert!(
+            probe.events().is_empty(),
+            "opening existing files for append changed no bytes but requested sync: {:?}",
+            probe.events()
+        );
+        assert!(client.file_handles.lock().unwrap().is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn append_after_opening_an_existing_file_syncs_the_new_bytes() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("append.txt");
+        std::fs::write(&path, "original").unwrap();
+        let client = client();
+        let probe = SyncProbe::new();
+        let handle = open(&client, &path, FileOpenMode::Append).await;
+        client.append_file(&handle, " appended").await.unwrap();
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(probe.events(), ["append"]);
+        assert_eq!(std::fs::read(path).unwrap(), b"original appended");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn cancelled_append_to_an_existing_file_retains_dirty_state() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cancel-append.txt");
+        std::fs::write(&path, "original").unwrap();
+        let client = client();
+        let probe = SyncProbe::new();
+        let handle = open(&client, &path, FileOpenMode::Append).await;
+        let (reached, _resume) = probe.gate("append");
+        let mut append = Box::pin(client.append_file(&handle, " appended"));
+        tokio::select! {
+            result = &mut append => panic!("append ended before gate: {result:?}"),
+            result = reached => result.unwrap(),
+        }
+        drop(append);
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(probe.events(), ["append", "close"]);
+        assert_eq!(std::fs::read(path).unwrap(), b"original appended");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn append_creation_without_writes_retains_sync_after_cancelled_close() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("created-by-append.txt");
+        let client = client();
+        let probe = SyncProbe::new();
+        let handle = open(&client, &path, FileOpenMode::Append).await;
+        let (reached, _resume) = probe.gate("close");
+        let mut close = Box::pin(client.close_file(&handle));
+        tokio::select! {
+            result = &mut close => panic!("close ended before gate: {result:?}"),
+            result = reached => result.unwrap(),
+        }
+        drop(close);
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(probe.events(), ["close", "close"]);
+        assert_eq!(std::fs::read(path).unwrap(), b"");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn concurrent_append_opens_preserve_both_writes() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("concurrent-append.txt");
+        let client = client();
+        let probe = SyncProbe::new();
+        let (first, second) = tokio::join!(
+            open(&client, &path, FileOpenMode::Append),
+            open(&client, &path, FileOpenMode::Append),
+        );
+        assert_ne!(first, second);
+        let (first_write, second_write) = tokio::join!(
+            client.append_file(&first, "A"),
+            client.append_file(&second, "B"),
+        );
+        first_write.unwrap();
+        second_write.unwrap();
+        let (first_close, second_close) =
+            tokio::join!(client.close_file(&first), client.close_file(&second));
+        first_close.unwrap();
+        second_close.unwrap();
+        assert_eq!(probe.events(), ["append", "append"]);
+        let mut bytes = std::fs::read(path).unwrap();
+        bytes.sort_unstable();
+        assert_eq!(bytes, b"AB");
+        assert!(client.file_handles.lock().unwrap().is_empty());
+    })
+    .await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn append_through_existing_symlink_without_writes_is_clean() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("existing-target.txt");
+        let link = directory.path().join("existing-link.txt");
+        std::fs::write(&target, "linked bytes").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let client = client();
+        let probe = SyncProbe::new();
+        let handle = open(&client, &link, FileOpenMode::Append).await;
+        client.close_file(&handle).await.unwrap();
+        assert!(probe.events().is_empty());
+        assert_eq!(std::fs::read(&target).unwrap(), b"linked bytes");
+        assert!(std::fs::symlink_metadata(link).unwrap().is_symlink());
+    })
+    .await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn append_through_dangling_symlink_creates_and_syncs_target() {
+    bounded(async {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("new-target.txt");
+        let link = directory.path().join("dangling-link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let client = client();
+        let probe = SyncProbe::new();
+        let handle = open(&client, &link, FileOpenMode::Append).await;
+        client.close_file(&handle).await.unwrap();
+        assert_eq!(probe.events(), ["close"]);
+        assert_eq!(std::fs::read(&target).unwrap(), b"");
+        assert!(std::fs::symlink_metadata(link).unwrap().is_symlink());
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn create_and_truncate_without_writing_are_synced_on_close() {
     bounded(async {
         let directory = tempfile::tempdir().unwrap();
