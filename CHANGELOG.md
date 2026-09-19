@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`wfl init`** creates a simple `.wflcfg`, an `AGENTS.md` pointer, and a
+  `CLAUDE.md` application guide in the current directory. The guide covers WFL
+  syntax, CLI validation, LSP and MCP setup, Docker testing, and documentation
+  discovery through the WFL docs and Context7. Initialization works offline
+  without prompts, preserves existing regular files, and rejects conflicting
+  directories or symbolic links before writing. It takes no directory argument;
+  run an existing program named `init` with an explicit path such as `./init`.
 - **`wfl config`** runs the interactive global configuration wizard without a
   directory argument. It writes to the platform's global configuration path
   (or `WFL_GLOBAL_CONFIG_PATH`) and leaves project `.wflcfg` files unchanged.

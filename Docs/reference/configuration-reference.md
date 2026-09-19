@@ -47,6 +47,9 @@ It is **not** for application secrets or app-specific settings (ports your progr
 ## Quick start
 
 ```bash
+# Create project configuration and agent guidance in the current directory
+wfl init
+
 # Configure global defaults interactively
 wfl config
 
@@ -61,7 +64,8 @@ wfl --lint my_script.wfl
 wfl --lint --fix my_script.wfl --in-place
 ```
 
-For project-specific overrides, write a `.wflcfg` in your project root:
+For project-specific overrides, edit the `.wflcfg` created by `wfl init`, or
+write one in your project root:
 
 ```ini
 # .wflcfg
@@ -79,6 +83,7 @@ Then run scripts from that project tree; WFL walks up from the **script’s dire
 
 | Command | Purpose |
 |---|---|
+| `wfl init` | Creates missing `.wflcfg`, `AGENTS.md`, and `CLAUDE.md` in the current directory |
 | `wfl config` | Interactive wizard; writes the global configuration file |
 | `wfl --configCheck` | Validates local/global config against known settings |
 | `wfl --configFix` | Checks and repairs common config problems |
@@ -95,6 +100,11 @@ A completed fix or preview exits with `0`; run plain lint again to detect
 warnings that need manual changes. Neither operation executes the program.
 See [Code Style Guide: Commands](../06-best-practices/code-style-guide.md#commands)
 for output modes and preservation guarantees.
+
+`wfl init` takes no directory argument and preserves existing regular files.
+It uses bundled templates without prompts, network access, or changes to global
+configuration. See [Initialize a Project](../02-getting-started/project-init.md)
+for generated agent guidance, conflict handling, and help commands.
 
 `wfl config` takes no directory argument. It writes global defaults to `C:\wfl\config` on Windows or `/etc/wfl/wfl.cfg` on Linux/macOS. Set `WFL_GLOBAL_CONFIG_PATH` to use another global configuration file. Project `.wflcfg` files are not created or changed.
 
