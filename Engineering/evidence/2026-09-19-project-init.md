@@ -90,10 +90,10 @@ needed. Raw logs are under `target/test-artifacts/project-init/`.
 | Generated examples through actual `wfl-lsp --mcp` | Both examples passed `parse_wfl`, `analyze_wfl`, `typecheck_wfl`, and `lint_wfl` with no diagnostics; eight calls recorded with template hash in `target/reports/project-init/mcp-template-validation.json` |
 | `python scripts/check_repo_hygiene.py --mode static` | Passed, `hygiene.log` |
 
-The canonical WFL failures remain failures:
+The original canonical WFL run recorded two failures:
 
 - `test_basic_server.wfl`: a diagnostic capture confirmed Windows socket
-  error 10048 when binding port 8080, which is already in use. No existing
+  error 10048 when binding port 8080, which was already in use. No existing
   service was stopped. See `diagnostic-basic-server.log`.
 - `file_io_comprehensive.wfl`: exceeded the canonical 30-second timeout. Its
   unchanged program recursively lists the current directory, including this
@@ -103,10 +103,20 @@ The canonical WFL failures remain failures:
   timeout into a pass. See `diagnostic-file-io-root.log` and
   `diagnostic-file-io-isolated.log`.
 
-The full local presubmit is therefore **not green**, despite passing all
-workspace and new initialization tests. Linux CI, the occupied-port test,
-directory-scan timeout, and the unavailable TLS script prerequisite remain
-verification limits before claiming merge/release readiness.
+After the user reported clearing port 8080, `test_basic_server.wfl` was rerun
+once at **2026-09-19 14:13:51 UTC**, using the same release executable, unchanged
+program, repository working directory, and 30-second deadline. It **passed**
+in 0.031 seconds with exit code 0 and the expected server-start/listening
+messages. The command and assertions are recorded in `port-8080-retest.log`.
+This verifies the previously blocked bind/start test after the environment
+changed; it does not exercise an HTTP request. No code, assertions, or timeout
+limits were changed, and the full canonical suite was not rerun.
+
+The original canonical result is retained, and the full local presubmit is
+still **not green** despite passing all workspace and new initialization tests
+and the port-8080 retest. Linux CI, the directory-scan timeout, and the
+unavailable TLS script prerequisite remain verification limits before claiming
+merge/release readiness.
 
 The Windows host supplied conflicting case-variant PATH entries. The canonical
 script initially refused that environment before testing. A temporary helper
