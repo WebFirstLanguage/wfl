@@ -140,6 +140,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl --step <file>`: Run in single-step debug mode.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST (written under `target/reports/dumps/`).
+- `wfl init`: Create missing `.wflcfg`, `AGENTS.md`, and `CLAUDE.md` in the current directory; preserve existing files (no directory argument).
 - `wfl config`: Configure global WFL defaults interactively (no directory argument).
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
 - `wfl --dump-env`: Dump environment for troubleshooting.

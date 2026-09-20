@@ -13,6 +13,9 @@ This is a hands-on guide. You'll:
 5. **[Set Up Your Editor](editor-setup.md)** - VS Code, LSP, and MCP integration (10 minutes)
 6. **[Find Resources](resources.md)** - Where to learn more
 
+For a new or existing application, [initialize your project](project-init.md)
+with `wfl init` to add project configuration and guidance for coding agents.
+
 **Total time:** About 45 minutes from zero to productive.
 
 ## Prerequisites

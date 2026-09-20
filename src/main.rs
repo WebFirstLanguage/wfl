@@ -18,6 +18,8 @@ use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
+mod project_init;
+
 /// Describe supported operations and the configuration controls used by the CLI.
 fn print_help() {
     println!("WebFirst Language (WFL) Compiler and Interpreter");
@@ -25,6 +27,7 @@ fn print_help() {
     println!("USAGE:");
     println!("    wfl [FLAGS] [OPTIONS] [file]");
     println!("    wfl config");
+    println!("    wfl init");
     println!();
     println!("FLAGS:");
     println!("    --help, -h         Prints this help information");
@@ -47,6 +50,7 @@ fn print_help() {
     println!("    --configCheck      Check configuration files for issues");
     println!("    --configFix        Check and fix configuration files");
     println!("    config            Set up global WFL configuration interactively");
+    println!("    init              Create project configuration and agent guidance");
     println!();
     println!("ENVIRONMENT VARIABLES:");
     println!("    WFL_GLOBAL_CONFIG_PATH  Override the global configuration path");
@@ -57,6 +61,43 @@ fn print_help() {
     println!("    and type safety before execution, preventing many common runtime errors.");
     println!();
     println!("If no file is specified, the REPL will be started.");
+}
+
+/// Initialize the current project without prompts or replacement of existing files.
+/// `args` contains only the arguments after `init`; a sole help flag returns
+/// without writing, while invalid arguments or initialization failures exit 2.
+fn run_init_command(args: &[String]) -> io::Result<()> {
+    if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h") {
+        println!("USAGE: wfl init");
+        println!("Create .wflcfg, AGENTS.md, and CLAUDE.md in the current directory.");
+        println!("Existing regular files are preserved; missing files are created.");
+        println!("No prompts, downloads, or changes to global configuration.");
+        return Ok(());
+    }
+
+    if !args.is_empty() {
+        eprintln!("Error: wfl init does not accept arguments.");
+        eprintln!("Usage: wfl init");
+        process::exit(2);
+    }
+
+    match env::current_dir().and_then(|directory| project_init::initialize(&directory)) {
+        Ok(report) => {
+            for name in report.created {
+                println!("Created {name}");
+            }
+            for name in report.skipped {
+                println!("Skipped {name} (existing file preserved)");
+            }
+            println!("Read CLAUDE.md for WFL syntax, tooling, testing, and documentation.");
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("Error initializing project: {error}");
+            eprintln!("Resolve the error and rerun wfl init to create any missing files.");
+            process::exit(2);
+        }
+    }
 }
 
 /// Validate global setup arguments and require confirmation before replacement.
@@ -213,6 +254,9 @@ async fn run() -> io::Result<()> {
     if args[1] == "config" {
         return run_config_command(&args[2..]);
     }
+    if args[1] == "init" {
+        return run_init_command(&args[2..]);
+    }
 
     // Check for version flag only in WFL flags (before script filename)
     // This check is moved into the main argument parsing loop below
@@ -248,6 +292,10 @@ async fn run() -> io::Result<()> {
                     "--lint" | "--fix" | "--diff" | "--in-place"
                 ));
         match args[i].as_str() {
+            "--init" => {
+                eprintln!("Error: initialization is a command. Use: wfl init");
+                process::exit(2);
+            }
             "--dump-env" => {
                 dump_env_mode = true;
                 i += 1;

@@ -19,6 +19,7 @@ The main navigation page for all WFL documentation.
 
 ### Guides & Tutorials
 
+- **[Initialize a Project](project-init.md)** - Create project configuration and agent guidance with `wfl init`
 - **[WFL by Example](../guides/wfl-by-example.md)** - Learn through practical examples
 - **[Cookbook](../guides/cookbook.md)** - Recipes for common tasks
 - **[Migration from JavaScript](../guides/migration-from-javascript.md)** - JS → WFL guide
@@ -307,6 +308,9 @@ end for
 ### WFL CLI Commands
 
 ```bash
+# Initialize the current project directory
+wfl init
+
 # Run a program
 wfl program.wfl
 
