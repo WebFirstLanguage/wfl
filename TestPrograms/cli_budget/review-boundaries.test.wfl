@@ -1,0 +1,69 @@
+store runtime_path as call current_executable
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/cli_budget"
+
+describe "Invocation budget review boundaries":
+    test "ordinary waits stop at the deadline without another checkpoint":
+        store source_path as path_join of fixture_root and "wait-without-checkpoint.wfl"
+        for each child_args in [[source_path], ["--execution-timeout", "1", source_path]]:
+            store started_at as current time in milliseconds
+            wait for execute command runtime_path with arguments child_args as outcome
+            store elapsed_ms as (current time in milliseconds) minus started_at
+            expect elapsed_ms is less than 3000 to equal yes
+            expect outcome["success"] to equal no
+            expect outcome["error"] to contain "timeout (1s)"
+            expect (outcome["output"] contains "MUST NOT FINISH WAIT") to equal no
+        end for
+    end test
+
+    test "server loop waits remain exempt from invocation lifetime":
+        store source_path as path_join of fixture_root and "main-loop-wait.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path] as outcome
+        expect outcome["success"] to equal yes
+        expect outcome["output"] to contain "SERVER WAIT RETAINED"
+    end test
+
+    test "a shorter invocation budget does not shorten server HTTP policy":
+        store peer_path as path_join of fixture_root and "slow-peer.wfl"
+        wait for spawn command runtime_path with arguments [peer_path] as peer_process
+        try:
+            store startup_text as ""
+            store peer_url as ""
+            count from 1 to 200:
+                wait for read output from process peer_process as fresh_text
+                change startup_text to startup_text with fresh_text
+                for each output_line in (split startup_text by "\n"):
+                    check if output_line starts with "READY ":
+                        change peer_url to trim of (substring of output_line and 6 and ((length of output_line) minus 6))
+                    end check
+                end for
+                check if peer_url is not equal to "":
+                    break
+                end check
+                wait for 10 milliseconds
+            end count
+            expect peer_url is not equal to "" to equal yes
+            store source_path as path_join of fixture_root and "longer-config/server-client.wfl"
+            wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path, peer_url] as outcome
+            expect outcome["success"] to equal yes
+            expect outcome["output"] to contain "RECEIVED late response"
+        finally:
+            close process peer_process
+        end try
+        expect (process peer_process is running) to equal no
+    end test
+
+    test "dump modes require the execution override before the filename":
+        store source_path as path_join of fixture_root and "arguments.wfl"
+        for each mode_option in ["--lex", "--ast", "--parse"]:
+            wait for execute command runtime_path with arguments [mode_option, source_path, "--execution-timeout", "3"] as misplaced
+            expect misplaced["exit_code"] to equal 2
+            expect misplaced["error"] to contain "--execution-timeout must appear before the source filename"
+            wait for execute command runtime_path with arguments ["--execution-timeout", "3", mode_option, source_path] as correct
+            expect correct["success"] to equal yes
+        end for
+    end test
+end describe

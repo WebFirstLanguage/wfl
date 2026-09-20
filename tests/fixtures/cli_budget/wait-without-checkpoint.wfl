@@ -1,0 +1,2 @@
+wait for 5000 milliseconds
+display "MUST NOT FINISH WAIT"

@@ -110,3 +110,16 @@ test mode. Final source and fixture review identified no blocking finding.
 Exact-head CI must still complete, including both real five-minute boundary
 steps and the ordinary Linux/Windows program sweeps. No merge or release is
 authorized by this evidence record itself.
+
+## Review follow-up Red
+
+Automated review of `68c46650` exposed three additional semantic cases, verified
+locally before their fixes in `TestPrograms/cli_budget/review-boundaries.test.wfl`.
+The WFL suite passed its existing main-loop wait exemption baseline and failed
+three real expectations: an ordinary five-second wait outlived a one-second
+deadline, a one-second invocation override shortened a ten-second server HTTP
+policy, and dump modes accepted a misplaced timeout after the source filename.
+The log is `target/reports/cli-budget/red-review-boundaries.log` (1/4 passed).
+The wait gap predates the CLI option; it matters to an explicit finite deadline
+and cannot be hidden by adding a later operation checkpoint to the assertion.
+These findings supersede the earlier source-review verdict until corrected.

@@ -1,0 +1,5 @@
+main loop:
+    open url at args[0] and read content as response_text
+    display "RECEIVED " with response_text
+    exit program
+end loop
