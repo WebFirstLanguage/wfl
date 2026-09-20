@@ -92,6 +92,57 @@ Non-2xx statuses are not errors — check `resp.ok` or `resp.status`
 yourself. Network failures (DNS, connection refused) still raise errors you
 can `try`/`catch`.
 
+Header names are lowercase. `resp.headers` retains a single text value for
+each name, as before; if a response repeats a name, it retains the last value
+encountered. Use `resp.header_values` when every value matters: each name maps
+to a list of text values, including single-value headers. In particular,
+`Set-Cookie` values stay separate and are never joined with commas. A missing
+header is absent from both maps.
+
+#### Inspecting a redirect response
+
+Requests follow redirects by default. Add `and without following redirects`
+to inspect the original response, for example when an authentication endpoint
+sets cookies on a `302` before sending the browser to another page:
+
+```wfl
+// CI-SKIP: illustrative endpoint; the linked WFL regression runs a local peer.
+store login_url as "https://example.com/login"
+store form_text as "synthetic=yes"
+open url at login_url
+    with method "POST"
+    and body form_text
+    and without following redirects
+    and read response as reply
+
+store reply_headers as reply["headers"]
+store next_page as reply_headers["location"]
+store repeated_headers as reply["header_values"]
+store received_cookies as repeated_headers["set-cookie"]
+```
+
+The option applies only to that request. It keeps the original status, body,
+and headers and does not contact the redirect destination. A later request
+follows redirects unless it also selects this option. WFL exposes cookie text;
+it does not automatically save or replay these cookies.
+
+Use the same clause with `and read content as text`, the body-only `as text`
+form, or `and stream response as upstream`. Streaming handles expose the same
+`headers` and `header_values` maps. The existing response size, timeout, and
+cancellation limits apply to both redirect policies. The phrase is contextual
+inside `open url`; its words remain available for ordinary variable names.
+
+The executable [redirect response regression](../../TestPrograms/http_redirects/redirects.test.wfl)
+starts an ephemeral local WFL server and covers both policies, repeated cookies,
+streaming, body limits, timeouts, malformed clauses, and process cleanup. Run it
+from the repository root after `cargo build --release`:
+
+```bash
+target/release/wfl --test TestPrograms/http_redirects/redirects.test.wfl
+```
+
+#### Request budgets
+
 Outbound responses are streamed and decoded into a bounded buffer. The
 `web_server_max_response_size` setting (64 MiB by default) limits the response
 body for `read content` and `read response`, both as received and after text
@@ -107,8 +158,9 @@ request that is waiting on the remote peer.
 
 #### Connection reuse and the automatic re-send
 
-Outbound requests share a pool of keep-alive connections, so back-to-back calls
-to the same host skip the TCP and TLS handshake. A pooled connection is reused
+Outbound requests with the same redirect policy share a pool of keep-alive
+connections, so back-to-back calls to the same host skip the TCP and TLS
+handshake. A pooled connection is reused
 only while it has been idle for less than three seconds: peers close idle
 connections on their own schedule (Node closes at five seconds, many proxies
 between five and fifteen), and writing to a connection the peer has already

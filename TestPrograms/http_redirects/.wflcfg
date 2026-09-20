@@ -1,0 +1,9 @@
+allow_shell_execution = true
+shell_execution_mode = allowlist_only
+allowed_shell_commands = target/release/wfl, target/release/wfl.exe
+timeout_seconds = 20
+logging_enabled = false
+debug_report_enabled = false
+kill_on_shutdown = true
+web_server_max_response_size = 1024
+outbound_stream_max_seconds = 1

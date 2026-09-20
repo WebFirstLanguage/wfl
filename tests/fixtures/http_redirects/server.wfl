@@ -1,0 +1,49 @@
+// A loopback-only peer owned by the WFL redirect regression driver.
+listen on port 0 as fixture_server
+store listener_text as "" with fixture_server
+store endpoint as "http://" with (substring of listener_text and 11 and ((length of listener_text) minus 11))
+display "READY " with endpoint
+store destination_visits as 0
+main loop:
+    wait for request comes in on fixture_server as incoming
+    store request_path as path of incoming
+    check if request_path is equal to "/redirect":
+        create map redirect_headers:
+            "Location" is "/destination"
+            "Set-Cookie" is "sid=synthetic; Path=/; HttpOnly"
+            "set-cookie" is "csrf=synthetic; Path=/"
+            "X-Request-Method" is method of incoming
+            "X-Request-Body" is body of incoming
+        end map
+        respond to incoming with "redirect body" and status 302 and headers redirect_headers
+    otherwise:
+        check if request_path is equal to "/destination":
+            change destination_visits to destination_visits plus 1
+            respond to incoming with "followed" and status 200
+        otherwise:
+            check if request_path is equal to "/visits":
+                respond to incoming with ("" with destination_visits)
+            otherwise:
+                check if request_path is equal to "/large":
+                    store large_body as ""
+                    count from 1 to 2048:
+                        change large_body to large_body with "x"
+                    end count
+                    respond to incoming with large_body and status 302
+                otherwise:
+                    check if request_path is equal to "/slow":
+                        wait for 1500 milliseconds
+                        try:
+                            respond to incoming with "late" and status 302
+                        when error:
+                            // The client deliberately abandons this timed-out request.
+                            display "Timed-out peer disconnected."
+                        end try
+                    otherwise:
+                        respond to incoming with "missing" and status 404
+                    end check
+                end check
+            end check
+        end check
+    end check
+end loop
