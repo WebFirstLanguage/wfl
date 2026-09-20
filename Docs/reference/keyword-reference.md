@@ -29,7 +29,7 @@ Quick lookup for all WFL reserved keywords.
 | `downward` | Count loop direction | ✗ |
 | `each` | For each loop | ✗ |
 | `end` | Close block | ✗ |
-| `exit` | Exit loops (`exit loop`) or the program (`exit program`) | ✗ |
+| `exit` | Exit loops (`exit loop`) or the program (`exit program [with code number]`) | ✗ |
 | `for` | For loop | ✗ |
 | `forever` | Infinite loop | ✗ |
 | `from` | Count loop start | ✗ |

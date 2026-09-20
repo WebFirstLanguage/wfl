@@ -1,0 +1,19 @@
+store relative_runtime as "target/release/wfl"
+check if file exists at (relative_runtime with ".exe"):
+    change relative_runtime to relative_runtime with ".exe"
+end check
+store child_directory as args[0]
+wait for execute command relative_runtime with arguments ["--version"] in directory child_directory as foreground
+check if foreground["success"] is no:
+    exit program with code 1
+end check
+wait for spawn command relative_runtime with arguments ["--version"] in directory child_directory as child
+try:
+    wait for process child to complete with timeout 5 and read result as background
+    check if background["success"] is no:
+        exit program with code 2
+    end check
+finally:
+    close process child
+end try
+display "authorized executable retained across cwd"

@@ -418,6 +418,15 @@ fn rename_locals(
     // A local spelling can also occur as an external property or method name.
     // Renaming all occurrences would silently change those public APIs.
     for pair in tokens.windows(2) {
+        // `exit ... with code statusCode` merges its contextual marker and
+        // operand into one token. Whole-token renaming cannot safely update
+        // that reference, so preserve the local's spelling throughout.
+        if matches!(pair[0].token, Token::KeywordWith)
+            && let Token::Identifier(name) = &pair[1].token
+            && let Some(operand) = name.strip_prefix("code ")
+        {
+            protected.insert(operand);
+        }
         if matches!(pair[0].token, Token::Dot | Token::Colon)
             && let Token::Identifier(name) = &pair[1].token
         {

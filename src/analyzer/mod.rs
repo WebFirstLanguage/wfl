@@ -2978,12 +2978,16 @@ impl Analyzer {
             Statement::ExecuteCommandStatement {
                 command,
                 arguments,
+                directory,
                 variable_name,
                 use_shell: _,
                 line,
                 column,
             } => {
                 self.analyze_expression(command);
+                if let Some(directory) = directory {
+                    self.analyze_expression(directory);
+                }
                 if let Some(args) = arguments {
                     self.analyze_expression(args);
                 }
@@ -3003,6 +3007,11 @@ impl Analyzer {
                     }
                 }
             }
+
+            Statement::ExitStatement {
+                code: Some(code), ..
+            } => self.analyze_expression(code),
+            Statement::ExitStatement { code: None, .. } => {}
 
             Statement::ExecuteFileStatement {
                 path,
@@ -3035,12 +3044,16 @@ impl Analyzer {
             Statement::SpawnProcessStatement {
                 command,
                 arguments,
+                directory,
                 variable_name,
                 use_shell: _,
                 line,
                 column,
             } => {
                 self.analyze_expression(command);
+                if let Some(directory) = directory {
+                    self.analyze_expression(directory);
+                }
                 if let Some(args) = arguments {
                     self.analyze_expression(args);
                 }
@@ -3086,16 +3099,25 @@ impl Analyzer {
             Statement::WaitForProcessStatement {
                 process_id,
                 variable_name,
+                timeout,
+                full_result,
                 line,
                 column,
             } => {
                 self.analyze_expression(process_id);
+                if let Some(timeout) = timeout {
+                    self.analyze_expression(timeout);
+                }
 
                 if let Some(var_name) = variable_name {
                     let symbol = Symbol {
                         name: var_name.clone(),
                         kind: SymbolKind::Variable { mutable: true },
-                        symbol_type: Some(Type::Number), // Exit code
+                        symbol_type: Some(if *full_result {
+                            Type::Map(Box::new(Type::Text), Box::new(Type::Any))
+                        } else {
+                            Type::Number
+                        }),
                         line: *line,
                         column: *column,
                     };
