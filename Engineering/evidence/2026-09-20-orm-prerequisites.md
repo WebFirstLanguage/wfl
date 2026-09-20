@@ -98,10 +98,9 @@ It is a local candidate, not a released nightly replacement.
   programs, with unchanged assertions and lock limits. Only fixture setup
   statements are grouped in an ordinary transaction to avoid unnecessary
   individual durability flushes; database durability settings are unchanged.
-  The seven reorganized cases passed together in 5.23 seconds. A new full
-  runner result is pending for this changed test organization. The first
-  failure remains retained in `integration-final.log`; the new run writes
-  `integration-split-final.log`. No full-gate pass is claimed yet.
+  The seven reorganized cases passed together in 5.23 seconds. The final full runner passed: 151 passed, 0 failed, 24 existing skips.
+  The first failure remains retained in `integration-final.log`; the final
+  passing run is recorded in `integration-split-final.log`.
 
 Logs are under ignored `target/reports/orm-prerequisites/`. The first hygiene
 invocation could not spawn Git from the inherited executable search path;
