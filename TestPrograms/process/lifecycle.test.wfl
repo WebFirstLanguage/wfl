@@ -1,0 +1,43 @@
+// Behavioral Red: existing grammar demonstrates the requirements that need
+// additive cwd and full-result completion APIs. Legacy numeric wait will keep
+// its existing releasing behavior; the Green suite will use the new API.
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/process"
+describe "Subprocess requirements before the additive lifecycle API":
+    test "a fixture runs in its own working directory":
+        store child_path as path_join of fixture_root and "cwd.wfl"
+        wait for execute command "wfl" with arguments [child_path, "synthetic"] as outcome
+        expect outcome["exit_code"] to equal 0
+        expect outcome["output"] to contain fixture_root
+    end test
+    test "complete outcome contains stdout after exit is known":
+        store child_path as path_join of fixture_root and "cwd.wfl"
+        wait for spawn command "wfl" with arguments [child_path, "synthetic"] as child_process
+        wait for process child_process to complete as child_exit
+        store final_output as ""
+        try:
+            wait for read output from process child_process as captured_output
+            change final_output to captured_output
+        when error:
+            display error_message
+        end try
+        expect child_exit to equal 0
+        expect final_output to contain "synthetic"
+    end test
+    test "asynchronous diagnostics include the real child error":
+        store child_path as path_join of fixture_root and "error.wfl"
+        wait for execute command "wfl" with arguments [child_path] as foreground_result
+        expect foreground_result["error"] to contain "Division by zero"
+        wait for spawn command "wfl" with arguments [child_path] as child_process
+        count from 1 to 100:
+            check if (process child_process is running) is no:
+                break
+            end check
+            wait for 100 milliseconds
+        end count
+        wait for read output from process child_process as captured_output
+        wait for process child_process to complete as child_exit
+        expect child_exit to equal 1
+        expect captured_output to contain "Division by zero"
+    end test
+end describe
