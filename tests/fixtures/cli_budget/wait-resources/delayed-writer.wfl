@@ -1,7 +1,17 @@
 open file at args[0] for writing as ready_file
 wait for write content "ready" into ready_file
 close file ready_file
-wait for 2000 milliseconds
+store release_seen as no
+count from 1 to 160:
+    check if is_file of args[2]:
+        change release_seen to yes
+        break
+    end check
+    wait for 50 milliseconds
+end count
+check if release_seen is equal to no:
+    call raise_error with "Delayed writer was never released"
+end check
 open file at args[1] for writing as marker_file
 wait for write content "delayed writer survived" into marker_file
 close file marker_file

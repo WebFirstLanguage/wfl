@@ -17,13 +17,10 @@ define action called resource_read_text with parameters source_path:
     end try
 end action
 
-define action called resource_wait_ready with parameters child_process and ready_path:
+define action called resource_wait_ready with parameters ready_path:
     count from 1 to 200:
         check if is_file of ready_path:
             return yes
-        end check
-        check if (process child_process is running) is equal to no:
-            break
         end check
         wait for 10 milliseconds
     end count
@@ -36,6 +33,15 @@ define action called resource_rebind_port with parameters listener_port:
     return yes
 end action
 
+define action called resource_release_writer with parameters release_path:
+    open file at release_path for writing as release_file
+    try:
+        wait for write content "release" into release_file
+    finally:
+        close file release_file
+    end try
+end action
+
 describe "Duration waits release owned resources at their deadline":
     teardown:
         call remove_dir with case_root and yes
@@ -45,94 +51,90 @@ describe "Duration waits release owned resources at their deadline":
         store writer_path as path_join of fixture_root and "delayed-writer.wfl"
         store control_ready as path_join of case_root and "control.ready"
         store control_marker as path_join of case_root and "control.late"
-        // Positive control: the same writer really creates its delayed file.
-        wait for execute command runtime_path with arguments ["--execution-timeout", "8", writer_path, control_ready, control_marker] as control_outcome
+        store control_release as path_join of case_root and "control.release"
+        // Positive control: the same writer creates its file after release.
+        call resource_release_writer with control_release
+        wait for execute command runtime_path with arguments ["--execution-timeout", "10", writer_path, control_ready, control_marker, control_release] as control_outcome
         expect control_outcome["success"] to equal yes
         expect is_file of control_ready to equal yes
         expect resource_read_text of control_marker to equal "delayed writer survived"
 
         store ready_path as path_join of case_root and "owned.ready"
         store marker_path as path_join of case_root and "owned.late"
+        store release_path as path_join of case_root and "owned.release"
         store parent_path as path_join of fixture_root and "owned-duration-wait.wfl"
         store started_at as current time in milliseconds
-        store outcome as nothing
-        wait for spawn command runtime_path with arguments ["--execution-timeout", "1", parent_path, ready_path, marker_path] as parent_process
+        wait for spawn command runtime_path with arguments ["--execution-timeout", "1", parent_path, ready_path, marker_path, release_path] as parent_process
         try:
-            wait for process parent_process to complete with timeout 7 and read result as completed_parent
-            change outcome to completed_parent
+            expect resource_wait_ready of ready_path to equal yes
+            // Neither poll nor reap the owner before this observation: native
+            // process completion also closes its tree and could hide a leak.
+            // Release the ready writer after its owner's deadline. The old
+            // unbounded duration wait is still active throughout this window.
+            wait for 1500 milliseconds
+            call resource_release_writer with release_path
+            store late_before_reap as resource_wait_ready of marker_path
+            wait for process parent_process to complete with timeout 7 and read result as outcome
+            store elapsed_ms as (current time in milliseconds) minus started_at
+            display "Duration wait owner: elapsed=" with elapsed_ms with ", success=" with outcome["success"] with ", late_write_before_reap=" with late_before_reap
+            expect outcome["output"] to contain "READY CHILD BEFORE DURATION WAIT"
+            expect late_before_reap to equal no
+            expect outcome["success"] to equal no
+            expect outcome["error"] to contain "timeout (1s)"
+            expect (outcome["output"] contains "MUST NOT FINISH OWNED DURATION WAIT") to equal no
         finally:
             close process parent_process
         end try
-        store elapsed_ms as (current time in milliseconds) minus started_at
-        // Observe past the child's normal two-second write time, even when the
-        // owner correctly stopped at one second. No test-side kill supplies it.
-        check if elapsed_ms is less than 3000:
-            wait for (3000 minus elapsed_ms) milliseconds
-        end check
-        display "Duration wait owner: elapsed=" with elapsed_ms with ", success=" with outcome["success"] with ", late_write=" with (is_file of marker_path)
-        expect is_file of ready_path to equal yes
-        expect outcome["output"] to contain "READY CHILD BEFORE DURATION WAIT"
-        expect elapsed_ms is less than 3000 to equal yes
-        expect outcome["success"] to equal no
-        expect outcome["error"] to contain "timeout (1s)"
-        expect (outcome["output"] contains "MUST NOT FINISH OWNED DURATION WAIT") to equal no
-        expect is_file of marker_path to equal no
     end test
 
     test "an active WebSocket receiver times out and releases its exact port":
         store ready_path as path_join of case_root and "websocket-timeout.ready"
         store source_path as path_join of fixture_root and "websocket-duration-wait.wfl"
         store started_at as current time in milliseconds
-        store outcome as nothing
-        store listener_port as 0
         wait for spawn command runtime_path with arguments ["--execution-timeout", "1", source_path, ready_path, "ordinary"] as server_process
         try:
-            expect resource_wait_ready of server_process and ready_path to equal yes
-            change listener_port to parse_json of (resource_read_text of ready_path)
+            expect resource_wait_ready of ready_path to equal yes
+            store listener_port as parse_json of (resource_read_text of ready_path)
             expect listener_port is greater than 0 to equal yes
             // Prove this is the child's live port, not an unrelated free port.
             store refused_while_live as no
             try:
-                store unexpected_bind as resource_rebind_port of listener_port
+                call resource_rebind_port with listener_port
             when error:
                 change refused_while_live to yes
                 expect error_message to contain "Failed to start websocket server"
             end try
             expect refused_while_live to equal yes
-            wait for process server_process to complete with timeout 7 and read result as completed_server
-            change outcome to completed_server
+            wait for process server_process to complete with timeout 7 and read result as outcome
+            store elapsed_ms as (current time in milliseconds) minus started_at
+            store rebound as resource_rebind_port of listener_port
+            display "WebSocket duration wait: elapsed=" with elapsed_ms with ", success=" with outcome["success"] with ", rebound=" with rebound
+            expect elapsed_ms is less than 3000 to equal yes
+            expect outcome["success"] to equal no
+            expect outcome["error"] to contain "timeout (1s)"
+            expect (outcome["output"] contains "MUST NOT FINISH WEBSOCKET WAIT") to equal no
+            expect rebound to equal yes
         finally:
             close process server_process
         end try
-        store elapsed_ms as (current time in milliseconds) minus started_at
-        store rebound as resource_rebind_port of listener_port
-        display "WebSocket duration wait: elapsed=" with elapsed_ms with ", success=" with outcome["success"] with ", rebound=" with rebound
-        expect elapsed_ms is less than 3000 to equal yes
-        expect outcome["success"] to equal no
-        expect outcome["error"] to contain "timeout (1s)"
-        expect (outcome["output"] contains "MUST NOT FINISH WEBSOCKET WAIT") to equal no
-        expect rebound to equal yes
     end test
 
     test "a WebSocket receiver in a main loop keeps its exemption and releases its port":
         store ready_path as path_join of case_root and "websocket-loop.ready"
         store source_path as path_join of fixture_root and "websocket-duration-wait.wfl"
         store started_at as current time in milliseconds
-        store outcome as nothing
-        store listener_port as 0
         wait for spawn command runtime_path with arguments ["--execution-timeout", "1", source_path, ready_path, "main-loop"] as server_process
         try:
-            expect resource_wait_ready of server_process and ready_path to equal yes
-            change listener_port to parse_json of (resource_read_text of ready_path)
-            wait for process server_process to complete with timeout 5 and read result as completed_server
-            change outcome to completed_server
+            expect resource_wait_ready of ready_path to equal yes
+            store listener_port as parse_json of (resource_read_text of ready_path)
+            wait for process server_process to complete with timeout 5 and read result as outcome
+            store elapsed_ms as (current time in milliseconds) minus started_at
+            expect outcome["success"] to equal yes
+            expect outcome["output"] to contain "EXEMPT WEBSOCKET WAIT FINISHED"
+            expect elapsed_ms is greater than or equal to 1400 to equal yes
+            expect resource_rebind_port of listener_port to equal yes
         finally:
             close process server_process
         end try
-        store elapsed_ms as (current time in milliseconds) minus started_at
-        expect outcome["success"] to equal yes
-        expect outcome["output"] to contain "EXEMPT WEBSOCKET WAIT FINISHED"
-        expect elapsed_ms is greater than or equal to 1400 to equal yes
-        expect resource_rebind_port of listener_port to equal yes
     end test
 end describe

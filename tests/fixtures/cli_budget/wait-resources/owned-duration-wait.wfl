@@ -1,6 +1,6 @@
 store runtime_path as call current_executable
 store writer_path as path_join of script_directory and "delayed-writer.wfl"
-wait for spawn command runtime_path with arguments ["--execution-timeout", "8", writer_path, args[0], args[1]] as owned_child
+wait for spawn command runtime_path with arguments ["--execution-timeout", "10", writer_path, args[0], args[1], args[2]] as owned_child
 try:
     store ready_seen as no
     count from 1 to 100:
@@ -14,7 +14,7 @@ try:
         call raise_error with "Delayed writer did not signal readiness"
     end check
     display "READY CHILD BEFORE DURATION WAIT"
-    wait for 4500 milliseconds
+    wait for 6500 milliseconds
     display "MUST NOT FINISH OWNED DURATION WAIT"
 finally:
     close process owned_child
