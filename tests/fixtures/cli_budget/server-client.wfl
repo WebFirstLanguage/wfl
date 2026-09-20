@@ -1,0 +1,9 @@
+main loop:
+    try:
+        open url at args[0] and read content as content_value
+        display "MUST NOT RECEIVE LATE BODY"
+    when error:
+        display error_message
+    end try
+    break
+end loop

@@ -1,0 +1,61 @@
+store runtime_path as call current_executable
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/cli_budget"
+store case_root as path_join of repo_root and "target/test-artifacts/cli-budget-deadlines" and (generate_uuid)
+call makedirs with case_root
+
+describe "Invocation-only execution deadlines":
+    teardown:
+        call remove_dir with case_root and yes
+    end teardown
+
+    test "configuration still governs ordinary invocations":
+        store source_path as path_join of fixture_root and "wait.wfl"
+        wait for execute command runtime_path with arguments [source_path, "1500"] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["error"] to contain "timeout (1s)"
+        expect (outcome["output"] contains "COMPLETED") to equal no
+    end test
+
+    test "an explicit budget extends this run beyond its configuration":
+        store source_path as path_join of fixture_root and "wait.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "4", source_path, "1500"] as outcome
+        expect outcome["success"] to equal yes
+        expect outcome["output"] to contain "COMPLETED"
+    end test
+
+    test "executed files share the cumulative invocation deadline":
+        store source_path as path_join of fixture_root and "shared-parent.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["error"] to contain "timeout (1s)"
+        expect (outcome["output"] contains "MUST NOT COMPLETE") to equal no
+    end test
+
+    test "expiration closes an owned child before it can write later":
+        store late_path as path_join of fixture_root and "late-marker.wfl"
+        store control_path as path_join of case_root and "control.txt"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "10", late_path, control_path] as control_outcome
+        expect control_outcome["success"] to equal yes
+        expect (is_file of control_path) to equal yes
+        store source_path as path_join of fixture_root and "owned-child.wfl"
+        store marker_path as path_join of case_root and "late.txt"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path, marker_path] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["output"] to contain "OWNED CHILD STARTED"
+        expect outcome["error"] to contain "timeout (1s)"
+        expect (outcome["output"] contains "MUST NOT COMPLETE") to equal no
+        wait for 3000 milliseconds
+        expect (is_file of marker_path) to equal no
+    end test
+
+    test "separate WFL children retain their own configuration deadline":
+        store source_path as path_join of fixture_root and "child-config.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "10", source_path] as outcome
+        expect outcome["success"] to equal yes
+        expect outcome["output"] to contain "CHILD CONFIGURATION RETAINED"
+    end test
+end describe

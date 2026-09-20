@@ -1,0 +1,12 @@
+listen on port 0 as slow_peer
+store listener_text as "" with slow_peer
+display "READY http://" with (substring of listener_text and 11 and ((length of listener_text) minus 11))
+main loop:
+    wait for request comes in on slow_peer as incoming
+    wait for 2500 milliseconds
+    try:
+        respond to incoming with "late response"
+    when error:
+        display "TIMED CLIENT DISCONNECTED"
+    end try
+end loop

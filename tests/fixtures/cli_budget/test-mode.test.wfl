@@ -1,0 +1,6 @@
+describe "Execution budget preserves test mode":
+    test "assertions actually execute":
+        expect 7 to equal 7
+        display "TEST MODE EXECUTED"
+    end test
+end describe

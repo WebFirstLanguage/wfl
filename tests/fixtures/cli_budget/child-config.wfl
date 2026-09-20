@@ -1,0 +1,6 @@
+store runtime_path as call current_executable
+store child_path as path_join of script_directory and "wait.wfl"
+wait for execute command runtime_path with arguments [child_path, "1500"] as outcome
+expect outcome["success"] to equal no
+expect outcome["error"] to contain "timeout (1s)"
+display "CHILD CONFIGURATION RETAINED"

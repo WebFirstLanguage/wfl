@@ -1,0 +1,14 @@
+// Invoked explicitly by both integration jobs with --execution-timeout 330.
+// This real boundary test must not enter a lifetime-exempt main loop.
+describe "Explicit execution budget above five minutes":
+    test "ordinary WFL execution can complete beyond the legacy cap":
+        store started_at as current time in milliseconds
+        wait for 305 seconds
+        count from 1 to 5000:
+            store observed as count
+        end count
+        store elapsed_ms as (current time in milliseconds) minus started_at
+        expect elapsed_ms to be greater than 300000
+        display "LONG EXECUTION BUDGET VERIFIED"
+    end test
+end describe
