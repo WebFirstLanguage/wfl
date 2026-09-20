@@ -1,0 +1,22 @@
+listen on port 0 as stream_peer
+store listener_text as "" with stream_peer
+display "READY http://" with (substring of listener_text and 11 and ((length of listener_text) minus 11))
+main loop:
+    wait for request comes in on stream_peer as incoming
+    check if (path of incoming) is equal to "/head":
+        wait for 2500 milliseconds
+    end check
+    try:
+        start streaming response to incoming with status 200 and content type "text/plain" as outgoing
+        try:
+            check if (path of incoming) is equal to "/body":
+                wait for 2500 milliseconds
+            end check
+            write line "late stream response" to outgoing
+        finally:
+            close outgoing
+        end try
+    when error:
+        display "TIMED CLIENT DISCONNECTED"
+    end try
+end loop
