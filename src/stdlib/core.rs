@@ -32,6 +32,22 @@ pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 }
 
+/// Raise an application failure through the ordinary error-unwinding path.
+/// Never stringify a non-text argument: it may contain confidential record data.
+pub fn native_raise_error(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("raise_error", &args, 1)?;
+    match &args[0] {
+        Value::Text(message) if !message.trim().is_empty() => {
+            Err(RuntimeError::new(message.to_string(), 0, 0))
+        }
+        _ => Err(RuntimeError::new(
+            "raise_error expects a nonempty text message describing the operation, cause and corrective action. Do not include confidential values.".to_string(),
+            0,
+            0,
+        )),
+    }
+}
+
 /// Locate this interpreter without a shell, PATH search, or lossy path text.
 pub fn native_current_executable(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("current_executable", &args, 0)?;
@@ -57,6 +73,7 @@ pub fn register_core(env: &mut Environment) {
 
     env.define_native("type_of", native_typeof);
     env.define_native("is_nothing", native_isnothing);
+    env.define_native("raise_error", native_raise_error);
 
     // Text constants for natural-language string handling
     let _ = env.define("newline", Value::Text("\n".into()));

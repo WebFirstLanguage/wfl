@@ -254,6 +254,7 @@ const LEGACY_BUILTIN_FUNCTIONS: &[&str] = &[
 /// Builtins called with `name of arguments` or `call name with arguments`.
 /// This inventory can grow without changing the legacy expression grammar.
 const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
+    "raise_error",
     "current_executable",
     "password_hash_policy",
     "hash_password_with_policy",
@@ -277,6 +278,7 @@ const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
 /// checking must only assign callable contracts to names in this runtime list.
 const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     // Core
+    "raise_error",
     "current_executable",
     "print",
     "typeof",
@@ -529,6 +531,7 @@ pub fn get_function_arity(name: &str) -> usize {
         "print" => 1,
         "typeof" | "type_of" => 1,
         "isnothing" | "is_nothing" => 1,
+        "raise_error" => 1,
 
         // === MATH FUNCTIONS ===
         // Single argument functions

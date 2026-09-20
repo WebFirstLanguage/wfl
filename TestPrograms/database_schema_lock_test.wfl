@@ -1,0 +1,43 @@
+// Schema changes preserve foreign-key references and validate before commit.
+create directory at "target/test-artifacts/schema-transactions"
+store fixture_path as "target/test-artifacts/schema-transactions/locking.db"
+store fixture_url as "sqlite://" with fixture_path
+
+describe "Schema locking":
+    test "a competing writer is bounded and can retry after its owner completes":
+        open database at fixture_url as first_conn
+        open database at fixture_url as second_conn
+        try:
+            store rejected as no
+            store caught_message as ""
+            store body_ran as no
+            in transaction on first_conn for schema changes:
+                store created as execute first_conn with "CREATE TABLE serialized (id INTEGER)"
+                store started_at as timestamp of now
+                try:
+                    in transaction on second_conn for schema changes:
+                        change body_ran to yes
+                    end transaction
+                when error:
+                    change caught_message to error_message
+                    change rejected to yes
+                end try
+                store finished_at as timestamp of now
+                store duration as finished_at minus started_at
+                expect duration is less than 8 to be yes
+            end transaction
+            expect rejected to be yes
+            expect body_ran to be no
+            expect caught_message contains "5 seconds" to be yes
+            in transaction on second_conn for schema changes:
+                store inserted as execute second_conn with "INSERT INTO serialized VALUES (1)"
+            end transaction
+            store rows as query first_conn with "SELECT * FROM serialized"
+            expect length of rows to equal 1
+        finally:
+            close database first_conn
+            close database second_conn
+            delete file at fixture_path
+        end try
+    end test
+end describe

@@ -1,0 +1,9 @@
+open database at "sqlite://target/test-artifacts/schema-lifecycle/lifecycle.db" as conn
+in transaction on conn for schema changes:
+    store created as execute conn with "CREATE TABLE abandoned_schema (id INTEGER)"
+    store ledger_write as execute conn with "INSERT INTO migration_ledger VALUES ('interrupted')"
+    open file at "target/test-artifacts/schema-lifecycle/ready.txt" for writing as ready_file
+    write content "ready" into ready_file
+    close file ready_file
+    wait for 20 seconds
+end transaction

@@ -2747,6 +2747,7 @@ impl TypeChecker {
             // Core functions
             "typeof" | "type_of" => Type::Text,
             "isnothing" | "is_nothing" => Type::Boolean,
+            "raise_error" => Type::Nothing,
             "print" | "sleep" | "foreach" => Type::Nothing, // Void functions
 
             // Math functions
@@ -5884,6 +5885,7 @@ impl TypeChecker {
                 body,
                 line: _line,
                 column: _column,
+                ..
             } => {
                 let db_type = self.infer_expression_type(db);
                 if db_type != Type::Custom("Database".to_string())

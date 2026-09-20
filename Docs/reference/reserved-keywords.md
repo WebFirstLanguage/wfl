@@ -101,7 +101,11 @@ A few words have special meaning in exactly one statement position but are **not
 - `redirecting` - redirect marker in `listen on port 8080 redirecting to port 8443 as server`
 - `content_type` - response content type marker in `respond to req with ... and content_type "text/html"`
 - `transaction` - transaction block marker in `in transaction on db:` and `end transaction`
+- `schema`, `changes` - optional SQLite transaction mode in `in transaction on db for schema changes:`
 - `without following redirects` - per-request redirect clause in `open url at address and without following redirects and read response as reply`; the individual words and the complete phrase remain ordinary variable names outside that clause position
+
+`raise_error` is an ordinary standard-library function called with `call
+raise_error with message` or `raise_error of message`; it is not a keyword.
 
 ```wfl
 // All perfectly valid — these words are not reserved:

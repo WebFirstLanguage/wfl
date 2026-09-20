@@ -412,6 +412,14 @@ fn rename_locals(
                 protected.insert(name.as_str());
                 protect_pattern_names(pattern, &mut protected);
             }
+            Statement::TransactionStatement {
+                schema_changes: true,
+                ..
+            } => {
+                // A contextual marker can also be an ordinary variable name.
+                // Name-wide spelling fixes must preserve the grammar marker.
+                protected.insert("schema changes");
+            }
             Statement::HttpRequestStatement {
                 follow_redirects: false,
                 ..

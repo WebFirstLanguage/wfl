@@ -1,0 +1,1 @@
+call raise_error with "Saving the fixture failed: required title missing. Supply a title."

@@ -4,6 +4,30 @@ The Core module provides essential functions for output, type introspection, and
 
 ## Functions
 
+### raise_error
+
+`call raise_error with message` raises an ordinary, catchable application
+error. The message must be nonempty text and should name the operation, cause
+and corrective action. The function never returns normally. Empty messages
+and other types raise an actionable argument error without printing their
+values. Keep confidential record values out of messages.
+
+Use the same function in small validation helpers and larger transactional
+operations. It unwinds `finally` blocks and causes an enclosing transaction
+to roll back before a caller's `when error` runs. An uncaught error makes the
+program fail with a nonzero exit. Catching an error inside a transaction
+handles it and permits the block to continue; returning `no` also remains a
+normal successful return.
+
+To attach operation context, call `raise_error` with that context joined to
+the caught `error_message`. This preserves useful diagnostic text but creates
+an ordinary application error rather than retaining a specialized error kind.
+See the [error-handling guide](../03-language-basics/error-handling.md) and
+[executable examples](../../TestPrograms/application_errors_test.wfl).
+
+`raise_error` uses the explicit standard-library call form (`call ... with`
+or `... of`), and is not a reserved keyword.
+
 ### current_executable
 
 **Purpose:** Return the absolute path of the executable running this program.

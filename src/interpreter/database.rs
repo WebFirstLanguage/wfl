@@ -26,6 +26,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod schema;
+pub use schema::SchemaTransaction;
+
 const MAX_POOL_CONNECTIONS: u32 = 5;
 
 /// A connection pool to one of the supported database backends.
@@ -49,6 +52,7 @@ pub enum DbTransaction {
     Postgres(sqlx::Transaction<'static, sqlx::Postgres>),
     MySql(sqlx::Transaction<'static, sqlx::MySql>),
     Sqlite(sqlx::Transaction<'static, sqlx::Sqlite>),
+    SqliteSchema(SchemaTransaction),
 }
 
 /// Where a statement runs: straight against the pool (any free connection), or
@@ -267,6 +271,9 @@ pub async fn run_query(
         DbTarget::Transaction(DbTransaction::Sqlite(tx)) => {
             fetch!(&mut **tx, bind_sqlite, sqlite_row_to_value)
         }
+        DbTarget::Transaction(DbTransaction::SqliteSchema(tx)) => {
+            fetch!(tx.connection(), bind_sqlite, sqlite_row_to_value)
+        }
         DbTarget::Transaction(DbTransaction::Postgres(tx)) => {
             fetch!(&mut **tx, bind_postgres, pg_row_to_value)
         }
@@ -316,6 +323,9 @@ pub async fn run_execute(
         DbTarget::Transaction(DbTransaction::Sqlite(tx)) => {
             run!(&mut **tx, bind_sqlite, sqlite_id)
         }
+        DbTarget::Transaction(DbTransaction::SqliteSchema(tx)) => {
+            run!(tx.connection(), bind_sqlite, sqlite_id)
+        }
         DbTarget::Transaction(DbTransaction::Postgres(tx)) => {
             run!(&mut **tx, bind_postgres, pg_id)
         }
@@ -362,12 +372,25 @@ pub async fn begin(pool: &DbPool) -> Result<DbTransaction, String> {
     }
 }
 
+pub async fn begin_schema(pool: &DbPool) -> Result<DbTransaction, String> {
+    match pool {
+        DbPool::Sqlite(pool) => SchemaTransaction::begin(pool)
+            .await
+            .map(DbTransaction::SqliteSchema),
+        _ => Err("Transactions 'for schema changes' currently require SQLite. Use an ordinary transaction for this database backend.".to_string()),
+    }
+}
+
 /// Commit a transaction, returning its connection to the pool.
 pub async fn commit(tx: DbTransaction) -> Result<(), String> {
+    if let DbTransaction::SqliteSchema(tx) = tx {
+        return tx.commit().await;
+    }
     match tx {
         DbTransaction::Sqlite(tx) => tx.commit().await,
         DbTransaction::Postgres(tx) => tx.commit().await,
         DbTransaction::MySql(tx) => tx.commit().await,
+        DbTransaction::SqliteSchema(_) => unreachable!(),
     }
     .map_err(|e| format!("Failed to commit transaction: {e}"))
 }
@@ -378,10 +401,14 @@ pub async fn commit(tx: DbTransaction) -> Result<(), String> {
 /// so the interpreter can report a rollback that itself fails, rather than
 /// discarding it silently.
 pub async fn rollback(tx: DbTransaction) -> Result<(), String> {
+    if let DbTransaction::SqliteSchema(tx) = tx {
+        return tx.rollback().await;
+    }
     match tx {
         DbTransaction::Sqlite(tx) => tx.rollback().await,
         DbTransaction::Postgres(tx) => tx.rollback().await,
         DbTransaction::MySql(tx) => tx.rollback().await,
+        DbTransaction::SqliteSchema(_) => unreachable!(),
     }
     .map_err(|e| format!("Failed to roll back transaction: {e}"))
 }

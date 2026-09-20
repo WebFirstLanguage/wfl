@@ -1,0 +1,8 @@
+allow_shell_execution = true
+shell_execution_mode = allowlist_only
+allowed_shell_commands = target/release/wfl, target/release/wfl.exe
+timeout_seconds = 15
+logging_enabled = false
+debug_report_enabled = false
+execution_logging = false
+kill_on_shutdown = true

@@ -1,0 +1,83 @@
+include from "../tests/fixtures/application-errors/library.wfl"
+// Application errors are ordinary catchable errors, including in transactions.
+create directory at "target/test-artifacts/application-errors"
+store fixture_path as "target/test-artifacts/application-errors/errors.db"
+store fixture_url as "sqlite://" with fixture_path
+
+describe "Application errors":
+    test "a library can raise an actionable error":
+        store caught_message as ""
+        try:
+            call reject_record
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "Saving posts failed: title must be text. Supply a title." to be yes
+    end test
+    test "a raised application error rolls back earlier writes and always cleans up":
+        open database at fixture_url as conn
+        try:
+            store dropped as execute conn with "DROP TABLE IF EXISTS records"
+            store created as execute conn with "CREATE TABLE records (title TEXT)"
+            store cleaned as no
+            store caught_message as ""
+            try:
+                in transaction on conn:
+                    store inserted as execute conn with "INSERT INTO records VALUES ('must vanish')"
+                    try:
+                        call reject_record
+                    finally:
+                        change cleaned to yes
+                    end try
+                end transaction
+            when error:
+                change caught_message to error_message
+            end try
+            expect cleaned to be yes
+            expect caught_message contains "title must be text" to be yes
+            store rows as query conn with "SELECT * FROM records"
+            expect length of rows to equal 0
+        finally:
+            close database conn
+            delete file at fixture_path
+        end try
+    end test
+    test "a library may attach safe context and preserve the underlying diagnostic":
+        store caught_message as ""
+        try:
+            try:
+                store quotient as 1 divided by 0
+            when error:
+                call contextual_error with error_message
+            end try
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "Calculating the page count failed" to be yes
+        expect caught_message contains "zero" to be yes
+    end test
+    test "empty messages fail with an actionable diagnostic":
+        store caught_message as ""
+        try:
+            call raise_error with "   "
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "nonempty text message" to be yes
+    end test
+    test "invalid dynamic arguments do not leak their values":
+        store private_value as parse_json of "{\"credential\":\"fixture-secret-never-log\"}"
+        store caught_message as ""
+        try:
+            call raise_error with private_value
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "nonempty text message" to be yes
+        expect caught_message contains "fixture-secret-never-log" to be no
+    end test
+end describe
+
+
+
+

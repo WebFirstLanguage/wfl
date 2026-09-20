@@ -194,6 +194,36 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
         // runs on past the `:` that closes the header.
         let db = self.parse_primary_expression()?;
 
+        let schema_changes = if self
+            .cursor
+            .peek()
+            .is_some_and(|t| matches!(t.token, Token::KeywordFor))
+        {
+            self.bump_sync();
+            // Adjacent words are one identifier; these marker words remain
+            // available as ordinary names everywhere outside this header.
+            match self.cursor.peek() {
+                Some(token) if matches!(&token.token, Token::Identifier(words) if words == "schema changes") =>
+                {
+                    self.bump_sync();
+                }
+                Some(token) => {
+                    return Err(ParseError::from_token(
+                        "Expected 'for schema changes' after the database handle".to_string(),
+                        token,
+                    ));
+                }
+                None => {
+                    return Err(self.cursor.error(
+                        "Expected 'for schema changes' after the database handle".to_string(),
+                    ));
+                }
+            }
+            true
+        } else {
+            false
+        };
+
         self.expect_token(
             Token::Colon,
             "Expected ':' after the database in `in transaction on <database>:`",
@@ -234,6 +264,7 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
 
         Ok(Statement::TransactionStatement {
             db,
+            schema_changes,
             body,
             line: in_token.line,
             column: in_token.column,

@@ -1,0 +1,35 @@
+// Schema changes preserve foreign-key references and validate before commit.
+create directory at "target/test-artifacts/schema-transactions"
+store fixture_path as "target/test-artifacts/schema-transactions/recovery.db"
+store fixture_url as "sqlite://" with fixture_path
+
+describe "Schema recovery":
+    test "raised errors roll back schema changes and restore enforcement":
+        open database at fixture_url as conn
+        try:
+            store caught_message as ""
+            try:
+                in transaction on conn for schema changes:
+                    store created as execute conn with "CREATE TABLE never_applied (id INTEGER)"
+                    call raise_error with "Migration v2 cannot proceed: invalid model. Repair the definition."
+                end transaction
+            when error:
+                change caught_message to error_message
+            end try
+            expect caught_message contains "Migration v2 cannot proceed" to be yes
+            store schema_rows as query conn with "SELECT name FROM sqlite_schema WHERE name = 'never_applied'"
+            expect length of schema_rows to equal 0
+            store fk_rows as query conn with "PRAGMA foreign_keys"
+            store fk_row as fk_rows[0]
+            expect fk_row["foreign_keys"] to equal 1
+            in transaction on conn for schema changes:
+                store created as execute conn with "CREATE TABLE recovered (id INTEGER)"
+            end transaction
+            store recovered_rows as query conn with "SELECT name FROM sqlite_schema WHERE name = 'recovered'"
+            expect length of recovered_rows to equal 1
+        finally:
+            close database conn
+            delete file at fixture_path
+        end try
+    end test
+end describe

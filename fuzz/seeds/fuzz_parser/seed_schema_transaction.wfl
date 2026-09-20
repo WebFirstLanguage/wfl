@@ -1,0 +1,6 @@
+store schema changes as "ordinary name"
+open database at "sqlite::memory:" as conn
+in transaction on conn for schema changes:
+    display schema changes
+end transaction
+close database conn
