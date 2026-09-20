@@ -1,0 +1,40 @@
+// One in-memory connection makes restoration and reuse directly observable.
+open database at "sqlite::memory:" as conn
+store created as execute conn with "CREATE TABLE migration_ledger (version TEXT)"
+listen on port 0 as fixture_server
+store listener_text as "" with fixture_server
+store endpoint as "http://" with (substring of listener_text and 11 and ((length of listener_text) minus 11))
+display "READY " with endpoint
+main loop concurrently:
+    wait for request comes in on fixture_server as incoming
+    store request_path as path of incoming
+    check if request_path is equal to "/cancel":
+        in transaction on conn for schema changes:
+            store added as execute conn with "INSERT INTO migration_ledger VALUES ('abandoned')"
+            store changed as execute conn with "CREATE TABLE abandoned_schema (id INTEGER)"
+            create file at "target/test-artifacts/schema-cancellation/started.txt" with "started"
+            wait for 20 seconds
+        end transaction
+        respond to incoming with "unexpected commit"
+    otherwise:
+        respond to incoming with "stopping"
+        close server fixture_server
+        break
+    end check
+end loop
+store rows as query conn with "SELECT * FROM migration_ledger"
+store schema_rows as query conn with "SELECT name FROM sqlite_schema WHERE name = 'abandoned_schema'"
+store fk_rows as query conn with "PRAGMA foreign_keys"
+store fk_row as fk_rows[0]
+in transaction on conn for schema changes:
+    store applied as execute conn with "INSERT INTO migration_ledger VALUES ('completed')"
+end transaction
+store complete_rows as query conn with "SELECT * FROM migration_ledger"
+create map result:
+    "abandoned_rows" is length of rows
+    "abandoned_tables" is length of schema_rows
+    "enforcement" is fk_row["foreign_keys"]
+    "completed_rows" is length of complete_rows
+end map
+create file at "target/test-artifacts/schema-cancellation/recovered.json" with (stringify_json of result)
+close database conn

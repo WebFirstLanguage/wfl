@@ -2049,6 +2049,32 @@ async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result
 /// `begin` (see [`IoClient::db_transactions`]).
 type SharedTransaction = Arc<Mutex<Option<database::DbTransaction>>>;
 
+type TransactionRegistry = std::sync::Mutex<HashMap<(u64, String), SharedTransaction>>;
+
+/// Tie the registry reservation to the future executing its transaction block.
+/// Dropping a suspended begin/body removes its own slot, so the connection's
+/// rollback guard runs even while the interpreter and other handlers survive.
+struct TransactionBlockGuard<'a> {
+    transactions: &'a TransactionRegistry,
+    key: (u64, String),
+    slot: SharedTransaction,
+}
+
+impl Drop for TransactionBlockGuard<'_> {
+    fn drop(&mut self) {
+        let mut transactions = self
+            .transactions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if transactions
+            .get(&self.key)
+            .is_some_and(|slot| Arc::ptr_eq(slot, &self.slot))
+        {
+            transactions.remove(&self.key);
+        }
+    }
+}
+
 /// Serialize operations on one descriptor, including close. Keeping the file in
 /// this slot (rather than cloning it for each operation) also retains Tokio's
 /// in-flight buffers when a waiting operation is cancelled.
@@ -2128,7 +2154,9 @@ pub struct IoClient {
     /// before the `begin` round-trip completes: two concurrent begins on one
     /// handle would otherwise both pass a `contains_key` check and the second
     /// would silently replace — and drop — the first transaction.
-    db_transactions: Mutex<HashMap<(u64, String), SharedTransaction>>,
+    // Registry operations never await while locked. A synchronous mutex lets
+    // transaction-block Drop reliably remove a cancelled reservation.
+    db_transactions: TransactionRegistry,
     /// Live outbound streaming response bodies, keyed by handle id
     /// ("httpstream1", ...). See [`StreamSlot`] / [`HttpStreamHandle`].
     ///
@@ -2692,7 +2720,7 @@ impl IoClient {
             next_process_id: Mutex::new(1),
             db_handles: Mutex::new(HashMap::new()),
             next_db_id: Mutex::new(1),
-            db_transactions: Mutex::new(HashMap::new()),
+            db_transactions: std::sync::Mutex::new(HashMap::new()),
             stream_handles: Arc::new(std::sync::Mutex::new(StreamRegistry::default())),
             next_stream_id: Mutex::new(1),
             #[cfg(test)]
@@ -2740,7 +2768,7 @@ impl IoClient {
         if self
             .db_transactions
             .lock()
-            .await
+            .unwrap_or_else(|error| error.into_inner())
             .keys()
             .any(|(_, handle)| handle == handle_id)
         {
@@ -2762,14 +2790,22 @@ impl IoClient {
     }
 
     /// Open a transaction on `handle_id`, pinning one pooled connection to it.
-    async fn begin_transaction(&self, scope: u64, handle_id: &str) -> Result<(), String> {
+    async fn begin_transaction(
+        &self,
+        scope: u64,
+        handle_id: &str,
+        schema_changes: bool,
+    ) -> Result<TransactionBlockGuard<'_>, String> {
         // Nesting would need savepoints, which are not implemented; say so
         // rather than quietly flattening the inner block into the outer one.
         // Reserve the handle and take the slot's lock *before* awaiting the
         // database, so a concurrent begin on the same handle loses the race
         // here rather than replacing a live transaction later.
         let slot: SharedTransaction = {
-            let mut transactions = self.db_transactions.lock().await;
+            let mut transactions = self
+                .db_transactions
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             if transactions.contains_key(&(scope, handle_id.to_string())) {
                 return Err(format!(
                     "A transaction is already open on database '{handle_id}'. Transaction \
@@ -2781,35 +2817,25 @@ impl IoClient {
             transactions.insert((scope, handle_id.to_string()), Arc::clone(&slot));
             slot
         };
+        let guard = TransactionBlockGuard {
+            transactions: &self.db_transactions,
+            key: (scope, handle_id.to_string()),
+            slot: Arc::clone(&slot),
+        };
         // Held across the begin, so a statement that arrives meanwhile waits for
         // the transaction rather than seeing an empty slot and taking the pool.
         let mut open = slot.lock().await;
 
-        // The reservation must not outlive a failed begin, or the handle would
-        // be stuck refusing every later transaction.
-        let pool = match self.get_database(handle_id).await {
-            Ok(pool) => pool,
-            Err(err) => {
-                self.db_transactions
-                    .lock()
-                    .await
-                    .remove(&(scope, handle_id.to_string()));
-                return Err(err);
-            }
+        // The block guard also removes the reservation on a failed or
+        // cancelled begin, before an actual transaction has been installed.
+        let pool = self.get_database(handle_id).await?;
+        let begun = if schema_changes {
+            database::begin_schema(&pool).await
+        } else {
+            database::begin(&pool).await
         };
-        match database::begin(&pool).await {
-            Ok(tx) => {
-                *open = Some(tx);
-                Ok(())
-            }
-            Err(err) => {
-                self.db_transactions
-                    .lock()
-                    .await
-                    .remove(&(scope, handle_id.to_string()));
-                Err(err)
-            }
-        }
+        *open = Some(begun?);
+        Ok(guard)
     }
 
     /// Commit the open transaction on `handle_id`.
@@ -2817,7 +2843,7 @@ impl IoClient {
         let slot = self
             .db_transactions
             .lock()
-            .await
+            .unwrap_or_else(|error| error.into_inner())
             .remove(&(scope, handle_id.to_string()))
             .ok_or_else(|| format!("No transaction is open on database '{handle_id}'"))?;
         let tx = slot
@@ -2836,7 +2862,7 @@ impl IoClient {
         let slot = self
             .db_transactions
             .lock()
-            .await
+            .unwrap_or_else(|error| error.into_inner())
             .remove(&(scope, handle_id.to_string()));
         let tx = match slot {
             Some(slot) => slot.lock().await.take(),
@@ -2862,7 +2888,7 @@ impl IoClient {
         let slot = self
             .db_transactions
             .lock()
-            .await
+            .unwrap_or_else(|error| error.into_inner())
             .get(&(scope, handle_id.to_string()))
             .cloned();
         if let Some(slot) = slot {
@@ -2887,7 +2913,7 @@ impl IoClient {
         let slot = self
             .db_transactions
             .lock()
-            .await
+            .unwrap_or_else(|error| error.into_inner())
             .get(&(scope, handle_id.to_string()))
             .cloned();
         if let Some(slot) = slot {
@@ -7097,6 +7123,7 @@ impl Interpreter {
     async fn execute_transaction_statement(
         &self,
         db: &Expression,
+        schema_changes: bool,
         body: &[Statement],
         line: usize,
         column: usize,
@@ -7114,8 +7141,9 @@ impl Interpreter {
             }
         };
 
-        self.io_client
-            .begin_transaction(self.tx_scope.get(), &handle)
+        let _transaction_guard = self
+            .io_client
+            .begin_transaction(self.tx_scope.get(), &handle, schema_changes)
             .await
             .map_err(|e| RuntimeError::new(e, line, column))?;
 
@@ -8190,6 +8218,7 @@ impl Interpreter {
             }
             Statement::TransactionStatement {
                 db,
+                schema_changes,
                 body,
                 line,
                 column,
@@ -8200,7 +8229,15 @@ impl Interpreter {
                 // this arm's work behind a pointer keeps deeply nested programs
                 // (and concurrent handlers, which recurse per request) clear of
                 // the stack ceiling.
-                Box::pin(self.execute_transaction_statement(db, body, *line, *column, env)).await
+                Box::pin(self.execute_transaction_statement(
+                    db,
+                    *schema_changes,
+                    body,
+                    *line,
+                    *column,
+                    env,
+                ))
+                .await
             }
             Statement::ReadFileStatement {
                 path,

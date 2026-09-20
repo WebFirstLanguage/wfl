@@ -1,0 +1,123 @@
+// Real process and file boundaries: partial schema and ledger never survive.
+create directory at "target/test-artifacts/schema-lifecycle"
+store fixture_path as "target/test-artifacts/schema-lifecycle/lifecycle.db"
+store fixture_url as "sqlite://" with fixture_path
+store ready_path as "target/test-artifacts/schema-lifecycle/ready.txt"
+store runtime_path as "target/release/wfl"
+check if file exists at "target/release/wfl.exe":
+    change runtime_path to "target/release/wfl.exe"
+otherwise:
+    check if file exists at "target/release/wfl":
+        change runtime_path to "target/release/wfl"
+    otherwise:
+        check if file exists at "target/debug/wfl.exe":
+            change runtime_path to "target/debug/wfl.exe"
+        otherwise:
+            change runtime_path to "target/debug/wfl"
+        end check
+    end check
+end check
+
+define action called prepare_fixture:
+    open database at fixture_url as conn
+    try:
+        store made_ledger as execute conn with "CREATE TABLE migration_ledger (version TEXT)"
+    finally:
+        close database conn
+    end try
+end action
+
+define action called verify_recovery:
+    open database at fixture_url as conn
+    try:
+        store ledger_rows as query conn with "SELECT * FROM migration_ledger"
+        expect length of ledger_rows to equal 0
+        store schema_rows as query conn with "SELECT name FROM sqlite_schema WHERE name = 'abandoned_schema'"
+        expect length of schema_rows to equal 0
+        in transaction on conn for schema changes:
+            store created as execute conn with "CREATE TABLE completed_schema (id INTEGER)"
+            store ledger_write as execute conn with "INSERT INTO migration_ledger VALUES ('complete')"
+        end transaction
+        store completed_rows as query conn with "SELECT * FROM migration_ledger"
+        expect length of completed_rows to equal 1
+        store fk_rows as query conn with "PRAGMA foreign_keys"
+        store fk_row as fk_rows[0]
+        expect fk_row["foreign_keys"] to equal 1
+    finally:
+        close database conn
+    end try
+end action
+
+describe "Schema transaction lifecycle":
+    test "lint fixes preserve contextual schema words that are also names":
+        store source_path as "target/test-artifacts/schema-lifecycle/fixable.wfl"
+        store source_text as "store schema changes as \"ordinary name\"\nstore readableName as 1\ndisplay readableName\nopen database at \"sqlite::memory:\" as conn\nin transaction on conn for schema changes:\n    display schema changes\nend transaction\nclose database conn\n"
+        create file at source_path with source_text
+        try:
+            wait for execute command runtime_path with arguments ["--lint", "--fix", "--in-place", source_path] as fix_result
+            expect fix_result["exit_code"] to equal 0
+            open file at source_path for reading as source_file
+            wait for store fixed_text as read content from source_file
+            close file source_file
+            expect fixed_text contains "for schema changes:" to be yes
+            expect fixed_text contains "store readable_name as 1" to be yes
+            wait for execute command runtime_path with arguments ["--parse", source_path] as parse_result
+            expect parse_result["exit_code"] to equal 0
+        finally:
+            delete file at source_path
+        end try
+    end test
+
+    test "an uncaught application error is a failing command with useful context":
+        wait for execute command runtime_path with arguments ["tests/fixtures/application-errors/uncaught.wfl"] as result
+        expect result["success"] to be no
+        expect result["exit_code"] is greater than 0 to be yes
+        expect result["error"] contains "required title missing" to be yes
+        expect result["error"] contains "Supply a title" to be yes
+    end test
+
+    test "explicit exit abandons schema and ledger together":
+        try:
+            call prepare_fixture
+            execute wfl file at "../tests/fixtures/schema-transactions/exit.wfl"
+            call verify_recovery
+        finally:
+            delete file at fixture_path
+        end try
+    end test
+
+    test "a killed writer leaves no partial schema and permits a new migration":
+        try:
+            call prepare_fixture
+            wait for spawn command runtime_path with arguments ["tests/fixtures/schema-transactions/interrupted.wfl"] as child
+            try:
+                store ready as no
+                count from 1 to 100:
+                    check if file exists at ready_path:
+                        change ready to yes
+                        break
+                    end check
+                    wait for 50 milliseconds
+                end count
+                expect ready to be yes
+                store child_running as process child is running
+                expect child_running to be yes
+                kill process child
+                expect process child is running to be no
+                call verify_recovery
+            finally:
+                store still_running as process child is running
+                check if still_running:
+                    kill process child
+                end check
+            end try
+        finally:
+            check if file exists at ready_path:
+                delete file at ready_path
+            end check
+            check if file exists at fixture_path:
+                delete file at fixture_path
+            end check
+        end try
+    end test
+end describe

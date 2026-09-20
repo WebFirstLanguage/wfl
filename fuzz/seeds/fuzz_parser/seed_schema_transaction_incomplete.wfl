@@ -1,0 +1,3 @@
+in transaction on conn for schema:
+    call raise_error with "Repair the schema definition."
+end transaction

@@ -1,0 +1,3 @@
+store request_url as args[0]
+open url at request_url and read content as reply
+display reply

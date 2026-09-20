@@ -56,6 +56,26 @@ describe "Application errors":
         expect caught_message contains "Calculating the page count failed" to be yes
         expect caught_message contains "zero" to be yes
     end test
+    test "empty messages fail with an actionable diagnostic":
+        store caught_message as ""
+        try:
+            call raise_error with "   "
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "nonempty text message" to be yes
+    end test
+    test "invalid dynamic arguments do not leak their values":
+        store private_value as parse_json of "{\"credential\":\"fixture-secret-never-log\"}"
+        store caught_message as ""
+        try:
+            call raise_error with private_value
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "nonempty text message" to be yes
+        expect caught_message contains "fixture-secret-never-log" to be no
+    end test
 end describe
 
 

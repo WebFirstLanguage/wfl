@@ -198,6 +198,77 @@ the same time, and a handler that has no transaction of its own keeps taking a
 pooled connection as usual — it is never enrolled in someone else's transaction,
 and cannot have its writes committed or rolled back by another request.
 
+### Application validation failures
+
+Use `call raise_error with "Saving the record failed: title must be text. Supply a title."`
+when an application rule fails. A raised error unwinds actions and `finally`
+blocks, rolls back the transaction, and reaches the caller's `when error`.
+This is the same error path used by database constraint failures. An ordinary
+`return no` is a successful return and still commits; returning a failure flag
+does not abort a transaction. Catch an error outside the transaction when the
+whole operation must roll back. Catching it inside the block handles the error,
+so the block may continue and commit.
+
+Use an operation name and corrective action in the message. When attaching
+context to an existing error, `raise_error` can accept the safe context joined
+with `error_message`; the result is an ordinary application error containing
+that diagnostic text. It does not preserve a caught error's specialized kind.
+Do not include passwords, tokens or confidential parameter values.
+
+The executable [application-error suite](../../TestPrograms/application_errors_test.wfl)
+demonstrates direct errors, library calls, contextual diagnostics and rollback.
+
+### SQLite schema changes
+
+For SQLite rebuilds, extend the same transaction form to
+`in transaction on db for schema changes:` and close it with `end transaction`.
+This mode owns one connection before setup, temporarily disables foreign-key
+enforcement, and begins an immediate write transaction. It checks all foreign
+keys before committing; any violation rolls back the schema, data and ledger
+writes together. Enforcement is restored before the connection returns to the
+pool. Failed or cancelled cleanup discards the connection instead of pooling
+it with enforcement disabled. In-memory databases retain their connection on
+normal success and handled failure.
+
+Schema transaction acquisition, including waiting for another writer, is
+bounded to five seconds. A timeout reports that the transaction body has not
+run and asks the caller to finish the competing operation before retrying.
+There are no automatic retries. Two migration runners must read their ledger
+and apply their pending work **inside** this scope so the write lock serializes
+those decisions. The bound applies to acquisition, not to the duration of the
+migration body. Set the program's execution budget for a total runtime limit.
+
+Setting `PRAGMA foreign_keys = OFF` after an ordinary transaction has begun
+does not disable enforcement. Deferred foreign-key checking does not defer
+`ON DELETE CASCADE` actions. Use the schema transaction mode for a
+create/copy/drop/rename rebuild so extension-owned referencing rows survive.
+The [schema-transaction suite](../../TestPrograms/database_schema_transaction_test.wfl)
+contains that rebuild and rejected relationships. The
+[recovery](../../TestPrograms/database_schema_recovery_test.wfl),
+[compatibility](../../TestPrograms/database_schema_compatibility_test.wfl) and
+[locking](../../TestPrograms/database_schema_lock_test.wfl) suites cover failure
+recovery, ordinary returns, names, nesting, in-memory retention and competing
+writers.
+
+The [lifecycle suite](../../TestPrograms/database_schema_lifecycle_test.wfl)
+checks abrupt program exit, a killed migration process, recovery and source
+fixing. The [cancellation suite](../../TestPrograms/schema_cancellation/cancellation.test.wfl)
+stops a concurrent server loop while a schema transaction is suspended, then
+proves rollback and foreign-key restoration on the same in-memory connection.
+The transaction's registry reservation belongs to its executing block: dropping
+that future removes its reservation even if the interpreter keeps running.
+
+This mode currently supports SQLite only and rejects nesting on the same
+handle before changing any connection settings. Normal transaction syntax and
+return behavior remain unchanged. `schema` and `changes` are ordinary names
+outside this header; neither becomes a reserved word.
+
+The runtime supplies transaction safety, not a migration ledger or schema
+planner. Applications still own version definitions, checksums, drift checks,
+backup/recovery procedures, and preservation of indexes, triggers and sequence
+values during a rebuild. A preexisting foreign-key violation also prevents a
+schema transaction from committing; repair it explicitly before upgrading.
+
 > `transaction` is not a reserved word. It is recognized only in
 > `in transaction on ...` and `end transaction`, so existing programs that use
 > `transaction` as a variable name keep working.

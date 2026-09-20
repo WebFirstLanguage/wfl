@@ -1,0 +1,88 @@
+// Concurrent loop shutdown drops a handler with a live schema guard.
+create directory at "target/test-artifacts/schema-cancellation"
+store ready_path as "target/test-artifacts/schema-cancellation/started.txt"
+store recovered_path as "target/test-artifacts/schema-cancellation/recovered.json"
+store runtime_binary as "target/release/wfl"
+check if file exists at "target/release/wfl.exe":
+    change runtime_binary to "target/release/wfl.exe"
+end check
+
+describe "Cancelled schema transaction":
+    test "a server restores its single connection after a suspended handler is cancelled":
+        wait for spawn command runtime_binary with arguments ["tests/fixtures/schema-transactions/cancellation-server.wfl"] as fixture_process
+        store startup_text as ""
+        store fixture_url as ""
+        try:
+            count from 1 to 500:
+                wait for read output from process fixture_process as fresh_text
+                change startup_text to startup_text with fresh_text
+                store output_lines as split startup_text by "\n"
+                for each output_line in output_lines:
+                    check if output_line starts with "READY ":
+                        change fixture_url to trim of (substring of output_line and 6 and ((length of output_line) minus 6))
+                    end check
+                end for
+                check if fixture_url is not equal to "":
+                    break
+                end check
+                check if (process fixture_process is running) is equal to no:
+                    break
+                end check
+                wait for 10 milliseconds
+            end count
+            expect fixture_url is not equal to "" to be yes
+            store cancel_url as fixture_url with "/cancel"
+            wait for spawn command runtime_binary with arguments ["tests/fixtures/schema-transactions/cancellation-client.wfl" and cancel_url] as client_process
+            try:
+                store ready as no
+                count from 1 to 100:
+                    check if file exists at ready_path:
+                        change ready to yes
+                        break
+                    end check
+                    wait for 50 milliseconds
+                end count
+                expect ready to be yes
+                expect process client_process is running to be yes
+                store stop_url as fixture_url with "/stop"
+                open url at stop_url and read response as reply
+                expect reply["status"] to equal 200
+                store recovered as no
+                count from 1 to 100:
+                    check if file exists at recovered_path:
+                        change recovered to yes
+                        break
+                    end check
+                    wait for 50 milliseconds
+                end count
+                expect recovered to be yes
+                open file at recovered_path for reading as recovery_file
+                wait for store recovery_text as read content from recovery_file
+                close file recovery_file
+                store result as parse_json of recovery_text
+                expect result["abandoned_rows"] to equal 0
+                expect result["abandoned_tables"] to equal 0
+                expect result["enforcement"] to equal 1
+                expect result["completed_rows"] to equal 1
+                wait for process fixture_process to complete as fixture_exit
+                expect fixture_exit to equal 0
+            finally:
+                check if process client_process is running:
+                    kill process client_process
+                otherwise:
+                    wait for process client_process to complete
+                end check
+            end try
+        finally:
+            check if process fixture_process is running:
+                kill process fixture_process
+            end check
+            check if file exists at ready_path:
+                delete file at ready_path
+            end check
+            check if file exists at recovered_path:
+                delete file at recovered_path
+            end check
+        end try
+    end test
+end describe

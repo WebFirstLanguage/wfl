@@ -292,6 +292,9 @@ pub enum Statement {
     /// back if anything inside it fails (issue #664).
     TransactionStatement {
         db: Expression,
+        /// SQLite schema changes need enforcement disabled before BEGIN, then
+        /// an explicit foreign-key check before commit on the same connection.
+        schema_changes: bool,
         body: Vec<Statement>,
         line: usize,
         column: usize,

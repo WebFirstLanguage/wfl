@@ -191,6 +191,19 @@ If you omit `finally`, code placed **after** `end try` still runs once a `when`/
 
 ## Accessing Error Information
 
+Applications and libraries can raise their own errors with
+`call raise_error with "Saving the record failed: a title is required. Supply a title."`.
+The message is nonempty text. The same error propagates through actions,
+executes `finally` cleanup, and rolls back enclosing transactions until a
+matching handler catches it. Returning `no` is an ordinary successful return,
+so use a raised error when the operation must abort.
+
+For safe operation context around an underlying failure, pass your context
+joined with `error_message` to `raise_error`. This preserves diagnostic text,
+not the original specialized error kind. Avoid confidential values in error
+messages. See the [application-error tests](../../TestPrograms/application_errors_test.wfl)
+for executable examples.
+
 Use `error_message` to get error details:
 
 ```wfl
