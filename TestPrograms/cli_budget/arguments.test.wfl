@@ -60,4 +60,13 @@ describe "Explicit execution budget CLI arguments":
             expect outcome["error"] to contain "--execution-timeout must appear before the source filename"
         end for
     end test
+
+    test "non-execution operations cannot silently ignore the budget":
+        store source_path as path_join of fixture_root and "arguments.wfl"
+        for each mode_option in ["--configCheck", "--configFix", "--edit", "--dump-env"]:
+            wait for execute command runtime_path with arguments ["--execution-timeout", "3", mode_option, source_path] as outcome
+            expect outcome["exit_code"] to equal 2
+            expect outcome["error"] to contain "--execution-timeout requires source execution or analysis"
+        end for
+    end test
 end describe

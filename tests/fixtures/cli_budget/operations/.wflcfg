@@ -1,0 +1,4 @@
+timeout_seconds = 1
+max_operations = 100
+execution_logging = false
+debug_report_enabled = false

@@ -45,6 +45,9 @@ fn print_help() {
     println!("        --output <file>    Specify an output file for the environment dump");
     println!("    --time             Measure and display execution time");
     println!("    --test             Run file in test mode");
+    println!("    --execution-timeout <seconds>");
+    println!("                       Set this invocation's finite execution budget (1–31536000)");
+    println!("                       Place before the source filename; other limits are unchanged");
     println!();
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
@@ -276,6 +279,7 @@ async fn run() -> io::Result<()> {
     let mut output_path = None;
     let mut time_mode = false;
     let mut test_mode = false;
+    let mut execution_timeout = None;
     let mut file_path = String::new();
 
     let mut i = 1;
@@ -292,6 +296,29 @@ async fn run() -> io::Result<()> {
                     "--lint" | "--fix" | "--diff" | "--in-place"
                 ));
         match args[i].as_str() {
+            "--execution-timeout" => {
+                if !file_path.is_empty() {
+                    eprintln!("Error: --execution-timeout must appear before the source filename");
+                    process::exit(2);
+                }
+                if execution_timeout.is_some() {
+                    eprintln!("Error: --execution-timeout may be specified only once");
+                    process::exit(2);
+                }
+                let seconds = args
+                    .get(i + 1)
+                    .filter(|value| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()))
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .filter(|seconds| (1..=31_536_000).contains(seconds));
+                let Some(seconds) = seconds else {
+                    eprintln!(
+                        "Error: --execution-timeout requires a whole number of seconds from 1 to 31536000"
+                    );
+                    process::exit(2);
+                };
+                execution_timeout = Some(std::time::Duration::from_secs(seconds));
+                i += 2;
+            }
             "--init" => {
                 eprintln!("Error: initialization is a command. Use: wfl init");
                 process::exit(2);
@@ -484,6 +511,14 @@ async fn run() -> io::Result<()> {
 
     // Validate the completed option set before running any operation or writing
     // output. Checking here makes conflicts independent of argument order.
+    if execution_timeout.is_some()
+        && (config_check_mode || config_fix_mode || edit_mode || dump_env_mode)
+    {
+        eprintln!(
+            "Error: --execution-timeout requires source execution or analysis; it cannot be combined with --configCheck, --configFix, --edit, or --dump-env"
+        );
+        process::exit(2);
+    }
     if fix_diff && fix_in_place {
         eprintln!("Error: --in-place and --diff flags are mutually exclusive");
         process::exit(2);
@@ -622,14 +657,19 @@ async fn run() -> io::Result<()> {
     let script_dir = Path::new(&file_path).parent().unwrap_or(Path::new("."));
     let config = config::load_config(script_dir);
 
-    // Build the ONE execution budget for this run up front, from the same
-    // (timeout-capped) config the interpreter will use, so a single budget
-    // governs the pre-parse source check, lexing/parsing/analysis, and
-    // interpretation — its deadline clock starts here and covers the whole run.
+    // Preserve the historic config timeout cap and its per-operation uses.
+    // An explicit invocation override changes ONLY the shared budget duration,
+    // not request/stream timeouts, main-loop subprocess waits, or other limits.
+    // The one deadline starts before reading/lexing/parsing/analysis and is
+    // reused by interpretation and nested executed files.
     let mut run_config = config.clone();
     run_config.timeout_seconds = run_config.timeout_seconds.min(300);
     let run_config = std::sync::Arc::new(run_config);
-    let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::from_config(&run_config));
+    let mut budget_limits = wfl::exec::budget::BudgetLimits::from_config(&run_config);
+    if let Some(duration) = execution_timeout {
+        budget_limits.max_duration = Some(duration);
+    }
+    let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::new(budget_limits));
 
     // Install the run budget as the current-thread budget for the ENTIRE run, so
     // every front-end phase — lexing, parsing, analysis, type checking — and the
@@ -1037,10 +1077,9 @@ async fn run() -> io::Result<()> {
                 // Reuse the single budget (and the timeout-capped `run_config`)
                 // built at the top of the run, so the source check and the
                 // interpreter share one deadline/operation/cancellation budget.
-                // `run_config` carries the full `.wflcfg` (e.g.
-                // `web_server_bind_address`) with the 300s timeout cap applied
-                // (see issue #466); the cap never affects web servers because
-                // `check_time` skips the deadline inside a main loop.
+                // `run_config` preserves config policy, while `budget` may carry
+                // an explicit CLI execution duration. Main loops keep their
+                // existing lifetime exemption and finite operation timeouts.
                 let mut interpreter = Interpreter::with_config_and_budget(
                     std::sync::Arc::clone(&run_config),
                     std::sync::Arc::clone(&budget),

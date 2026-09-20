@@ -41,6 +41,7 @@ runs on Tokio.
 | Extension dependency security | `cd vscode-extension && npm ci && npm run test:security` |
 | Extension lint + VS Code host | `cargo build --locked -p wfl-lsp`, then `cd vscode-extension && npm ci && npm test` (use `xvfb-run -a npm test` on headless Linux) |
 | WFL end-to-end programs | `cargo build --release` then `./scripts/run_integration_tests.sh` (`.ps1` on Windows) |
+| Long invocation boundary | `target/release/wfl --execution-timeout 330 --test tests/fixtures/cli_budget/long-run.test.wfl` (`wfl.exe` on Windows; about 305 seconds) |
 | Web-server end-to-end | `./scripts/run_web_tests.sh` (`.ps1` on Windows) |
 | Docs examples validation | `python scripts/validate_docs_examples.py` |
 | Benchmarks (perf, non-gating) | `cargo bench` |
@@ -55,6 +56,7 @@ cargo fmt --all -- --check \
   && (cd vscode-extension && npm ci && xvfb-run -a npm test) \
   && cargo build --release \
   && ./scripts/run_integration_tests.sh \
+  && target/release/wfl --execution-timeout 330 --test tests/fixtures/cli_budget/long-run.test.wfl \
   && ./scripts/run_web_tests.sh \
   && python scripts/validate_docs_examples.py
 ```
@@ -125,6 +127,13 @@ debug/release build, `cargo test`, Linux + Windows integration, **Run WFL
 Programs**, web tests, database tests, and fuzz-target compilation. All are
 required checks; the default branch MUST stay green. The nightly build is a
 release artifact and is separately monitored.
+
+Both integration jobs also execute the WFL long-invocation boundary fixture
+with a 330-second execution budget and a six-minute outer job-step limit. The
+fixture asserts real ordinary execution beyond 300 seconds. The fast
+`TestPrograms/cli_budget/` suites remain in the usual recursive program gates;
+the long fixture lives under `tests/fixtures/` and is invoked explicitly rather
+than skipped by the program sweep's 30-second limit.
 
 The existing **Build, Test, Clippy** job also installs locked extension
 dependencies, runs the bounded dependency security regression, and runs the

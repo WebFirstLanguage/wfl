@@ -1,0 +1,4 @@
+timeout_seconds = 1
+allow_shell_execution = false
+execution_logging = false
+debug_report_enabled = false

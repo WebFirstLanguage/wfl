@@ -1,0 +1,32 @@
+store runtime_path as call current_executable
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/cli_budget"
+
+describe "An execution duration override retains other ceilings":
+    test "a shorter explicit deadline overrides a longer configuration":
+        store source_path as path_join of fixture_root and "longer-config/wait.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path, "1500"] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["error"] to contain "timeout (1s)"
+        expect (outcome["output"] contains "COMPLETED") to equal no
+    end test
+
+    test "operation ceilings remain enforced during the invocation":
+        store source_path as path_join of fixture_root and "operations/loop.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "10", source_path] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["error"] to contain "operation budget (100 operations)"
+        expect (outcome["output"] contains "MUST NOT ESCAPE") to equal no
+    end test
+
+    test "an execution override cannot enable denied subprocesses":
+        store source_path as path_join of fixture_root and "denied/process.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "10", source_path] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["error"] to contain "Command blocked by security policy"
+        expect (outcome["output"] contains "MUST NOT ESCAPE") to equal no
+    end test
+end describe

@@ -1,0 +1,4 @@
+count from 1 to 5000:
+    store observed as count
+end count
+display "MUST NOT ESCAPE OPERATION LIMIT"

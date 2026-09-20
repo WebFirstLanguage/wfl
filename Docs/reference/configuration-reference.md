@@ -290,6 +290,37 @@ so a stalled remote peer cannot wedge the server indefinitely.
 - **Default:** `60`
 - **Example:** `timeout_seconds = 300`
 
+The file CLI preserves a maximum of 300 seconds for this configuration setting.
+For a trusted batch job that needs a longer finite invocation, place
+`--execution-timeout SECONDS` before its filename:
+
+```bash
+wfl --execution-timeout 1200 batch.wfl
+wfl --execution-timeout 1200 --test batch.test.wfl
+```
+
+The option accepts whole seconds from 1 through 31,536,000 (one year). Zero,
+negative or fractional values, nonnumeric values and duplicate options are
+errors; there is no unlimited value. Without the option, the default remains
+60 seconds and configured values retain the 300-second cap. The option may also
+bound source analysis, lexing and parsing. It cannot accompany configuration
+maintenance, environment dumps or editor launch. After an executable source
+filename, arguments are passed literally to that program instead.
+
+This is an invocation-only override of the shared execution deadline, starting
+before source loading and covering the front end, interpreter, includes and
+executed files. It does not reset between tests or nested files, and it does not
+implicitly change the configuration of separately launched WFL children.
+Ordinary foreground subprocess operations continue sharing the invocation
+deadline, while explicit process-wait timeouts remain independently enforced.
+
+The override does not change other resource limits, subprocess permissions,
+request/stream limits, or configured per-operation timeouts. A server's `main
+loop` retains its existing lifetime exemption; its outbound requests and
+implicit subprocess waits keep their finite configured timeouts. Use the option
+only when the caller deliberately grants the job more execution time; it does
+not establish a sandbox for untrusted programs.
+
 #### `logging_enabled`
 
 Enables logging output to `wfl.log` in the script’s directory.

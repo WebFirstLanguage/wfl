@@ -54,7 +54,7 @@ describe "Invocation-only execution deadlines":
 
     test "separate WFL children retain their own configuration deadline":
         store source_path as path_join of fixture_root and "child-config.wfl"
-        wait for execute command runtime_path with arguments ["--execution-timeout", "10", source_path] as outcome
+        wait for execute command runtime_path with arguments ["--execution-timeout", "10", "--test", source_path] as outcome
         expect outcome["success"] to equal yes
         expect outcome["output"] to contain "CHILD CONFIGURATION RETAINED"
     end test
