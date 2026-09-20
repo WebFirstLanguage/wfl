@@ -123,3 +123,9 @@ The log is `target/reports/cli-budget/red-review-boundaries.log` (1/4 passed).
 The wait gap predates the CLI option; it matters to an explicit finite deadline
 and cannot be hidden by adding a later operation checkpoint to the assertion.
 These findings supersede the earlier source-review verdict until corrected.
+An additional last-statement wait case then confirmed successful exit after an
+expired deadline without any following checkpoint; the expanded Red was 1/5
+(`red-review-boundaries-final-wait.log`). Existing embedded-runtime tests also
+establish that a manually supplied 250ms budget bounds main-loop HTTP requests,
+so the remedy must distinguish a CLI invocation override without changing that
+existing API contract.

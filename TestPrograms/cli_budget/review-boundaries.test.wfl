@@ -19,6 +19,13 @@ describe "Invocation budget review boundaries":
         end for
     end test
 
+    test "a final duration wait still reports its expired deadline":
+        store source_path as path_join of fixture_root and "wait-last.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path] as outcome
+        expect outcome["success"] to equal no
+        expect outcome["error"] to contain "timeout (1s)"
+    end test
+
     test "server loop waits remain exempt from invocation lifetime":
         store source_path as path_join of fixture_root and "main-loop-wait.wfl"
         wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path] as outcome
