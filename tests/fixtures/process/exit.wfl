@@ -1,0 +1,9 @@
+define action called finish_child:
+    try:
+        exit program with code 7
+    finally:
+        display "cleanup before exit"
+    end try
+end action
+call finish_child
+display "must not run after exit"

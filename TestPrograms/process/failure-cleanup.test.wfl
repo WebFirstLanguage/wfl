@@ -1,0 +1,59 @@
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/process"
+store runtime_path as path_join of repo_root and "target/release/wfl"
+check if file exists at (runtime_path with ".exe"):
+    change runtime_path to runtime_path with ".exe"
+end check
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store target_root as path_join of repo_root and "target"
+store artifact_root as path_join of target_root and "test-artifacts"
+store output_root as path_join of artifact_root and "process-failure-cleanup"
+store fixture_id as generate_uuid
+store case_root as path_join of output_root and fixture_id
+call makedirs with case_root
+
+describe "Owned subprocess failure cleanup":
+    teardown:
+        call remove_dir with case_root and yes
+    end teardown
+
+    test "runtime failure and explicit status close owned descendants":
+        store child_path as path_join of fixture_root and "nested-driver.wfl"
+        for each driver_mode in ["error", "status"]:
+            store marker_path as path_join of case_root and (driver_mode with "-grandchild.txt")
+            store ready_path as path_join of case_root and (driver_mode with "-ready.txt")
+            wait for spawn command runtime_path with arguments [child_path, runtime_path, marker_path, ready_path, driver_mode] as child_process
+            try:
+                wait for process child_process to complete with timeout 15 and read result as outcome
+                check if driver_mode is "error":
+                    expect outcome["exit_code"] to equal 1
+                    expect outcome["error"] to contain "Division by zero"
+                otherwise:
+                    expect outcome["exit_code"] to equal 7
+                end check
+                expect (is_file of ready_path) to equal yes
+            finally:
+                close process child_process
+            end try
+            open file at (marker_path with ".release") for writing as release_file
+            wait for write content "release" into release_file
+            close file release_file
+            wait for 900 milliseconds
+            expect (path_exists of marker_path) to equal no
+        end for
+    end test
+    test "a failed WFL assertion still executes child cleanup":
+        store child_path as path_join of fixture_root and "assertion-close.test.wfl"
+        store marker_path as path_join of case_root and "assertion-grandchild.txt"
+        wait for execute command runtime_path with arguments ["--test", child_path, runtime_path, marker_path] as outcome
+        expect outcome["exit_code"] to equal 1
+        expect outcome["output"] to contain "Failed: 1"
+        open file at (marker_path with ".release") for writing as release_file
+        wait for write content "release" into release_file
+        close file release_file
+        wait for 900 milliseconds
+        expect (path_exists of marker_path) to equal no
+    end test
+end describe

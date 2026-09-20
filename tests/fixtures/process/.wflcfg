@@ -1,0 +1,6 @@
+allow_shell_execution = true
+shell_execution_mode = sanitized
+kill_on_shutdown = true
+timeout_seconds = 20
+execution_logging = false
+debug_report_enabled = false

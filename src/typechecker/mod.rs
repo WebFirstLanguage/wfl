@@ -4017,7 +4017,22 @@ impl TypeChecker {
                         Type::Any
                     };
             }
-            Statement::ExitStatement { .. } => {}
+            Statement::ExitStatement {
+                code, line, column, ..
+            } => {
+                if let Some(code) = code {
+                    let code_type = self.infer_expression_type(code);
+                    if code_type != Type::Number && !self.is_gradual_type(&code_type) {
+                        self.type_error(
+                            "Program exit code must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(code_type),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+            }
             Statement::WaitForStatement {
                 inner,
                 line: _line,
@@ -5980,12 +5995,25 @@ impl TypeChecker {
             Statement::ExecuteCommandStatement {
                 command,
                 arguments,
+                directory,
                 variable_name,
                 use_shell: _,
                 line: _line,
                 column: _column,
             } => {
                 let cmd_type = self.infer_expression_type(command);
+                if let Some(directory) = directory {
+                    let directory_type = self.infer_expression_type(directory);
+                    if directory_type != Type::Text && !self.is_gradual_type(&directory_type) {
+                        self.type_error(
+                            "Process working directory must be text".to_string(),
+                            Some(Type::Text),
+                            Some(directory_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
                 if cmd_type != Type::Text && !self.is_gradual_type(&cmd_type) {
                     self.type_error(
                         "Expected string for command".to_string(),
@@ -6054,12 +6082,25 @@ impl TypeChecker {
             Statement::SpawnProcessStatement {
                 command,
                 arguments,
+                directory,
                 variable_name,
                 use_shell: _,
                 line: _line,
                 column: _column,
             } => {
                 let cmd_type = self.infer_expression_type(command);
+                if let Some(directory) = directory {
+                    let directory_type = self.infer_expression_type(directory);
+                    if directory_type != Type::Text && !self.is_gradual_type(&directory_type) {
+                        self.type_error(
+                            "Process working directory must be text".to_string(),
+                            Some(Type::Text),
+                            Some(directory_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
                 if cmd_type != Type::Text && !self.is_gradual_type(&cmd_type) {
                     self.type_error(
                         "Expected string for command".to_string(),
@@ -6103,6 +6144,7 @@ impl TypeChecker {
             }
             Statement::KillProcessStatement {
                 process_id,
+                idempotent: _,
                 line: _line,
                 column: _column,
             } => {
@@ -6120,10 +6162,24 @@ impl TypeChecker {
             Statement::WaitForProcessStatement {
                 process_id,
                 variable_name,
+                timeout,
+                full_result,
                 line: _line,
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
+                if let Some(timeout) = timeout {
+                    let timeout_type = self.infer_expression_type(timeout);
+                    if timeout_type != Type::Number && !self.is_gradual_type(&timeout_type) {
+                        self.type_error(
+                            "Process timeout must be a number of seconds".to_string(),
+                            Some(Type::Number),
+                            Some(timeout_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
                 if proc_type != Type::Text && !self.is_gradual_type(&proc_type) {
                     self.type_error(
                         "Expected string for process ID".to_string(),
@@ -6134,7 +6190,12 @@ impl TypeChecker {
                     );
                 }
                 if let Some(var_name) = variable_name {
-                    self.bind_runtime_value(var_name, Type::Number, true, *_line, *_column);
+                    let result_type = if *full_result {
+                        Type::Map(Box::new(Type::Text), Box::new(Type::Any))
+                    } else {
+                        Type::Number
+                    };
+                    self.bind_runtime_value(var_name, result_type, true, *_line, *_column);
                 }
             }
             Statement::WriteToStatement {

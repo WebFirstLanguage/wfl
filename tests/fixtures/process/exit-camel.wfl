@@ -1,0 +1,2 @@
+store statusCode as 7
+exit program with code statusCode

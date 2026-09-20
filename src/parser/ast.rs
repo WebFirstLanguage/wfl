@@ -231,6 +231,7 @@ pub enum Statement {
     },
     ExitStatement {
         scope: ExitScope,
+        code: Option<Expression>,
         line: usize,
         column: usize,
     },
@@ -340,6 +341,7 @@ pub enum Statement {
     ExecuteCommandStatement {
         command: Expression,
         arguments: Option<Expression>,
+        directory: Option<Expression>,
         variable_name: Option<String>,
         use_shell: bool,
         line: usize,
@@ -358,6 +360,7 @@ pub enum Statement {
     SpawnProcessStatement {
         command: Expression,
         arguments: Option<Expression>,
+        directory: Option<Expression>,
         variable_name: String,
         use_shell: bool,
         line: usize,
@@ -371,12 +374,16 @@ pub enum Statement {
     },
     KillProcessStatement {
         process_id: Expression,
+        /// `close process` is idempotent; legacy `kill process` rejects an unknown handle.
+        idempotent: bool,
         line: usize,
         column: usize,
     },
     WaitForProcessStatement {
         process_id: Expression,
         variable_name: Option<String>,
+        timeout: Option<Expression>,
+        full_result: bool,
         line: usize,
         column: usize,
     },

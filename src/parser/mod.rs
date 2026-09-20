@@ -599,7 +599,9 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 Token::KeywordClose => {
                     // Check if it's "close server", "close database", or regular "close file"
                     if let Some(next_token) = self.cursor.peek_next() {
-                        if matches!(next_token.token, Token::KeywordServer) {
+                        if matches!(next_token.token, Token::KeywordProcess) {
+                            self.parse_kill_process_statement()
+                        } else if matches!(next_token.token, Token::KeywordServer) {
                             self.parse_close_server_statement()
                         } else if matches!(next_token.token, Token::KeywordDatabase) {
                             self.parse_close_database_statement()

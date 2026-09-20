@@ -15,6 +15,7 @@ mod memory_tests;
 mod op_refactor_error_tests;
 #[cfg(test)]
 mod op_refactor_tests;
+mod owned_process;
 #[cfg(test)]
 mod tests;
 mod tls;
@@ -1596,6 +1597,7 @@ use tokio::sync::Mutex;
 /// constructors honor the caller's `max_call_depth` verbatim precisely so the
 /// CLI (and any embedder that has arranged the stack) can raise it.
 pub struct Interpreter {
+    program_exit_code: Cell<i32>,
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
@@ -1845,7 +1847,7 @@ impl Drop for ArmedEnforcementGuard {
 // Process handle for managing subprocess state
 #[allow(dead_code)]
 pub struct ProcessHandle {
-    child: tokio::process::Child,
+    child: owned_process::OwnedChild,
     command: String,
     args: Vec<String>,
     started_at: Instant,
@@ -1853,6 +1855,57 @@ pub struct ProcessHandle {
     exit_code: Option<i32>,
     stdout_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
     stderr_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
+    stdout_task: Option<tokio::task::JoinHandle<Result<(), String>>>,
+    stderr_task: Option<tokio::task::JoinHandle<Result<(), String>>>,
+}
+
+impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        if let Some(task) = self.stdout_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.stderr_task.take() {
+            task.abort();
+        }
+    }
+}
+
+async fn capture_background_process_stream<R>(
+    mut stream: R,
+    buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
+) -> Result<(), String>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut bytes = [0u8; 4096];
+    let mut warned = false;
+    loop {
+        let count = stream
+            .read(&mut bytes)
+            .await
+            .map_err(|error| format!("Failed to read subprocess output: {error}"))?;
+        if count == 0 {
+            return Ok(());
+        }
+        let mut buffer = buffer.lock().await;
+        buffer.push(&bytes[..count]);
+        if buffer.stats().bytes_dropped > 0 && !warned {
+            eprintln!(
+                "Warning: subprocess output exceeded max_buffer_size_bytes; oldest bytes were discarded."
+            );
+            warned = true;
+        }
+    }
+}
+
+fn process_result_value(output: String, error: String, exit_code: i32) -> Value {
+    Value::Object(Rc::new(RefCell::new(HashMap::from([
+        ("output".to_string(), Value::Text(Arc::from(output))),
+        ("error".to_string(), Value::Text(Arc::from(error))),
+        ("exit_code".to_string(), Value::Number(exit_code as f64)),
+        ("success".to_string(), Value::Bool(exit_code == 0)),
+    ]))))
 }
 
 /// Failure from a foreground `execute command`. Budget breaches stay typed so
@@ -1877,6 +1930,38 @@ impl std::fmt::Display for ExecuteCommandError {
             }
             Self::Other(message) => formatter.write_str(message),
         }
+    }
+}
+
+/// A failed owned wait still carries the bounded diagnostics collected before
+/// cleanup. The registry entry is consumed; callers never need a stale handle.
+#[derive(Debug)]
+struct ProcessWaitError {
+    cause: ExecuteCommandError,
+    output: String,
+    error: String,
+}
+
+impl From<ExecuteCommandError> for ProcessWaitError {
+    fn from(cause: ExecuteCommandError) -> Self {
+        Self {
+            cause,
+            output: String::new(),
+            error: String::new(),
+        }
+    }
+}
+
+impl std::fmt::Display for ProcessWaitError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.cause, formatter)?;
+        if !self.output.is_empty() {
+            write!(formatter, "\nSubprocess stdout:\n{}", self.output)?;
+        }
+        if !self.error.is_empty() {
+            write!(formatter, "\nSubprocess stderr:\n{}", self.error)?;
+        }
+        Ok(())
     }
 }
 
@@ -2024,14 +2109,19 @@ async fn foreground_command_interrupt(
 /// Kill and reap the direct child unless it has already completed. A second
 /// status check handles the normal race where it exits between inspection and
 /// the kill request.
-async fn terminate_foreground_child(child: &mut tokio::process::Child) -> Result<(), String> {
+async fn terminate_foreground_child(child: &mut owned_process::OwnedChild) -> Result<(), String> {
     match child.try_wait() {
         Ok(Some(_)) => return Ok(()),
         Ok(None) => {}
         Err(error) => return Err(format!("failed to inspect subprocess: {error}")),
     }
 
-    match child.kill().await {
+    match async {
+        child.start_kill()?;
+        child.wait().await.map(|_| ())
+    }
+    .await
+    {
         Ok(()) => Ok(()),
         Err(kill_error) => match child.try_wait() {
             Ok(Some(_)) => Ok(()),
@@ -4441,6 +4531,19 @@ impl IoClient {
         line: usize,
         column: usize,
     ) -> Result<(String, String, i32), ExecuteCommandError> {
+        self.execute_command_in_directory(command, args, use_shell, None, line, column)
+            .await
+    }
+
+    async fn execute_command_in_directory(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        directory: Option<&str>,
+        line: usize,
+        column: usize,
+    ) -> Result<(String, String, i32), ExecuteCommandError> {
         use crate::interpreter::command_sanitizer::CommandSanitizer;
         use tokio::process::Command;
 
@@ -4479,33 +4582,40 @@ impl IoClient {
                 )
             };
 
+            let program =
+                owned_process::executable_for_directory(&program, directory).map_err(|error| {
+                    ExecuteCommandError::Other(format!("Failed to resolve executable: {error}"))
+                })?;
             let mut cmd = Command::new(program);
             cmd.args(parsed_args);
             cmd
         };
+
+        if let Some(directory) = directory {
+            cmd.current_dir(directory);
+        }
 
         // `Command::output` accumulates both streams into unbounded Vecs and
         // cannot observe WFL's cooperative cancellation while the child is
         // stalled. Pipe and drain both streams concurrently under the existing
         // per-stream buffer ceiling instead. `kill_on_drop` is a final safety
         // net if this future itself is abandoned by its caller.
-        let mut child = cmd
-            .stdin(std::process::Stdio::null())
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| {
-                ExecuteCommandError::Other(format!(
-                    "Failed to execute command '{}': {}",
-                    command, e
-                ))
-            })?;
+            .stderr(std::process::Stdio::piped());
+        let mut child =
+            owned_process::spawn(cmd, self.config.subprocess_config.kill_on_shutdown, true)
+                .map_err(|e| {
+                    ExecuteCommandError::Other(format!(
+                        "Failed to execute command '{}': {}",
+                        command, e
+                    ))
+                })?;
 
-        let stdout_pipe = child.stdout.take().ok_or_else(|| {
+        let stdout_pipe = child.stdout().take().ok_or_else(|| {
             ExecuteCommandError::Other("Failed to capture command stdout".to_string())
         })?;
-        let stderr_pipe = child.stderr.take().ok_or_else(|| {
+        let stderr_pipe = child.stderr().take().ok_or_else(|| {
             ExecuteCommandError::Other("Failed to capture command stderr".to_string())
         })?;
         let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
@@ -4615,25 +4725,21 @@ impl IoClient {
         line: usize,
         column: usize,
     ) -> Result<String, String> {
+        self.spawn_process_in_directory(command, args, use_shell, None, line, column)
+            .await
+    }
+
+    async fn spawn_process_in_directory(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        directory: Option<&str>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, String> {
         use crate::interpreter::command_sanitizer::CommandSanitizer;
-        use tokio::io::AsyncReadExt;
         use tokio::process::Command;
-
-        // Clean up completed processes before spawning new one
-        // self.cleanup_completed_processes().await;
-
-        // Check process limit
-        {
-            let handles = self.process_handles.lock().await;
-            if handles.len() >= self.config.subprocess_config.max_concurrent_processes {
-                return Err(format!(
-                    "Process limit reached: {} processes currently running (max: {}). \
-                     Consider waiting for processes to complete or increasing max_concurrent_processes in .wflcfg",
-                    handles.len(),
-                    self.config.subprocess_config.max_concurrent_processes
-                ));
-            }
-        }
 
         let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
 
@@ -4664,17 +4770,19 @@ impl IoClient {
                 )
             };
 
+            let program = owned_process::executable_for_directory(&program, directory)
+                .map_err(|error| format!("Failed to resolve executable: {error}"))?;
             let mut cmd = Command::new(program);
             cmd.args(parsed_args);
             cmd
         };
 
-        let mut child = cmd
+        if let Some(directory) = directory {
+            cmd.current_dir(directory);
+        }
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn process '{}': {}", command, e))?;
-
+            .stderr(std::process::Stdio::piped());
         // Generate process ID
         let process_id = {
             let mut next_id = self.next_process_id.lock().await;
@@ -4682,6 +4790,23 @@ impl IoClient {
             *next_id += 1;
             id
         };
+
+        // Reserve/check ownership and insert under one registry lock. Two
+        // concurrent launches must not both observe the final free slot.
+        let mut handles = self.process_handles.lock().await;
+        if handles.len() >= self.config.subprocess_config.max_concurrent_processes {
+            return Err(format!(
+                "Process limit reached: {} owned processes (max: {}). Wait for completion or close a process before spawning another.",
+                handles.len(),
+                self.config.subprocess_config.max_concurrent_processes
+            ));
+        }
+        let mut child = owned_process::spawn(
+            cmd,
+            self.config.subprocess_config.kill_on_shutdown,
+            self.config.subprocess_config.kill_on_shutdown,
+        )
+        .map_err(|e| format!("Failed to spawn process '{}': {}", command, e))?;
 
         // Create buffers for stdout and stderr with configurable size
         let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
@@ -4693,66 +4818,21 @@ impl IoClient {
         )));
 
         // Spawn background tasks to collect stdout and stderr
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
+        let stdout = child.stdout().take();
+        let stderr = child.stderr().take();
 
-        if let Some(mut stdout) = stdout {
-            let buffer = Arc::clone(&stdout_buffer);
-            let cmd = command.to_string();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 4096];
-                let mut warning_shown = false;
-                loop {
-                    match stdout.read(&mut buf).await {
-                        Ok(0) => break, // EOF
-                        Ok(n) => {
-                            let mut locked_buffer = buffer.lock().await;
-                            locked_buffer.push(&buf[..n]);
-
-                            // Warn once if data is being dropped
-                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
-                                eprintln!(
-                                    "⚠️  WARNING: Process '{}' stdout buffer overflow. \
-                                     Data is being dropped. Consider reading output more frequently.",
-                                    cmd
-                                );
-                                warning_shown = true;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        if let Some(mut stderr) = stderr {
-            let buffer = Arc::clone(&stderr_buffer);
-            let cmd = command.to_string();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 4096];
-                let mut warning_shown = false;
-                loop {
-                    match stderr.read(&mut buf).await {
-                        Ok(0) => break, // EOF
-                        Ok(n) => {
-                            let mut locked_buffer = buffer.lock().await;
-                            locked_buffer.push(&buf[..n]);
-
-                            // Warn once if data is being dropped
-                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
-                                eprintln!(
-                                    "⚠️  WARNING: Process '{}' stderr buffer overflow. \
-                                     Data is being dropped. Consider reading output more frequently.",
-                                    cmd
-                                );
-                                warning_shown = true;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
+        let stdout_task = stdout.map(|stream| {
+            tokio::spawn(capture_background_process_stream(
+                stream,
+                Arc::clone(&stdout_buffer),
+            ))
+        });
+        let stderr_task = stderr.map(|stream| {
+            tokio::spawn(capture_background_process_stream(
+                stream,
+                Arc::clone(&stderr_buffer),
+            ))
+        });
 
         // Store process handle
         let handle = ProcessHandle {
@@ -4764,12 +4844,11 @@ impl IoClient {
             exit_code: None,
             stdout_buffer,
             stderr_buffer,
+            stdout_task,
+            stderr_task,
         };
 
-        self.process_handles
-            .lock()
-            .await
-            .insert(process_id.clone(), handle);
+        handles.insert(process_id.clone(), handle);
 
         Ok(process_id)
     }
@@ -4814,42 +4893,170 @@ impl IoClient {
     /// Kill a running process
     #[allow(dead_code)]
     async fn kill_process(&self, process_id: &str) -> Result<(), String> {
-        {
-            let mut handles = self.process_handles.lock().await;
-            let handle = handles
-                .get_mut(process_id)
-                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
+        self.close_process(process_id, false).await
+    }
 
-            handle
-                .child
-                .kill()
-                .await
-                .map_err(|e| format!("Failed to kill process: {}", e))?;
+    async fn close_process(&self, process_id: &str, idempotent: bool) -> Result<(), String> {
+        let handle = self.process_handles.lock().await.remove(process_id);
+        match handle {
+            Some(mut handle) => terminate_foreground_child(&mut handle.child).await,
+            None if idempotent => Ok(()),
+            None => Err(format!("Invalid process ID: {process_id}")),
         }
-
-        // Clean up killed and other completed processes
-        self.cleanup_completed_processes().await;
-
-        Ok(())
     }
 
     /// Wait for a process to complete and return its exit code
     #[allow(dead_code)]
     async fn wait_for_process(&self, process_id: &str) -> Result<i32, String> {
-        let mut handle = {
-            let mut handles = self.process_handles.lock().await;
-            handles
-                .remove(process_id)
-                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?
-        };
-
-        let status = handle
-            .child
-            .wait()
+        self.wait_for_process_result(process_id, None)
             .await
-            .map_err(|e| format!("Failed to wait for process: {}", e))?;
+            .map(|(_, _, code)| code)
+            .map_err(|error| error.to_string())
+    }
 
-        Ok(status.code().unwrap_or(-1))
+    async fn wait_for_process_result(
+        &self,
+        process_id: &str,
+        timeout: Option<Duration>,
+    ) -> Result<(String, String, i32), ProcessWaitError> {
+        let budget = ExecutionBudget::current_or_default();
+        let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
+        let deadline = foreground_command_deadline(&budget, configured_timeout)?;
+        let explicit_deadline = timeout.and_then(|duration| Instant::now().checked_add(duration));
+        let operation = async {
+            // Poll without holding the registry across an await. Another
+            // handler can still inspect/close this child or wait for a sibling.
+            loop {
+                let mut handles = self.process_handles.lock().await;
+                let handle = handles.get_mut(process_id).ok_or_else(|| {
+                    ExecuteCommandError::Other(format!(
+                        "Invalid or closed process ID: {process_id}"
+                    ))
+                })?;
+                match handle.child.try_wait() {
+                    Ok(Some(status)) => {
+                        handle.exit_code = Some(status.code().unwrap_or(-1));
+                        break;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        return Err(ExecuteCommandError::Other(format!(
+                            "Failed to wait for process: {error}"
+                        )));
+                    }
+                }
+                drop(handles);
+                tokio::time::sleep(SUBPROCESS_BUDGET_POLL_INTERVAL).await;
+            }
+            // Keep the record until both readers reach EOF. They can finish
+            // after the direct child, and a descendant can withhold pipe EOF.
+            loop {
+                let mut handles = self.process_handles.lock().await;
+                let handle = handles.get_mut(process_id).ok_or_else(|| {
+                    ExecuteCommandError::Other(format!(
+                        "Invalid or closed process ID: {process_id}"
+                    ))
+                })?;
+                let stdout_done = handle
+                    .stdout_task
+                    .as_ref()
+                    .is_none_or(|task| task.is_finished());
+                let stderr_done = handle
+                    .stderr_task
+                    .as_ref()
+                    .is_none_or(|task| task.is_finished());
+                if stdout_done && stderr_done {
+                    let mut handle = handles.remove(process_id).expect("process checked above");
+                    drop(handles);
+                    if let Some(task) = handle.stdout_task.take() {
+                        task.await
+                            .map_err(|error| {
+                                ExecuteCommandError::Other(format!(
+                                    "Failed to collect subprocess stdout: {error}"
+                                ))
+                            })?
+                            .map_err(ExecuteCommandError::Other)?;
+                    }
+                    if let Some(task) = handle.stderr_task.take() {
+                        task.await
+                            .map_err(|error| {
+                                ExecuteCommandError::Other(format!(
+                                    "Failed to collect subprocess stderr: {error}"
+                                ))
+                            })?
+                            .map_err(ExecuteCommandError::Other)?;
+                    }
+                    let output =
+                        String::from_utf8_lossy(&handle.stdout_buffer.lock().await.read_all())
+                            .to_string();
+                    let error =
+                        String::from_utf8_lossy(&handle.stderr_buffer.lock().await.read_all())
+                            .to_string();
+                    return Ok((output, error, handle.exit_code.unwrap_or(-1)));
+                }
+                drop(handles);
+                tokio::time::sleep(SUBPROCESS_BUDGET_POLL_INTERVAL).await;
+            }
+        };
+        let interrupt = async {
+            if let Some(explicit_deadline) = explicit_deadline {
+                tokio::select! {
+                    error = foreground_command_interrupt(&budget, deadline) => error,
+                    _ = tokio::time::sleep_until(tokio::time::Instant::from_std(explicit_deadline)) => ExecuteCommandError::Timeout { seconds: timeout.unwrap_or_default().as_secs() },
+                }
+            } else {
+                foreground_command_interrupt(&budget, deadline).await
+            }
+        };
+        let result = tokio::select! {
+            biased;
+            result = operation => result,
+            error = interrupt => Err(error),
+        };
+        match result {
+            Ok(completed) => Ok(completed),
+            Err(cause) => {
+                let mut failure = ProcessWaitError::from(cause);
+                let handle = self.process_handles.lock().await.remove(process_id);
+                if let Some(mut handle) = handle {
+                    let termination = terminate_foreground_child(&mut handle.child).await;
+                    // Once the owned tree is terminated, readers normally reach
+                    // EOF immediately. Bound draining too: an unowned external
+                    // descendant must not make timeout cleanup wait forever.
+                    let drain = async {
+                        if let Some(task) = handle.stdout_task.as_mut() {
+                            task.await
+                                .map_err(|error| format!("stdout reader: {error}"))??;
+                        }
+                        if let Some(task) = handle.stderr_task.as_mut() {
+                            task.await
+                                .map_err(|error| format!("stderr reader: {error}"))??;
+                        }
+                        Ok::<(), String>(())
+                    };
+                    let drain_result = tokio::time::timeout(Duration::from_secs(1), drain).await;
+                    failure.output =
+                        String::from_utf8_lossy(&handle.stdout_buffer.lock().await.read_all())
+                            .to_string();
+                    failure.error =
+                        String::from_utf8_lossy(&handle.stderr_buffer.lock().await.read_all())
+                            .to_string();
+                    match drain_result {
+                        Ok(Ok(())) => {},
+                        Ok(Err(error)) => failure.error.push_str(&format!("\nDiagnostic collection failed: {error}")),
+                        Err(_) => failure.error.push_str("\nDiagnostic collection reached its one-second cleanup limit; retained output may be incomplete"),
+                    }
+                    if let Err(error) = termination {
+                        failure.cause = ExecuteCommandError::Other(format!(
+                            "{}; process cleanup failed: {error}",
+                            failure.cause
+                        ));
+                    }
+                    // Drop aborts any unfinished readers and releases ownership.
+                }
+                Err(failure)
+            }
+        }
     }
 
     /// Check if a process is still running
@@ -4861,7 +5068,7 @@ impl IoClient {
         } else {
             false
         }
-        // Note: Cleanup happens in spawn_process and kill_process
+        // Completion is consumed by wait or close; polling never discards it.
     }
 }
 
@@ -4981,6 +5188,7 @@ impl Interpreter {
         }
 
         Interpreter {
+            program_exit_code: Cell::new(0),
             global_env,
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
@@ -5069,6 +5277,11 @@ impl Interpreter {
     /// Get test results after running in test mode
     pub fn get_test_results(&self) -> TestResults {
         self.test_results.borrow().clone()
+    }
+
+    /// Explicit program exit status, separate from language/runtime failures.
+    pub fn program_exit_code(&self) -> i32 {
+        self.program_exit_code.get()
     }
 
     /// Extract variables from the environment for module analyzer
@@ -6761,6 +6974,7 @@ impl Interpreter {
     }
 
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
+        self.program_exit_code.set(0);
         // Scope this run's budget as the TASK-local current budget, so leaf
         // helpers with no budget parameter (the stdlib pattern builtins in
         // particular) match under the run's configured ceilings and shared
@@ -8126,6 +8340,7 @@ impl Interpreter {
 
             Statement::ExitStatement {
                 scope,
+                code,
                 line,
                 column,
             } => {
@@ -8139,7 +8354,30 @@ impl Interpreter {
                     // expression evaluation too — neither of which carries a
                     // control-flow channel — and is turned back into a
                     // successful finish at the top of the run.
-                    ExitScope::Program => Err(RuntimeError::exit_program(*line, *column)),
+                    ExitScope::Program => {
+                        let code =
+                            if let Some(code) = code {
+                                match self.evaluate_expression(code, Rc::clone(&env)).await? {
+                                    Value::Number(number)
+                                        if number.is_finite()
+                                            && number.fract() == 0.0
+                                            && (0.0..=255.0).contains(&number) =>
+                                    {
+                                        number as i32
+                                    }
+                                    _ => return Err(RuntimeError::new(
+                                        "Program exit code must be a whole number from 0 to 255"
+                                            .to_string(),
+                                        *line,
+                                        *column,
+                                    )),
+                                }
+                            } else {
+                                0
+                            };
+                        self.program_exit_code.set(code);
+                        Err(RuntimeError::exit_program(*line, *column))
+                    }
                 }
             }
 
@@ -13002,6 +13240,7 @@ impl Interpreter {
             Statement::ExecuteCommandStatement {
                 command,
                 arguments,
+                directory,
                 variable_name,
                 use_shell,
                 line,
@@ -13050,11 +13289,32 @@ impl Interpreter {
                     Vec::new()
                 };
 
+                let directory_value = if let Some(directory) = directory {
+                    match self.evaluate_expression(directory, Rc::clone(&env)).await? {
+                        Value::Text(value) => Some(value.to_string()),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Process working directory must be text".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                };
                 // Execute command
                 let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
                 let (stdout, stderr, exit_code) = self
                     .io_client
-                    .execute_command(cmd_str, &args_refs, *use_shell, *line, *column)
+                    .execute_command_in_directory(
+                        cmd_str,
+                        &args_refs,
+                        *use_shell,
+                        directory_value.as_deref(),
+                        *line,
+                        *column,
+                    )
                     .await
                     .map_err(|e| match e {
                         ExecuteCommandError::Budget(exceeded) => {
@@ -13084,16 +13344,7 @@ impl Interpreter {
                     })?;
 
                 // Build result object
-                let mut result_map = HashMap::new();
-                result_map.insert(
-                    "output".to_string(),
-                    Value::Text(Arc::from(stdout.as_str())),
-                );
-                result_map.insert("error".to_string(), Value::Text(Arc::from(stderr.as_str())));
-                result_map.insert("exit_code".to_string(), Value::Number(exit_code as f64));
-                result_map.insert("success".to_string(), Value::Bool(exit_code == 0));
-
-                let result_obj = Value::Object(Rc::new(RefCell::new(result_map)));
+                let result_obj = process_result_value(stdout, stderr, exit_code);
 
                 // Store result if variable name provided
                 if let Some(var_name) = variable_name {
@@ -13128,6 +13379,7 @@ impl Interpreter {
             Statement::SpawnProcessStatement {
                 command,
                 arguments,
+                directory,
                 variable_name,
                 use_shell,
                 line,
@@ -13176,11 +13428,32 @@ impl Interpreter {
                     Vec::new()
                 };
 
+                let directory_value = if let Some(directory) = directory {
+                    match self.evaluate_expression(directory, Rc::clone(&env)).await? {
+                        Value::Text(value) => Some(value.to_string()),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Process working directory must be text".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                };
                 // Spawn process
                 let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
                 let process_id = self
                     .io_client
-                    .spawn_process(cmd_str, &args_refs, *use_shell, *line, *column)
+                    .spawn_process_in_directory(
+                        cmd_str,
+                        &args_refs,
+                        *use_shell,
+                        directory_value.as_deref(),
+                        *line,
+                        *column,
+                    )
                     .await
                     .map_err(|e| {
                         let kind = if e.contains("program not found")
@@ -13245,6 +13518,7 @@ impl Interpreter {
             }
             Statement::KillProcessStatement {
                 process_id,
+                idempotent,
                 line,
                 column,
             } => {
@@ -13264,20 +13538,25 @@ impl Interpreter {
                 };
 
                 // Kill process
-                self.io_client.kill_process(proc_id).await.map_err(|e| {
-                    let kind = if e.contains("Invalid process ID") {
-                        ErrorKind::ProcessNotFound
-                    } else {
-                        ErrorKind::ProcessKillFailed
-                    };
-                    RuntimeError::with_kind(e, *line, *column, kind)
-                })?;
+                self.io_client
+                    .close_process(proc_id, *idempotent)
+                    .await
+                    .map_err(|e| {
+                        let kind = if e.contains("Invalid process ID") {
+                            ErrorKind::ProcessNotFound
+                        } else {
+                            ErrorKind::ProcessKillFailed
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
 
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::WaitForProcessStatement {
                 process_id,
                 variable_name,
+                timeout,
+                full_result,
                 line,
                 column,
             } => {
@@ -13296,24 +13575,47 @@ impl Interpreter {
                     }
                 };
 
-                // Wait for process to complete
-                let exit_code = self
+                let timeout_value = if let Some(timeout) = timeout {
+                    match self.evaluate_expression(timeout, Rc::clone(&env)).await? {
+                        Value::Number(seconds) if seconds.is_finite() && (0.000000001..=365.0 * 24.0 * 3600.0).contains(&seconds) => Some(Duration::from_secs_f64(seconds)),
+                        _ => return Err(RuntimeError::new("Process timeout must be a finite positive number of seconds, at most one year".to_string(), *line, *column)),
+                    }
+                } else {
+                    None
+                };
+                // Completion joins both capture tasks before releasing ownership.
+                let (output, error, exit_code) = self
                     .io_client
-                    .wait_for_process(proc_id)
+                    .wait_for_process_result(proc_id, timeout_value)
                     .await
-                    .map_err(|e| {
-                        let kind = if e.contains("Invalid process ID") {
-                            ErrorKind::ProcessNotFound
-                        } else {
-                            ErrorKind::General
+                    .map_err(|failure| {
+                        let mut runtime_error = match failure.cause {
+                        ExecuteCommandError::Budget(exceeded) => self.budget_error(exceeded, *line, *column),
+                        ExecuteCommandError::Timeout { seconds } => {
+                            let seconds = timeout_value.map_or(seconds as f64, |timeout| timeout.as_secs_f64());
+                            RuntimeError::with_kind(format!("Subprocess wait exceeded timeout ({seconds}s); the owned process was closed"), *line, *column, ErrorKind::Timeout)
+                        },
+                        ExecuteCommandError::Other(message) if message.starts_with("Invalid or closed process ID:") => RuntimeError::with_kind(message, *line, *column, ErrorKind::ProcessNotFound),
+                        ExecuteCommandError::Other(message) => RuntimeError::new(message, *line, *column),
                         };
-                        RuntimeError::with_kind(e, *line, *column, kind)
+                        if !failure.output.is_empty() {
+                            runtime_error.message.push_str(&format!("\nSubprocess stdout:\n{}", failure.output));
+                        }
+                        if !failure.error.is_empty() {
+                            runtime_error.message.push_str(&format!("\nSubprocess stderr:\n{}", failure.error));
+                        }
+                        runtime_error
                     })?;
 
                 // Store exit code in variable if provided
                 if let Some(var_name) = variable_name {
+                    let result_value = if *full_result {
+                        process_result_value(output, error, exit_code)
+                    } else {
+                        Value::Number(exit_code as f64)
+                    };
                     env.borrow_mut()
-                        .define_direct(var_name, Value::Number(exit_code as f64))
+                        .define_direct(var_name, result_value)
                         .map_err(|e| RuntimeError::new(e, *line, *column))?;
                 }
 

@@ -180,21 +180,35 @@ fn statement_expressions<'a>(statement: &'a Statement, pending: &mut Vec<&'a Exp
         | Statement::TransactionStatement { db, .. } => pending.push(db),
         Statement::CreateFileStatement { path, content, .. } => pending.extend([path, content]),
         Statement::ExecuteCommandStatement {
-            command, arguments, ..
+            command,
+            arguments,
+            directory,
+            ..
         }
         | Statement::SpawnProcessStatement {
-            command, arguments, ..
+            command,
+            arguments,
+            directory,
+            ..
         } => {
             pending.push(command);
             pending.extend(arguments);
+            pending.extend(directory);
         }
         Statement::ExecuteFileStatement { path, request, .. } => {
             pending.push(path);
             pending.extend(request);
         }
         Statement::ReadProcessOutputStatement { process_id, .. }
-        | Statement::KillProcessStatement { process_id, .. }
-        | Statement::WaitForProcessStatement { process_id, .. } => pending.push(process_id),
+        | Statement::KillProcessStatement { process_id, .. } => pending.push(process_id),
+        Statement::WaitForProcessStatement {
+            process_id,
+            timeout,
+            ..
+        } => {
+            pending.push(process_id);
+            pending.extend(timeout);
+        }
         Statement::WaitForDurationStatement { duration, .. } => pending.push(duration),
         Statement::HttpPostStatement { url, data, .. } => pending.extend([url, data]),
         Statement::HttpRequestStatement {
@@ -356,11 +370,11 @@ fn statement_expressions<'a>(statement: &'a Statement, pending: &mut Vec<&'a Exp
                 | Assertion::BeOfType(_) => {}
             }
         }
+        Statement::ExitStatement { code, .. } => pending.extend(code),
         Statement::ForeverLoop { .. }
         | Statement::MainLoop { .. }
         | Statement::BreakStatement { .. }
         | Statement::ContinueStatement { .. }
-        | Statement::ExitStatement { .. }
         | Statement::ExportStatement { .. }
         | Statement::WaitForStatement { .. }
         | Statement::TryStatement { .. }

@@ -228,9 +228,9 @@ All keys currently loaded from config files, with defaults.
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
-| `max_concurrent_processes` | integer | `100` | Max simultaneous subprocesses |
+| `max_concurrent_processes` | integer | `100` | Max owned, unconsumed background process handles |
 | `max_buffer_size_bytes` | integer | `10485760` (10 MiB) | Max stdout/stderr buffer per process |
-| `kill_on_shutdown` | bool | `false` | Kill spawned processes when the script exits |
+| `kill_on_shutdown` | bool | `false` | Own process groups/jobs and close remaining children on shutdown or completion |
 
 ### Web server
 
@@ -486,7 +486,8 @@ Emits a warning whenever a shell command is executed.
 
 #### `max_concurrent_processes`
 
-Maximum number of subprocesses that can run simultaneously.
+Maximum number of owned background process handles. Completed children count
+until `wait for process` consumes their result or `close process` releases them.
 
 - **Type:** Integer
 - **Default:** `100`
@@ -508,7 +509,12 @@ of this raw-byte ceiling.
 
 #### `kill_on_shutdown`
 
-Automatically terminates all spawned subprocesses when the WFL script exits.
+Own launched processes in Unix groups or Windows Job Objects and terminate
+remaining children when the direct child completes, is closed or times out, or
+the interpreter shuts down. Linux also uses parent-death signalling for nested
+WFL drivers. Enable this option in a test runner and its nested WFL fixtures.
+The default preserves historical direct-child behavior without promising tree
+cleanup. See [subprocess ownership](../04-advanced-features/subprocess-execution.md#own-the-process-lifetime).
 
 - **Type:** Boolean
 - **Default:** `false`

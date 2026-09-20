@@ -1,0 +1,9 @@
+# Trusted, synthetic subprocess conformance fixtures only.
+allow_shell_execution = true
+shell_execution_mode = sanitized
+timeout_seconds = 180
+execution_logging = false
+debug_report_enabled = false
+kill_on_shutdown = true
+max_buffer_size_bytes = 1024
+max_concurrent_processes = 2

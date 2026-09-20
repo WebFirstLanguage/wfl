@@ -1,0 +1,39 @@
+store repo_root as path_dirname of (path_dirname of script_directory)
+store runtime_path as call current_executable
+store fixture_path as path_join of repo_root and "tests/fixtures/process/timeout-diagnostics.wfl"
+store artifact_root as path_join of repo_root and "target/test-artifacts/timeout-diagnostics" and (generate_uuid)
+call makedirs with artifact_root
+store ready_path as path_join of artifact_root and "ready.txt"
+
+describe "Timed process diagnostics":
+    teardown:
+        call remove_dir with artifact_root and yes
+    end teardown
+
+    test "bounded timeout preserves stdout and stderr before releasing ownership":
+        wait for spawn command runtime_path with arguments [fixture_path, ready_path] as child_process
+        store diagnostic_text as ""
+        try:
+            count from 1 to 100:
+                check if file exists at ready_path:
+                    break
+                end check
+                wait for 20 milliseconds
+            end count
+            expect (is_file of ready_path) to equal yes
+            try:
+                wait for process child_process to complete with timeout 0.05 and read result as outcome
+            when error:
+                change diagnostic_text to error_message
+            end try
+        finally:
+            close process child_process
+        end try
+        expect diagnostic_text to contain "timeout"
+        expect diagnostic_text to contain "stdout before bounded wait timeout"
+        expect diagnostic_text to contain "timeout_stderr_marker"
+        expect (process child_process is running) to equal no
+        wait for execute command runtime_path with arguments ["--version"] as next_outcome
+        expect next_outcome["exit_code"] to equal 0
+    end test
+end describe

@@ -35,6 +35,18 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
             None
         };
 
+        let directory = if self
+            .cursor
+            .peek()
+            .is_some_and(|t| t.token == Token::KeywordIn)
+        {
+            self.bump_sync();
+            self.expect_token(Token::KeywordDirectory, "Expected 'directory' after 'in'")?;
+            Some(self.parse_primary_expression()?)
+        } else {
+            None
+        };
+
         // Check for optional "using shell"
         let use_shell = if let Some(token) = self.cursor.peek()
             && matches!(&token.token, Token::KeywordUsing)
@@ -70,6 +82,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         Ok(Statement::ExecuteCommandStatement {
             command,
             arguments,
+            directory,
             variable_name,
             use_shell,
             line: token_pos.line,
@@ -154,6 +167,18 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
             None
         };
 
+        let directory = if self
+            .cursor
+            .peek()
+            .is_some_and(|t| t.token == Token::KeywordIn)
+        {
+            self.bump_sync();
+            self.expect_token(Token::KeywordDirectory, "Expected 'directory' after 'in'")?;
+            Some(self.parse_primary_expression()?)
+        } else {
+            None
+        };
+
         // Check for optional "using shell"
         let use_shell = if let Some(token) = self.cursor.peek()
             && matches!(&token.token, Token::KeywordUsing)
@@ -184,6 +209,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         Ok(Statement::SpawnProcessStatement {
             command,
             arguments,
+            directory,
             variable_name,
             use_shell,
             line: token_pos.line,
@@ -192,13 +218,18 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
     }
 
     fn parse_kill_process_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.bump_sync().unwrap(); // Consume "kill"
-        self.expect_token(Token::KeywordProcess, "Expected 'process' after 'kill'")?;
+        let token_pos = self.bump_sync().unwrap(); // Consume "kill" or "close"
+        let idempotent = token_pos.token == Token::KeywordClose;
+        self.expect_token(
+            Token::KeywordProcess,
+            "Expected 'process' after 'kill' or 'close'",
+        )?;
 
         let process_id = self.parse_primary_expression()?;
 
         Ok(Statement::KillProcessStatement {
             process_id,
+            idempotent,
             line: token_pos.line,
             column: token_pos.column,
         })
@@ -310,6 +341,46 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                         }
                     }
 
+                    let timeout = if self
+                        .cursor
+                        .peek()
+                        .is_some_and(|t| t.token == Token::KeywordWith)
+                    {
+                        self.bump_sync();
+                        self.expect_token(
+                            Token::KeywordTimeout,
+                            "Expected 'timeout' after 'with'",
+                        )?;
+                        Some(self.parse_primary_expression()?)
+                    } else {
+                        None
+                    };
+                    let full_result = if self
+                        .cursor
+                        .peek()
+                        .is_some_and(|t| t.token == Token::KeywordAnd)
+                    {
+                        self.bump_sync();
+                        self.expect_token(
+                            Token::KeywordRead,
+                            "Expected 'read result' after 'and'",
+                        )?;
+                        let result_token = self.bump_sync().ok_or_else(|| {
+                            self.cursor
+                                .error("Expected 'result' after 'read'".to_string())
+                        })?;
+                        if !matches!(&result_token.token, Token::Identifier(name) if name == "result")
+                        {
+                            return Err(ParseError::from_token(
+                                "Expected 'result' after 'read'".to_string(),
+                                result_token,
+                            ));
+                        }
+                        true
+                    } else {
+                        false
+                    };
+
                     // Check for optional "as variable_name"
                     let variable_name = if let Some(token) = self.cursor.peek() {
                         if matches!(&token.token, Token::KeywordAs) {
@@ -325,6 +396,8 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                     return Ok(Statement::WaitForProcessStatement {
                         process_id,
                         variable_name,
+                        timeout,
+                        full_result,
                         line: wait_token_pos.line,
                         column: wait_token_pos.column,
                     });

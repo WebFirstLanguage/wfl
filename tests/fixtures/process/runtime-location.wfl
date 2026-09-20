@@ -1,0 +1,2 @@
+store runtime_path as call current_executable
+display runtime_path
