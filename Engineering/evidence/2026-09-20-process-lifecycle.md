@@ -121,3 +121,24 @@ Linux process groups/parent-death signalling cannot be executed on this Windows
 host. Existing Blacksmith Linux and Windows integration/Run WFL Programs jobs,
 full cargo/workspace gates, and exact-commit CI review remain required before
 merge. Local Windows Green does not claim Linux acceptance.
+
+## Integration with the merged HTTP controls
+
+On 2026-09-20 the process branch merged upstream `main` at
+`eecd658c32e23abdb6f4e0cc881d8af26dacd2d2` (HTTP PR #737). Git merged the shared
+AST, interpreter, fixer, typechecker and keyword references without conflicts.
+Source inspection confirmed both additive APIs remain present. No feature or
+fixture assertion was changed for this integration.
+
+A fresh Windows release build passed all five process WFL suites (**23/23**)
+and the merged HTTP redirect/header suite (**8/8**). The existing subprocess
+comprehensive program completed all eight groups and the legacy exit program
+returned its intended status. The five existing execution-budget, subprocess,
+security, cleanup and operand-contract Rust suites passed **106/106**.
+Strict root Clippy, formatting, static hygiene and `git diff --check` passed.
+Local logs remain under ignored `target/process-main-merge/`. The comprehensive
+legacy program retains its previously observed live-child shutdown warning;
+its existing behavior and assertions were preserved.
+
+The merge commit still requires exact-head Linux/Windows CI inspection before
+the PR is merged. This local integration evidence does not replace that gate.

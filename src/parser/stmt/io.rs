@@ -210,6 +210,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
     /// Grammar (clauses optional, joined by `and`/`with`, any order):
     ///   open url at <url>
     ///       [with method <expr>] [and headers <expr>] [and body <expr>]
+    ///       [and without following redirects]
     ///       ( and read content as <name>   -- binds the response body text
     ///       | and read response as <name>  -- binds status/ok/body/headers object
     ///       | as <name> )                  -- binds the response body text
@@ -234,6 +235,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
         let mut method: Option<Expression> = None;
         let mut headers: Option<Expression> = None;
         let mut body: Option<Expression> = None;
+        let mut follow_redirects = true;
 
         let parse_variable_name =
             |parser: &mut Self, open_token: &'a crate::lexer::token::TokenWithPosition| {
@@ -298,25 +300,32 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "as"
                     let variable_name = parse_variable_name(self, open_token)?;
 
-                    return Ok(if method.is_some() || headers.is_some() || body.is_some() {
-                        Statement::HttpRequestStatement {
-                            url: url_expr,
-                            method,
-                            headers,
-                            body,
-                            variable_name,
-                            full_response: false,
-                            line: open_token.line,
-                            column: open_token.column,
-                        }
-                    } else {
-                        Statement::HttpGetStatement {
-                            url: url_expr,
-                            variable_name,
-                            line: open_token.line,
-                            column: open_token.column,
-                        }
-                    });
+                    return Ok(
+                        if method.is_some()
+                            || headers.is_some()
+                            || body.is_some()
+                            || !follow_redirects
+                        {
+                            Statement::HttpRequestStatement {
+                                url: url_expr,
+                                method,
+                                headers,
+                                body,
+                                follow_redirects,
+                                variable_name,
+                                full_response: false,
+                                line: open_token.line,
+                                column: open_token.column,
+                            }
+                        } else {
+                            Statement::HttpGetStatement {
+                                url: url_expr,
+                                variable_name,
+                                line: open_token.line,
+                                column: open_token.column,
+                            }
+                        },
+                    );
                 }
                 Token::KeywordAnd | Token::KeywordWith => {
                     self.bump_sync(); // Consume the connector
@@ -378,7 +387,8 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     )?;
                     let variable_name = parse_variable_name(self, open_token)?;
 
-                    let is_plain_get = method.is_none() && headers.is_none() && body.is_none();
+                    let is_plain_get =
+                        method.is_none() && headers.is_none() && body.is_none() && follow_redirects;
                     return Ok(if is_plain_get && !full_response {
                         Statement::HttpGetStatement {
                             url: url_expr,
@@ -392,6 +402,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             method,
                             headers,
                             body,
+                            follow_redirects,
                             variable_name,
                             full_response,
                             line: open_token.line,
@@ -416,6 +427,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         method,
                         headers,
                         body,
+                        follow_redirects,
                         variable_name,
                         line: open_token.line,
                         column: open_token.column,
@@ -476,10 +488,24 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         clause_column,
                     )?);
                 }
+                // Contextual phrase, not reserved words. The usual connector
+                // keeps a preceding bare URL/body variable unambiguous with
+                // the lexer's support for multiword identifiers.
+                Token::Identifier(name) if name == "without following redirects" => {
+                    if !follow_redirects {
+                        return Err(ParseError::from_token(
+                            "Duplicate 'without following redirects' clause in open url statement"
+                                .to_string(),
+                            clause_token,
+                        ));
+                    }
+                    self.bump_sync();
+                    follow_redirects = false;
+                }
                 _ => {
                     return Err(ParseError::from_token(
                         format!(
-                            "Expected 'method', 'headers', 'body', or 'read' after 'and'/'with', found {:?}",
+                            "Expected 'method', 'headers', 'body', 'without following redirects', 'stream', or 'read' after 'and'/'with', found {:?}",
                             clause_token.token
                         ),
                         clause_token,
@@ -537,7 +563,8 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         || name == "headers"
                         || name.starts_with("headers ")
                         || name == "body"
-                        || name.starts_with("body ") =>
+                        || name.starts_with("body ")
+                        || name == "without following redirects" =>
                 {
                     break;
                 }

@@ -1,0 +1,1 @@
+open url at "http://127.0.0.1/redirect" and without following redirects and without following redirects and read response as reply

@@ -412,6 +412,19 @@ fn rename_locals(
                 protected.insert(name.as_str());
                 protect_pattern_names(pattern, &mut protected);
             }
+            Statement::HttpRequestStatement {
+                follow_redirects: false,
+                ..
+            }
+            | Statement::HttpStreamStatement {
+                follow_redirects: false,
+                ..
+            } => {
+                // The marker and an ordinary variable may share this spelling.
+                // Our conservative name-wide rewrite must preserve both when
+                // a parsed request uses the phrase as grammar.
+                protected.insert("without following redirects");
+            }
             _ => {}
         }
     }
