@@ -1,0 +1,4 @@
+store without following redirects as "http://127.0.0.1/redirect"
+open url at without following redirects and without following redirects and read response as reply
+open url at without following redirects with method "POST" and body "example=yes" and without following redirects and stream response as upstream
+close upstream
