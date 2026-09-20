@@ -17,12 +17,23 @@ fn run(dir: &Path, args: &[&str]) -> Output {
     run_with_global(dir, args, &dir.join("system settings").join("wfl.cfg"))
 }
 
+/// Run the real CLI with a caller-owned global configuration path and open stdin.
+/// Drain both output pipes concurrently, and kill and reap the child if it waits
+/// for input or otherwise fails to exit within the 20-second test deadline.
 fn run_with_global(dir: &Path, args: &[&str], global: &Path) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_wfl"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wfl"));
+    command
         .args(args)
         .current_dir(dir)
         .env("WFL_GLOBAL_CONFIG_PATH", global)
-        .env("TERM", "dumb")
+        .env("TERM", "dumb");
+    run_command(command)
+}
+
+/// Drain both output pipes while enforcing a bounded, noninteractive child run.
+fn run_command(mut command: Command) -> Output {
+    let description = format!("{command:?}");
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -50,7 +61,7 @@ fn run_with_global(dir: &Path, args: &[&str], global: &Path) -> Output {
             let _ = child.wait();
             let _ = out.join();
             let _ = err.join();
-            panic!("WFL did not exit without input within 20 seconds: {args:?}");
+            panic!("WFL did not exit without input within 20 seconds: {description}");
         }
         thread::sleep(Duration::from_millis(10));
     };
@@ -61,6 +72,8 @@ fn run_with_global(dir: &Path, args: &[&str], global: &Path) -> Output {
     }
 }
 
+/// Combine captured streams for diagnostics without assuming UTF-8 or preserving
+/// their interleaving; assertions needing stream ordering must inspect them alone.
 fn combined(output: &Output) -> String {
     format!(
         "{}{}",
@@ -69,6 +82,8 @@ fn combined(output: &Output) -> String {
     )
 }
 
+/// Snapshot direct entry names so assertions detect extra files independently of
+/// filesystem enumeration order. Test fixtures must use UTF-8 entry names.
 fn entries(dir: &Path) -> BTreeSet<String> {
     fs::read_dir(dir)
         .unwrap()
@@ -76,6 +91,8 @@ fn entries(dir: &Path) -> BTreeSet<String> {
         .collect()
 }
 
+/// Require exactly the three project files, catching leaked staging files or
+/// unrelated output as well as missing scaffold entries.
 fn assert_scaffold(dir: &Path) {
     assert_eq!(
         entries(dir),
@@ -86,6 +103,8 @@ fn assert_scaffold(dir: &Path) {
     }
 }
 
+/// Require the action and exact filename on the same output line, tolerating
+/// capitalization of the action without accepting unrelated status lines.
 fn assert_report(output: &Output, action: &str, name: &str) {
     assert!(
         combined(output)
@@ -252,6 +271,67 @@ fn init_preflights_all_reserved_names_before_writing_any_files() {
             fs::read_to_string(dir.path().join(conflict).join("keep.txt")).unwrap(),
             "keep me"
         );
+    }
+}
+
+#[cfg(unix)]
+/// Set the mask only in a child shell so parallel Rust tests keep their own mask.
+fn init_with_umask(dir: &Path, mask: &str) -> Output {
+    let mut command = Command::new("sh");
+    command
+        .arg("-c")
+        .arg("umask \"$1\" && exec \"$2\" init")
+        .arg("wfl-init-permissions")
+        .arg(mask)
+        .arg(env!("CARGO_BIN_EXE_wfl"))
+        .current_dir(dir)
+        .env("WFL_GLOBAL_CONFIG_PATH", dir.join("unused-global.cfg"))
+        .env("TERM", "dumb");
+    run_command(command)
+}
+
+#[cfg(unix)]
+#[test]
+fn init_uses_normal_file_permissions_respecting_each_child_umask() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for (mask, expected) in [("0022", 0o644), ("0002", 0o664), ("0077", 0o600)] {
+        let dir = TempDir::new().unwrap();
+        let output = init_with_umask(dir.path(), mask);
+        assert!(output.status.success(), "{}", combined(&output));
+        assert_scaffold(dir.path());
+        for name in SCAFFOLD {
+            let mode = fs::metadata(dir.path().join(name))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, expected, "{name} with umask {mask}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn init_preserves_existing_file_modes_even_under_a_more_permissive_umask() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    for (name, mode) in SCAFFOLD.into_iter().zip([0o640, 0o600, 0o444]) {
+        let path = dir.path().join(name);
+        fs::write(&path, name).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let output = init_with_umask(dir.path(), "0000");
+    assert!(output.status.success(), "{}", combined(&output));
+    assert_scaffold(dir.path());
+    for (name, expected) in SCAFFOLD.into_iter().zip([0o640, 0o600, 0o444]) {
+        let path = dir.path().join(name);
+        assert_eq!(fs::read_to_string(&path).unwrap(), name);
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            expected
+        );
+        assert_report(&output, "skipped", name);
     }
 }
 
