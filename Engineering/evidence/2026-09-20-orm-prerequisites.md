@@ -133,3 +133,48 @@ runtime tests provide unchanged-surface coverage. The repository profile's
 coverage and scheduled-fuzz gaps remain visible; this record claims neither
 numeric coverage nor a release approval. Do not merge or release on this local
 record alone.
+
+## Integration with approved runtime prerequisites
+
+After approval to merge the runtime prerequisites, this branch incorporated
+the HTTP change from `eecd658c32e23abdb6f4e0cc881d8af26dacd2d2`
+and the reviewed process branch from
+`f54243f43769b8d6e8ebe0b8f54ed2b2a735b234`. The resulting source commit
+is `933bd9ac55165178e3687f5bc965b836a5be66aa`. Additive conflicts retained
+both contextual fixer protections (`schema changes` and
+`without following redirects`) and both core actions (`raise_error` and
+`current_executable`), including their contracts and documentation.
+`git diff df6ad9a2 -- src TestPrograms tests fuzz` is empty: these source and
+test trees match the previously exercised combined consumer candidate.
+
+A fresh Windows release build at this commit produced `target/release/wfl.exe`
+with SHA-256
+`2569dd4e1e4279a850f7aaa14e0d04a8102ee17c38bc40c646cb952887ad2f5c`.
+Its package version remains 26.9.12; this is a local integration binary, not
+the separately versioned official nightly. The following checks were rerun
+against this merged source:
+
+- `cargo build --release --locked` passed.
+- All seven schema/error WFL suites listed above passed, 17/17 cases.
+- `TestPrograms/http_redirects/redirects.test.wfl` passed, 8/8 cases.
+- The process `lifecycle`, `ownership`, `failure-cleanup`, `runtime-location`
+  and `timeout-diagnostics` WFL suites passed, 23/23 cases. All 13 WFL suites
+  used the fresh release binary with `--test`; the combined total is 48/48.
+- Existing Rust suites `database_transaction_test`,
+  `typechecker_builtin_contract_test`, `builtin_shadow_concat_test`,
+  `new_builtin_constant_compat_test`, `subprocess_test`,
+  `subprocess_security_test`, `subprocess_cleanup_test` and
+  `execution_budget_test` passed, 147/147, using `cargo test --locked` with
+  one `--test` argument for each suite.
+- `cargo fmt --all -- --check`, `git diff --check`, and strict
+  `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- `cargo check --locked --manifest-path fuzz/Cargo.toml` passed.
+- Existing documentation validation passed 36/36, and the static repository
+  hygiene check passed, using the same commands recorded above.
+
+These merge checks are recorded in ignored
+`target/reports/orm-prerequisites/merge-*.log`. The earlier full Cargo and
+Windows integration runs remain evidence for the pre-merge schema branch;
+they are not presented as new full runs on this commit. Exact pushed-head
+remote CI remains the final integration gate. The coordinating maintainer
+owns PR merge and nightly publication.
