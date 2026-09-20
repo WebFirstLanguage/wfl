@@ -142,6 +142,28 @@ Dockerfile. Live retrieval of the two user-supplied URLs was unavailable;
 Docker guidance was checked in the local repository, and Context7 is linked
 as a discovery entry point without claiming its current indexed contents.
 
+## Pull request preparation
+
+The feature branch was integrated with `origin/main` at
+`3e23bd8972b996beacfe6553e98236745c050f35` before publishing the pull request.
+That revision contains the already-tested lint changes as a squash commit and
+the version update to 26.9.11. The merge retains all of main's version and
+lockfile metadata. The two overlapping additions in `src/main.rs` and the
+configuration reference resolve to the same content as the tested feature
+files. The resulting diff against main contains only the 14 initialization
+implementation, test, template, documentation, and evidence files.
+
+On this integrated tree, `cargo fmt --all -- --check` passed and
+`cargo test --test init_command_test --test config_command_test
+--test cli_help_version_flags_test --test lint_cli_test` passed **84 tests**
+with no failures (`pr-cli-tests.log`). The integrated-tree
+`cargo clippy --all-targets --all-features -- -D warnings` check also passed
+(`pr-clippy.log`). An independent read-only review of the
+diff confirmed that the existing lint behavior and main's version are
+preserved. The earlier full workspace and end-to-end results above retain
+their original scope and limitations; this focused check does not claim a
+new complete presubmit run.
+
 ## Recovery and limits
 
 No existing file is replaced, merged, or refreshed. Correct a conflicting
