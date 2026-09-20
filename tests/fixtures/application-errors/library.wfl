@@ -1,0 +1,7 @@
+define action called reject_record:
+    call raise_error with "Saving posts failed: title must be text. Supply a title."
+end action
+
+define action called contextual_error with parameters cause_message:
+    call raise_error with ("Calculating the page count failed: " with cause_message)
+end action

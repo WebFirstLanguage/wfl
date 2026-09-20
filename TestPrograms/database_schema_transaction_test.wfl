@@ -1,0 +1,35 @@
+// This file starts with the existing transaction syntax for behavioral Red.
+// The Green implementation adds `for schema changes` to the same transaction form.
+create directory at "target/test-artifacts/schema-transactions"
+store fixture_path as "target/test-artifacts/schema-transactions/rebuild.db"
+store fixture_url as "sqlite://" with fixture_path
+
+describe "Schema transactions":
+    test "a table rebuild preserves extension-owned referencing rows":
+        open database at fixture_url as conn
+        try:
+            store dropped_child as execute conn with "DROP TABLE IF EXISTS extension_children"
+            store dropped_parent as execute conn with "DROP TABLE IF EXISTS managed_parent"
+            store dropped_new as execute conn with "DROP TABLE IF EXISTS replacement"
+            store made_parent as execute conn with "CREATE TABLE managed_parent (id INTEGER PRIMARY KEY, label TEXT)"
+            store made_child as execute conn with "CREATE TABLE extension_children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES managed_parent(id) ON DELETE CASCADE)"
+            store seeded_parent as execute conn with "INSERT INTO managed_parent VALUES (1, 'preserve')"
+            store seeded_child as execute conn with "INSERT INTO extension_children VALUES (1, 1)"
+            in transaction on conn:
+                store disable_fk as execute conn with "PRAGMA foreign_keys = OFF"
+                store defer_fk as execute conn with "PRAGMA defer_foreign_keys = ON"
+                store make_new as execute conn with "CREATE TABLE replacement (id INTEGER PRIMARY KEY, label TEXT, added TEXT)"
+                store copy_rows as execute conn with "INSERT INTO replacement (id, label) SELECT id, label FROM managed_parent"
+                store drop_old as execute conn with "DROP TABLE managed_parent"
+                store rename_new as execute conn with "ALTER TABLE replacement RENAME TO managed_parent"
+            end transaction
+            store rows as query conn with "SELECT id, parent_id FROM extension_children"
+            expect length of rows to equal 1
+            store child_row as rows[0]
+            expect child_row["parent_id"] to equal 1
+        finally:
+            close database conn
+            delete file at fixture_path
+        end try
+    end test
+end describe
