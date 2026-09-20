@@ -185,3 +185,23 @@ the earlier failure is retained rather than treated as a waiver.
 
 The final no-drop candidate also passes the actual 305-second WFL boundary
 1/1 with `--execution-timeout 330`; `green-final-long.log` records the result.
+
+The final candidate also completes Scriptorium's unchanged full functional
+suite at clean consumer commit `df8039cc252e2e48772ed88b9d273b98e30a67c5`:
+42 suites, 41 functional passes and the sole deliberate failure-propagation
+fixture produces exit 1, using `--execution-timeout 1200`. Its local consumer
+log `target/full-cli-budget-reviewed-red.log` spans about 202 seconds. This
+particular rerun does not exceed 300 seconds. The earlier initial-candidate
+consumer run at `2d1d6e2` plus command/docs changes spans 509 seconds with the
+same 41-pass/1-deliberate-failure outcome, and the final runtime's dedicated
+305-second WFL test separately verifies the longer-boundary behavior. These
+host-dependent run durations are evidence, not a performance benchmark.
+
+The proxy fixture's port race is remedied without retries or weakened tests:
+its WFL server binds port zero and reports the actual bound address, and the
+existing Rust harness reads a complete readiness record and validates loopback
+address/nonzero port before connecting. All seven existing test bodies,
+assertions, security settings and cleanup remain unchanged. The updated fixture
+passes 7/7 locally at the final product source in the normal debug harness;
+the release candidate is unchanged. This edits an existing fixture only and
+adds no Rust test scenarios or test drivers.
