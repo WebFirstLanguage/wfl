@@ -1,0 +1,68 @@
+// Run with the release binary from the repository root.
+define action called start_redirect_fixture:
+    store runtime_binary as "target/release/wfl"
+    check if file exists at "target/release/wfl.exe":
+        change runtime_binary to "target/release/wfl.exe"
+    end check
+    wait for spawn command runtime_binary with arguments ["tests/fixtures/http_redirects/server.wfl"] as fixture_process
+    store startup_text as ""
+    store fixture_url as ""
+    try:
+        count from 1 to 500:
+            wait for read output from process fixture_process as fresh_text
+            change startup_text to startup_text with fresh_text
+            store output_lines as split startup_text by "\n"
+            for each output_line in output_lines:
+                check if output_line starts with "READY ":
+                    change fixture_url to trim of (substring of output_line and 6 and ((length of output_line) minus 6))
+                end check
+            end for
+            check if fixture_url is not equal to "":
+                break
+            end check
+            check if (process fixture_process is running) is equal to no:
+                break
+            end check
+            wait for 10 milliseconds
+        end count
+        expect fixture_url is not equal to "" to be yes
+    finally:
+        check if fixture_url is equal to "":
+            check if process fixture_process is running:
+                kill process fixture_process
+            end check
+        end check
+    end try
+    create map fixture:
+        "process" is fixture_process
+        "url" is fixture_url
+    end map
+    return fixture
+end action
+
+define action called stop_redirect_fixture with parameters fixture:
+    store fixture_process as fixture["process"]
+    check if process fixture_process is running:
+        kill process fixture_process
+    otherwise:
+        wait for process fixture_process to complete as fixture_exit
+    end check
+    expect process fixture_process is running to be no
+end action
+
+describe "HTTP redirect response controls":
+    test "the login redirect exposes its own status and cookie":
+        store fixture as start_redirect_fixture
+        try:
+            store login_url as fixture["url"] with "/redirect"
+            open url at login_url with method "POST" and body "synthetic=yes" and read response as reply
+            expect reply["status"] to equal 302
+            expect reply["body"] to equal "redirect body"
+            store reply_headers as reply["headers"]
+            expect reply_headers["location"] to equal "/destination"
+            expect reply_headers contains "set-cookie" to be yes
+        finally:
+            call stop_redirect_fixture with fixture
+        end try
+    end test
+end describe
