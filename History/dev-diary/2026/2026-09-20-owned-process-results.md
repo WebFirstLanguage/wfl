@@ -38,3 +38,12 @@ backed by the operating system's executable path. It rejects non-Unicode paths
 instead of guessing. Its WFL tests execute the returned program and verify the
 same identity after changing a child's cwd. No environment enumeration or
 mutation API was added.
+
+Independent review of Scriptorium's WFL runner found that a timed-out owned wait
+discarded diagnostics printed before the timeout. The WFL reproducer writes a
+readiness marker, emits stdout and an intentional compiler stderr warning, then
+waits. The test-first commit `012e7c89` fails on missing stdout in the error.
+The wait now drains both bounded captures after termination, with a separate
+one-second drain limit, and includes them in the same typed timeout error.
+Handle consumption and idempotent cleanup are unchanged. No Python or Rust test
+scenario was added.

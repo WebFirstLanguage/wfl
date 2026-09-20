@@ -1933,6 +1933,38 @@ impl std::fmt::Display for ExecuteCommandError {
     }
 }
 
+/// A failed owned wait still carries the bounded diagnostics collected before
+/// cleanup. The registry entry is consumed; callers never need a stale handle.
+#[derive(Debug)]
+struct ProcessWaitError {
+    cause: ExecuteCommandError,
+    output: String,
+    error: String,
+}
+
+impl From<ExecuteCommandError> for ProcessWaitError {
+    fn from(cause: ExecuteCommandError) -> Self {
+        Self {
+            cause,
+            output: String::new(),
+            error: String::new(),
+        }
+    }
+}
+
+impl std::fmt::Display for ProcessWaitError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.cause, formatter)?;
+        if !self.output.is_empty() {
+            write!(formatter, "\nSubprocess stdout:\n{}", self.output)?;
+        }
+        if !self.error.is_empty() {
+            write!(formatter, "\nSubprocess stderr:\n{}", self.error)?;
+        }
+        Ok(())
+    }
+}
+
 /// Bytes retained from one subprocess stream plus the amount discarded after
 /// the configured per-stream ceiling was reached.
 struct CapturedProcessStream {
@@ -4814,7 +4846,7 @@ impl IoClient {
         &self,
         process_id: &str,
         timeout: Option<Duration>,
-    ) -> Result<(String, String, i32), ExecuteCommandError> {
+    ) -> Result<(String, String, i32), ProcessWaitError> {
         let budget = ExecutionBudget::current_or_default();
         let configured_timeout = Duration::from_secs(self.config.timeout_seconds.max(1));
         let deadline = foreground_command_deadline(&budget, configured_timeout)?;
@@ -4909,12 +4941,50 @@ impl IoClient {
             result = operation => result,
             error = interrupt => Err(error),
         };
-        if result.is_err() {
-            self.close_process(process_id, true)
-                .await
-                .map_err(ExecuteCommandError::Other)?;
+        match result {
+            Ok(completed) => Ok(completed),
+            Err(cause) => {
+                let mut failure = ProcessWaitError::from(cause);
+                let handle = self.process_handles.lock().await.remove(process_id);
+                if let Some(mut handle) = handle {
+                    let termination = terminate_foreground_child(&mut handle.child).await;
+                    // Once the owned tree is terminated, readers normally reach
+                    // EOF immediately. Bound draining too: an unowned external
+                    // descendant must not make timeout cleanup wait forever.
+                    let drain = async {
+                        if let Some(task) = handle.stdout_task.as_mut() {
+                            task.await
+                                .map_err(|error| format!("stdout reader: {error}"))??;
+                        }
+                        if let Some(task) = handle.stderr_task.as_mut() {
+                            task.await
+                                .map_err(|error| format!("stderr reader: {error}"))??;
+                        }
+                        Ok::<(), String>(())
+                    };
+                    let drain_result = tokio::time::timeout(Duration::from_secs(1), drain).await;
+                    failure.output =
+                        String::from_utf8_lossy(&handle.stdout_buffer.lock().await.read_all())
+                            .to_string();
+                    failure.error =
+                        String::from_utf8_lossy(&handle.stderr_buffer.lock().await.read_all())
+                            .to_string();
+                    match drain_result {
+                        Ok(Ok(())) => {},
+                        Ok(Err(error)) => failure.error.push_str(&format!("\nDiagnostic collection failed: {error}")),
+                        Err(_) => failure.error.push_str("\nDiagnostic collection reached its one-second cleanup limit; retained output may be incomplete"),
+                    }
+                    if let Err(error) = termination {
+                        failure.cause = ExecuteCommandError::Other(format!(
+                            "{}; process cleanup failed: {error}",
+                            failure.cause
+                        ));
+                    }
+                    // Drop aborts any unfinished readers and releases ownership.
+                }
+                Err(failure)
+            }
         }
-        result
     }
 
     /// Check if a process is still running
@@ -13441,7 +13511,8 @@ impl Interpreter {
                     .io_client
                     .wait_for_process_result(proc_id, timeout_value)
                     .await
-                    .map_err(|error| match error {
+                    .map_err(|failure| {
+                        let mut runtime_error = match failure.cause {
                         ExecuteCommandError::Budget(exceeded) => self.budget_error(exceeded, *line, *column),
                         ExecuteCommandError::Timeout { seconds } => {
                             let seconds = timeout_value.map_or(seconds as f64, |timeout| timeout.as_secs_f64());
@@ -13449,6 +13520,14 @@ impl Interpreter {
                         },
                         ExecuteCommandError::Other(message) if message.starts_with("Invalid or closed process ID:") => RuntimeError::with_kind(message, *line, *column, ErrorKind::ProcessNotFound),
                         ExecuteCommandError::Other(message) => RuntimeError::new(message, *line, *column),
+                        };
+                        if !failure.output.is_empty() {
+                            runtime_error.message.push_str(&format!("\nSubprocess stdout:\n{}", failure.output));
+                        }
+                        if !failure.error.is_empty() {
+                            runtime_error.message.push_str(&format!("\nSubprocess stderr:\n{}", failure.error));
+                        }
+                        runtime_error
                     })?;
 
                 // Store exit code in variable if provided

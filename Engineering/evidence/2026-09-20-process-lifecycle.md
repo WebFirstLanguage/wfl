@@ -96,7 +96,26 @@ All eight existing builtin/catalog contract tests and strict root Clippy passed.
 The implementation rejects non-Unicode paths with an actionable error and
 does not enumerate or expose environment variables. Shell lookup is unnecessary.
 
-## Required remote acceptance (all follow-ups)
+## Timeout diagnostics follow-up
+
+Independent Scriptorium runner review identified lost pre-timeout diagnostics.
+Commit `012e7c89` adds a WFL child that emits stdout and a deliberately unused
+variable warning on stderr, writes readiness, then stalls. The WFL test waits
+for readiness before a 50ms bounded wait. Against `a32c74f1`, it fails specifically
+because the Timeout error omits stdout: **0/1 passed, exit 1**. No parser or
+startup failure is used as Red. The Scriptorium runner counterpart also failed
+on a missing recognizable pre-timeout line while later suites still ran.
+
+The corrected wait preserves its typed cause and both bounded captures after
+closing ownership. Diagnostic draining has a separate one-second limit;
+incomplete capture and cleanup failure remain explicit. The same WFL test now
+passes **1/1**, including stderr and capacity reuse, and Scriptorium's runner
+suite passes **9/9**. Existing lifecycle **16/16**, ownership **2/2**, and failure
+cleanup **2/2** suites remain Green. The four existing subprocess/security/cleanup
+and execution-budget Rust suites pass **80/80**; strict root Clippy passes.
+Independent source review found no remaining blocker in the follow-up.
+
+## Remote acceptance remains required
 
 Linux process groups/parent-death signalling cannot be executed on this Windows
 host. Existing Blacksmith Linux and Windows integration/Run WFL Programs jobs,

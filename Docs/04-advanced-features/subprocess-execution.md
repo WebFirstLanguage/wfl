@@ -57,7 +57,11 @@ after a timeout, or more than once, so use it in `finally`.
 
 The timeout is a finite number of seconds from one nanosecond through one year;
 fractional seconds are supported. It covers process execution and pipe draining.
-On timeout WFL closes the child before raising a `Timeout` error. The run's
+On timeout WFL closes the child, drains the bounded stdout/stderr captures for
+at most one additional second, and includes their retained contents under
+`Subprocess stdout` and `Subprocess stderr` labels in the `Timeout` error. This
+preserves diagnostics emitted before a stalled child without leaving a handle
+to manage afterward. A drain limit or read failure is stated explicitly. The run's
 execution budget and cancellation still apply. Inside a long-lived `main loop`,
 a wait also receives a finite `timeout_seconds` window.
 
