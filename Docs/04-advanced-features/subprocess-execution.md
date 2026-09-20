@@ -22,10 +22,11 @@ See the [configuration reference](../reference/configuration-reference.md#securi
 
 ## Launch, wait, read, and close
 
-This complete example launches WFL from `PATH` and reads its version:
+This complete example launches the same WFL executable and reads its version:
 
 ```wfl
-wait for spawn command "wfl" with arguments ["--version"] as child
+store runtime_path as call current_executable
+wait for spawn command runtime_path with arguments ["--version"] as child
 try:
     wait for process child to complete with timeout 10 and read result as outcome
     display outcome["output"]

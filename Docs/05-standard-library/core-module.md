@@ -4,6 +4,25 @@ The Core module provides essential functions for output, type introspection, and
 
 ## Functions
 
+### current_executable
+
+**Purpose:** Return the absolute path of the executable running this program.
+This takes no arguments and does not search `PATH` or enumerate environment values.
+
+```wfl
+store runtime_path as call current_executable
+display runtime_path
+```
+
+Use it when launching another WFL program with the exact same runtime. Changing
+a child's working directory does not change the returned executable identity.
+The operating system may resolve an executable symlink. Failure to locate the
+program, or a path that cannot be represented as Unicode text, raises an
+actionable runtime error instead of returning a lossy or guessed path.
+
+This identifies the host executable when WFL is embedded in another program;
+it is not the path of the `.wfl` source file. Use `script_path` for that.
+
 ### display
 
 **Purpose:** Output text or values to the console with a newline.

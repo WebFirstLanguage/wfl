@@ -31,3 +31,10 @@ literal argv and cwd, output truncation, timeout cleanup, and nested children
 under success, runtime failure and explicit program status. See the
 [acceptance evidence](../../../Engineering/evidence/2026-09-20-process-lifecycle.md)
 for observed results and remaining platform checks.
+
+The WFL-only runner also needs to select its own runtime without external
+`which`/`where` programs. `call current_executable` is a read-only core builtin
+backed by the operating system's executable path. It rejects non-Unicode paths
+instead of guessing. Its WFL tests execute the returned program and verify the
+same identity after changing a child's cwd. No environment enumeration or
+mutation API was added.

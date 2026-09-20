@@ -83,7 +83,20 @@ blocking lifecycle finding.
 features, has MSRV 1.87 (below WFL's 1.94), and is MIT/Apache-2.0 licensed.
 Both root and fuzz lockfiles include it without unrelated version changes.
 
-## Required remote acceptance
+## Same-runtime discovery follow-up
+
+Test-first commit `2596d29f` adds two WFL scenarios for `current_executable`:
+the returned program exists and reports the running WFL version, and launching
+it with a different working directory preserves its identity. The preceding
+runtime rejects the valid call with `Undefined action 'current_executable'`.
+This is missing-API availability evidence, not a failed runtime assertion.
+After native registration, explicit-call catalog/arity metadata, and the
+precise zero-argument Text contract were added, both WFL assertions passed.
+All eight existing builtin/catalog contract tests and strict root Clippy passed.
+The implementation rejects non-Unicode paths with an actionable error and
+does not enumerate or expose environment variables. Shell lookup is unnecessary.
+
+## Required remote acceptance (all follow-ups)
 
 Linux process groups/parent-death signalling cannot be executed on this Windows
 host. Existing Blacksmith Linux and Windows integration/Run WFL Programs jobs,

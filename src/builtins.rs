@@ -254,6 +254,7 @@ const LEGACY_BUILTIN_FUNCTIONS: &[&str] = &[
 /// Builtins called with `name of arguments` or `call name with arguments`.
 /// This inventory can grow without changing the legacy expression grammar.
 const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
+    "current_executable",
     "password_hash_policy",
     "hash_password_with_policy",
     "password_needs_rehash",
@@ -276,6 +277,7 @@ const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
 /// checking must only assign callable contracts to names in this runtime list.
 const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     // Core
+    "current_executable",
     "print",
     "typeof",
     "type_of",
@@ -619,7 +621,8 @@ pub fn get_function_arity(name: &str) -> usize {
 
         // === TIME FUNCTIONS ===
         // Zero argument functions
-        "now" | "today" | "datetime_now" | "time" | "date" | "current_date" | "utc_now" => 0,
+        "now" | "today" | "datetime_now" | "time" | "date" | "current_date" | "utc_now"
+        | "current_executable" => 0,
         // Single argument functions
         // (`timestamp` also accepts zero arguments at runtime, but it is listed
         // here so `timestamp of <value>` is not broken by zero-arg auto-invocation)
