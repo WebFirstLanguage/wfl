@@ -1,0 +1,7 @@
+open file at args[0] for writing as ready_file
+wait for write content "ready" into ready_file
+close file ready_file
+wait for 2000 milliseconds
+open file at args[1] for writing as marker_file
+wait for write content "delayed writer survived" into marker_file
+close file marker_file
