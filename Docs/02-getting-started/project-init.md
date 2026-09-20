@@ -33,7 +33,10 @@ Create your first `.wfl` source file using the
 
 ## Existing files and repeated runs
 
-Existing regular files are preserved byte for byte. Running `wfl init` again
+Existing regular files keep their contents and permissions. On Unix, newly
+created files use normal file permissions (`0666` restricted by your `umask`),
+so project members can read or edit them when your settings allow it.
+Running `wfl init` again
 fills in missing files and reports which files were created or kept. It does
 not merge new instructions into existing agent files or refresh an existing
 configuration.

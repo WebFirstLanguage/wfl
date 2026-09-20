@@ -164,6 +164,67 @@ preserved. The earlier full workspace and end-to-end results above retain
 their original scope and limitations; this focused check does not claim a
 new complete presubmit run.
 
+## Initial GitHub verification and review
+
+For head `5a34cadc969e2f838deb31216d043d6d8d79a075`,
+[CI run 35487564648](https://github.com/WebFirstLanguage/wfl/actions/runs/35487564648),
+[Docker runtime run 35487564664](https://github.com/WebFirstLanguage/wfl/actions/runs/35487564664),
+and [configuration lint run 35487564544](https://github.com/WebFirstLanguage/wfl/actions/runs/35487564544)
+all completed successfully. Both Linux and Windows integration logs record
+144 WFL programs passed, zero failed, 24 existing exclusions, 36 documentation
+examples passed, and the HTTP, routing, and HTTPS tests passed. Both explicitly
+passed `file_io_comprehensive.wfl`. Unix symlink coverage, workspace tests,
+extension checks, Clippy, hygiene, database tests, and fuzz compilation passed
+in their applicable jobs. These results supersede the earlier pending CI/TLS
+coverage statements for this head; they do not erase or explain the original
+local directory-scan timeout.
+
+[Codex review comment 4056051976](https://github.com/WebFirstLanguage/wfl/pull/736#discussion_r4056051976)
+identified that staged Unix files inherited tempfile's default `0600` mode,
+preventing ordinary shared-project reads. CodeRabbit reported missing helper
+documentation (78.57% docstring coverage), with no inline behavioral findings;
+Devin reported no issues. Review follow-up adds explicit Unix creation-mask
+and existing-permission regression coverage plus useful helper documentation.
+
+### Unix permissions regression
+
+- Affected base: `5a34cadc969e2f838deb31216d043d6d8d79a075`.
+- Test-only Red: `f6bb75efc939d74cf0a5f911405455657bbad1d2`.
+  [Linux integration job 106020774651](https://github.com/WebFirstLanguage/wfl/actions/runs/35489070117/job/106020774651)
+  failed at **2026-09-20 04:27:48 UTC**, before the implementation changed:
+  `init_uses_normal_file_permissions_respecting_each_child_umask` observed
+  `.wflcfg` mode `384` (`0600`) instead of `420` (`0644`) under mask `0022`.
+  The initialization suite had 16 passes and this one failure. The separate
+  Build/Test job reproduced the same assertion. Windows integration was
+  canceled by matrix fail-fast, not evidence of a Windows test failure.
+- The CLI regression covers masks `0022`, `0002`, and `0077` for all three
+  generated files, and retains existing `0640`, `0600`, and `0444` modes and
+  contents under the more permissive mask `0000`. A child shell applies each
+  mask before executing the real CLI; the Rust test process's mask is never
+  changed. The existing bounded process/output helper is shared with these
+  tests. Windows ran all 14 applicable initializer tests successfully before
+  the fix; Unix-specific assertions run in Linux CI because this host has no
+  installed Linux environment.
+- The fix asks tempfile's builder for mode `0666` on Unix at creation. The
+  operating system applies the inherited mask; there is no process-wide mask
+  mutation or later `chmod` that could undo restrictions. `persist_noclobber`,
+  preflight, preservation of existing files, and Windows defaults are retained.
+  Cached tempfile 3.27.0 source and an independent review confirm this path.
+- Helper docstrings now explain filesystem error context, CLI argument
+  handling, bounded execution, output checks, and scaffold assertions. The
+  CodeRabbit percentage is an external review result and is not assumed to
+  have changed until a fresh review reports it.
+
+Post-fix Windows validation passed: `cargo fmt --all -- --check`,
+`cargo clippy --all-targets --all-features -- -D warnings`, and
+`cargo test --all --no-fail-fast` (**2,414 passed, zero failed, 27 existing
+ignored**), including all 14 Windows initializer tests. Logs are
+`target/reports/project-init/review-workspace-tests.log` and
+`review-clippy.log`. An independent review of the actual fix found no blocking
+issues, including Unix mask handling and unchanged Windows creation defaults.
+Linux verification of the fixed revision remains pending until the next CI
+run; earlier green CI is not evidence for the new permission behavior.
+
 ## Recovery and limits
 
 No existing file is replaced, merged, or refreshed. Correct a conflicting

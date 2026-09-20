@@ -64,6 +64,8 @@ fn print_help() {
 }
 
 /// Initialize the current project without prompts or replacement of existing files.
+/// `args` contains only the arguments after `init`; a sole help flag returns
+/// without writing, while invalid arguments or initialization failures exit 2.
 fn run_init_command(args: &[String]) -> io::Result<()> {
     if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h") {
         println!("USAGE: wfl init");

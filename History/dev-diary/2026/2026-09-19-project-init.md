@@ -26,3 +26,15 @@ changelog, and repository CLI instructions now link or describe the command.
 The [change evidence](../../../Engineering/evidence/2026-09-19-project-init.md)
 records Red-to-Green results, independent review, and verification limits as
 checks complete.
+
+## 2026-09-20 addendum: Unix project permissions
+
+PR review found that tempfile's default owner-only mode carried through to
+the generated project files. A test-only commit reproduced `0600` instead of
+`0644` in Linux CI before the fix. Initialization now requests normal Unix
+file permissions at creation, letting the user's `umask` restrict them, while
+retaining no-clobber publishing and preserving existing file modes. Regression
+tests cover shared-group and private masks as well as existing read-only files.
+The project guide documents this behavior, and helper documentation was
+expanded in response to the review's docstring-coverage warning. Full Red and
+Green results remain in the linked change evidence.

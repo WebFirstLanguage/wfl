@@ -3,7 +3,7 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use tempfile::NamedTempFile;
+use tempfile::Builder;
 
 const CONFIG: &str = "\
 # Project settings created by wfl init.
@@ -26,6 +26,7 @@ pub struct InitReport {
     pub skipped: Vec<&'static str>,
 }
 
+/// Add the affected destination to a filesystem error without changing its kind.
 fn path_error(path: &Path, error: io::Error) -> io::Error {
     io::Error::new(error.kind(), format!("{}: {error}", path.display()))
 }
@@ -62,11 +63,24 @@ pub fn initialize(directory: &Path) -> io::Result<InitReport> {
         }
     }
 
+    let builder = Builder::new();
+    #[cfg(unix)]
+    let builder = {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut builder = builder;
+        // Apply the user's umask at creation, without reading or changing the
+        // process-wide mask or broadening permissions afterward with chmod.
+        builder.permissions(fs::Permissions::from_mode(0o666));
+        builder
+    };
+
     let mut staged = Vec::new();
     for (name, contents) in missing {
         let path = directory.join(name);
-        let mut temporary =
-            NamedTempFile::new_in(directory).map_err(|error| path_error(&path, error))?;
+        let mut temporary = builder
+            .tempfile_in(directory)
+            .map_err(|error| path_error(&path, error))?;
         temporary
             .write_all(contents.as_bytes())
             .map_err(|error| path_error(&path, error))?;
