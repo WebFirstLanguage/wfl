@@ -3899,7 +3899,7 @@ impl IoClient {
 
         if budget.is_deadline_exempt() {
             return Ok(OutboundHttpDeadline::MainLoop {
-                duration: budget.limits().max_duration.unwrap_or(configured_timeout),
+                duration: budget.main_loop_duration().unwrap_or(configured_timeout),
             });
         }
 
@@ -9605,10 +9605,14 @@ impl Interpreter {
 
                 // While WebSocket servers are running, spend the wait window
                 // dispatching their events to the registered handler blocks.
-                // With no WebSocket servers this is an ordinary sleep, so the
-                // statement's timing semantics are unchanged.
-                self.pump_websocket_events(std::time::Duration::from_millis(duration_ms))
+                // The pump checks eagerly and bounds its sleeping/receiving
+                // intervals, while awaiting WFL handlers normally so their
+                // finally blocks and interpreter frames always unwind.
+                self.check_wait_budget(*line, *column)?;
+                self.pump_websocket_events(Duration::from_millis(duration_ms))
                     .await?;
+                // A final wait must fail even without a later sampled check.
+                self.check_wait_budget(*line, *column)?;
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::TryStatement {
@@ -13921,17 +13925,35 @@ impl Interpreter {
         ))
     }
 
+    /// Eager deadline/cancellation check for asynchronous duration waits.
+    fn check_wait_budget(&self, line: usize, column: usize) -> Result<(), RuntimeError> {
+        self.budget
+            .check_cancelled()
+            .map_err(|e| self.budget_error(e, line, column))?;
+        if !self.budget.is_deadline_exempt() {
+            self.budget
+                .check_deadline()
+                .map_err(|e| self.budget_error(e, line, column))?;
+        }
+        Ok(())
+    }
+
     /// Drains and dispatches queued websocket events for up to `budget`, running
     /// the matching handler block for each. With no websocket servers active it
     /// is a plain sleep, preserving `wait for <duration>` semantics.
     async fn pump_websocket_events(&self, budget: Duration) -> Result<(), RuntimeError> {
         let deadline = tokio::time::Instant::now() + budget;
         loop {
+            // Check even when queued events or closed channels remain ready.
+            self.check_wait_budget(0, 0)?;
             let now = tokio::time::Instant::now();
             if now >= deadline {
                 break;
             }
             let remaining = deadline - now;
+            // Poll only the passive wait, not an arbitrary WFL handler future:
+            // dropping a handler could skip finally and leave action state.
+            let wait_slice = remaining.min(Duration::from_millis(10));
 
             // Snapshot the receivers with a short borrow; dispatch below must not
             // hold a borrow of web_socket_servers across handler execution.
@@ -13943,8 +13965,8 @@ impl Interpreter {
                     .collect();
 
             if receivers.is_empty() {
-                tokio::time::sleep(remaining).await;
-                break;
+                tokio::time::sleep(wait_slice).await;
+                continue;
             }
 
             let mut recv_futs = Vec::with_capacity(receivers.len());
@@ -13956,11 +13978,11 @@ impl Interpreter {
                 }));
             }
 
-            let sleep_fut = tokio::time::sleep(remaining);
+            let sleep_fut = tokio::time::sleep(wait_slice);
             tokio::pin!(sleep_fut);
 
             tokio::select! {
-                _ = &mut sleep_fut => break,
+                _ = &mut sleep_fut => {},
                 ((key, event), _idx, _rest) = futures_util::future::select_all(recv_futs) => {
                     if let Some(event) = event {
                         self.dispatch_ws_event(&key, event).await?;

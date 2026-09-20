@@ -313,6 +313,9 @@ executed files. It does not reset between tests or nested files, and it does not
 implicitly change the configuration of separately launched WFL children.
 Ordinary foreground subprocess operations continue sharing the invocation
 deadline, while explicit process-wait timeouts remain independently enforced.
+Duration waits observe cancellation and the invocation deadline while waiting,
+including a final wait with no following statement. Waits within an active
+`main loop` retain the server lifetime exemption.
 
 The override does not change other resource limits, subprocess permissions,
 request/stream limits, or configured per-operation timeouts. A server's `main

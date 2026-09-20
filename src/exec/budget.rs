@@ -340,6 +340,9 @@ impl std::error::Error for BudgetExceeded {}
 #[derive(Debug)]
 pub struct ExecutionBudget {
     limits: BudgetLimits,
+    /// Original finite operation ceiling for deadline-exempt main-loop HTTP.
+    /// An explicit CLI invocation override changes the run lifetime only.
+    main_loop_duration: Option<Duration>,
     started: Instant,
     cancelled: AtomicBool,
     /// Total interpreter operations charged. Also drives the clock-sampling
@@ -377,6 +380,7 @@ impl ExecutionBudget {
     /// Build a budget from explicit limits, starting the deadline clock now.
     pub fn new(limits: BudgetLimits) -> Self {
         Self {
+            main_loop_duration: limits.max_duration,
             limits,
             started: Instant::now(),
             cancelled: AtomicBool::new(false),
@@ -386,6 +390,20 @@ impl ExecutionBudget {
             ws_queued_bytes: AtomicUsize::new(0),
             main_loop_depth: AtomicUsize::new(0),
         }
+    }
+
+    /// Override only the invocation lifetime, preserving the original finite
+    /// main-loop operation ceiling. Existing explicit-budget constructors keep
+    /// their historical shared lifetime/operation-duration behavior.
+    pub fn with_invocation_timeout(limits: BudgetLimits, duration: Duration) -> Self {
+        let mut budget = Self::new(limits);
+        budget.limits.max_duration = Some(duration);
+        budget
+    }
+
+    /// Original operation duration, unaffected by a CLI lifetime override.
+    pub fn main_loop_duration(&self) -> Option<Duration> {
+        self.main_loop_duration
     }
 
     /// Build a budget from a loaded configuration. See

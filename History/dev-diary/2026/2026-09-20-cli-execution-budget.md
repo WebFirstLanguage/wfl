@@ -25,3 +25,14 @@ and unchanged HTTP limits. A separate 305-second WFL case in both integration
 jobs proves execution past the old ceiling with an explicit 330-second bound.
 The existing outer CI bound remains finite. See the matching engineering
 evidence record for Red/Green results, review and exact-head CI.
+
+Review exposed two policy boundaries that needed stronger tests: a shorter
+invocation override must not shorten main-loop HTTP or streamed responses, and
+a duration wait must observe the deadline even when it is the final statement.
+The budget now retains its original operation duration separately when the CLI
+overrides invocation lifetime, preserving existing embedded custom budgets.
+Duration waits check eagerly and poll passive sleeping/receiving in bounded
+intervals. WebSocket handlers are awaited normally so errors run their cleanup
+and unwind interpreter state; the runtime does not cancel a handler future to
+interrupt a duration wait. Dump modes reject the misplaced new option while
+preserving their handling of unrelated trailing arguments.

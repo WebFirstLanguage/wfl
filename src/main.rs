@@ -511,6 +511,12 @@ async fn run() -> io::Result<()> {
 
     // Validate the completed option set before running any operation or writing
     // output. Checking here makes conflicts independent of argument order.
+    // Dump modes do not execute script arguments, but historically ignore them.
+    // Reject only this misplaced new option without reinterpreting legacy argv.
+    if (lex_dump || ast_dump) && args[i..].iter().any(|arg| arg == "--execution-timeout") {
+        eprintln!("Error: --execution-timeout must appear before the source filename");
+        process::exit(2);
+    }
     if execution_timeout.is_some()
         && (config_check_mode || config_fix_mode || edit_mode || dump_env_mode)
     {
@@ -665,11 +671,13 @@ async fn run() -> io::Result<()> {
     let mut run_config = config.clone();
     run_config.timeout_seconds = run_config.timeout_seconds.min(300);
     let run_config = std::sync::Arc::new(run_config);
-    let mut budget_limits = wfl::exec::budget::BudgetLimits::from_config(&run_config);
-    if let Some(duration) = execution_timeout {
-        budget_limits.max_duration = Some(duration);
-    }
-    let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::new(budget_limits));
+    let budget_limits = wfl::exec::budget::BudgetLimits::from_config(&run_config);
+    let budget = std::sync::Arc::new(match execution_timeout {
+        Some(duration) => {
+            wfl::exec::budget::ExecutionBudget::with_invocation_timeout(budget_limits, duration)
+        }
+        None => wfl::exec::budget::ExecutionBudget::new(budget_limits),
+    });
 
     // Install the run budget as the current-thread budget for the ENTIRE run, so
     // every front-end phase — lexing, parsing, analysis, type checking — and the

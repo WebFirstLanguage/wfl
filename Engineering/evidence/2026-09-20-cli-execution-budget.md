@@ -129,3 +129,59 @@ expired deadline without any following checkpoint; the expanded Red was 1/5
 establish that a manually supplied 250ms budget bounds main-loop HTTP requests,
 so the remedy must distinguish a CLI invocation override without changing that
 existing API contract.
+
+Additional WFL streamed-response tests failed 0/2 on the frozen `68c46650`
+binary, covering delayed headers and delayed body reads under config 10s / CLI
+1s. Their first draft used a reserved parameter name and an ungrouped list
+expression; those fixture parse errors were corrected before the recorded
+semantic Red. An independently authored resource suite also failed its ordinary
+wait and active WebSocket wait cases while passing the main-loop exemption
+baseline (1/3). Red commits are `01416f4d`, `370ec22a`, `a5988f13`, and `028ef59e`.
+
+The final remedy retains the original main-loop operation duration privately in
+`ExecutionBudget`. Only `with_invocation_timeout` replaces run lifetime; existing
+explicit-budget constructors retain their behavior. HTTP continues choosing the
+minimum of that operation duration and the configured/remaining stream limit.
+Duration waits now check eagerly before/after the wait and each WebSocket pump
+iteration. Passive sleeping and receiving use at most 10ms intervals; handler
+dispatch is awaited normally so WFL finally blocks and interpreter state unwind.
+A reviewed intermediate outer-select design was rejected because dropping an
+arbitrary running handler could skip that cleanup. Its successful checks are
+not final-source acceptance evidence. Dump modes scan only for a misplaced new
+option, preserving the handling of unrelated trailing arguments.
+
+The resource regression was strengthened in `5d781336` after review found that
+driver-side process reaping/closing could mask a surviving descendant. The
+fixture now establishes writer readiness, releases it after the owner's
+deadline, and observes the marker before any parent poll/reap. Exact-port
+WebSocket rebind also happens before the driver's cleanup. The final frozen
+old-binary result is 1/3: the late-write assertion fails with an actual pre-reap
+write, the ordinary WebSocket wait outlives the deadline, and the exempt server
+case passes. The unchanged final-source suite passes 3/3 in about eight seconds.
+This covers an idle active WebSocket receiver; queued handler traffic remains
+covered by the existing Rust WebSocket suite, not by this new WFL fixture.
+
+The final reviewed no-drop candidate SHA-256 is
+`c0619c544b09551ce7988f58a564f50ff04e48a5e94a6f903c08a141b911c516`.
+At this source, all seven fast WFL suites pass 25/25. `cargo test --all --locked`
+passes 2,414 tests, with 27 existing ignored tests across 175 result records;
+this includes the unchanged custom-250ms main-loop HTTP contract, stream tests,
+WebSocket tests and CLI compatibility. Release build, fmt, strict Clippy,
+fuzz-target compilation, and documentation validation (36/36) pass. Local logs
+are the `*-final*` and `wait-resources-green.log` files under the same ignored
+report directory. Final source review found no remaining blocking issue.
+
+The first remote run for `68c46650`,
+[CI 35509162373](https://github.com/WebFirstLanguage/wfl/actions/runs/35509162373),
+is not acceptance evidence: Windows integration failed in unchanged
+`trusted_proxy_test::default_and_untrusted_peers_ignore_forged_forwarding` when
+binding port 53684 reported Windows address-in-use error 10048. Its Linux
+integration sibling was then cancelled, so neither long-boundary step ran.
+Both ordinary program sweeps and the other completed jobs passed. The fixture
+obtains a free port before spawning the server, which leaves a reuse window;
+the observed log does not establish who occupied it. The final local full Rust
+run passes that test unchanged. A new exact-head CI run must pass all gates;
+the earlier failure is retained rather than treated as a waiver.
+
+The final no-drop candidate also passes the actual 305-second WFL boundary
+1/1 with `--execution-timeout 330`; `green-final-long.log` records the result.
