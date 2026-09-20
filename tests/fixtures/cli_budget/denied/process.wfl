@@ -1,0 +1,3 @@
+store runtime_path as call current_executable
+wait for execute command runtime_path with arguments ["--version"] as outcome
+display "MUST NOT ESCAPE PROCESS POLICY"

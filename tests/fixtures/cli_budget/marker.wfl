@@ -1,0 +1,4 @@
+open file at args[0] for writing as marker_file
+wait for write content "executed" into marker_file
+close file marker_file
+display "MARKER WRITTEN"

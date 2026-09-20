@@ -1,0 +1,46 @@
+store runtime_path as call current_executable
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/cli_budget"
+
+define action called assert_stream_policy with parameters request_path:
+    store peer_path as path_join of fixture_root and "stream-peer.wfl"
+    wait for spawn command runtime_path with arguments [peer_path] as peer_process
+    try:
+        store startup_text as ""
+        store peer_url as ""
+        count from 1 to 200:
+            wait for read output from process peer_process as fresh_text
+            change startup_text to startup_text with fresh_text
+            for each output_line in (split startup_text by "\n"):
+                check if output_line starts with "READY ":
+                    change peer_url to trim of (substring of output_line and 6 and ((length of output_line) minus 6))
+                end check
+            end for
+            check if peer_url is not equal to "":
+                break
+            end check
+            wait for 10 milliseconds
+        end count
+        expect peer_url is not equal to "" to equal yes
+        store source_path as path_join of fixture_root and "longer-config/stream-client.wfl"
+        store request_url as peer_url with request_path
+        wait for execute command runtime_path with arguments ["--execution-timeout", "1", source_path, request_url] as outcome
+        expect outcome["success"] to equal yes
+        expect outcome["output"] to contain "RECEIVED late stream response"
+    finally:
+        close process peer_process
+    end try
+    expect (process peer_process is running) to equal no
+end action
+
+describe "Short invocation overrides retain server streaming policy":
+    test "delayed response headers use the configured server timeout":
+        call assert_stream_policy with "/head"
+    end test
+    test "delayed response body uses the configured stream timeout":
+        call assert_stream_policy with "/body"
+    end test
+end describe

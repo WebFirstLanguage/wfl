@@ -1,0 +1,20 @@
+listen for websockets on port 0 as waiting_server
+store address_parts as split waiting_server by ":"
+store listener_port as address_parts[(length of address_parts) minus 1]
+open file at args[0] for writing as ready_file
+wait for write content listener_port into ready_file
+close file ready_file
+try:
+    check if args[1] is equal to "main-loop":
+        main loop:
+            wait for 1500 milliseconds
+            display "EXEMPT WEBSOCKET WAIT FINISHED"
+            exit program
+        end loop
+    otherwise:
+        wait for 4500 milliseconds
+        display "MUST NOT FINISH WEBSOCKET WAIT"
+    end check
+finally:
+    close server waiting_server
+end try

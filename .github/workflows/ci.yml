@@ -313,6 +313,13 @@ jobs:
           RUST_MIN_STACK: '8388608'
         run: ./scripts/run_integration_tests.ps1
 
+      # Real ordinary execution beyond the historical 300-second CLI ceiling.
+      # The complete scenario/assertions are WFL; this step only invokes it.
+      # It cannot use the recursive program sweep's 30-second per-file bound.
+      - name: Verify explicit execution budget beyond five minutes
+        timeout-minutes: 6
+        run: ./target/release/wfl --execution-timeout 330 --test tests/fixtures/cli_budget/long-run.test.wfl
+
       # Validate that documentation examples still parse/analyze/lint against the
       # current release binary (testing.md requires docs validation in CI).
       # `--force` ignores the committed cache so CI always re-validates rather

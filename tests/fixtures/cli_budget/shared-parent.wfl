@@ -1,0 +1,3 @@
+wait for 700 milliseconds
+execute file at "shared-child.wfl"
+display "MUST NOT COMPLETE SHARED RUN"

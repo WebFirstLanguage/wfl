@@ -29,7 +29,6 @@ impl Server {
 
     async fn start_with_handler(proxies: &str, tls: bool, handler: &str) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let port = common::free_tcp_port();
         std::fs::write(
             directory.path().join(".wflcfg"),
             format!(
@@ -52,7 +51,8 @@ impl Server {
         std::fs::write(
             directory.path().join("server.wfl"),
             format!(
-                r#"listen on port {port}{secured} as server_handle
+                r#"listen on port 0{secured} as server_handle
+display "TRUSTED_PROXY_READY " with server_handle
 main loop:
     wait for request comes in on server_handle as req with timeout 10000
     check if path is equal to "/shutdown":
@@ -87,7 +87,7 @@ end loop
         let mut server = Self {
             child,
             directory,
-            url: format!("{}://127.0.0.1:{port}", if tls { "https" } else { "http" }),
+            url: String::new(),
             client: reqwest::Client::builder()
                 .no_proxy()
                 .danger_accept_invalid_certs(tls)
@@ -102,11 +102,24 @@ end loop
                 "server exited before readiness: {}",
                 server.log()
             );
-            if tokio::net::TcpStream::connect(("127.0.0.1", port))
-                .await
-                .is_ok()
+            // The child owns its OS-assigned port before publishing it. Reading
+            // only complete log lines avoids accepting a partial readiness write.
+            let log = server.log();
+            if let Some(address) = log
+                .split_inclusive('\n')
+                .filter(|line| line.ends_with('\n'))
+                .find_map(|line| {
+                    line.trim_end()
+                        .strip_prefix("TRUSTED_PROXY_READY WebServer::")
+                })
             {
-                break;
+                let address: std::net::SocketAddr = address.parse().expect("bound server address");
+                assert_eq!(address.ip(), std::net::Ipv4Addr::LOCALHOST);
+                assert_ne!(address.port(), 0, "server must report its assigned port");
+                server.url = format!("{}://{address}", if tls { "https" } else { "http" });
+                if tokio::net::TcpStream::connect(address).await.is_ok() {
+                    break;
+                }
             }
             assert!(
                 Instant::now() < deadline,

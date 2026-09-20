@@ -1,0 +1,72 @@
+store runtime_path as call current_executable
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/cli_budget"
+store case_root as path_join of repo_root and "target/test-artifacts/cli-budget-arguments" and (generate_uuid)
+call makedirs with case_root
+
+describe "Explicit execution budget CLI arguments":
+    teardown:
+        call remove_dir with case_root and yes
+    end teardown
+
+    test "the finite maximum is accepted without changing script arguments":
+        store source_path as path_join of fixture_root and "arguments.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "31536000", source_path, "literal spaces", "--execution-timeout", "0"] as outcome
+        expect outcome["exit_code"] to equal 0
+        expect outcome["output"] to contain "ARG:literal spaces"
+        expect outcome["output"] to contain "ARG:--execution-timeout"
+        expect outcome["output"] to contain "ARG:0"
+    end test
+
+    test "invalid operands fail before executing the source":
+        store source_path as path_join of fixture_root and "marker.wfl"
+        store marker_path as path_join of case_root and "must-not-exist.txt"
+        for each invalid_value in ["0", "-1", "1.5", "nan", "inf", "31536001", "18446744073709551616", "", "+1"]:
+            wait for execute command runtime_path with arguments ["--execution-timeout", invalid_value, source_path, marker_path] as outcome
+            expect outcome["exit_code"] to equal 2
+            expect outcome["error"] to contain "--execution-timeout requires a whole number of seconds from 1 to 31536000"
+            expect (is_file of marker_path) to equal no
+        end for
+    end test
+
+    test "missing operands and duplicate overrides are actionable errors":
+        wait for execute command runtime_path with arguments ["--execution-timeout"] as missing_outcome
+        expect missing_outcome["exit_code"] to equal 2
+        expect missing_outcome["error"] to contain "--execution-timeout requires a whole number"
+        store source_path as path_join of fixture_root and "arguments.wfl"
+        wait for execute command runtime_path with arguments ["--execution-timeout", "2", "--execution-timeout", "3", source_path] as duplicate
+        expect duplicate["exit_code"] to equal 2
+        expect duplicate["error"] to contain "--execution-timeout may be specified only once"
+    end test
+
+    test "test mode works in either prefix option order":
+        store source_path as path_join of fixture_root and "test-mode.test.wfl"
+        for each option_list in [["--test", "--execution-timeout", "3", source_path], ["--execution-timeout", "3", "--test", source_path]]:
+            wait for execute command runtime_path with arguments option_list as outcome
+            expect outcome["exit_code"] to equal 0
+            expect outcome["output"] to contain "TEST MODE EXECUTED"
+            expect outcome["output"] to contain "Failed: 0"
+        end for
+    end test
+
+    test "source-consuming modes reject an override after the filename":
+        store source_path as path_join of fixture_root and "arguments.wfl"
+        for each mode_option in ["--analyze", "--lint"]:
+            wait for execute command runtime_path with arguments [mode_option, source_path, "--execution-timeout", "3"] as outcome
+            expect outcome["exit_code"] to equal 2
+            expect outcome["error"] to contain "--execution-timeout must appear before the source filename"
+        end for
+    end test
+
+    test "non-execution operations cannot silently ignore the budget":
+        store source_path as path_join of fixture_root and "arguments.wfl"
+        for each mode_option in ["--configCheck", "--configFix", "--edit", "--dump-env"]:
+            wait for execute command runtime_path with arguments ["--execution-timeout", "3", mode_option, source_path] as outcome
+            expect outcome["exit_code"] to equal 2
+            expect outcome["error"] to contain "--execution-timeout requires source execution or analysis"
+        end for
+    end test
+end describe

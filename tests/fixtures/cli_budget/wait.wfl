@@ -1,0 +1,7 @@
+store delay_ms as parse_json of args[0]
+wait for delay_ms milliseconds
+// Exercise deadline checkpoints after sleeping, before claiming completion.
+count from 1 to 5000:
+    store observed as count
+end count
+display "COMPLETED"

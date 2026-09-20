@@ -1,0 +1,6 @@
+store runtime_path as call current_executable
+store child_path as path_join of script_directory and "late-marker.wfl"
+wait for spawn command runtime_path with arguments ["--execution-timeout", "10", child_path, args[0]] as owned_child
+display "OWNED CHILD STARTED"
+wait for process owned_child to complete with timeout 10 and read result as outcome
+display "MUST NOT COMPLETE OWNED WAIT"

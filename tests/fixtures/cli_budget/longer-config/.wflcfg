@@ -1,0 +1,3 @@
+timeout_seconds = 10
+execution_logging = false
+debug_report_enabled = false

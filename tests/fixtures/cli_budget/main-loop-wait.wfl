@@ -1,0 +1,5 @@
+main loop:
+    wait for 1500 milliseconds
+    display "SERVER WAIT RETAINED"
+    exit program
+end loop

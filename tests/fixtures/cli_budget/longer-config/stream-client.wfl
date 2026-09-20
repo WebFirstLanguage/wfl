@@ -1,0 +1,10 @@
+main loop:
+    open url at args[0] and stream response as upstream
+    try:
+        wait for next line from upstream as response_text
+        display "RECEIVED " with response_text
+    finally:
+        close upstream
+    end try
+    exit program
+end loop

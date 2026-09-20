@@ -146,6 +146,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl --dump-env`: Dump environment for troubleshooting.
 - `wfl --analyze <file>`: Run static analysis.
 - `wfl --test <file>`: Run file in test mode (executes describe/test blocks).
+- `wfl --execution-timeout <seconds> <file>`: Override only this invocation's shared deadline; whole seconds from 1 through 31536000, before the filename. Defaults, config caps and other limits remain unchanged.
 
 ## Key Language Features
 - **Natural Language Syntax**: `store name as "value"`, `check if x is greater than 5`.

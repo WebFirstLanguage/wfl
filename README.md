@@ -84,6 +84,7 @@ Other projects can run their WFL test scripts with the
 | `wfl --lint <file>` | Lint; add `--fix --in-place` to auto-fix |
 | `wfl --analyze <file>` | Static analysis |
 | `wfl --test <file>` | Run `describe`/`test` blocks |
+| `wfl --execution-timeout 1200 <file>` | Give this invocation a finite 20-minute execution budget; preserve other limits |
 | `wfl --parse <file>` / `wfl --lex <file>` | Dump the AST / tokens |
 
 ## Documentation

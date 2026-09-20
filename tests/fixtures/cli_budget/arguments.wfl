@@ -1,0 +1,3 @@
+for each argument_value in args:
+    display "ARG:" with argument_value
+end for

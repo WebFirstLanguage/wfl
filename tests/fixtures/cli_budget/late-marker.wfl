@@ -1,0 +1,4 @@
+wait for 2500 milliseconds
+open file at args[0] for writing as marker_file
+wait for write content "late child survived" into marker_file
+close file marker_file
