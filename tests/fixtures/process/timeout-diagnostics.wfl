@@ -1,0 +1,8 @@
+// A deliberate unused variable supplies a native stderr diagnostic before wait.
+store timeout_stderr_marker as 1
+display "stdout before bounded wait timeout"
+store ready_path as args[0]
+open file at ready_path for writing as ready_file
+wait for write content "ready" into ready_file
+close file ready_file
+wait for 10 seconds

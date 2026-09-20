@@ -575,7 +575,7 @@ Complete reference table of all 181 keywords.
 | `character` | Other | Pattern | ❌ | `character class` |
 | `check` | Structural | Control Flow | ❌ | `check if condition` |
 | `clear` | Other | Operations | ❌ | `clear data` |
-| `close` | Other | File I/O | ❌ | `close file` |
+| `close` | Other | File I/O / Process | ❌ | `close file` / `close process` |
 | `comes` | Other | Web/Network | ❌ | `request comes in` |
 | `command` | Other | Process | ❌ | `execute command` |
 | `connections` | Other | Web/Network | ❌ | `network connections` |
@@ -608,7 +608,7 @@ Complete reference table of all 181 keywords.
 | `exactly` | Other | Pattern | ❌ | `exactly 5 times` |
 | `execute` | Other | Process | ❌ | `execute command` |
 | `exists` | Other | File I/O | ❌ | `file exists` |
-| `exit` | Other | Control Flow | ❌ | `exit loop` / `exit program` |
+| `exit` | Other | Control Flow | ❌ | `exit loop` / `exit program with code 1` |
 | `extension` | Contextual | File I/O | ✅ | `file extension` |
 | `extensions` | Contextual | File I/O | ✅ | `file extensions` |
 | `extends` | Structural | OOP | ❌ | `container extends` |

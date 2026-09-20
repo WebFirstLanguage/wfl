@@ -1,0 +1,6 @@
+allow_shell_execution = true
+shell_execution_mode = allowlist_only
+allowed_shell_commands = target/release/wfl,target/release/wfl.exe
+kill_on_shutdown = true
+execution_logging = false
+debug_report_enabled = false

@@ -1,0 +1,4 @@
+count from 1 to 1000:
+    display "synthetic output line"
+end count
+display "final output tail"

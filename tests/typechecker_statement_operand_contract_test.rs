@@ -143,6 +143,7 @@ fn command_and_process_arguments_require_text_or_list() {
     for statement in [
         Statement::ExecuteCommandStatement {
             command: text("tool"),
+            directory: None,
             arguments: Some(boolean(true)),
             variable_name: None,
             use_shell: false,
@@ -151,6 +152,7 @@ fn command_and_process_arguments_require_text_or_list() {
         },
         Statement::SpawnProcessStatement {
             command: text("tool"),
+            directory: None,
             arguments: Some(boolean(true)),
             variable_name: "process".to_string(),
             use_shell: false,
@@ -170,6 +172,7 @@ fn command_and_process_arguments_require_text_or_list() {
     typecheck(vec![
         Statement::ExecuteCommandStatement {
             command: text("tool"),
+            directory: None,
             arguments: Some(text("--version")),
             variable_name: None,
             use_shell: false,
@@ -178,6 +181,7 @@ fn command_and_process_arguments_require_text_or_list() {
         },
         Statement::SpawnProcessStatement {
             command: text("tool"),
+            directory: None,
             arguments: Some(list(vec![text("--version")])),
             variable_name: "process".to_string(),
             use_shell: false,

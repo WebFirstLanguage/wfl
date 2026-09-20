@@ -1,0 +1,2 @@
+display current_directory
+display args[0]

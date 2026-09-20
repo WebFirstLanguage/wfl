@@ -1,0 +1,232 @@
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/process"
+store runtime_path as path_join of repo_root and "target/release/wfl"
+check if file exists at (runtime_path with ".exe"):
+    change runtime_path to runtime_path with ".exe"
+end check
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store target_root as path_join of repo_root and "target"
+store artifact_root as path_join of target_root and "test-artifacts"
+store output_root as path_join of artifact_root and "process-lifecycle"
+store fixture_id as generate_uuid
+store case_root as path_join of output_root and fixture_id
+call makedirs with case_root
+
+describe "Owned subprocess lifecycle":
+    teardown:
+        call remove_dir with case_root and yes
+    end teardown
+
+    test "foreground launch sets cwd and preserves argv literally":
+        store child_path as path_join of fixture_root and "cwd.wfl"
+        wait for execute command runtime_path with arguments [child_path, "spaces ; $ literal"] in directory case_root as outcome
+        expect outcome["exit_code"] to equal 0
+        expect outcome["output"] to contain case_root
+        expect outcome["output"] to contain "spaces ; $ literal"
+        expect current_directory to equal repo_root
+    end test
+
+    test "full completion returns joined stdout stderr and failure code":
+        store child_path as path_join of fixture_root and "error.wfl"
+        wait for spawn command runtime_path with arguments [child_path] in directory case_root as child_process
+        try:
+            wait for process child_process to complete with timeout 5 and read result as outcome
+            expect outcome["exit_code"] to equal 1
+            expect outcome["success"] to equal no
+            expect outcome["output"] to contain "synthetic stdout before error"
+            expect outcome["error"] to contain "Division by zero"
+        finally:
+            close process child_process
+        end try
+    end test
+
+    test "a timeout kills and reaps before a later suite starts":
+        store child_path as path_join of fixture_root and "late-write.wfl"
+        store marker_path as path_join of case_root and "timeout-late.txt"
+        wait for spawn command runtime_path with arguments [child_path, marker_path] as child_process
+        store saw_timeout as no
+        try:
+            wait for process child_process to complete with timeout 0.05 and read result as outcome
+        when error:
+            change saw_timeout to (error_message contains "timeout")
+        finally:
+            close process child_process
+        end try
+        expect saw_timeout to equal yes
+        expect (process child_process is running) to equal no
+        wait for 900 milliseconds
+        expect (path_exists of marker_path) to equal no
+        wait for execute command runtime_path with arguments ["--version"] as next_outcome
+        expect next_outcome["exit_code"] to equal 0
+    end test
+
+    test "a fast child completes while an unrelated slow child remains owned":
+        store child_path as path_join of fixture_root and "late-write.wfl"
+        store marker_path as path_join of case_root and "closed-late.txt"
+        wait for spawn command runtime_path with arguments [child_path, marker_path] as slow_child
+        try:
+            wait for spawn command runtime_path with arguments ["--version"] as fast_child
+            try:
+                wait for process fast_child to complete with timeout 5 and read result as outcome
+                expect outcome["exit_code"] to equal 0
+                expect (process slow_child is running) to equal yes
+            finally:
+                close process fast_child
+            end try
+        finally:
+            close process slow_child
+            close process slow_child
+        end try
+        wait for 900 milliseconds
+        expect (path_exists of marker_path) to equal no
+    end test
+
+    test "sequential completions release process capacity":
+        count from 1 to 15:
+            wait for spawn command runtime_path with arguments ["--version"] as child_process
+            try:
+                wait for process child_process to complete with timeout 5 and read result as outcome
+                expect outcome["success"] to equal yes
+            finally:
+                close process child_process
+            end try
+        end count
+    end test
+
+    test "legacy numeric wait still returns the exit code and releases capacity":
+        count from 1 to 15:
+            wait for spawn command runtime_path with arguments ["--version"] as child_process
+            wait for process child_process to complete as child_exit
+            expect child_exit to equal 0
+        end count
+    end test
+
+    test "bounded output retains the final tail and child cannot deadlock":
+        store child_path as path_join of fixture_root and "flood.wfl"
+        wait for spawn command runtime_path with arguments [child_path] as child_process
+        try:
+            wait for process child_process to complete with timeout 5 and read result as outcome
+            expect outcome["success"] to equal yes
+            expect outcome["output"] to contain "final output tail"
+            expect (length of outcome["output"]) to be less than 1025
+        finally:
+            close process child_process
+        end try
+    end test
+
+    test "program exit status crosses actions and finally without extra output":
+        store child_path as path_join of fixture_root and "exit.wfl"
+        wait for execute command runtime_path with arguments [child_path] as outcome
+        expect outcome["exit_code"] to equal 7
+        expect outcome["output"] to contain "cleanup before exit"
+        expect (outcome["output"] contains "must not run after exit") to equal no
+        expect outcome["error"] to equal ""
+    end test
+
+    test "documented exit with code alias is supported":
+        store child_path as path_join of fixture_root and "exit-alias.wfl"
+        wait for execute command runtime_path with arguments [child_path] as outcome
+        expect outcome["exit_code"] to equal 9
+    end test
+
+    test "invalid exit codes are catchable and the portable upper bound is retained":
+        for each invalid_code in [-1, 256, 1.5]:
+            store rejected as no
+            try:
+                exit program with code invalid_code
+            when error:
+                change rejected to (error_message contains "whole number from 0 to 255")
+            end try
+            expect rejected to equal yes
+        end for
+        store child_path as path_join of fixture_root and "exit-high.wfl"
+        wait for execute command runtime_path with arguments [child_path] as outcome
+        expect outcome["exit_code"] to equal 255
+        expect outcome["success"] to equal no
+    end test
+
+    test "invalid wait deadlines do not consume the child result":
+        wait for spawn command runtime_path with arguments ["--version"] as child_process
+        try:
+            for each invalid_timeout in [0, -1, 31536001]:
+                store rejected as no
+                try:
+                    wait for process child_process to complete with timeout invalid_timeout and read result as outcome
+                when error:
+                    change rejected to (error_message contains "finite positive number")
+                end try
+                expect rejected to equal yes
+            end for
+            wait for process child_process to complete with timeout 5 and read result as outcome
+            expect outcome["success"] to equal yes
+        finally:
+            close process child_process
+        end try
+    end test
+
+    test "a missing working directory fails without changing the parent directory":
+        store missing_directory as path_join of case_root and "absent"
+        store rejected as no
+        try:
+            wait for spawn command runtime_path with arguments ["--version"] in directory missing_directory as child_process
+        when error:
+            change rejected to (error_message contains "Failed to spawn")
+        end try
+        expect rejected to equal yes
+        expect current_directory to equal repo_root
+    end test
+
+    test "capacity denial and sibling close preserve a completed result":
+        wait for spawn command runtime_path with arguments ["--version"] as first_child
+        try:
+            wait for spawn command runtime_path with arguments ["--version"] as second_child
+            try:
+                store rejected as no
+                try:
+                    wait for spawn command runtime_path with arguments ["--version"] as denied_child
+                when error:
+                    change rejected to (error_message contains "Process limit reached")
+                end try
+                expect rejected to equal yes
+                close process first_child
+                wait for process second_child to complete with timeout 5 and read result as outcome
+                expect outcome["output"] to contain "WFL"
+            finally:
+                close process second_child
+            end try
+        finally:
+            close process first_child
+        end try
+    end test
+
+    test "unknown process close is idempotent but kill retains its diagnostic":
+        close process "not-a-process"
+        store failed_kill as no
+        try:
+            kill process "not-a-process"
+        when error:
+            change failed_kill to yes
+        end try
+        expect failed_kill to equal yes
+    end test
+
+    test "changing cwd retains the exact allowlisted executable":
+        store policy_root as path_join of fixture_root and "policy"
+        store child_path as path_join of policy_root and "cwd-policy.wfl"
+        wait for execute command runtime_path with arguments [child_path, case_root] as outcome
+        expect outcome["exit_code"] to equal 0
+        expect outcome["output"] to contain "authorized executable retained across cwd"
+    end test
+
+    test "formatting preserves a contextual exit status variable":
+        store source_path as path_join of fixture_root and "exit-camel.wfl"
+        store fixed_path as path_join of case_root and "fixed-exit.wfl"
+        call copy_file with source_path and fixed_path
+        wait for execute command runtime_path with arguments ["--lint", "--fix", "--in-place", fixed_path] as fixed
+        expect fixed["exit_code"] to equal 0
+        wait for execute command runtime_path with arguments [fixed_path] as outcome
+        expect outcome["exit_code"] to equal 7
+    end test
+end describe

@@ -1,0 +1,14 @@
+store runtime_path as args[0]
+store marker_path as args[1]
+store release_path as marker_path with ".release"
+store child_path as path_join of script_directory and "late-write.wfl"
+describe "Intentional assertion failure":
+    test "finally closes the owned child":
+        wait for spawn command runtime_path with arguments [child_path, marker_path, release_path] as child
+        try:
+            expect 1 to equal 2
+        finally:
+            close process child
+        end try
+    end test
+end describe

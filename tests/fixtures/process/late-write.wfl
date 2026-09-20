@@ -1,0 +1,19 @@
+store marker_path as args[0]
+check if (length of args) is greater than 1:
+    store release_path as args[1]
+    store ready_path as marker_path with ".ready"
+    open file at ready_path for writing as ready_file
+    wait for write content "ready" into ready_file
+    close file ready_file
+    count from 1 to 400:
+        check if file exists at release_path:
+            break
+        end check
+        wait for 50 milliseconds
+    end count
+otherwise:
+    wait for 800 milliseconds
+end check
+open file at marker_path for writing as marker_file
+wait for write content "unexpected late write" into marker_file
+close file marker_file

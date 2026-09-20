@@ -1130,8 +1130,14 @@ async fn run() -> io::Result<()> {
 
                             // Exit with error code if tests failed
                             if results.failed_tests > 0 {
+                                drop(interpreter);
                                 process::exit(1);
                             }
+                        }
+                        let program_exit_code = interpreter.program_exit_code();
+                        if program_exit_code != 0 {
+                            drop(interpreter);
+                            process::exit(program_exit_code);
                         }
                     }
                     Err(errors) => {
@@ -1182,6 +1188,7 @@ async fn run() -> io::Result<()> {
 
                         // A program that died with a runtime error must not
                         // report success to the shell.
+                        drop(interpreter);
                         process::exit(1);
                     }
                 }

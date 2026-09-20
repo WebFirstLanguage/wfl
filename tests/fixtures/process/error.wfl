@@ -1,0 +1,3 @@
+display "synthetic stdout before error"
+store invalid_number as 1 divided by 0
+display invalid_number

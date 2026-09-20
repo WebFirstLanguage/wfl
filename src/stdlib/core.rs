@@ -32,8 +32,25 @@ pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 }
 
+/// Locate this interpreter without a shell, PATH search, or lossy path text.
+pub fn native_current_executable(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("current_executable", &args, 0)?;
+    let path = std::env::current_exe().map_err(|error| {
+        RuntimeError::new(
+            format!("current_executable could not locate the running program: {error}"),
+            0,
+            0,
+        )
+    })?;
+    let path = path.to_str().ok_or_else(|| RuntimeError::new(
+        "current_executable cannot represent the running program's path as Unicode text; use a Unicode executable path".to_string(), 0, 0,
+    ))?;
+    Ok(Value::Text(Arc::from(path)))
+}
+
 pub fn register_core(env: &mut Environment) {
     env.define_native("print", native_print);
+    env.define_native("current_executable", native_current_executable);
 
     env.define_native("typeof", native_typeof);
     env.define_native("isnothing", native_isnothing);

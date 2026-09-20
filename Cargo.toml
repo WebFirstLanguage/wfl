@@ -55,6 +55,8 @@ regex = "1.13.0"
 log = "0.4.33"
 rustyline = "18.0.1"
 tokio = { version = "1.52.3", features = ["full"] }
+process-wrap = { version = "10.0.0", default-features = false, features = ["tokio1", "job-object", "process-group", "kill-on-drop"] }
+libc = "0.2.186"
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
 encoding_rs = "0.8.35"
 # sqlx 0.9 split the old `runtime-tokio-rustls` feature into a separate runtime
@@ -113,7 +115,6 @@ dhat-ad-hoc = ["dhat"]  # if you are doing ad hoc profiling
 
 [dev-dependencies]
 rcgen = "0.14"
-libc = "0.2.186"
 criterion = "0.8"
 tokio-tungstenite = "0.30"
 

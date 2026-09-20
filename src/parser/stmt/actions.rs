@@ -1,6 +1,6 @@
 //! Action definition and call statement parsing
 
-use super::super::{Parameter, ParseError, Parser, Statement, Type};
+use super::super::{Expression, Parameter, ParseError, Parser, Statement, Type};
 use super::StmtParser;
 use super::database::DatabaseParser;
 use crate::exec_trace;
@@ -646,13 +646,16 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         // `exit program` terminates the program. `loop` may arrive as its own
         // keyword token or as a plain identifier depending on context.
         let mut scope = ExitScope::Loop;
+        let mut explicit_loop = false;
         if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordLoop => {
                     self.bump_sync(); // Consume "loop"
+                    explicit_loop = true;
                 }
                 Token::Identifier(id) if id.to_lowercase() == "loop" => {
                     self.bump_sync(); // Consume "loop"
+                    explicit_loop = true;
                 }
                 Token::Identifier(id) if id.to_lowercase() == "program" => {
                     self.bump_sync(); // Consume "program"
@@ -662,8 +665,46 @@ impl<'a> ActionParser<'a> for Parser<'a> {
             }
         }
 
+        let code = if self
+            .cursor
+            .peek()
+            .is_some_and(|t| t.token == Token::KeywordWith)
+        {
+            self.bump_sync();
+            let code_token = self.bump_sync().ok_or_else(|| {
+                self.cursor
+                    .error("Expected 'code' after 'with'".to_string())
+            })?;
+            if explicit_loop {
+                return Err(ParseError::from_token(
+                    "Use 'exit program with code' to return a program status".to_string(),
+                    code_token,
+                ));
+            }
+            scope = ExitScope::Program;
+            Some(match &code_token.token {
+                Token::Identifier(name) if name == "code" => self.parse_expression()?,
+                Token::Identifier(name) if name.starts_with("code ") => {
+                    let lead = Expression::Variable(
+                        name[5..].to_string(),
+                        code_token.line,
+                        code_token.column + 5,
+                    );
+                    self.parse_seeded_expression_continuation(lead, false)?
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        "Expected 'code' after 'with'".to_string(),
+                        code_token,
+                    ));
+                }
+            })
+        } else {
+            None
+        };
         Ok(Statement::ExitStatement {
             scope,
+            code,
             line: exit_token.line,
             column: exit_token.column,
         })

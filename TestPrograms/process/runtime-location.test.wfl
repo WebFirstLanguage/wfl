@@ -1,0 +1,19 @@
+describe "The currently running WFL executable":
+    test "the running executable is an absolute existing program":
+        store runtime_path as call current_executable
+        expect (is_file of runtime_path) to equal yes
+        expect (length of (path_dirname of runtime_path)) to be greater than 0
+        wait for execute command runtime_path with arguments ["--version"] as outcome
+        expect outcome["success"] to equal yes
+        expect outcome["output"] to contain wfl_version
+    end test
+
+    test "changing the child directory does not change executable identity":
+        store runtime_path as call current_executable
+        store repo_root as path_dirname of (path_dirname of script_directory)
+        store child_path as path_join of repo_root and "tests/fixtures/process/runtime-location.wfl"
+        wait for execute command runtime_path with arguments [child_path] in directory script_directory as outcome
+        expect outcome["exit_code"] to equal 0
+        expect (trim of outcome["output"]) to equal runtime_path
+    end test
+end describe

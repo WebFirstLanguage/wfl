@@ -1,0 +1,74 @@
+store repo_root as path_dirname of (path_dirname of script_directory)
+store fixture_root as path_join of repo_root and "tests/fixtures/process"
+store runtime_path as path_join of repo_root and "target/release/wfl"
+check if file exists at (runtime_path with ".exe"):
+    change runtime_path to runtime_path with ".exe"
+end check
+check if (length of args) is greater than 0:
+    change runtime_path to args[0]
+end check
+store target_root as path_join of repo_root and "target"
+store artifact_root as path_join of target_root and "test-artifacts"
+store output_root as path_join of artifact_root and "process-ownership"
+store fixture_id as generate_uuid
+store case_root as path_join of output_root and fixture_id
+call makedirs with case_root
+
+describe "Owned subprocess descendants":
+    teardown:
+        call remove_dir with case_root and yes
+    end teardown
+
+    test "hard timeout closes an integration driver and its grandchild":
+        store child_path as path_join of fixture_root and "nested-driver.wfl"
+        store marker_path as path_join of case_root and "grandchild-late.txt"
+        store ready_path as path_join of case_root and "driver-ready.txt"
+        wait for spawn command runtime_path with arguments [child_path, runtime_path, marker_path, ready_path, "wait"] as child_process
+        store saw_timeout as no
+        try:
+            count from 1 to 300:
+                check if file exists at ready_path:
+                    break
+                end check
+                check if (process child_process is running) is no:
+                    break
+                end check
+                wait for 50 milliseconds
+            end count
+            expect (is_file of ready_path) to equal yes
+            try:
+                wait for process child_process to complete with timeout 0.05 and read result as outcome
+            when error:
+                change saw_timeout to (error_message contains "timeout")
+            end try
+        finally:
+            close process child_process
+        end try
+        expect saw_timeout to equal yes
+        open file at (marker_path with ".release") for writing as release_file
+        wait for write content "release" into release_file
+        close file release_file
+        wait for 900 milliseconds
+        expect (path_exists of marker_path) to equal no
+    end test
+
+    test "successful driver exit also releases its owned grandchild":
+        store child_path as path_join of fixture_root and "nested-driver.wfl"
+        store marker_path as path_join of case_root and "exited-grandchild-late.txt"
+        store ready_path as path_join of case_root and "exiting-driver-ready.txt"
+        wait for spawn command runtime_path with arguments [child_path, runtime_path, marker_path, ready_path, "exit"] as child_process
+        try:
+            wait for process child_process to complete with timeout 15 and read result as outcome
+            expect outcome["exit_code"] to equal 0
+            expect (is_file of ready_path) to equal yes
+        finally:
+            close process child_process
+        end try
+        open file at (marker_path with ".release") for writing as release_file
+        wait for write content "release" into release_file
+        close file release_file
+        wait for 900 milliseconds
+        expect (path_exists of marker_path) to equal no
+    end test
+
+end describe
