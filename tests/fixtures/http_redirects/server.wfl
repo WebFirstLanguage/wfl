@@ -12,6 +12,8 @@ main loop:
             "Location" is "/destination"
             "Set-Cookie" is "sid=synthetic; Path=/; HttpOnly"
             "set-cookie" is "csrf=synthetic; Path=/"
+            "X-Request-Method" is method of incoming
+            "X-Request-Body" is body of incoming
         end map
         respond to incoming with "redirect body" and status 302 and headers redirect_headers
     otherwise:
@@ -31,7 +33,12 @@ main loop:
                 otherwise:
                     check if request_path is equal to "/slow":
                         wait for 1500 milliseconds
-                        respond to incoming with "late" and status 302
+                        try:
+                            respond to incoming with "late" and status 302
+                        when error:
+                            // The client deliberately abandons this timed-out request.
+                            display "Timed-out peer disconnected."
+                        end try
                     otherwise:
                         respond to incoming with "missing" and status 404
                     end check

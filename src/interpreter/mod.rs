@@ -2096,6 +2096,9 @@ pub struct IoClient {
     /// start-up on such a system, even for a program that never makes a
     /// request. See [`IoClient::http_client`].
     http_client: OnceCell<reqwest::Client>,
+    /// Separate pool for requests that must expose the original 3xx response.
+    /// A request never changes another request's redirect policy.
+    http_client_no_redirects: OnceCell<reqwest::Client>,
     // Registry locks cover only lookup/insertion/removal, never disk I/O.
     file_handles: std::sync::Mutex<HashMap<String, SharedFile>>,
     // Handles remain ordinary Text values for display/type/equality. Their
@@ -2518,6 +2521,26 @@ where
     Ok(bytes)
 }
 
+/// Keep the original scalar header contract while exposing repeated fields
+/// losslessly. In particular, Set-Cookie fields must never be comma-joined.
+fn response_header_values(response_headers: Vec<(String, String)>) -> (Value, Value) {
+    let mut scalar_headers = HashMap::new();
+    let mut repeated_headers: HashMap<String, Vec<Value>> = HashMap::new();
+    for (name, text) in response_headers {
+        let value = Value::Text(text.into());
+        scalar_headers.insert(name.clone(), value.clone());
+        repeated_headers.entry(name).or_default().push(value);
+    }
+    let repeated_headers = repeated_headers
+        .into_iter()
+        .map(|(name, values)| (name, Value::List(Rc::new(RefCell::new(values)))))
+        .collect();
+    (
+        Value::Object(Rc::new(RefCell::new(scalar_headers))),
+        Value::Object(Rc::new(RefCell::new(repeated_headers))),
+    )
+}
+
 impl IoClient {
     /// The shared outbound HTTP client, built on first use.
     ///
@@ -2530,15 +2553,31 @@ impl IoClient {
     /// and turns a genuinely unusable TLS stack into an ordinary WFL runtime
     /// error raised at the request that needs it.
     fn http_client(&self) -> Result<&reqwest::Client, HttpClientError> {
-        self.http_client.get_or_try_init(|| {
-            reqwest::Client::builder()
+        self.http_client_with_redirects(true)
+    }
+
+    fn http_client_with_redirects(
+        &self,
+        follow_redirects: bool,
+    ) -> Result<&reqwest::Client, HttpClientError> {
+        let client = if follow_redirects {
+            &self.http_client
+        } else {
+            &self.http_client_no_redirects
+        };
+        client.get_or_try_init(|| {
+            let builder = reqwest::Client::builder()
                 // Defence in depth against reusing a socket the peer has
                 // already closed: see HTTP_POOL_IDLE_TIMEOUT_SECONDS.
-                .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECONDS))
-                .build()
-                .map_err(|error| {
-                    HttpClientError::Request(format!("Could not create HTTP client: {error}"))
-                })
+                .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECONDS));
+            let builder = if follow_redirects {
+                builder
+            } else {
+                builder.redirect(reqwest::redirect::Policy::none())
+            };
+            builder.build().map_err(|error| {
+                HttpClientError::Request(format!("Could not create HTTP client: {error}"))
+            })
         })
     }
 
@@ -2685,6 +2724,7 @@ impl IoClient {
     fn new(config: Arc<WflConfig>) -> Self {
         Self {
             http_client: OnceCell::new(),
+            http_client_no_redirects: OnceCell::new(),
             file_handles: std::sync::Mutex::new(HashMap::new()),
             file_handle_values: std::sync::Mutex::new(FileHandleValues::default()),
             next_file_id: Mutex::new(1),
@@ -2939,12 +2979,15 @@ impl IoClient {
         url: &str,
         headers: &[(String, String)],
         body: Option<String>,
+        follow_redirects: bool,
         budget: Arc<ExecutionBudget>,
     ) -> Result<(u16, Vec<(String, String)>, String), HttpClientError> {
         let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
 
-        let mut request = self.http_client()?.request(parsed_method, url);
+        let mut request = self
+            .http_client_with_redirects(follow_redirects)?
+            .request(parsed_method, url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -2969,13 +3012,16 @@ impl IoClient {
         url: &str,
         headers: &[(String, String)],
         body: Option<String>,
+        follow_redirects: bool,
         budget: Arc<ExecutionBudget>,
     ) -> Result<(u16, Vec<(String, String)>, String), HttpClientError> {
         use futures_util::StreamExt;
 
         let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|_| HttpClientError::Request(format!("Invalid HTTP method: {method}")))?;
-        let mut request = self.http_client()?.request(parsed_method, url);
+        let mut request = self
+            .http_client_with_redirects(follow_redirects)?
+            .request(parsed_method, url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -9498,6 +9544,7 @@ impl Interpreter {
                 method,
                 headers,
                 body,
+                follow_redirects,
                 variable_name,
                 full_response,
                 line,
@@ -9603,16 +9650,14 @@ impl Interpreter {
                         &url_str,
                         &header_list,
                         body_str,
+                        *follow_redirects,
                         Arc::clone(&self.budget),
                     )
                     .await
                 {
                     Ok((status, response_headers, response_body)) => {
                         let value = if *full_response {
-                            let mut headers_map = HashMap::new();
-                            for (name, value) in response_headers {
-                                headers_map.insert(name, Value::Text(value.into()));
-                            }
+                            let (headers, header_values) = response_header_values(response_headers);
 
                             let mut response_map = HashMap::new();
                             response_map.insert("status".to_string(), Value::Number(status as f64));
@@ -9622,10 +9667,8 @@ impl Interpreter {
                             );
                             response_map
                                 .insert("body".to_string(), Value::Text(response_body.into()));
-                            response_map.insert(
-                                "headers".to_string(),
-                                Value::Object(Rc::new(RefCell::new(headers_map))),
-                            );
+                            response_map.insert("headers".to_string(), headers);
+                            response_map.insert("header_values".to_string(), header_values);
                             Value::Object(Rc::new(RefCell::new(response_map)))
                         } else {
                             Value::Text(response_body.into())
@@ -9644,6 +9687,7 @@ impl Interpreter {
                 method,
                 headers,
                 body,
+                follow_redirects,
                 variable_name,
                 line,
                 column,
@@ -9750,6 +9794,7 @@ impl Interpreter {
                     &url_str,
                     &header_list,
                     body_str,
+                    *follow_redirects,
                     Arc::clone(&self.budget),
                 );
                 let disconnect = self.any_client_disconnected(self.downstream_disconnect_senders());
@@ -9770,19 +9815,14 @@ impl Interpreter {
                         self.io_client
                             .claim_stream_owner(&handle_id, &owner)
                             .map_err(|error| self.http_client_error(error, *line, *column))?;
-                        let mut headers_map = HashMap::new();
-                        for (name, value) in response_headers {
-                            headers_map.insert(name, Value::Text(value.into()));
-                        }
+                        let (headers, header_values) = response_header_values(response_headers);
 
                         let mut stream_map = HashMap::new();
                         stream_map.insert("status".to_string(), Value::Number(status as f64));
                         stream_map
                             .insert("ok".to_string(), Value::Bool((200..300).contains(&status)));
-                        stream_map.insert(
-                            "headers".to_string(),
-                            Value::Object(Rc::new(RefCell::new(headers_map))),
-                        );
+                        stream_map.insert("headers".to_string(), headers);
+                        stream_map.insert("header_values".to_string(), header_values);
                         // Internal id used by `wait for next chunk|line` and
                         // `close`. Underscore-prefixed to signal "not for
                         // direct program use", mirroring request objects.
@@ -17932,6 +17972,7 @@ mod outbound_stream_deadline_tests {
                 &format!("http://127.0.0.1:{port}/active-close"),
                 &[],
                 None,
+                true,
                 Arc::clone(&budget),
             )
             .await
@@ -17995,7 +18036,7 @@ mod outbound_stream_deadline_tests {
         let started = Instant::now();
         let url = format!("http://127.0.0.1:{}/delayed-head", upstream.port);
         let mut opening =
-            Box::pin(client.open_http_stream("GET", &url, &[], None, Arc::clone(&budget)));
+            Box::pin(client.open_http_stream("GET", &url, &[], None, true, Arc::clone(&budget)));
         tokio::select! {
             result = opening.as_mut() => {
                 panic!("stream opened before the response-head latch: {result:?}")
@@ -18064,6 +18105,7 @@ mod outbound_stream_deadline_tests {
                 &format!("http://127.0.0.1:{port}/ready-expiry-race"),
                 &[],
                 None,
+                true,
                 Arc::clone(&budget),
             )
             .await
@@ -18380,6 +18422,7 @@ mod outbound_stream_deadline_tests {
                 &format!("http://127.0.0.1:{port}/unterminated"),
                 &[],
                 None,
+                true,
                 Arc::clone(&budget),
             ),
         )
@@ -18487,6 +18530,7 @@ mod outbound_stream_deadline_tests {
                     &format!("http://127.0.0.1:{port}/unterminated"),
                     &[],
                     None,
+                    true,
                     Arc::clone(&budget),
                 )
                 .await
@@ -18573,6 +18617,7 @@ mod outbound_stream_deadline_tests {
                     &format!("http://127.0.0.1:{port}/stall/{sequence}"),
                     &[],
                     None,
+                    true,
                     Arc::clone(&budget),
                 )
                 .await
@@ -18658,6 +18703,7 @@ mod outbound_stream_deadline_tests {
                     &format!("http://127.0.0.1:{port}/close/{sequence}"),
                     &[],
                     None,
+                    true,
                     Arc::clone(&budget),
                 )
                 .await
@@ -18674,6 +18720,7 @@ mod outbound_stream_deadline_tests {
                 &format!("http://127.0.0.1:{port}/empty"),
                 &[],
                 None,
+                true,
                 Arc::clone(&budget),
             )
             .await
@@ -18692,6 +18739,7 @@ mod outbound_stream_deadline_tests {
                 &format!("http://127.0.0.1:{port}/truncated"),
                 &[],
                 None,
+                true,
                 Arc::clone(&budget),
             )
             .await

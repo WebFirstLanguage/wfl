@@ -419,6 +419,8 @@ pub enum Statement {
         method: Option<Expression>,
         headers: Option<Expression>,
         body: Option<Expression>,
+        /// Defaults to true; `and without following redirects` selects false.
+        follow_redirects: bool,
         variable_name: String,
         /// true for `read response as` (status/ok/body/headers object),
         /// false for `read content as` (body text only)
@@ -439,6 +441,7 @@ pub enum Statement {
         method: Option<Expression>,
         headers: Option<Expression>,
         body: Option<Expression>,
+        follow_redirects: bool,
         variable_name: String,
         line: usize,
         column: usize,

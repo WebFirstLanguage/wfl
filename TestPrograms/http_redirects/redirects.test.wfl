@@ -50,19 +50,195 @@ define action called stop_redirect_fixture with parameters fixture:
     expect process fixture_process is running to be no
 end action
 
+define action called assert_redirect_parse_failure with parameters source_text and expected_problem:
+    store artifact_directory as "target/test-artifacts/http_redirects"
+    create directory at artifact_directory
+    store source_path as artifact_directory with "/invalid.wfl"
+    create file at source_path with source_text
+    store runtime_binary as "target/release/wfl"
+    check if file exists at "target/release/wfl.exe":
+        change runtime_binary to "target/release/wfl.exe"
+    end check
+    try:
+        wait for execute command runtime_binary with arguments ["--parse", source_path] as parse_result
+        expect parse_result["exit_code"] to equal 2
+        expect parse_result["error"] contains expected_problem to be yes
+    finally:
+        delete file at source_path
+    end try
+end action
+
 describe "HTTP redirect response controls":
     test "the login redirect exposes its own status and cookie":
         store fixture as start_redirect_fixture
         try:
             store login_url as fixture["url"] with "/redirect"
-            open url at login_url with method "POST" and body "synthetic=yes" and read response as reply
+            store form_text as "synthetic=yes"
+            open url at login_url with method "POST" and body form_text and without following redirects and read response as reply
             expect reply["status"] to equal 302
             expect reply["body"] to equal "redirect body"
             store reply_headers as reply["headers"]
             expect reply_headers["location"] to equal "/destination"
             expect reply_headers contains "set-cookie" to be yes
+            expect reply_headers["x-request-method"] to equal "POST"
+            expect reply_headers["x-request-body"] to equal form_text
+            store repeated_headers as reply["header_values"]
+            store received_cookies as repeated_headers["set-cookie"]
+            expect length of received_cookies to equal 2
+            expect received_cookies contains "sid=synthetic; Path=/; HttpOnly" to be yes
+            expect received_cookies contains "csrf=synthetic; Path=/" to be yes
+            store received_locations as repeated_headers["location"]
+            expect length of received_locations to equal 1
+            expect received_locations contains "/destination" to be yes
+            store visit_url as fixture["url"] with "/visits"
+            open url at visit_url and read content as visit_total
+            expect visit_total to equal "0"
+            // A later request keeps its default policy; no-follow is per request.
+            open url at login_url and read response as followed_reply
+            expect followed_reply["status"] to equal 200
+            expect followed_reply["body"] to equal "followed"
+            open url at visit_url and read content as followed_total
+            expect followed_total to equal "1"
         finally:
             call stop_redirect_fixture with fixture
+        end try
+    end test
+
+    test "body-only forms use the same redirect option and marker words remain ordinary names":
+        store fixture as start_redirect_fixture
+        try:
+            store without following redirects as fixture["url"] with "/redirect"
+            open url at without following redirects and without following redirects and read content as original_body
+            expect original_body to equal "redirect body"
+            open url at without following redirects
+                and without following redirects as alias_body
+            expect alias_body to equal "redirect body"
+            open url at without following redirects and read content as followed_body
+            expect followed_body to equal "followed"
+        finally:
+            call stop_redirect_fixture with fixture
+        end try
+    end test
+
+    test "streamed redirects expose status repeated cookies and the original body":
+        store fixture as start_redirect_fixture
+        try:
+            store login_url as fixture["url"] with "/redirect"
+            open url at login_url and without following redirects and stream response as upstream
+            try:
+                expect upstream["status"] to equal 302
+                expect upstream["ok"] to be no
+                store stream_headers as upstream["headers"]
+                expect stream_headers["location"] to equal "/destination"
+                store repeated_headers as upstream["header_values"]
+                store received_cookies as repeated_headers["set-cookie"]
+                expect length of received_cookies to equal 2
+                expect received_cookies contains "sid=synthetic; Path=/; HttpOnly" to be yes
+                expect received_cookies contains "csrf=synthetic; Path=/" to be yes
+                wait for next line from upstream as original_line
+                expect original_line to equal "redirect body"
+                wait for next line from upstream as stream_end
+                expect stream_end to equal nothing
+            finally:
+                close upstream
+            end try
+            open url at login_url and stream response as default_stream
+            try:
+                expect default_stream["status"] to equal 200
+                wait for next line from default_stream as followed_line
+                expect followed_line to equal "followed"
+            finally:
+                close default_stream
+            end try
+        finally:
+            call stop_redirect_fixture with fixture
+        end try
+    end test
+
+    test "buffered and streamed no-follow requests still reject oversized responses":
+        store fixture as start_redirect_fixture
+        try:
+            store large_url as fixture["url"] with "/large"
+            store buffered_problem as ""
+            try:
+                open url at large_url and without following redirects and read response as too_large
+            when error:
+                change buffered_problem to error_message
+            end try
+            expect buffered_problem contains "1024" to be yes
+            store streamed_problem as ""
+            try:
+                open url at large_url and without following redirects and stream response as too_large_stream
+            when error:
+                change streamed_problem to error_message
+            end try
+            expect streamed_problem contains "1024" to be yes
+        finally:
+            call stop_redirect_fixture with fixture
+        end try
+    end test
+
+    test "a no-follow stream open remains bounded by its total lifetime":
+        store fixture as start_redirect_fixture
+        try:
+            store slow_url as fixture["url"] with "/slow"
+            store timeout_problem as ""
+            try:
+                open url at slow_url and without following redirects and stream response as late_stream
+            when error:
+                change timeout_problem to error_message
+            end try
+            expect timeout_problem contains "Outbound HTTP request exceeded timeout (1s)" to be yes
+        finally:
+            call stop_redirect_fixture with fixture
+        end try
+    end test
+
+    test "closing an unread no-follow stream makes later reads fail":
+        store fixture as start_redirect_fixture
+        try:
+            store login_url as fixture["url"] with "/redirect"
+            open url at login_url and without following redirects and stream response as upstream
+            close upstream
+            store closed_problem as ""
+            try:
+                wait for next line from upstream as late_line
+            when error:
+                change closed_problem to error_message
+            end try
+            expect closed_problem is not equal to "" to be yes
+        finally:
+            call stop_redirect_fixture with fixture
+        end try
+    end test
+
+    test "duplicate and incomplete redirect clauses have actionable parse errors":
+        call assert_redirect_parse_failure with "open url at \"http://127.0.0.1\" and without following redirects and without following redirects and read response as reply\n" and "Duplicate 'without following redirects' clause"
+        call assert_redirect_parse_failure with "open url at \"http://127.0.0.1\" and without following and read response as reply\n" and "Expected 'method', 'headers', 'body', 'without following redirects'"
+    end test
+
+    test "ordinary lint fixes preserve a redirect marker that is also a variable name":
+        store artifact_directory as "target/test-artifacts/http_redirects"
+        create directory at artifact_directory
+        store source_path as artifact_directory with "/fixable.wfl"
+        store original_source as "store without following redirects as \"http://127.0.0.1/redirect\"\nstore readableName as 1\ndisplay readableName\nopen url at without following redirects and without following redirects and read response as reply\n"
+        create file at source_path with original_source
+        store runtime_binary as "target/release/wfl"
+        check if file exists at "target/release/wfl.exe":
+            change runtime_binary to "target/release/wfl.exe"
+        end check
+        try:
+            wait for execute command runtime_binary with arguments ["--lint", "--fix", "--in-place", source_path] as fix_result
+            expect fix_result["exit_code"] to equal 0
+            open file at source_path for reading as fixed_file
+            wait for store fixed_source as read content from fixed_file
+            close file fixed_file
+            expect fixed_source contains "and without following redirects and read response" to be yes
+            expect fixed_source contains "store readable_name as 1" to be yes
+            wait for execute command runtime_binary with arguments ["--parse", source_path] as parse_result
+            expect parse_result["exit_code"] to equal 0
+        finally:
+            delete file at source_path
         end try
     end test
 end describe

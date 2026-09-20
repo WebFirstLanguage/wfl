@@ -4333,6 +4333,7 @@ impl TypeChecker {
                 full_response,
                 line: _line,
                 column: _column,
+                ..
             } => {
                 let url_type = self.infer_expression_type(url);
                 if url_type != Type::Text && !self.is_gradual_type(&url_type) {
@@ -4415,6 +4416,7 @@ impl TypeChecker {
                 variable_name,
                 line: _line,
                 column: _column,
+                ..
             } => {
                 let url_type = self.infer_expression_type(url);
                 if url_type != Type::Text && !self.is_gradual_type(&url_type) {
