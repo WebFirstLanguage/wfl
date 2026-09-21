@@ -25,8 +25,13 @@ connect to database at "postgres://user:password@localhost:5432/mydb" as db
 Notes:
 
 - SQLite files are created automatically if they do not exist.
+- File-backed SQLite uses WAL (`-wal` / `-shm` sidecar files) and a
+  five-second busy and acquire wait. A contended file fails with a database
+  error instead of waiting long enough to look like a hung program. Closing a
+  SQLite pool is bounded to the same five seconds.
 - `sqlite::memory:` opens a temporary in-memory database that disappears when
-  the connection closes.
+  the connection closes. In-memory pools stay at one connection and do not
+  create WAL files.
 - `mariadb://` URLs are accepted as an alias for `mysql://` — MariaDB speaks
   the MySQL protocol.
 - Connection failures (bad URL, unreachable server, wrong credentials) raise
@@ -138,7 +143,8 @@ end try
 - **One connection for the whole block.** `open database` maintains a pool of
   connections, and outside a transaction each statement takes whichever one is
   free. Inside the block, every statement runs on the same connection — that is
-  what makes the group atomic.
+  what makes the group atomic. File-backed SQLite pools wait at most five
+  seconds to acquire a connection or a write lock.
 - **Reads see the block's own writes.** A `query` inside the block sees rows the
   block has inserted but not yet committed. Other connections do not see them
   until the block commits.

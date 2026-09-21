@@ -8,10 +8,17 @@
 // production. Every atomicity assertion here therefore runs against a temp file.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+use wfl::interpreter::database::{self, DbPool};
 use wfl::interpreter::value::Value;
 
 mod common;
 use common::{expect_number, get_global, run_wfl};
+
+/// Shorter than the integration runner's 30-second program deadline. A pool
+/// that still uses sqlx's default 30-second acquire wait, or an unbounded
+/// `close`, matches that deadline and is reported as a runner TIMEOUT.
+const RUNNER_VISIBLE_BOUND: Duration = Duration::from_secs(8);
 
 fn expect_list(value: &Value) -> Vec<Value> {
     match value {
@@ -656,4 +663,76 @@ end count
         1.0,
         "a `break` is an ordinary exit from the block, so its work commits"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle bounds (issue #743): file-backed SQLite must not wait the
+// integration runner's 30-second deadline when the pool is busy or a
+// connection has not been returned. Isolated runs of
+// TestPrograms/database_transaction_test.wfl can finish; the suite then
+// reports TIMEOUT because a single 30-second acquire/close wait is
+// indistinguishable from a hung program once the runner has discarded
+// child logs.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn file_backed_pool_does_not_wait_the_runner_deadline_when_busy() {
+    let db = TempDb::new("acquire_bound");
+    let pool = match database::connect(&db.url)
+        .await
+        .expect("file-backed pool should open")
+    {
+        DbPool::Sqlite(pool) => pool,
+        _ => panic!("expected a SQLite pool"),
+    };
+
+    let mut held = Vec::new();
+    for index in 0..5 {
+        held.push(pool.acquire().await.unwrap_or_else(|error| {
+            panic!("connection {index} should come from the pool: {error}")
+        }));
+    }
+
+    let sixth = tokio::time::timeout(RUNNER_VISIBLE_BOUND, pool.acquire()).await;
+    drop(held);
+
+    let result = sixth.unwrap_or_else(|_| {
+        panic!(
+            "issue #743: acquiring a sixth connection waited longer than {:?}; \
+             that matches the Windows integration runner deadline and is \
+             reported as TIMEOUT database_transaction_test.wfl",
+            RUNNER_VISIBLE_BOUND
+        )
+    });
+    assert!(
+        result.is_err(),
+        "a full pool must fail the extra acquire instead of handing out a sixth connection"
+    );
+}
+
+#[tokio::test]
+async fn closing_a_file_backed_pool_does_not_wait_the_runner_deadline() {
+    let db = TempDb::new("close_bound");
+    let pool = database::connect(&db.url)
+        .await
+        .expect("file-backed pool should open");
+    let held = match &pool {
+        DbPool::Sqlite(inner) => inner
+            .acquire()
+            .await
+            .expect("one outstanding connection should be enough to stall an unbounded close"),
+        _ => panic!("expected a SQLite pool"),
+    };
+
+    let closed = tokio::time::timeout(RUNNER_VISIBLE_BOUND, database::close(pool)).await;
+    drop(held);
+
+    closed.unwrap_or_else(|_| {
+        panic!(
+            "issue #743: closing a file-backed pool with an outstanding \
+             connection waited longer than {:?}; the Windows integration \
+             runner then reports TIMEOUT instead of a close error",
+            RUNNER_VISIBLE_BOUND
+        )
+    });
 }

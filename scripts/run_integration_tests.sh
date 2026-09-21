@@ -198,10 +198,14 @@ run_test_programs() {
             print_status "Testing: $test_name"
 
             # Run with timeout to prevent hangs (guarded so 'set -e' does not
-            # abort the whole run on a failing test)
+            # abort the whole run on a failing test). Capture child logs so a
+            # timeout can be diagnosed instead of discarded (issue #743).
             exit_code=0
-            timeout "${TEST_TIMEOUT}s" "./$WFL_BINARY" "${extra_flags[@]}" "$wfl_file" > /dev/null 2>&1 || exit_code=$?
+            out_file=$(mktemp)
+            err_file=$(mktemp)
+            timeout "${TEST_TIMEOUT}s" "./$WFL_BINARY" "${extra_flags[@]}" "$wfl_file" >"$out_file" 2>"$err_file" || exit_code=$?
 
+            keep_logs=0
             if is_expected_fail "$test_name" || [[ "$wfl_file" == TestPrograms/error_examples/* ]]; then
                 # These programs intentionally end with an error
                 if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
@@ -210,9 +214,11 @@ run_test_programs() {
                 elif [ $exit_code -eq 124 ]; then
                     print_error "TIMEOUT $test_name (exceeded ${TEST_TIMEOUT}s, expected a real failure)"
                     failed_programs=$((failed_programs + 1))
+                    keep_logs=1
                 else
                     print_error "FAIL $test_name (expected a nonzero exit, got $exit_code)"
                     failed_programs=$((failed_programs + 1))
+                    keep_logs=1
                 fi
             elif [ $exit_code -eq 0 ]; then
                 print_success "PASS $test_name"
@@ -224,7 +230,25 @@ run_test_programs() {
                     print_error "FAIL $test_name (exit code: $exit_code)"
                 fi
                 failed_programs=$((failed_programs + 1))
+                keep_logs=1
             fi
+
+            if [ "$keep_logs" -eq 1 ]; then
+                log_dir="target/test-artifacts/integration-runner/${test_name}"
+                mkdir -p "$log_dir"
+                cp "$out_file" "$log_dir/stdout.log"
+                cp "$err_file" "$log_dir/stderr.log"
+                print_status "Retained child logs: $log_dir"
+                if [ -s "$out_file" ]; then
+                    print_status "stdout (last 40 lines):"
+                    tail -n 40 "$out_file"
+                fi
+                if [ -s "$err_file" ]; then
+                    print_status "stderr (last 40 lines):"
+                    tail -n 40 "$err_file"
+                fi
+            fi
+            rm -f "$out_file" "$err_file"
         fi
     done
 

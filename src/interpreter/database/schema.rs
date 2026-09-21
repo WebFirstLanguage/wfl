@@ -2,11 +2,9 @@
 //!
 //! The foreign-key switch must happen before BEGIN. A checked commit validates
 //! all references before making the schema and its migration ledger durable.
+use super::SQLITE_LOCK_WAIT;
 use sqlx::pool::PoolConnection;
 use sqlx::{Row, Sqlite, SqliteConnection, SqlitePool};
-use std::time::Duration;
-
-const LOCK_WAIT: Duration = Duration::from_secs(5);
 
 pub struct SchemaTransaction {
     connection: Option<PoolConnection<Sqlite>>,
@@ -42,7 +40,7 @@ impl SchemaTransaction {
                 .await?;
             Ok::<_, sqlx::Error>(transaction)
         };
-        match tokio::time::timeout(LOCK_WAIT, begin).await {
+        match tokio::time::timeout(SQLITE_LOCK_WAIT, begin).await {
             Ok(Ok(transaction)) => Ok(transaction),
             Ok(Err(error)) => Err(format!(
                 "Cannot start schema transaction: {error}. Another writer may hold the database; finish that operation and retry the migration. Lock acquisition waits at most 5 seconds."
