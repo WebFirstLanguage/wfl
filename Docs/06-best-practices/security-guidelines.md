@@ -2,6 +2,19 @@
 
 Security must be built into your WFL applications from the start. This guide covers essential security practices.
 
+## TLS Dependency Updates
+
+WFL requires rustls 0.23.45 or newer within the compatible 0.23 series. This
+includes the TLS 1.3 record-boundary fix for
+[RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html).
+Outbound HTTPS, secured web listeners, and TLS-enabled PostgreSQL/MySQL
+connections share this dependency. Plain HTTP and SQLite do not negotiate TLS.
+
+Rebuild WFL after updating dependencies; changing a lockfile does not update an
+already installed executable. Keep both the root and standalone fuzz workspace
+lockfiles current, and audit both. The upstream issue concerns handshake
+encryption levels; it does not demonstrate a bypass of handshake authentication.
+
 ## Input Validation
 
 **Never trust user input.** Always validate.
