@@ -1118,6 +1118,11 @@ async fn run() -> io::Result<()> {
                 };
 
                 let interpret_result = interpreter.interpret(&program).await;
+                // CLI-only: the REPL reuses an interpreter across commands and
+                // must keep database handles. A process that is about to exit
+                // has to close file-backed SQLite pools so their workers cannot
+                // outlive the integration runner's 30-second deadline (#743).
+                interpreter.close_open_databases().await;
 
                 // Calculate and display execution time if timing was requested
                 if let Some(start) = start_time {
@@ -1175,11 +1180,18 @@ async fn run() -> io::Result<()> {
 
                             println!("\n{}", "=".repeat(60));
 
-                            // Exit with error code if tests failed
-                            if results.failed_tests > 0 {
-                                drop(interpreter);
-                                process::exit(1);
-                            }
+                            // Flush before `_exit`: redirected runner logs are
+                            // the only evidence when a leftover SQLite worker
+                            // would otherwise keep the process alive past the
+                            // 30-second integration deadline (issue #743).
+                            // Successful `--test` runs must exit the same way
+                            // failing ones already do, so shutdown cannot hang
+                            // only when every assertion passed.
+                            let test_exit = if results.failed_tests > 0 { 1 } else { 0 };
+                            drop(interpreter);
+                            let _ = io::stdout().flush();
+                            let _ = io::stderr().flush();
+                            process::exit(test_exit);
                         }
                         let program_exit_code = interpreter.program_exit_code();
                         if program_exit_code != 0 {

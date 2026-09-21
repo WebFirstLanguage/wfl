@@ -2919,6 +2919,28 @@ impl IoClient {
         Ok(())
     }
 
+    /// Roll back leftover transactions and close every open pool.
+    ///
+    /// Called on interpreter start (REPL reuse) and on every program exit so a
+    /// file-backed SQLite worker cannot outlive the run and keep the process
+    /// from exiting before the integration runner's deadline (issue #743).
+    async fn close_open_databases(&self) {
+        let leftover: Vec<(u64, String)> = self
+            .db_transactions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        for (scope, handle) in leftover {
+            let _ = self.rollback_transaction(scope, &handle).await;
+        }
+        let handles: Vec<String> = self.db_handles.lock().await.keys().cloned().collect();
+        for handle in handles {
+            let _ = self.close_database(&handle).await;
+        }
+    }
+
     /// Open a transaction on `handle_id`, pinning one pooled connection to it.
     async fn begin_transaction(
         &self,
@@ -5835,6 +5857,17 @@ impl Interpreter {
     fn close_open_http_streams(&self) {
         let owner = Arc::clone(&self.open_http_streams.borrow());
         self.close_http_streams(&owner);
+    }
+
+    /// Close leftover database pools after a CLI run.
+    ///
+    /// Not called from [`Self::interpret`]: the REPL reuses one interpreter
+    /// across commands and a handle opened in one line must still work in the
+    /// next. The process-exit path in `main` calls this so a file-backed
+    /// SQLite worker cannot keep `wfl --test` alive past the integration
+    /// runner deadline (issue #743).
+    pub async fn close_open_databases(&self) {
+        self.io_client.close_open_databases().await;
     }
 
     /// Stop tracking an outbound stream id as handler-owned — it has already left
