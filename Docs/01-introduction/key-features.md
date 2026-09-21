@@ -232,9 +232,12 @@ store integrity_tag as sha256 of wfl_digest
 
 // Standard MAC for external services
 store mac as hmac_sha256 of "message" and "secret key"
+
+// Public-key verification (RFC 8032 Ed25519)
+store accepted as ed25519_verify of public_key and message and signature
 ```
 
-**Note:** WFLHASH is **experimental** and not externally audited. Please test it. For sensitive data (passwords especially), use **more than one hash** — e.g. WFLHASH then `sha256`, and for passwords always finish with `hash_password`. Use `sha256` / `hmac_sha256` alone for external interop.
+**Note:** WFLHASH is **experimental** and not externally audited. Please test it. For sensitive data (passwords especially), use **more than one hash** — e.g. WFLHASH then `sha256`, and for passwords always finish with `hash_password`. Use `sha256` / `hmac_sha256` alone for external interop. Use `ed25519_verify` when the other party signs with Ed25519.
 
 ## 8. Developer-Friendly Tooling
 

@@ -74,6 +74,7 @@ WFL's standard library provides:
 - `hash_password` / `verify_password` - Safe password storage (Argon2id by default)
 - `argon2_hash`, `bcrypt_hash`, `scrypt_hash`, `pbkdf2_hash` (+ matching `*_verify`) - Password hashing
 - `sha256` / `hmac_sha256` - Standard hash and MAC
+- `ed25519_verify` - RFC 8032 Ed25519 signature verification
 - `wflhash256` / `wflhash512` - Experimental WFLHASH (dual-hash with `sha256` for production)
 - `wflhash256_with_salt` - Experimental salted WFLHASH
 - `wflmac256` - Experimental WFL message authentication code
@@ -222,6 +223,7 @@ Try every function interactively!
 ### Crypto Module
 - Password hashing: hash_password, verify_password, argon2/bcrypt/scrypt/pbkdf2 (_hash and _verify)
 - Standard: sha256, hmac_sha256
+- Public-key signatures: ed25519_verify
 - WFLHASH (experimental): wflhash256, wflhash512, wflhash256_with_salt, wflmac256 — dual-hash with sha256 for production
 - Tokens: generate_csrf_token
 

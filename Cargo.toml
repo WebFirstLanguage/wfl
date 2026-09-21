@@ -99,6 +99,10 @@ bcrypt = "0.19"
 # a fresh random nonce per seal without a counter, so callers never touch nonces
 # and cannot reuse one. `zeroize` wipes the expanded key on drop.
 chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
+# Ed25519 (RFC 8032) verification for `ed25519_verify`. dalek is the maintained
+# implementation; WFL does not ship its own Edwards arithmetic. Default features
+# stay off so this crate only pulls verify/std — no signing API is exposed.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std"] }
 # Force newer version to fix future incompatibility warning
 num-bigint-dig = "0.8.6"
 # Direct dep so the lib can expose `init_rustls_crypto_provider()` (called by

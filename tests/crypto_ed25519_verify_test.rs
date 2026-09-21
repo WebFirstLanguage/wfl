@@ -75,6 +75,35 @@ async fn rfc8032_test2_ascii_byte_verifies() {
     );
 }
 
+/// RFC 8032 §7.1 TEST 3 — two-byte binary message `af82` (not valid UTF-8).
+const RFC8032_TEST3_PK: &str = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
+const RFC8032_TEST3_SIG: &str = "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a";
+const RFC8032_TEST3_MSG: [u8; 2] = [0xaf, 0x82];
+
+#[test]
+fn rfc8032_test3_binary_message_verifies_at_the_byte_boundary() {
+    // TEST 3's message is not valid UTF-8, so the WFL text surface cannot carry
+    // it. The native byte helper is the authoritative path for that vector.
+    let accepted = wfl::stdlib::crypto::verify_ed25519_bytes(
+        &hex_literal(RFC8032_TEST3_PK),
+        &RFC8032_TEST3_MSG,
+        &hex_literal(RFC8032_TEST3_SIG),
+    );
+    assert!(accepted, "RFC 8032 TEST 3 (message af82) must verify");
+}
+
+fn hex_literal(hex: &str) -> Vec<u8> {
+    hex.as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let text = std::str::from_utf8(pair).expect("hex fixture is ASCII");
+            u8::from_str_radix(text, 16).expect("hex fixture is valid")
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn uppercase_hex_is_accepted() {
     assert!(
@@ -146,7 +175,12 @@ async fn non_hex_signature_is_a_format_error() {
 
 #[tokio::test]
 async fn base64_public_key_is_unsupported() {
-    let error = verify_err("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511=", "r", RFC8032_TEST2_SIG).await;
+    let error = verify_err(
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511=",
+        "r",
+        RFC8032_TEST2_SIG,
+    )
+    .await;
     assert_closed_error(&error);
 }
 
@@ -163,12 +197,7 @@ async fn pem_public_key_is_unsupported() {
 
 #[tokio::test]
 async fn hex_prefix_is_unsupported() {
-    let error = verify_err(
-        &format!("0x{RFC8032_TEST2_PK}"),
-        "r",
-        RFC8032_TEST2_SIG,
-    )
-    .await;
+    let error = verify_err(&format!("0x{RFC8032_TEST2_PK}"), "r", RFC8032_TEST2_SIG).await;
     assert_closed_error(&error);
 }
 

@@ -163,6 +163,7 @@ store upper as touppercase of "text"
 - [Managed authentication](auth-module.md): session stores, rotation and revocation, request CSRF guards, secure cookies, and account attempt limits
 - Authenticated encryption: `seal`, `unseal` (XChaCha20-Poly1305) — for secrets you must read back
 - Standard hashing/MAC: `sha256`, `hmac_sha256`
+- Public-key signatures: `ed25519_verify` (RFC 8032 Ed25519; verify only)
 - WFLHASH (experimental): `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256` — dual-hash with `sha256` for production
 
 ### Configuration (TOML)

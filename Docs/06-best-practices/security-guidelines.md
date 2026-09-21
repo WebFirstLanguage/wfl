@@ -141,7 +141,7 @@ If WFLHASH were ever weaker than expected, the outer standard hash still provide
 
 ❌ **WFLHASH alone as the only integrity guarantee** for high-stakes data  
 ❌ **Password hashing** — Use `hash_password`/`verify_password` (Argon2id, bcrypt, scrypt, PBKDF2)  
-❌ **External protocols** that require a specific standard (`hmac_sha256` for Stripe/GitHub, etc.)  
+❌ **External protocols** that require a specific standard (`hmac_sha256` for Stripe/GitHub, `ed25519_verify` for RFC 8032 Ed25519, etc.)  
 ❌ **FIPS-only / formally validated crypto paths** — use the standard algorithm alone  
 
 **[Complete crypto guidelines →](../05-standard-library/crypto-module.md)**

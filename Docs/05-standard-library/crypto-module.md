@@ -5,6 +5,7 @@ The Crypto module provides cryptographic functions in four groups:
 - **Password hashing** — `hash_password`/`verify_password` and the algorithm-specific Argon2id, bcrypt, scrypt and PBKDF2 functions. Use these to store user passwords safely.
 - **Auth & session primitives** — `pbkdf2_hmac_sha256` (raw key derivation), `constant_time_equals` (timing-safe comparison), and `secure_random_bytes` (CSPRNG bytes for salts, tokens, and session IDs).
 - **Standard hashing/MAC** — `sha256` and `hmac_sha256` for interoperating with external services (webhook verification, API signing).
+- **Public-key signatures** — `ed25519_verify` for RFC 8032 Ed25519 verification (activation and other offline signatures). WFL verifies only; it does not mint keys or sign.
 - **WFLHASH (experimental)** — WFL's own hash family. Please try it, report results, and help us harden it. For production integrity, **pair it with a known-good hash** so a battle-tested algorithm always has your back.
 
 > **Hashing a password? Use `hash_password`, never `sha256` or `wflhash256` alone.** Fast hashes are built to be quick, which is exactly what makes them a poor way to store passwords — an attacker can try billions of guesses per second. The password hashing functions below are deliberately slow and salted to prevent that. For sensitive material, also prefer **more than one hash** (see below).
@@ -90,6 +91,7 @@ store standard_digest as sha256 of payload
 | Try / test / feedback on WFLHASH | `wflhash256` / `wflhash512` alone — please do |
 | Production integrity (files, caches, internal digests) | **Multi-hash:** WFLHASH then `sha256` (or another known-good hash) |
 | Interop with Stripe, GitHub, other APIs | `sha256` / `hmac_sha256` only (they will not speak WFLHASH) |
+| Ed25519 signatures (activation, offline verify) | `ed25519_verify` — hex public key, UTF-8 message, hex signature |
 | Passwords (sensitive) | **Multi-hash pre-mix** (e.g. WFLHASH then `sha256`) **then** `hash_password` — never store fast hashes alone |
 | FIPS / regulatory validated crypto | Standard algorithms only (`sha256`, etc.) |
 
@@ -105,7 +107,7 @@ store standard_digest as sha256 of payload
 - External protocols that require a specific standard algorithm
 - Environments that demand only FIPS-validated or formally audited primitives (use the standard alone)
 
-**Interoperability still needs standards alone.** WFL's `sha256` and `hmac_sha256` builtins are required when talking to external services (e.g. Stripe or GitHub webhook signatures). A custom algorithm cannot stand in there.
+**Interoperability still needs standards alone.** WFL's `sha256` and `hmac_sha256` builtins are required when talking to external services (e.g. Stripe or GitHub webhook signatures). A custom algorithm cannot stand in there. Use `ed25519_verify` when the other party produces an RFC 8032 Ed25519 signature.
 
 ## Password Hashing
 
@@ -529,6 +531,54 @@ end check
 
 ---
 
+### ed25519_verify
+
+**Purpose:** Verify an Ed25519 public-key signature (RFC 8032). This is the activation-prerequisite verifier: a site can later sign an offline payload with a private key and check it here with the matching public key. WFL does not generate keys or create signatures.
+
+**Signature:**
+```wfl
+ed25519_verify of <public_key> and <message> and <signature>
+```
+
+**Parameters:**
+- `public_key` (Text): 32-byte Ed25519 public key as 64 hexadecimal characters
+- `message` (Text): The exact signed payload. The verified bytes are this text's UTF-8 encoding — no extra prefix, suffix, or hash is applied
+- `signature` (Text): 64-byte Ed25519 signature as 128 hexadecimal characters
+
+**Returns:** Boolean — `yes` only when the signature is valid for that public key and those message bytes
+
+**Encodings:** Hex digits `0-9` `a-f` `A-F` only. PEM, OpenSSH, Base64, `0x` prefixes, and whitespace are unsupported.
+
+**Limits:** Messages longer than 1,048,576 UTF-8 bytes are rejected. Public keys and signatures have fixed sizes.
+
+**Behavior:**
+- Valid signature → `yes`
+- Wrong key, tampered message, or invalid signature → `no`
+- Truncated, non-hex, or unsupported encodings → runtime error naming `ed25519_verify` and the expected hex length. The error does not echo the key, message, or signature.
+
+**Example (RFC 8032 TEST 2):**
+```wfl
+store public_key as "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+store signature as "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"
+store accepted as ed25519_verify of public_key and "r" and signature
+
+check if accepted:
+    display "Signature is valid"
+otherwise:
+    display "Signature is not valid"
+end check
+```
+
+**Library:** Verification is implemented with [`ed25519-dalek`](https://crates.io/crates/ed25519-dalek) 2.x. WFL does not implement Edwards arithmetic itself.
+
+**Use Cases:**
+- Future Logbie website / logger activation (offline public-key check)
+- Verifying any RFC 8032 Ed25519 signature whose payload is UTF-8 text
+
+**Note:** Existing Logbie licence keys remain `LOGBIE-<id>-<HMAC-SHA256>` and still use `hmac_sha256`. `ed25519_verify` does not replace that path.
+
+---
+
 ### pbkdf2_hmac_sha256
 
 **Purpose:** Derive a key from a password using PBKDF2-HMAC-SHA256 with a caller-supplied salt, iteration count, and output length. Runs the iteration loop in native code, so the per-call cost is bounded and predictable.
@@ -894,6 +944,7 @@ display "Unique items: " with unique_items
 ✅ **Use salts for domain separation:** `wflhash256_with_salt` keeps contexts apart
 
 ✅ **Use standard MACs for external auth:** `hmac_sha256` for webhooks and third-party APIs
+✅ **Use `ed25519_verify` for Ed25519 signatures:** hex public key, UTF-8 message, hex signature
 
 ✅ **Keep keys secret:** Never expose keys in logs
 
@@ -937,6 +988,7 @@ display "Unique items: " with unique_items
 **Production passwords:** multi-hash pre-mix recommended, then always `hash_password` (Argon2id) or the algorithm-specific helpers  
 **Regulatory / FIPS-only paths:** `sha256` (or another validated standard) without depending on WFLHASH  
 **External webhooks / API signing:** `hmac_sha256`  
+**Ed25519 public-key signatures:** `ed25519_verify`  
 **Digital signatures / encryption:** Not provided by this module — use appropriate external tooling
 
 **WFLHASH is experimental: test it freely; for production integrity and sensitive data, bring a strong friend (`sha256` or another known-good hash) — and for passwords, finish with a password KDF.**
@@ -949,6 +1001,7 @@ In this module, you learned:
 ✅ **hash_password / verify_password** - Required password KDF (Argon2id by default)
 ✅ **argon2 / bcrypt / scrypt / pbkdf2** - Algorithm-specific password hashing
 ✅ **sha256 / hmac_sha256** - Standard hashing and MAC for interoperability
+✅ **ed25519_verify** - RFC 8032 Ed25519 public-key verification
 ✅ **wflhash256 / wflhash512** - Experimental WFLHASH (test it!)
 ✅ **Dual-hash production pattern** - WFLHASH then a known-good hash
 ✅ **wflhash256_with_salt** - Salted / domain-separated hashing

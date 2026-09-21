@@ -269,6 +269,7 @@ const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
     "session_cookie",
     "create_account_rate_limiter",
     "account_rate_limit_allow",
+    "ed25519_verify",
 ];
 
 /// Native functions actually installed by [`crate::stdlib::register_stdlib`].
@@ -292,6 +293,7 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     "wflmac256",
     "sha256",
     "hmac_sha256",
+    "ed25519_verify",
     "generate_csrf_token",
     "pbkdf2_hmac_sha256",
     "constant_time_equals",
@@ -556,6 +558,8 @@ pub fn get_function_arity(name: &str) -> usize {
         "wflhash256" | "wflhash512" | "sha256" | "secure_random_bytes" => 1,
         // Two argument functions
         "wflhash256_with_salt" | "wflmac256" | "hmac_sha256" | "constant_time_equals" => 2,
+        // Three argument functions: (public_key, message, signature)
+        "ed25519_verify" => 3,
         // Four argument functions: (password, salt, iterations, length)
         "pbkdf2_hmac_sha256" => 4,
 

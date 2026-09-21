@@ -2831,6 +2831,7 @@ impl TypeChecker {
 
             // Timing-safe comparison returns a boolean
             "constant_time_equals" => Type::Boolean,
+            "ed25519_verify" => Type::Boolean,
 
             // Password hashing: *_hash produce a string, *_verify produce a boolean
             "hash_password_with_policy" | "session_cookie" => Type::Text,

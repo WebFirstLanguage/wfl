@@ -3,6 +3,7 @@ use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use argon2::{Algorithm, Argon2, Params, Version};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 // argon2, scrypt and pbkdf2 all depend on the same `password-hash` crate, so the
 // traits and types re-exported here apply to `Scrypt` and `Pbkdf2` as well.
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
@@ -20,6 +21,17 @@ use zeroize::{Zeroize, Zeroizing};
 
 /// Maximum input size for wflhash functions (100MB)
 pub const MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+
+/// Maximum UTF-8 message size for `ed25519_verify` (1 MiB).
+/// Activation payloads are small; this bound keeps an untrusted message from
+/// becoming a memory/CPU DoS against the verifier.
+pub const MAX_ED25519_MESSAGE_SIZE: usize = 1024 * 1024;
+
+/// Ed25519 public key length (RFC 8032).
+const ED25519_PUBLIC_KEY_LEN: usize = 32;
+
+/// Ed25519 signature length (RFC 8032).
+const ED25519_SIGNATURE_LEN: usize = 64;
 
 /// Number of rounds in WFLHASH-P permutation (increased from 12 to 24 for security)
 const WFLHASH_ROUNDS: usize = 24;
@@ -550,6 +562,78 @@ pub fn native_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Arc::from(bytes_to_hex(
         &mac.finalize().into_bytes(),
     ))))
+}
+
+/// Ed25519 (RFC 8032) public-key verification.
+///
+/// Usage: `ed25519_verify of public_key and message and signature` → yes/no
+///
+/// The public key is 32 raw bytes as 64 hex characters; the signature is 64
+/// raw bytes as 128 hex characters. The signed bytes are the UTF-8 encoding of
+/// `message`. Invalid signatures return `no`. Malformed or unsupported
+/// encodings raise a generic error that does not echo the inputs.
+pub fn native_ed25519_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("ed25519_verify", &args, 3)?;
+
+    let public_key = expect_text(&args[0])?;
+    let message = expect_text(&args[1])?;
+    let signature = expect_text(&args[2])?;
+
+    if message.len() > MAX_ED25519_MESSAGE_SIZE {
+        return Err(RuntimeError::new(
+            format!(
+                "ed25519_verify: message exceeds maximum allowed size ({MAX_ED25519_MESSAGE_SIZE} bytes)"
+            ),
+            0,
+            0,
+        ));
+    }
+
+    let public_key_bytes = parse_ed25519_hex("public key", &public_key, ED25519_PUBLIC_KEY_LEN)?;
+    let signature_bytes = parse_ed25519_hex("signature", &signature, ED25519_SIGNATURE_LEN)?;
+
+    Ok(Value::Bool(verify_ed25519_bytes(
+        &public_key_bytes,
+        message.as_bytes(),
+        &signature_bytes,
+    )))
+}
+
+/// Verify an Ed25519 signature over raw message bytes.
+///
+/// Returns `false` for any well-formed-but-invalid key or signature, including
+/// a 32-byte value that is not a usable Ed25519 public key. Callers that have
+/// not already checked encoding must treat `false` as a closed reject.
+pub fn verify_ed25519_bytes(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
+    let public_key: [u8; ED25519_PUBLIC_KEY_LEN] = match public_key.try_into() {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let signature: [u8; ED25519_SIGNATURE_LEN] = match signature.try_into() {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let verifying_key = match VerifyingKey::from_bytes(&public_key) {
+        Ok(key) => key,
+        Err(_) => return false,
+    };
+    verifying_key
+        .verify(message, &Signature::from_bytes(&signature))
+        .is_ok()
+}
+
+fn parse_ed25519_hex(label: &str, hex: &str, expected_len: usize) -> Result<Vec<u8>, RuntimeError> {
+    match hex_to_bytes(hex).filter(|bytes| bytes.len() == expected_len) {
+        Some(bytes) => Ok(bytes),
+        None => Err(RuntimeError::new(
+            format!(
+                "ed25519_verify: {label} must be {} hex characters ({expected_len} bytes)",
+                expected_len * 2
+            ),
+            0,
+            0,
+        )),
+    }
 }
 
 /// Generate a cryptographically secure random token (for CSRF, sessions, etc.)
@@ -1489,6 +1573,7 @@ pub fn register_crypto(env: &mut Environment) {
     env.define_native("wflmac256", native_wflmac256);
     env.define_native("sha256", native_sha256);
     env.define_native("hmac_sha256", native_hmac_sha256);
+    env.define_native("ed25519_verify", native_ed25519_verify);
     env.define_native("generate_csrf_token", native_generate_csrf_token);
     // Low-level auth/session primitives
     env.define_native("pbkdf2_hmac_sha256", native_pbkdf2_hmac_sha256);

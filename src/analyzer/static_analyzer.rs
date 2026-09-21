@@ -143,6 +143,7 @@ const SECURITY_SENSITIVE_BUILTINS: &[&str] = &[
     "secure_random_bytes",
     "generate_csrf_token",
     "hmac_sha256",
+    "ed25519_verify",
     "wflmac256",
     // Authenticated encryption. Their nonces come from the OS CSPRNG rather than
     // the seedable generator, so `random_seed` does not actually weaken them —

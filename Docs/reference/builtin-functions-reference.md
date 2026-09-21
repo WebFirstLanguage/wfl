@@ -138,12 +138,13 @@ Store user passwords with these — never with fast hashes like `sha256` or `wfl
 | `constant_time_equals` | `constant_time_equals of <a> and <b>` | Boolean | Timing-safe string comparison |
 | `secure_random_bytes` | `secure_random_bytes of <n>` | Text | `n` CSPRNG bytes as hex (for salts, tokens, session IDs) |
 
-### Hashing & MAC (7 functions)
+### Hashing, MAC & signatures (8 functions)
 
 | Function | Signature | Returns | Description |
 |----------|-----------|---------|-------------|
 | `sha256` | `sha256 of <text>` | Text | Standard SHA-256 (FIPS 180-4) |
 | `hmac_sha256` | `hmac_sha256 of <message> and <key>` | Text | Standard HMAC-SHA256 (RFC 2104) |
+| `ed25519_verify` | `ed25519_verify of <public_key> and <message> and <signature>` | Boolean | RFC 8032 Ed25519 verification (hex key and signature) |
 | `wflhash256` | `wflhash256 of <text>` | Text | Experimental 256-bit WFLHASH |
 | `wflhash256_with_salt` | `wflhash256_with_salt of <text> and <salt>` | Text | Experimental salted WFLHASH |
 | `wflhash512` | `wflhash512 of <text>` | Text | Experimental 512-bit WFLHASH |

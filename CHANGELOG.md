@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`ed25519_verify`** checks an RFC 8032 Ed25519 signature. The public key is
+  32 bytes as 64 hex characters, the signature is 64 bytes as 128 hex
+  characters, and the signed bytes are the UTF-8 encoding of the message text.
+  Valid signatures return `yes`; wrong keys or tampered messages return `no`;
+  malformed or unsupported encodings raise a generic error that does not echo
+  the inputs. Messages are capped at 1 MiB. Verification uses `ed25519-dalek`;
+  WFL does not implement the primitive or expose signing. Existing HMAC licence
+  keys are unchanged.
 - **`wfl init`** creates a simple `.wflcfg`, an `AGENTS.md` pointer, and a
   `CLAUDE.md` application guide in the current directory. The guide covers WFL
   syntax, CLI validation, LSP and MCP setup, Docker testing, and documentation

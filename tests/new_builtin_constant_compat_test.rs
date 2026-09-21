@@ -20,6 +20,7 @@ const NEW_BUILTINS: &[&str] = &[
     "session_cookie",
     "create_account_rate_limiter",
     "account_rate_limit_allow",
+    "ed25519_verify",
 ];
 
 fn text(value: &str) -> Value {

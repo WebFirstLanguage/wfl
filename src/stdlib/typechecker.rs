@@ -434,6 +434,12 @@ fn register_crypto(analyzer: &mut Analyzer) {
     );
     register(
         analyzer,
+        &["ed25519_verify"],
+        vec![Type::Text, Type::Text, Type::Text],
+        Type::Boolean,
+    );
+    register(
+        analyzer,
         &["secure_random_bytes"],
         vec![Type::Number],
         Type::Text,
