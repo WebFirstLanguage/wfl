@@ -19,17 +19,29 @@
 use super::value::Value;
 use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
 use sqlx::postgres::{PgPoolOptions, PgRow};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow, SqliteSynchronous,
+};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 
 mod schema;
 pub use schema::SchemaTransaction;
 
 const MAX_POOL_CONNECTIONS: u32 = 5;
+
+/// Bound for SQLite acquire, busy, and close waits.
+///
+/// sqlx defaults `acquire_timeout` to 30 seconds and `Pool::close` waits until
+/// every connection is returned. Both match the integration runner's unchanged
+/// 30-second program deadline, so a contended file-backed pool is reported as
+/// `TIMEOUT database_transaction_test.wfl` instead of a database error
+/// (issue #743). Schema transactions already use this same five-second bound.
+pub const SQLITE_LOCK_WAIT: Duration = Duration::from_secs(5);
 
 /// A connection pool to one of the supported database backends.
 #[derive(Clone)]
@@ -109,15 +121,23 @@ pub fn value_to_sql_param(value: &Value) -> Result<SqlParam, String> {
 pub async fn connect(url: &str) -> Result<DbPool, String> {
     if url.starts_with("sqlite:") {
         let options = if url == "sqlite::memory:" || url == "sqlite://:memory:" {
-            SqliteConnectOptions::new().in_memory(true)
+            SqliteConnectOptions::new()
+                .in_memory(true)
+                .busy_timeout(SQLITE_LOCK_WAIT)
         } else {
             let path = url
                 .strip_prefix("sqlite://")
                 .or_else(|| url.strip_prefix("sqlite:"))
                 .unwrap_or(url);
+            // WAL lets the five-connection pool share one file without stacking
+            // reserved-lock waits; DELETE journal mode on Windows is what turns
+            // those waits into a runner TIMEOUT (issue #743).
             SqliteConnectOptions::new()
                 .filename(path)
                 .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal)
+                .synchronous(SqliteSynchronous::Normal)
+                .busy_timeout(SQLITE_LOCK_WAIT)
         };
         // In-memory SQLite databases exist per connection, so the pool must
         // not hand out more than one.
@@ -128,6 +148,7 @@ pub async fn connect(url: &str) -> Result<DbPool, String> {
         };
         SqlitePoolOptions::new()
             .max_connections(max_connections)
+            .acquire_timeout(SQLITE_LOCK_WAIT)
             .connect_with(options)
             .await
             .map(DbPool::Sqlite)
@@ -414,11 +435,23 @@ pub async fn rollback(tx: DbTransaction) -> Result<(), String> {
 }
 
 /// Close the pool, ending all connections.
+///
+/// SQLite `close` is bounded: an outstanding connection must not keep the
+/// process alive until the integration runner's 30-second deadline.
 pub async fn close(pool: DbPool) {
     match pool {
         DbPool::Postgres(pool) => pool.close().await,
         DbPool::MySql(pool) => pool.close().await,
-        DbPool::Sqlite(pool) => pool.close().await,
+        DbPool::Sqlite(pool) => {
+            if tokio::time::timeout(SQLITE_LOCK_WAIT, pool.close())
+                .await
+                .is_err()
+            {
+                // Dropping the pool after the deadline lets the process finish
+                // instead of matching the runner TIMEOUT. Remaining workers are
+                // reaped when the process exits.
+            }
+        }
     }
 }
 

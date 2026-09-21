@@ -230,9 +230,9 @@ if (-not (Test-Path "TestPrograms")) {
             # Run with timeout to prevent hangs. Start-Process requires DISTINCT
             # file targets for stdout and stderr — PowerShell 7 errors when the same
             # path is reused for both, and "NUL" is not a valid redirect target
-            # there — so redirect to two temp files and discard them. (Redirecting
-            # both to a single "NUL" left the whole Windows integration command
-            # unrunnable, so its assertions never actually ran.)
+            # there. Keep copies under target/test-artifacts on timeout/failure
+            # so a 30-second SQLite wait is not mistaken for a silent hang
+            # (issue #743).
             $outFile = New-TemporaryFile
             $errFile = New-TemporaryFile
             $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflArgs -NoNewWindow -PassThru -RedirectStandardOutput $outFile.FullName -RedirectStandardError $errFile.FullName
@@ -245,23 +245,45 @@ if (-not (Test-Path "TestPrograms")) {
             $isExpectedFail = ($ExpectedFailTests -contains $wflFile.Name) -or
                 ($wflFile.FullName -match '[\\/]TestPrograms[\\/]error_examples[\\/]')
 
+            $keepLogs = $false
             if (-not $completed) {
                 # Test timed out
                 $process.Kill()
                 Write-Host "[ERROR] TIMEOUT $($wflFile.Name) (exceeded ${TestTimeout}s)" -ForegroundColor Red
                 $failedPrograms++
+                $keepLogs = $true
             } elseif ($isExpectedFail) {
                 if ($process.ExitCode -ne 0) {
                     Write-Host "[SUCCESS] PASS $($wflFile.Name) (expected failure, exit code: $($process.ExitCode))" -ForegroundColor Green
                 } else {
                     Write-Host "[ERROR] FAIL $($wflFile.Name) (expected a nonzero exit, got 0)" -ForegroundColor Red
                     $failedPrograms++
+                    $keepLogs = $true
                 }
             } elseif ($process.ExitCode -eq 0) {
                 Write-Host "[SUCCESS] PASS $($wflFile.Name)" -ForegroundColor Green
             } else {
                 Write-Host "[ERROR] FAIL $($wflFile.Name) (exit code: $($process.ExitCode))" -ForegroundColor Red
                 $failedPrograms++
+                $keepLogs = $true
+            }
+
+            if ($keepLogs) {
+                $logDir = Join-Path "target\test-artifacts\integration-runner" $wflFile.Name
+                New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+                Copy-Item $outFile.FullName (Join-Path $logDir "stdout.log") -ErrorAction SilentlyContinue
+                Copy-Item $errFile.FullName (Join-Path $logDir "stderr.log") -ErrorAction SilentlyContinue
+                Write-Host "[INFO] Retained child logs: $logDir" -ForegroundColor Yellow
+                $stdoutTail = Get-Content $outFile.FullName -Tail 40 -ErrorAction SilentlyContinue
+                $stderrTail = Get-Content $errFile.FullName -Tail 40 -ErrorAction SilentlyContinue
+                if ($stdoutTail) {
+                    Write-Host "[INFO] stdout (last 40 lines):" -ForegroundColor Yellow
+                    $stdoutTail | ForEach-Object { Write-Host $_ }
+                }
+                if ($stderrTail) {
+                    Write-Host "[INFO] stderr (last 40 lines):" -ForegroundColor Yellow
+                    $stderrTail | ForEach-Object { Write-Host $_ }
+                }
             }
             Remove-Item $outFile.FullName, $errFile.FullName -ErrorAction SilentlyContinue
         }

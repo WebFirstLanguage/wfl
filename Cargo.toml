@@ -110,7 +110,8 @@ num-bigint-dig = "0.8.6"
 # into the same rustls 0.23, and rustls refuses to pick a default when both are
 # present; installing one up front keeps any ambient-default TLS path from
 # panicking. `ring` matches sqlx.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Reject TLS 1.3 messages crossing a key-change record boundary (RUSTSEC-2026-0285).
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 hyper = "1"
 
 [features]
