@@ -628,6 +628,11 @@ listen on port 8443 secured as s
 
 A plain `listen` (without `secured`) **always** serves HTTP — putting cert paths in `.wflcfg` never silently upgrades HTTP to HTTPS.
 
+For multiple certificates on the same port, use the named certificate clauses
+on `listen` described in [Multiple domains on one HTTPS port](../04-advanced-features/web-servers.md#multiple-domains-on-one-https-port).
+These default configuration paths apply to bare `secured` statements only;
+named-only listeners do not inherit a fallback certificate from configuration.
+
 #### `web_server_tls_key_file`
 
 Default TLS private key (PEM) for bare `listen … secured`.

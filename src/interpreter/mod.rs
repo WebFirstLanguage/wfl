@@ -11571,62 +11571,102 @@ impl Interpreter {
                     // HTTPS server. Certificate/key paths come from the listen
                     // statement itself, falling back to .wflcfg for the bare
                     // `secured` form.
-                    let cert_path = match &tls_config.cert_path {
-                        Some(expr) => {
-                            let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
-                            match &v {
-                                Value::Text(t) => t.to_string(),
-                                _ => {
-                                    return Err(RuntimeError::new(
-                                        format!(
-                                            "Expected text for TLS certificate path, got {v:?}"
-                                        ),
-                                        *line,
-                                        *column,
-                                    ));
+                    let default_paths = if tls_config.cert_path.is_some()
+                        || tls_config.sni_certificates.is_empty()
+                    {
+                        let cert_path = match &tls_config.cert_path {
+                            Some(expr) => {
+                                let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                                match &v {
+                                    Value::Text(t) => t.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Expected text for TLS certificate path, got {v:?}"
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
                                 }
                             }
-                        }
-                        None => match &self.config.web_server_tls_cert_file {
-                            Some(path) => path.clone(),
-                            None => {
-                                return Err(RuntimeError::new(
+                            None => match &self.config.web_server_tls_cert_file {
+                                Some(path) => path.clone(),
+                                None => {
+                                    return Err(RuntimeError::new(
                                     "This listen statement is marked 'secured' but no certificate is configured. Either write 'secured with certificate \"cert.pem\" and key \"key.pem\"' or set web_server_tls_cert_file and web_server_tls_key_file in .wflcfg".to_string(),
                                     *line,
                                     *column,
                                 ));
-                            }
-                        },
-                    };
-                    let key_path = match &tls_config.key_path {
-                        Some(expr) => {
-                            let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
-                            match &v {
-                                Value::Text(t) => t.to_string(),
-                                _ => {
-                                    return Err(RuntimeError::new(
-                                        format!(
-                                            "Expected text for TLS private key path, got {v:?}"
-                                        ),
-                                        *line,
-                                        *column,
-                                    ));
+                                }
+                            },
+                        };
+                        let key_path = match &tls_config.key_path {
+                            Some(expr) => {
+                                let v = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                                match &v {
+                                    Value::Text(t) => t.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Expected text for TLS private key path, got {v:?}"
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
                                 }
                             }
-                        }
-                        None => match &self.config.web_server_tls_key_file {
-                            Some(path) => path.clone(),
-                            None => {
-                                return Err(RuntimeError::new(
+                            None => match &self.config.web_server_tls_key_file {
+                                Some(path) => path.clone(),
+                                None => {
+                                    return Err(RuntimeError::new(
                                     "This listen statement is marked 'secured' but no private key is configured. Either write 'secured with certificate \"cert.pem\" and key \"key.pem\"' or set web_server_tls_cert_file and web_server_tls_key_file in .wflcfg".to_string(),
                                     *line,
                                     *column,
                                 ));
-                            }
-                        },
-                    };
+                                }
+                            },
+                        };
 
-                    let tls_config = match tls::load_server_config(&cert_path, &key_path) {
+                        Some((cert_path, key_path))
+                    } else {
+                        None
+                    };
+                    let mut named_certificates = Vec::new();
+                    for certificate in &tls_config.sni_certificates {
+                        let mut values = Vec::with_capacity(3);
+                        for (expr, label) in [
+                            (&certificate.hostname, "hostname"),
+                            (&certificate.cert_path, "certificate path"),
+                            (&certificate.key_path, "private key path"),
+                        ] {
+                            let value = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                            let Value::Text(text) = value else {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected text for TLS {label}, got {}",
+                                        value.type_name()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            };
+                            values.push(text.to_string());
+                        }
+                        let mut values = values.into_iter();
+                        named_certificates.push(tls::NamedCertificate {
+                            hostname: values.next().unwrap(),
+                            cert_path: values.next().unwrap(),
+                            key_path: values.next().unwrap(),
+                        });
+                    }
+                    let tls_config = match tls::load_server_config(
+                        default_paths
+                            .as_ref()
+                            .map(|(cert, key)| (cert.as_str(), key.as_str())),
+                        &named_certificates,
+                    ) {
                         Ok(config) => config,
                         Err(message) => {
                             return Err(RuntimeError::new(message, *line, *column));

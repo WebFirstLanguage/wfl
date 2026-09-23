@@ -370,6 +370,10 @@ connect to database at "sqlite://app.db" as db
 - 5 appear contextual but are actually always reserved
 
 ### "What about `secured`, `certificate`, `key`, `redirecting`, `content_type`, `transaction`, `schema`, `changes`, `without following redirects`?" → Not keywords
+
+For HTTPS, `certificate ... and key ... for "example.com"` associates a pair
+with a DNS name using the existing `for` keyword. Join more named pairs with
+`and certificate`. See [multiple-domain HTTPS](../04-advanced-features/web-servers.md#multiple-domains-on-one-https-port).
 These words are recognized purely by position — inside `listen` / `respond` statements, in `in transaction on db:` / `in transaction on db for schema changes:` / `end transaction`, or as the `and without following redirects` clause in `open url` — and are **never reserved**. Use them as variable names freely. `raise_error` is a standard-library function, not a keyword. See [Marker Words That Are Not Keywords](reserved-keywords.md#marker-words-that-are-not-keywords-at-all).
 
 ---

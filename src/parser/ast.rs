@@ -91,14 +91,25 @@ pub struct EventDefinition {
     pub column: usize,
 }
 
-/// TLS settings on a `listen` statement. Both paths `None` means the bare
+/// TLS settings on a `listen` statement. No paths or named certificates means the bare
 /// `secured` form: certificate and key paths come from .wflcfg at runtime
 /// (`web_server_tls_cert_file` / `web_server_tls_key_file`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TlsListenConfig {
     pub cert_path: Option<Expression>,
     pub key_path: Option<Expression>,
+    pub sni_certificates: Vec<TlsSniCertificate>,
 }
+
+/// A certificate selected by an exact DNS name in the TLS ClientHello.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TlsSniCertificate {
+    pub hostname: Expression,
+    pub cert_path: Expression,
+    pub key_path: Expression,
+}
+
+pub const MAX_TLS_SNI_CERTIFICATES: usize = 128;
 
 /// Which WebSocket lifecycle event an `on websocket ... end on` block handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

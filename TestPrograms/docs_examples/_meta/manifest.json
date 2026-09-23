@@ -1,4 +1,10 @@
 {
+  "docs_examples/tls_sni/multiple_domains.wfl": {
+    "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
+    "type": "snippet",
+    "validate_layers": [1, 2, 3, 4],
+    "skip_execution": true
+  },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://wfl.example.com/schemas/docs-examples-manifest.json",
   "title": "WFL Documentation Examples Manifest",

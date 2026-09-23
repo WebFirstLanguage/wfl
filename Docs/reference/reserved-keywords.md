@@ -104,6 +104,11 @@ A few words have special meaning in exactly one statement position but are **not
 - `schema`, `changes` - optional SQLite transaction mode in `in transaction on db for schema changes:`
 - `without following redirects` - per-request redirect clause in `open url at address and without following redirects and read response as reply`; the individual words and the complete phrase remain ordinary variable names outside that clause position
 
+TLS pairs can also use the existing `for` keyword to select a DNS name:
+`certificate "cert.pem" and key "key.pem" for "example.com"`. Additional named
+pairs begin with `and certificate`; this adds no reserved words. See
+[multiple-domain HTTPS](../04-advanced-features/web-servers.md#multiple-domains-on-one-https-port).
+
 `raise_error` is an ordinary standard-library function called with `call
 raise_error with message` or `raise_error of message`; it is not a keyword.
 

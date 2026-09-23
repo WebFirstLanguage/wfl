@@ -166,7 +166,7 @@ fn sni_operands_are_analyzed_and_typechecked() {
         "certificate \"c\" and key \"k\" for 42",
     ] {
         let ast = parse(&format!(
-            "listen on port 0 secured with {operand} as server"
+            "listen on port 0 secured with {operand} as secure_server"
         ));
         assert!(TypeChecker::new().check_types(&ast).is_err(), "{operand}");
     }
@@ -176,7 +176,7 @@ fn sni_operands_are_analyzed_and_typechecked() {
         "certificate \"c\" and key \"k\" for missing_host",
     ] {
         let ast = parse(&format!(
-            "listen on port 0 secured with {operand} as server"
+            "listen on port 0 secured with {operand} as secure_server"
         ));
         assert!(Analyzer::new().analyze(&ast).is_err(), "{operand}");
     }
@@ -196,7 +196,16 @@ async fn sni_binary_selects_two_certs_rejects_unknown_and_survives_stalled_clien
     let client = connector(&[&one, &two], true);
     let mut stalled = tokio::net::TcpStream::connect(addr).await.unwrap();
     // Unknown/missing SNI fails before any HTTP request reaches the application.
-    assert!(connect(addr, "unknown.test", &client).await.is_err());
+    let rejected = connect(addr, "unknown.test", &client).await.unwrap_err();
+    assert!(
+        matches!(
+            rejected
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<rustls::Error>()),
+            Some(rustls::Error::AlertReceived(_))
+        ),
+        "The server must reject unknown SNI, not merely present a mismatched certificate: {rejected}"
+    );
     assert!(
         connect(addr, "one.test", &connector(&[&one], false))
             .await
@@ -272,6 +281,10 @@ async fn sni_invalid_configuration_fails_before_binding() {
         (one.clause("*.test"), "DNS"),
         (one.clause("one.test:443"), "DNS"),
         (one.clause("one.test."), "DNS"),
+        (one.clause("127.0.0.1"), "DNS"),
+        (one.clause("https://one.test"), "DNS"),
+        (one.clause(""), "DNS"),
+        (one.clause(&format!("{}.test", "a".repeat(64))), "DNS"),
         (
             format!(
                 r#"certificate "{}" and key "{}" for "one.test""#,
@@ -309,4 +322,66 @@ async fn sni_invalid_configuration_fails_before_binding() {
             "invalid listener must not be published"
         );
     }
+}
+
+#[test]
+fn sni_parser_rejects_incomplete_ambiguous_and_oversized_lists() {
+    for clause in [
+        r#"certificate "c" and key "k" for"#,
+        r#"certificate "c" and key "k" for "one.test" and"#,
+        r#"certificate "c" and key "k" for "one.test" and certificate "c" for "two.test""#,
+        r#"certificate "c" and key "k" for "one.test" and certificate "d" and key "e""#,
+        r#"certificate "c" and key "k" and certificate "d" and key "e""#,
+    ] {
+        let code = format!("listen on port 0 secured with {clause} as secure_server");
+        assert!(
+            Parser::new(&lex_wfl_with_positions(&code)).parse().is_err(),
+            "{code}"
+        );
+    }
+    let clauses = (0..129)
+        .map(|i| format!(r#"certificate "c" and key "k" for "host{i}.test""#))
+        .collect::<Vec<_>>();
+    parse(&format!(
+        "listen on port 0 secured with {} as secure_server",
+        clauses[..128].join(" and ")
+    ));
+    let code = format!(
+        "listen on port 0 secured with {} as secure_server",
+        clauses.join(" and ")
+    );
+    let error = Parser::new(&lex_wfl_with_positions(&code))
+        .parse()
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("at most 128"));
+}
+
+#[tokio::test]
+async fn sni_runtime_checks_dynamic_operands_and_ignores_implicit_default() {
+    for operand in [
+        "certificate 42 and key \"k\" for \"one.test\"",
+        "certificate \"c\" and key 42 for \"one.test\"",
+        "certificate \"c\" and key \"k\" for 42",
+    ] {
+        let ast = parse(&format!(
+            "listen on port 0 secured with {operand} as secure_server"
+        ));
+        let error = Interpreter::new().interpret(&ast).await.unwrap_err();
+        assert!(format!("{error:?}").contains("Expected text for TLS"));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let one = Cert::new(dir.path(), "one.test");
+    let config = wfl::config::WflConfig {
+        web_server_tls_cert_file: Some("missing-default.pem".to_owned()),
+        web_server_tls_key_file: Some("missing-default.key".to_owned()),
+        ..Default::default()
+    };
+    let mut interpreter = Interpreter::with_config(Arc::new(config));
+    interpreter
+        .interpret(&parse(&format!(
+            "listen on port 0 secured with {} as secure_server\nclose server secure_server",
+            one.clause("one.test")
+        )))
+        .await
+        .unwrap();
 }
