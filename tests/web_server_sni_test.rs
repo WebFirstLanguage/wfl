@@ -421,6 +421,24 @@ close server secure_server
         panic!("order must be text")
     };
     assert_eq!(order.as_ref(), "cert;key;host;");
+
+    let invalid = source.replace(&format!("return \"{}\"", cert.cert), "return 42");
+    let mut interpreter = Interpreter::new();
+    let error = interpreter.interpret(&parse(&invalid)).await.unwrap_err();
+    assert!(format!("{error:?}").contains("Expected text for TLS certificate path"));
+    let order = interpreter
+        .global_env()
+        .borrow()
+        .get("evaluation_order")
+        .unwrap();
+    let wfl::interpreter::value::Value::Text(order) = order else {
+        panic!("order must be text")
+    };
+    assert_eq!(
+        order.as_ref(),
+        "cert;",
+        "later operands must not run after an invalid certificate path"
+    );
 }
 
 #[tokio::test]

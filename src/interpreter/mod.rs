@@ -11635,11 +11635,25 @@ impl Interpreter {
                     };
                     let mut named_certificates = Vec::new();
                     for certificate in &tls_config.sni_certificates {
-                        let mut values = Vec::with_capacity(3);
-                        for (expr, label) in [
-                            (&certificate.hostname, "hostname"),
-                            (&certificate.cert_path, "certificate path"),
-                            (&certificate.key_path, "private key path"),
+                        let mut resolved = tls::NamedCertificate {
+                            cert_path: String::new(),
+                            key_path: String::new(),
+                            hostname: String::new(),
+                        };
+                        // Expressions can call actions: preserve source order
+                        // and stop at the first invalid operand.
+                        for (expr, destination, label) in [
+                            (
+                                &certificate.cert_path,
+                                &mut resolved.cert_path,
+                                "certificate path",
+                            ),
+                            (
+                                &certificate.key_path,
+                                &mut resolved.key_path,
+                                "private key path",
+                            ),
+                            (&certificate.hostname, &mut resolved.hostname, "hostname"),
                         ] {
                             let value = self.evaluate_expression(expr, Rc::clone(&env)).await?;
                             let Value::Text(text) = value else {
@@ -11652,14 +11666,9 @@ impl Interpreter {
                                     *column,
                                 ));
                             };
-                            values.push(text.to_string());
+                            *destination = text.to_string();
                         }
-                        let mut values = values.into_iter();
-                        named_certificates.push(tls::NamedCertificate {
-                            hostname: values.next().unwrap(),
-                            cert_path: values.next().unwrap(),
-                            key_path: values.next().unwrap(),
-                        });
+                        named_certificates.push(resolved);
                     }
                     let tls_config = match tls::load_server_config(
                         default_paths

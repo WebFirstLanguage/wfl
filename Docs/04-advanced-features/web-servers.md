@@ -1208,6 +1208,8 @@ listen on port 8443 secured with
 ```
 
 Hostnames and paths may also be text variables or parenthesized expressions.
+Each clause evaluates its certificate path, key path, then hostname exactly once
+in source order, stopping at the first invalid operand.
 The listener supports up to 128 named entries. Names are matched exactly and
 case-insensitively. Use DNS names (international names in ASCII/Punycode form),
 without a URL scheme, port, trailing dot, IP address, or wildcard. A wildcard
