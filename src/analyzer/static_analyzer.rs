@@ -1347,8 +1347,18 @@ impl Analyzer {
                     self.mark_used_in_expression(headers, usages);
                 }
             }
-            Statement::ListenStatement { port, .. } => {
+            Statement::ListenStatement { port, tls, .. } => {
                 self.mark_used_in_expression(port, usages);
+                if let Some(tls) = tls {
+                    for path in tls.cert_path.iter().chain(&tls.key_path) {
+                        self.mark_used_in_expression(path, usages);
+                    }
+                    for certificate in &tls.sni_certificates {
+                        self.mark_used_in_expression(&certificate.cert_path, usages);
+                        self.mark_used_in_expression(&certificate.key_path, usages);
+                        self.mark_used_in_expression(&certificate.hostname, usages);
+                    }
+                }
             }
             Statement::WaitForRequestStatement {
                 server,
