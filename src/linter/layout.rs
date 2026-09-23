@@ -290,6 +290,13 @@ fn statement_expressions<'a>(statement: &'a Statement, pending: &mut Vec<&'a Exp
             pending.extend(redirect_to_port);
             if let Some(tls) = tls {
                 pending.extend(tls.cert_path.iter().chain(&tls.key_path));
+                for certificate in &tls.sni_certificates {
+                    pending.extend([
+                        &certificate.hostname,
+                        &certificate.cert_path,
+                        &certificate.key_path,
+                    ]);
+                }
             }
         }
         Statement::WaitForRequestStatement {

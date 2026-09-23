@@ -1,0 +1,2 @@
+listen on port 0 secured with certificate "default.pem" and key "default.key"
+    and certificate "one.pem" and key "one.key" for "one.example.com" as secure_server

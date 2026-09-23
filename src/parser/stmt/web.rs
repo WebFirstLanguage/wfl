@@ -3,7 +3,9 @@
 use super::super::{Expression, ParseError, Parser, Statement};
 use super::StmtParser;
 use crate::lexer::token::Token;
-use crate::parser::ast::{Argument, TlsListenConfig, WsHandlerEvent};
+use crate::parser::ast::{
+    Argument, MAX_TLS_SNI_CERTIFICATES, TlsListenConfig, TlsSniCertificate, WsHandlerEvent,
+};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
 pub(crate) trait WebParser<'a>: ExprParser<'a> + PrimaryExprParser<'a> {
@@ -145,22 +147,68 @@ impl<'a> WebParser<'a> for Parser<'a> {
                 {
                     // `secured with certificate <expr> and key <expr>`
                     self.bump_sync(); // Consume "with"
-                    let cert_path = self.parse_tls_path_value("certificate")?;
-                    self.expect_token(
-                        Token::KeywordAnd,
-                        "Expected 'and key ...' after certificate path",
-                    )?;
-                    let key_path = self.parse_tls_path_value("key")?;
-                    tls = Some(TlsListenConfig {
-                        cert_path: Some(cert_path),
-                        key_path: Some(key_path),
-                    });
+                    let mut config = TlsListenConfig {
+                        cert_path: None,
+                        key_path: None,
+                        sni_certificates: Vec::new(),
+                    };
+                    loop {
+                        self.skip_eol();
+                        let cert_path = self.parse_tls_path_value("certificate")?;
+                        self.expect_token(
+                            Token::KeywordAnd,
+                            "Expected 'and key ...' after certificate path",
+                        )?;
+                        let key_path = self.parse_tls_path_value("key")?;
+                        if self
+                            .cursor
+                            .peek()
+                            .is_some_and(|t| t.token == Token::KeywordFor)
+                        {
+                            self.bump_sync();
+                            let hostname = self.parse_primary_expression()?;
+                            if config.sni_certificates.len() == MAX_TLS_SNI_CERTIFICATES {
+                                return Err(ParseError::from_token(
+                                    format!(
+                                        "A secured listener supports at most {MAX_TLS_SNI_CERTIFICATES} named certificates"
+                                    ),
+                                    listen_token,
+                                ));
+                            }
+                            config.sni_certificates.push(TlsSniCertificate {
+                                hostname,
+                                cert_path,
+                                key_path,
+                            });
+                        } else if config.cert_path.is_none() && config.sni_certificates.is_empty() {
+                            // The original, unnamed pair is an explicit fallback.
+                            config.cert_path = Some(cert_path);
+                            config.key_path = Some(key_path);
+                        } else {
+                            return Err(ParseError::from_token(
+                                "Additional certificates require 'for \"hostname\"'; place an optional default certificate first".to_string(),
+                                listen_token,
+                            ));
+                        }
+                        self.skip_eol();
+                        if self
+                            .cursor
+                            .peek()
+                            .is_some_and(|t| t.token == Token::KeywordAnd)
+                        {
+                            self.bump_sync();
+                        } else {
+                            break;
+                        }
+                    }
+                    tls = Some(config);
                 } else {
                     // Bare `secured` — certificate and key paths come from
                     // .wflcfg at runtime.
                     tls = Some(TlsListenConfig {
                         cert_path: None,
                         key_path: None,
+                        sni_certificates: Vec::new(),
                     });
                 }
 

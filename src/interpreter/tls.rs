@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::future::Future;
@@ -290,10 +290,32 @@ impl Accept for SecuredIncoming {
     }
 }
 
-pub(super) fn load_server_config(
+pub(super) struct NamedCertificate {
+    pub hostname: String,
+    pub cert_path: String,
+    pub key_path: String,
+}
+
+#[derive(Debug)]
+struct CertificateResolver {
+    named: rustls::server::ResolvesServerCertUsingSni,
+    default: Option<Arc<rustls::sign::CertifiedKey>>,
+}
+
+impl rustls::server::ResolvesServerCert for CertificateResolver {
+    fn resolve(
+        &self,
+        hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        self.named.resolve(hello).or_else(|| self.default.clone())
+    }
+}
+
+fn load_certified_key(
     cert_path: &str,
     key_path: &str,
-) -> Result<rustls::ServerConfig, String> {
+    provider: &rustls::crypto::CryptoProvider,
+) -> Result<rustls::sign::CertifiedKey, String> {
     let cert_file = File::open(cert_path).map_err(|error| {
         format!(
             "Cannot open TLS certificate file '{cert_path}': {error}. For local development you can create a self-signed certificate with: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj \"/CN=localhost\""
@@ -320,18 +342,65 @@ pub(super) fn load_server_config(
             )
         })?;
 
+    rustls::sign::CertifiedKey::from_der(certs, key, provider)
+        .map_err(|error| {
+            format!(
+                "TLS certificate '{cert_path}' and private key '{key_path}' are not a valid pair: {error}"
+            )
+        })
+}
+
+pub(super) fn load_server_config(
+    default_paths: Option<(&str, &str)>,
+    certificates: &[NamedCertificate],
+) -> Result<rustls::ServerConfig, String> {
+    if certificates.len() > crate::parser::ast::MAX_TLS_SNI_CERTIFICATES {
+        return Err(format!(
+            "A secured listener supports at most {} named certificates",
+            crate::parser::ast::MAX_TLS_SNI_CERTIFICATES
+        ));
+    }
+    if default_paths.is_none() && certificates.is_empty() {
+        return Err("A secured listener needs at least one TLS certificate".to_string());
+    }
     let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let default = default_paths
+        .map(|(cert, key)| load_certified_key(cert, key, &provider).map(Arc::new))
+        .transpose()?;
+    let mut named = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut names = HashSet::new();
+    for certificate in certificates {
+        let name = &certificate.hostname;
+        // SNI contains DNS names, not URLs, ports, IP addresses or wildcard
+        // patterns. A wildcard certificate can still cover an exact name here.
+        if name.ends_with('.')
+            || name.parse::<std::net::IpAddr>().is_ok()
+            || rustls::pki_types::DnsName::try_from(name.as_str()).is_err()
+        {
+            return Err(format!(
+                "Invalid TLS DNS hostname '{name}': use an exact DNS name without a port, wildcard or trailing dot"
+            ));
+        }
+        let normalized = name.to_ascii_lowercase();
+        if !names.insert(normalized.clone()) {
+            return Err(format!(
+                "Duplicate TLS hostname '{name}' (DNS names are case-insensitive)"
+            ));
+        }
+        let key = load_certified_key(&certificate.cert_path, &certificate.key_path, &provider)?;
+        named.add(&normalized, key).map_err(|error| {
+            format!(
+                "TLS certificate '{}' is not valid for hostname '{name}': {error}",
+                certificate.cert_path
+            )
+        })?;
+    }
     let builder = rustls::ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|error| format!("Failed to configure safe TLS protocol versions: {error}"))?;
     let mut config = builder
         .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .map_err(|error| {
-            format!(
-                "TLS certificate '{cert_path}' and private key '{key_path}' are not a valid pair: {error}"
-            )
-        })?;
+        .with_cert_resolver(Arc::new(CertificateResolver { named, default }));
 
     // Match Warp's prior TLS behavior and ordering: prefer HTTP/2, with a
     // standards-compatible HTTP/1.1 fallback.

@@ -1,0 +1,10 @@
+// CI-SKIP: Requires certificate and key files covering the configured domains.
+listen on port 8443 secured with
+    certificate "one.pem" and key "one.key" for "one.example.com"
+    and certificate "two.pem" and key "two.key" for "two.example.com" as secure_server
+close server secure_server
+
+listen on port 8443 secured with
+    certificate "default.pem" and key "default.key"
+    and certificate "one.pem" and key "one.key" for "one.example.com" as fallback_server
+close server fallback_server

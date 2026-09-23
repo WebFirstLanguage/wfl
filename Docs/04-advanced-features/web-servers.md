@@ -1194,6 +1194,56 @@ curl -k https://localhost:8443/
 
 ⚠️ Self-signed certificates are for development only. In production, use a certificate from a real authority (e.g. Let's Encrypt via certbot).
 
+### Multiple domains on one HTTPS port
+
+Add `for "hostname"` to a certificate/key pair, then join additional pairs with
+`and certificate`. WFL selects the certificate using the DNS name sent by the
+client in its TLS handshake (Server Name Indication, or SNI):
+
+```wfl
+// CI-SKIP: Requires certificate and key files covering the configured domains.
+listen on port 8443 secured with
+    certificate "one.pem" and key "one.key" for "one.example.com"
+    and certificate "two.pem" and key "two.key" for "two.example.com" as secure_server
+```
+
+Hostnames and paths may also be text variables or parenthesized expressions.
+Each clause evaluates its certificate path, key path, then hostname exactly once
+in source order, stopping at the first invalid operand.
+The listener supports up to 128 named entries. Names are matched exactly and
+case-insensitively. Use DNS names (international names in ASCII/Punycode form),
+without a URL scheme, port, trailing dot, IP address, or wildcard. A wildcard
+certificate can cover a configured exact name, but `for "*.example.com"` is not
+a wildcard routing rule. Repeat the pair for each exact name it should serve.
+
+WFL loads and validates every pair before opening the listening socket. Invalid
+DNS names, duplicate names (including different capitalization), unreadable or
+malformed files, mismatched keys, and certificates that do not cover their
+configured hostname stop startup with an error. Certificates are loaded once;
+restart the listener after replacing files to pick up renewals. WFL does not
+issue or automatically renew certificates.
+
+A listener containing only named pairs rejects clients with unknown or missing
+SNI during the TLS handshake. It does not silently use the `.wflcfg` certificate
+as a fallback. To provide a fallback explicitly, put an unnamed pair first:
+
+```wfl
+// CI-SKIP: Requires certificate and key files covering the configured domains.
+listen on port 8443 secured with
+    certificate "default.pem" and key "default.key"
+    and certificate "one.pem" and key "one.key" for "one.example.com" as secure_server
+```
+
+The default pair is used when SNI is absent or does not match a named entry.
+Clients still verify that the selected certificate covers the name they used.
+Existing single-certificate statements and bare `secured` configuration behave
+as before.
+
+SNI selects the TLS certificate; it does not dispatch application handlers or
+authorize access to a site. Route requests by `header "Host" of req` and their
+path in your WFL application, and reject unknown HTTP hosts. An HTTP Host header
+can differ from the TLS name; WFL does not enforce equality between them.
+
 ### Production notes
 
 - The private key file must be readable by the WFL process — protect it with file permissions (`chmod 600 key.pem`).

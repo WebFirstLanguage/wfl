@@ -1,0 +1,23 @@
+// Named TLS certificates are validated before the listener starts.
+describe "TLS domain configuration":
+    test "invalid DNS names fail before certificate files are read":
+        store caught_message as ""
+        try:
+            listen on port 0 secured with certificate "unused.pem" and key "unused.key" for "https://example.com" as secure_server
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "Invalid TLS DNS hostname" to be yes
+    end test
+
+    test "named certificates retain the existing actionable missing-file error":
+        store caught_message as ""
+        try:
+            listen on port 0 secured with certificate "" and key "" for "one.test"
+                and certificate "" and key "" for "two.test" as secure_server
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "Cannot open TLS certificate file" to be yes
+    end test
+end describe

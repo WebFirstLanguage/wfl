@@ -7194,7 +7194,15 @@ impl TypeChecker {
                     for (path_expr, what) in [
                         (tls_config.cert_path.as_ref(), "Certificate path"),
                         (tls_config.key_path.as_ref(), "Key path"),
-                    ] {
+                    ]
+                    .into_iter()
+                    .chain(tls_config.sni_certificates.iter().flat_map(|cert| {
+                        [
+                            (Some(&cert.hostname), "TLS hostname"),
+                            (Some(&cert.cert_path), "Certificate path"),
+                            (Some(&cert.key_path), "Key path"),
+                        ]
+                    })) {
                         if let Some(expr) = path_expr {
                             let path_type = self.infer_expression_type(expr);
                             if path_type != Type::Text && !self.is_gradual_type(&path_type) {

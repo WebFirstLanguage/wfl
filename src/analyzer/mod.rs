@@ -2755,6 +2755,11 @@ impl Analyzer {
                     if let Some(key_path) = &tls_config.key_path {
                         self.analyze_expression(key_path);
                     }
+                    for certificate in &tls_config.sni_certificates {
+                        self.analyze_expression(&certificate.hostname);
+                        self.analyze_expression(&certificate.cert_path);
+                        self.analyze_expression(&certificate.key_path);
+                    }
                 }
 
                 // Analyze the redirect target port expression if present
