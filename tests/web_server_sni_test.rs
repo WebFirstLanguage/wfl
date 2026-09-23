@@ -442,6 +442,49 @@ close server secure_server
 }
 
 #[tokio::test]
+async fn sni_cli_analyzer_counts_certificate_and_hostname_variables_as_used() {
+    let dir = tempfile::tempdir().unwrap();
+    let code = r#"
+store default_cert as "default.pem"
+store default_key as "default.key"
+store named_cert as "one.pem"
+store named_key as "one.key"
+store hostname as "one.test"
+listen on port 0 secured with certificate default_cert and key default_key
+    and certificate named_cert and key named_key for hostname as secure_server
+close server secure_server
+"#;
+    std::fs::write(dir.path().join("analyze.wfl"), code).unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_wfl"))
+            .args(["--analyze", "analyze.wfl"])
+            .current_dir(dir.path())
+            .env(
+                "WFL_GLOBAL_CONFIG_PATH",
+                dir.path().join("absent-global-config"),
+            )
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        result.status.success(),
+        "--analyze must accept used TLS operands: {output}"
+    );
+    assert!(!output.contains("ANALYZE-UNUSED"), "{output}");
+}
+
+#[tokio::test]
 async fn sni_incompatible_named_key_does_not_select_compatible_default() {
     let dir = tempfile::tempdir().unwrap();
     let named = Cert::new(dir.path(), "one.test");

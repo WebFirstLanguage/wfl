@@ -2276,6 +2276,27 @@ mod tests {
     }
 
     #[test]
+    fn test_tls_operands_are_used_but_unreferenced_variables_remain_unused() {
+        let input = r#"
+store default_cert as "default.pem"
+store default_key as "default.key"
+store named_cert as "one.pem"
+store named_key as "one.key"
+store hostname as "one.test"
+store unused_tls_setting as "unused"
+listen on port 0 secured with certificate default_cert and key default_key
+    and certificate named_cert and key named_key for hostname as secure_server
+close server secure_server
+"#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+        let diagnostics = Analyzer::new().check_unused_variables(&program, 0);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+        assert!(diagnostics[0].message.contains("unused_tls_setting"));
+    }
+
+    #[test]
     fn test_streaming_statement_variables_are_not_reported_unused() {
         // Variables referenced only inside the streaming/incremental-read
         // statements must count as used — otherwise a program that opens a
