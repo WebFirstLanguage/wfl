@@ -385,3 +385,122 @@ async fn sni_runtime_checks_dynamic_operands_and_ignores_implicit_default() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn sni_evaluates_operands_once_in_source_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let cert = Cert::new(dir.path(), "one.test");
+    let source = format!(
+        r#"
+store evaluation_order as ""
+define action called choose_certificate:
+    change evaluation_order to evaluation_order with "cert;"
+    return "{}"
+end action
+define action called choose_key:
+    change evaluation_order to evaluation_order with "key;"
+    return "{}"
+end action
+define action called choose_hostname:
+    change evaluation_order to evaluation_order with "host;"
+    return "one.test"
+end action
+listen on port 0 secured with certificate choose_certificate and key choose_key for choose_hostname as secure_server
+close server secure_server
+"#,
+        cert.cert, cert.key
+    );
+    let mut interpreter = Interpreter::new();
+    interpreter.interpret(&parse(&source)).await.unwrap();
+    let order = interpreter
+        .global_env()
+        .borrow()
+        .get("evaluation_order")
+        .unwrap();
+    let wfl::interpreter::value::Value::Text(order) = order else {
+        panic!("order must be text")
+    };
+    assert_eq!(order.as_ref(), "cert;key;host;");
+}
+
+#[tokio::test]
+async fn sni_incompatible_named_key_does_not_select_compatible_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let named = Cert::new(dir.path(), "one.test");
+    let fallback_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).unwrap();
+    let fallback_cert = rcgen::CertificateParams::new(vec!["one.test".to_owned()])
+        .unwrap()
+        .self_signed(&fallback_key)
+        .unwrap();
+    let fallback = Cert {
+        cert: dir
+            .path()
+            .join("fallback.pem")
+            .to_string_lossy()
+            .replace('\\', "/"),
+        key: dir
+            .path()
+            .join("fallback.key")
+            .to_string_lossy()
+            .replace('\\', "/"),
+        der: fallback_cert.der().clone(),
+    };
+    std::fs::write(&fallback.cert, fallback_cert.pem()).unwrap();
+    std::fs::write(&fallback.key, fallback_key.serialize_pem()).unwrap();
+    let clauses = format!(
+        r#"certificate "{}" and key "{}" and {}"#,
+        fallback.cert,
+        fallback.key,
+        named.clause("one.test")
+    );
+    let (mut child, addr) = start_binary(dir.path(), &clauses, 2).await;
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(named.der.clone()).unwrap();
+    roots.add(fallback.der.clone()).unwrap();
+    let mut provider = rustls::crypto::ring::default_provider();
+    let mapping = provider.signature_verification_algorithms.mapping;
+    let index = mapping
+        .iter()
+        .position(|(scheme, _)| *scheme == rustls::SignatureScheme::ED25519)
+        .unwrap();
+    provider.signature_verification_algorithms.mapping = &mapping[index..index + 1];
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let restricted = tokio_rustls::TlsConnector::from(Arc::new(config.clone()));
+    let rejected = connect(addr, "one.test", &restricted).await.unwrap_err();
+    assert!(
+        matches!(
+            rejected
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<rustls::Error>()),
+            Some(rustls::Error::AlertReceived(_))
+        ),
+        "a known incompatible named key must fail, not fall back: {rejected}"
+    );
+    let mut no_sni = config;
+    no_sni.enable_sni = false;
+    request(
+        addr,
+        "one.test",
+        &fallback,
+        &tokio_rustls::TlsConnector::from(Arc::new(no_sni)),
+    )
+    .await;
+    request(
+        addr,
+        "one.test",
+        &named,
+        &connector(&[&named, &fallback], true),
+    )
+    .await;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
+}
