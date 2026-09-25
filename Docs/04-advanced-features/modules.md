@@ -151,6 +151,8 @@ still reported as a circular dependency (see
 
 Included files go through the same pipeline as the main program (parse, analyze, type check). Because `include from` runs the file in the parent scope — as if the code were written in the main program — type-check findings in an included file are reported the same way as in the main file: as **non-fatal warnings**. The program still runs.
 
+For a literal `include from "path.wfl"`, the CLI checks action names in that file and its transitive literal includes before reporting an undefined-action warning. It does not infer the included action's call signature at this stage; the included file still goes through its normal checks when executed. A dynamic path, an unreadable file, or a file that cannot be parsed remains unresolved, so calls to its actions may still warn. Misspelled action names continue to warn.
+
 ```text
 Type checking warnings in included file 'mod.wfl':
 error[ERROR]: Could not infer type for variable 'v'

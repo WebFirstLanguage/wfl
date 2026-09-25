@@ -1,18 +1,20 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
 use wfl::Interpreter;
 use wfl::analyzer::{Analyzer, StaticAnalyzer};
 use wfl::config;
 use wfl::debug_report;
-use wfl::diagnostics::{DiagnosticReporter, Severity};
+use wfl::diagnostics::{DiagnosticReporter, Severity, WflDiagnostic};
 use wfl::fixer::{CodeFixer, validate_source, write_fixed_file};
 use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::linter::Linter;
 use wfl::parser::Parser;
+use wfl::parser::ast::{Expression, Literal, Program, Statement};
 use wfl::repl;
 use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
@@ -225,6 +227,120 @@ fn read_source_bounded(
             format!("source file '{path}' is not valid UTF-8"),
         )
     })
+}
+
+/// Actions in literal `include from` files are visible at runtime, although
+/// the top-level analyzer only receives the entry file's AST. Read static
+/// includes conservatively so only confirmed definitions lose their warning.
+/// Dynamic paths, unreadable files, and parse failures retain the warning.
+fn literal_include_actions(
+    program: &Program,
+    source_file: &Path,
+    budget: &wfl::exec::budget::ExecutionBudget,
+) -> Result<HashSet<String>, String> {
+    fn visit(
+        program: &Program,
+        source_file: &Path,
+        depth: usize,
+        budget: &wfl::exec::budget::ExecutionBudget,
+        seen: &mut HashSet<PathBuf>,
+        actions: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        use std::io::Read;
+
+        for statement in &program.statements {
+            let Statement::IncludeStatement {
+                path: Expression::Literal(Literal::String(relative), ..),
+                ..
+            } = statement
+            else {
+                continue;
+            };
+            if budget.check_import_depth(depth).is_err() {
+                continue;
+            }
+            budget
+                .charge_operation(!budget.is_deadline_exempt())
+                .map_err(|exceeded| exceeded.message())?;
+            let Some(base) = source_file.parent() else {
+                continue;
+            };
+            let Ok(path) = fs::canonicalize(base.join(relative.as_ref())) else {
+                continue;
+            };
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+
+            // Match the runtime's per-file source limit without turning a
+            // best-effort diagnostic scan into a new fatal failure.
+            let read_limit = (budget.max_source_bytes() as u64).saturating_add(1);
+            let Ok(file) = fs::File::open(&path) else {
+                continue;
+            };
+            let mut bytes = Vec::new();
+            if file.take(read_limit).read_to_end(&mut bytes).is_err()
+                || budget.check_source_bytes(bytes.len()).is_err()
+            {
+                continue;
+            }
+            let Ok(source) = String::from_utf8(bytes) else {
+                continue;
+            };
+            let tokens =
+                lex_wfl_with_positions_checked(&source).map_err(|exceeded| exceeded.message())?;
+            let Ok(included) = Parser::new(&tokens).parse() else {
+                continue;
+            };
+
+            for nested in &included.statements {
+                if let Statement::ActionDefinition { name, .. } = nested {
+                    actions.insert(name.clone());
+                }
+            }
+            visit(&included, &path, depth + 1, budget, seen, actions)?;
+        }
+        Ok(())
+    }
+
+    let mut seen = HashSet::new();
+    let mut actions = HashSet::new();
+    visit(program, source_file, 0, budget, &mut seen, &mut actions)?;
+    Ok(actions)
+}
+
+fn analyze_with_literal_includes(
+    analyzer: &mut Analyzer,
+    program: &Program,
+    file_id: usize,
+    source_file: &Path,
+    budget: &wfl::exec::budget::ExecutionBudget,
+) -> Vec<WflDiagnostic> {
+    let mut diagnostics = analyzer.analyze_static(program, file_id);
+    if !diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "ANALYZE-SEMANTIC"
+            && diagnostic.message.starts_with("Undefined action '")
+    }) {
+        return diagnostics;
+    }
+
+    let actions = match literal_include_actions(program, source_file, budget) {
+        Ok(actions) => actions,
+        Err(message) => {
+            diagnostics.push(WflDiagnostic::error(message));
+            return diagnostics;
+        }
+    };
+    diagnostics.retain(|diagnostic| {
+        !(diagnostic.severity == Severity::Warning
+            && diagnostic.code == "ANALYZE-SEMANTIC"
+            && diagnostic
+                .message
+                .strip_prefix("Undefined action '")
+                .and_then(|name| name.strip_suffix('\''))
+                .is_some_and(|name| actions.contains(name)))
+    });
+    diagnostics
 }
 
 /// Parse operation flags, validate their combination, and dispatch the requested work.
@@ -929,7 +1045,13 @@ async fn run() -> io::Result<()> {
 
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
-                let diagnostics = analyzer.analyze_static(&program, file_id);
+                let diagnostics = analyze_with_literal_includes(
+                    &mut analyzer,
+                    &program,
+                    file_id,
+                    Path::new(&file_path),
+                    &budget,
+                );
 
                 if !diagnostics.is_empty() {
                     eprintln!("Static analysis warnings:");
@@ -989,7 +1111,13 @@ async fn run() -> io::Result<()> {
                 let mut analyzer = Analyzer::new();
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
-                let sema_diags = analyzer.analyze_static(&program, file_id);
+                let sema_diags = analyze_with_literal_includes(
+                    &mut analyzer,
+                    &program,
+                    file_id,
+                    Path::new(&file_path),
+                    &budget,
+                );
                 let mut has_fatal_errors = false;
                 if !sema_diags.is_empty() {
                     for d in &sema_diags {
