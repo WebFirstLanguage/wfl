@@ -1,6 +1,6 @@
 use super::Analyzer;
 use crate::diagnostics::{Severity, WflDiagnostic};
-use crate::parser::ast::{Expression, Program, Statement, Type};
+use crate::parser::ast::{Assertion, Expression, Program, Statement, Type};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -1304,6 +1304,26 @@ impl Analyzer {
                     self.mark_used_variables(stmt, usages);
                 }
             }
+            Statement::ExpectStatement {
+                subject, assertion, ..
+            } => {
+                self.mark_used_in_expression(subject, usages);
+                match assertion {
+                    Assertion::Equal(expected)
+                    | Assertion::Be(expected)
+                    | Assertion::GreaterThan(expected)
+                    | Assertion::LessThan(expected)
+                    | Assertion::Contain(expected)
+                    | Assertion::HaveLength(expected) => {
+                        self.mark_used_in_expression(expected, usages);
+                    }
+                    Assertion::BeYes
+                    | Assertion::BeNo
+                    | Assertion::Exist
+                    | Assertion::BeEmpty
+                    | Assertion::BeOfType(_) => {}
+                }
+            }
             // Compound-assignment / list statements read (and write) their
             // operand variables — count them as uses.
             Statement::AddToListStatement {
@@ -1549,8 +1569,16 @@ impl Analyzer {
                     }
                 }
             }
-            Expression::MemberAccess { object, .. } => {
+            Expression::MemberAccess { object, .. } | Expression::PropertyAccess { object, .. } => {
                 self.mark_used_in_expression(object, usages);
+            }
+            Expression::MethodCall {
+                object, arguments, ..
+            } => {
+                self.mark_used_in_expression(object, usages);
+                for arg in arguments {
+                    self.mark_used_in_expression(&arg.value, usages);
+                }
             }
             Expression::IndexAccess {
                 collection, index, ..

@@ -301,6 +301,17 @@ impl Scope {
     }
 }
 
+/// Where an include-relaxed `Undefined action` warning was raised.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndefinedActionSite {
+    pub name: String,
+    pub line: usize,
+    pub column: usize,
+    /// Index into `Program::statements` of the top-level statement containing
+    /// the call, when the call was reached while analyzing one.
+    pub statement_index: Option<usize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SemanticError {
     pub message: String,
@@ -400,6 +411,11 @@ pub struct Analyzer {
     /// actions/variables they expose; undefined-action errors are downgraded to
     /// warnings to avoid false fatal failures for include-exposed actions.
     has_includes: bool,
+    /// Index of the top-level statement being analyzed, if any.
+    current_statement_index: Option<usize>,
+    /// Every include-relaxed `Undefined action` warning, with its enclosing
+    /// top-level statement, so callers can tell when an include has run.
+    undefined_action_sites: Vec<UndefinedActionSite>,
     /// Nesting depth of `try` bodies currently being analyzed. Undefined-name
     /// references inside a `try` body raise catchable runtime errors (documented
     /// behavior), so they are reported as warnings instead of fatal errors.
@@ -683,6 +699,8 @@ impl Analyzer {
             current_container: None,
             current_method_is_static: None,
             has_includes: false,
+            current_statement_index: None,
+            undefined_action_sites: Vec::new(),
             try_depth: 0,
             active_loop_variables: Vec::new(),
             budget_error: None,
@@ -802,6 +820,8 @@ impl Analyzer {
         self.next_scope_id = 1;
         self.errors.clear();
         self.warnings.clear();
+        self.undefined_action_sites.clear();
+        self.current_statement_index = None;
         self.action_parameters.clear();
         self.constant_bindings.clear();
         self.containers.clear();
@@ -861,9 +881,11 @@ impl Analyzer {
         }
 
         // PASS 2: Analyze all statements (including action bodies)
-        for statement in &program.statements {
+        for (index, statement) in program.statements.iter().enumerate() {
+            self.current_statement_index = Some(index);
             self.analyze_statement(statement);
         }
+        self.current_statement_index = None;
         self.validate_container_inheritance_cycles();
         self.warn_incompatible_inherited_property_overrides();
 
@@ -882,6 +904,12 @@ impl Analyzer {
     /// actions in a program that uses `include from`).
     pub fn get_warnings(&self) -> &Vec<SemanticError> {
         &self.warnings
+    }
+
+    /// The include-relaxed `Undefined action` warnings from the last analysis,
+    /// with the top-level statement that contains each call.
+    pub fn undefined_action_sites(&self) -> &[UndefinedActionSite] {
+        &self.undefined_action_sites
     }
 
     /// Take the shared-budget breach recorded during analysis, if any. When
@@ -962,6 +990,12 @@ impl Analyzer {
                 line,
                 column,
             ));
+            self.undefined_action_sites.push(UndefinedActionSite {
+                name: name.to_string(),
+                line,
+                column,
+                statement_index: self.current_statement_index,
+            });
             true
         } else {
             false
