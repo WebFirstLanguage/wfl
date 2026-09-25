@@ -1,15 +1,17 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 use std::time::Instant;
 use wfl::Interpreter;
 use wfl::analyzer::{Analyzer, StaticAnalyzer};
 use wfl::config;
 use wfl::debug_report;
 use wfl::diagnostics::{DiagnosticReporter, Severity, WflDiagnostic};
+use wfl::exec::budget::{BudgetExceeded, ExecutionBudget};
 use wfl::fixer::{CodeFixer, validate_source, write_fixed_file};
 use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::linter::Linter;
@@ -229,118 +231,236 @@ fn read_source_bounded(
     })
 }
 
-/// Actions in literal `include from` files are visible at runtime, although
-/// the top-level analyzer only receives the entry file's AST. Read static
-/// includes conservatively so only confirmed definitions lose their warning.
-/// Dynamic paths, unreadable files, and parse failures retain the warning.
-fn literal_include_actions(
-    program: &Program,
-    source_file: &Path,
-    budget: &wfl::exec::budget::ExecutionBudget,
-) -> Result<HashSet<String>, String> {
-    fn visit(
-        program: &Program,
-        source_file: &Path,
-        depth: usize,
-        budget: &wfl::exec::budget::ExecutionBudget,
-        seen: &mut HashSet<PathBuf>,
-        actions: &mut HashSet<String>,
-    ) -> Result<(), String> {
-        use std::io::Read;
+/// Walks literal `include from` files for action definitions on behalf of the
+/// analyzer, which only receives the entry file's AST.
+///
+/// The walk is optional diagnostics work, so it spends its own operation
+/// allowance (with the run's ceiling) instead of the run's: running out stops
+/// the walk and keeps the remaining warnings. The run's deadline and
+/// cancellation still apply and are reported as budget failures.
+struct IncludeScan<'a> {
+    run: &'a ExecutionBudget,
+    allowance: Arc<ExecutionBudget>,
+    seen: HashSet<PathBuf>,
+    exhausted: bool,
+}
 
-        for statement in &program.statements {
-            let Statement::IncludeStatement {
-                path: Expression::Literal(Literal::String(relative), ..),
-                ..
-            } = statement
-            else {
-                continue;
-            };
-            if budget.check_import_depth(depth).is_err() {
-                continue;
-            }
-            budget
-                .charge_operation(!budget.is_deadline_exempt())
-                .map_err(|exceeded| exceeded.message())?;
-            let Some(base) = source_file.parent() else {
-                continue;
-            };
-            let Ok(path) = fs::canonicalize(base.join(relative.as_ref())) else {
-                continue;
-            };
-            if !seen.insert(path.clone()) {
-                continue;
-            }
-
-            // Match the runtime's per-file source limit without turning a
-            // best-effort diagnostic scan into a new fatal failure.
-            let read_limit = (budget.max_source_bytes() as u64).saturating_add(1);
-            let Ok(file) = fs::File::open(&path) else {
-                continue;
-            };
-            let mut bytes = Vec::new();
-            if file.take(read_limit).read_to_end(&mut bytes).is_err()
-                || budget.check_source_bytes(bytes.len()).is_err()
-            {
-                continue;
-            }
-            let Ok(source) = String::from_utf8(bytes) else {
-                continue;
-            };
-            let tokens =
-                lex_wfl_with_positions_checked(&source).map_err(|exceeded| exceeded.message())?;
-            let Ok(included) = Parser::new(&tokens).parse() else {
-                continue;
-            };
-
-            for nested in &included.statements {
-                if let Statement::ActionDefinition { name, .. } = nested {
-                    actions.insert(name.clone());
-                }
-            }
-            visit(&included, &path, depth + 1, budget, seen, actions)?;
+impl IncludeScan<'_> {
+    /// Fail if the run was cancelled or its deadline has passed.
+    fn check_run(&self) -> Result<(), BudgetExceeded> {
+        self.run.check_cancelled()?;
+        if !self.run.is_deadline_exempt() {
+            self.run.check_deadline()?;
         }
         Ok(())
     }
 
-    let mut seen = HashSet::new();
-    let mut actions = HashSet::new();
-    visit(program, source_file, 0, budget, &mut seen, &mut actions)?;
+    /// Stop scanning after the allowance failed, unless the failure was the
+    /// run's own deadline or cancellation.
+    fn stop(&mut self) -> Result<(), BudgetExceeded> {
+        self.check_run()?;
+        self.exhausted = true;
+        Ok(())
+    }
+
+    /// Add the actions defined by `relative` (resolved against `from`) and by
+    /// its literal includes to `found`. Dynamic paths, unreadable or oversized
+    /// files, and parse failures are skipped, so their calls keep warning.
+    fn include(
+        &mut self,
+        relative: &str,
+        from: &Path,
+        depth: usize,
+        found: &mut HashSet<String>,
+    ) -> Result<(), BudgetExceeded> {
+        use std::io::Read;
+
+        if self.exhausted || self.run.check_import_depth(depth).is_err() {
+            return Ok(());
+        }
+        self.check_run()?;
+        if self.allowance.charge_operation(true).is_err() {
+            return self.stop();
+        }
+        let Some(base) = from.parent() else {
+            return Ok(());
+        };
+        let Ok(path) = fs::canonicalize(base.join(relative)) else {
+            return Ok(());
+        };
+        if !self.seen.insert(path.clone()) {
+            return Ok(());
+        }
+
+        // Match the runtime's per-file source limit without turning a
+        // best-effort diagnostic scan into a new fatal failure.
+        let read_limit = (self.run.max_source_bytes() as u64).saturating_add(1);
+        let Ok(file) = fs::File::open(&path) else {
+            return Ok(());
+        };
+        let mut bytes = Vec::new();
+        if file.take(read_limit).read_to_end(&mut bytes).is_err()
+            || self.run.check_source_bytes(bytes.len()).is_err()
+        {
+            return Ok(());
+        }
+        let Ok(source) = String::from_utf8(bytes) else {
+            return Ok(());
+        };
+        let Ok(tokens) = lex_wfl_with_positions_checked(&source) else {
+            return self.stop();
+        };
+        let Ok(included) = Parser::new(&tokens).parse() else {
+            return Ok(());
+        };
+
+        for statement in &included.statements {
+            match statement {
+                Statement::ActionDefinition { name, .. } => {
+                    found.insert(name.clone());
+                }
+                Statement::IncludeStatement {
+                    path: Expression::Literal(Literal::String(nested), ..),
+                    ..
+                } => self.include(nested, &path, depth + 1, found)?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Actions exposed by the entry file's top-level literal includes, mapped to
+/// the statement index of the first include that makes each one visible.
+fn literal_include_actions(
+    program: &Program,
+    source_file: &Path,
+    budget: &ExecutionBudget,
+) -> Result<HashMap<String, usize>, BudgetExceeded> {
+    let mut limits = budget.limits().clone();
+    limits.max_duration = limits
+        .max_duration
+        .map(|limit| limit.saturating_sub(budget.elapsed()));
+    let allowance = Arc::new(ExecutionBudget::new(limits));
+    // The lexer and parser charge the current-thread budget; point them at the
+    // scan's allowance until the guard restores the run budget.
+    let _allowance_guard = ExecutionBudget::enter(Arc::clone(&allowance));
+    let mut scan = IncludeScan {
+        run: budget,
+        allowance,
+        seen: HashSet::new(),
+        exhausted: false,
+    };
+
+    let mut actions = HashMap::new();
+    for (index, statement) in program.statements.iter().enumerate() {
+        let Statement::IncludeStatement {
+            path: Expression::Literal(Literal::String(relative), ..),
+            ..
+        } = statement
+        else {
+            continue;
+        };
+        let mut found = HashSet::new();
+        scan.include(relative, source_file, 0, &mut found)?;
+        for name in found {
+            actions.entry(name).or_insert(index);
+        }
+    }
+    // A breach inside the last parse is reported by the parser as a parse
+    // failure; surface a run deadline or cancellation here instead.
+    scan.check_run()?;
     Ok(actions)
 }
 
+/// The action name of an include-relaxed `Undefined action` warning.
+fn undefined_action_warning(diagnostic: &WflDiagnostic) -> Option<&str> {
+    if diagnostic.severity != Severity::Warning || diagnostic.code != "ANALYZE-SEMANTIC" {
+        return None;
+    }
+    diagnostic
+        .message
+        .strip_prefix("Undefined action '")?
+        .strip_suffix('\'')
+}
+
+/// Top-level statements whose bodies run later, when invoked or dispatched.
+fn has_deferred_body(statement: &Statement) -> bool {
+    matches!(
+        statement,
+        Statement::ActionDefinition { .. }
+            | Statement::ContainerDefinition { .. }
+            | Statement::EventHandler { .. }
+            | Statement::WebSocketHandlerStatement { .. }
+    )
+}
+
+/// Top-level statements that only define or register something when reached,
+/// so they cannot invoke a deferred body.
+fn only_defines(statement: &Statement) -> bool {
+    has_deferred_body(statement)
+        || matches!(
+            statement,
+            Statement::InterfaceDefinition { .. }
+                | Statement::EventDefinition { .. }
+                | Statement::PatternDefinition { .. }
+        )
+}
+
+/// Whether the top-level include at `include` has run by the time a call in
+/// the top-level statement at `call` executes.
+///
+/// Top-level statements run in order, so sequential code sees the include only
+/// when the include comes first. An action, container, or handler body runs
+/// only after its definition, when a later statement invokes it; the include
+/// has run first when it is reached before any statement after the definition
+/// that can run code. Another include counts as code: the included file's
+/// top-level statements run.
+fn include_runs_before_call(statements: &[Statement], include: usize, call: usize) -> bool {
+    if include < call || !has_deferred_body(&statements[call]) {
+        return include < call;
+    }
+    statements[call + 1..]
+        .iter()
+        .position(|statement| !only_defines(statement))
+        .is_none_or(|offset| include <= call + 1 + offset)
+}
+
+/// Run static analysis, then drop `Undefined action` warnings for actions a
+/// literal include has defined by the time the call runs.
 fn analyze_with_literal_includes(
     analyzer: &mut Analyzer,
     program: &Program,
     file_id: usize,
     source_file: &Path,
-    budget: &wfl::exec::budget::ExecutionBudget,
-) -> Vec<WflDiagnostic> {
+    budget: &ExecutionBudget,
+) -> Result<Vec<WflDiagnostic>, BudgetExceeded> {
     let mut diagnostics = analyzer.analyze_static(program, file_id);
-    if !diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "ANALYZE-SEMANTIC"
-            && diagnostic.message.starts_with("Undefined action '")
-    }) {
-        return diagnostics;
+    if !diagnostics
+        .iter()
+        .any(|diagnostic| undefined_action_warning(diagnostic).is_some())
+    {
+        return Ok(diagnostics);
     }
 
-    let actions = match literal_include_actions(program, source_file, budget) {
-        Ok(actions) => actions,
-        Err(message) => {
-            diagnostics.push(WflDiagnostic::error(message));
-            return diagnostics;
-        }
-    };
+    let actions = literal_include_actions(program, source_file, budget)?;
+    let resolved: HashSet<(usize, usize)> = analyzer
+        .undefined_action_sites()
+        .iter()
+        .filter(|site| {
+            let (Some(&include), Some(call)) = (actions.get(&site.name), site.statement_index)
+            else {
+                return false;
+            };
+            include_runs_before_call(&program.statements, include, call)
+        })
+        .map(|site| (site.line, site.column))
+        .collect();
     diagnostics.retain(|diagnostic| {
-        !(diagnostic.severity == Severity::Warning
-            && diagnostic.code == "ANALYZE-SEMANTIC"
-            && diagnostic
-                .message
-                .strip_prefix("Undefined action '")
-                .and_then(|name| name.strip_suffix('\''))
-                .is_some_and(|name| actions.contains(name)))
+        undefined_action_warning(diagnostic).is_none()
+            || !resolved.contains(&(diagnostic.line, diagnostic.column))
     });
-    diagnostics
+    Ok(diagnostics)
 }
 
 /// Parse operation flags, validate their combination, and dispatch the requested work.
@@ -1045,13 +1165,19 @@ async fn run() -> io::Result<()> {
 
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
-                let diagnostics = analyze_with_literal_includes(
+                let diagnostics = match analyze_with_literal_includes(
                     &mut analyzer,
                     &program,
                     file_id,
                     Path::new(&file_path),
                     &budget,
-                );
+                ) {
+                    Ok(diagnostics) => diagnostics,
+                    Err(exceeded) => {
+                        eprintln!("Error: {}", exceeded.message());
+                        process::exit(2);
+                    }
+                };
 
                 if !diagnostics.is_empty() {
                     eprintln!("Static analysis warnings:");
@@ -1111,13 +1237,21 @@ async fn run() -> io::Result<()> {
                 let mut analyzer = Analyzer::new();
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
-                let sema_diags = analyze_with_literal_includes(
+                // A run-budget breach during the include scan is fatal, like
+                // the other front-end budget breaches.
+                let sema_diags = match analyze_with_literal_includes(
                     &mut analyzer,
                     &program,
                     file_id,
                     Path::new(&file_path),
                     &budget,
-                );
+                ) {
+                    Ok(diagnostics) => diagnostics,
+                    Err(exceeded) => {
+                        eprintln!("Error: {}", exceeded.message());
+                        process::exit(2);
+                    }
+                };
                 let mut has_fatal_errors = false;
                 if !sema_diags.is_empty() {
                     for d in &sema_diags {

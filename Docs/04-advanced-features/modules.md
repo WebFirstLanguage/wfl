@@ -73,7 +73,16 @@ store line as banner              # a bare name calls the zero-argument action
 display line
 ```
 
-All three forms work at the top level and inside your own action bodies. Because the analyzer does not read included files, it emits a **non-fatal** `Undefined action '<name>'` note for a name it cannot see statically — the program still runs and the action resolves at runtime.
+All three forms work at the top level and inside your own action bodies.
+
+Before a program runs (and with `wfl --analyze`), the CLI reads each literal `include from "path.wfl"` at the top level of the main file, plus the literal includes inside those files, to learn which actions they define. It does not run them. A call to one of those actions gets no warning when the include has already run at that point:
+
+- In top-level code, the include comes before the call.
+- In an action, container, or event-handler body, the include runs before any later statement that could run that body. Placing includes before the code that uses them satisfies both rules.
+
+Otherwise the analyzer emits a **non-fatal** `Undefined action '<name>'` warning. The warning also stays when the analyzer cannot check the name: a dynamic path (`include from module_path`), an include inside a block, or a file it cannot read or parse. The warning does not stop the program. At runtime the call works only if an include has defined the action by then; a misspelled name is still an error.
+
+This check has its own operation allowance, so it does not use up the program's `max_operations`. If it runs out, the remaining warnings stay. The program's time limit still applies to it.
 
 ### Including the same file more than once (diamond includes)
 
@@ -150,8 +159,6 @@ still reported as a circular dependency (see
 ### Type Checking in Included Files
 
 Included files go through the same pipeline as the main program (parse, analyze, type check). Because `include from` runs the file in the parent scope — as if the code were written in the main program — type-check findings in an included file are reported the same way as in the main file: as **non-fatal warnings**. The program still runs.
-
-For a literal `include from "path.wfl"`, the CLI checks action names in that file and its transitive literal includes before reporting an undefined-action warning. It does not infer the included action's call signature at this stage; the included file still goes through its normal checks when executed. A dynamic path, an unreadable file, or a file that cannot be parsed remains unresolved, so calls to its actions may still warn. Misspelled action names continue to warn.
 
 ```text
 Type checking warnings in included file 'mod.wfl':

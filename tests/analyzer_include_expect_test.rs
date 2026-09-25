@@ -205,8 +205,9 @@ fn exhausted_include_scan_keeps_warnings_instead_of_failing_analysis() {
 
     // Sweep ceilings from "too small for the entry file" to "enough for the
     // entry file but far too small to scan the 300-statement library". Once
-    // the entry file's own analysis completes (its warning is printed), the
-    // optional scan must neither report a budget failure nor drop the warning.
+    // the entry file's own analysis completes (its warning is printed and the
+    // analyzer reported no budget error of its own), the optional scan must
+    // neither report a budget failure nor drop the warning.
     let mut completed = 0;
     for ceiling in 1..=40 {
         fs::write(
@@ -215,7 +216,9 @@ fn exhausted_include_scan_keeps_warnings_instead_of_failing_analysis() {
         )
         .unwrap();
         let (status, output) = analyze(&dir.path().join("literal.wfl"));
-        if !output.contains("Undefined action 'greet'") {
+        if !output.contains("Undefined action 'greet'")
+            || output.contains("error[ANALYZE-SEMANTIC]")
+        {
             continue;
         }
         completed += 1;

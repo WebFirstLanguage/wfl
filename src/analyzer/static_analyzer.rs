@@ -1569,8 +1569,16 @@ impl Analyzer {
                     }
                 }
             }
-            Expression::MemberAccess { object, .. } => {
+            Expression::MemberAccess { object, .. } | Expression::PropertyAccess { object, .. } => {
                 self.mark_used_in_expression(object, usages);
+            }
+            Expression::MethodCall {
+                object, arguments, ..
+            } => {
+                self.mark_used_in_expression(object, usages);
+                for arg in arguments {
+                    self.mark_used_in_expression(&arg.value, usages);
+                }
             }
             Expression::IndexAccess {
                 collection, index, ..
