@@ -1401,3 +1401,44 @@ async fn run() -> io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wfl::exec::budget::{BudgetExceeded, BudgetLimits, ExecutionBudget};
+
+    /// A deadline that expires during the optional include scan is a run-budget
+    /// breach like any other front-end breach, so it must reach the caller as
+    /// a budget failure (fatal, exit 2) rather than as an analyzer diagnostic.
+    #[test]
+    fn include_scan_deadline_breach_is_a_budget_failure() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        fs::write(
+            dir.path().join("leaf.wfl"),
+            "define action called greet:\n    return 1\nend action\n",
+        )
+        .unwrap();
+        let tokens =
+            lex_wfl_with_positions_checked("include from \"leaf.wfl\"\nstore x as call greet\n")
+                .unwrap();
+        let program = Parser::new(&tokens).parse().expect("parse");
+        let limits = BudgetLimits {
+            max_duration: Some(std::time::Duration::ZERO),
+            ..BudgetLimits::default()
+        };
+        let budget = ExecutionBudget::new(limits);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        let result = analyze_with_literal_includes(
+            &mut Analyzer::new(),
+            &program,
+            0,
+            &dir.path().join("main.wfl"),
+            &budget,
+        );
+        assert!(
+            matches!(result, Err(BudgetExceeded::Deadline { .. })),
+            "expected a deadline breach, got {result:?}"
+        );
+    }
+}
