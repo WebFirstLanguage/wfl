@@ -270,3 +270,9 @@ You've completed the Best Practices section. You now know how to write quality W
 ---
 
 **Previous:** [← Project Organization](project-organization.md) | **Next:** [Guides →](../guides/)
+
+## Repository contribution authority
+
+Follow [GOVERNANCE.md](../../GOVERNANCE.md) for feature → `dev` PRs,
+Yomi review, exact-commit Actions evidence, bot feedback and promotion authority.
+Use the [canonical PR checklist](../../.github/pull_request_template.md).

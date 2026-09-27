@@ -1,5 +1,10 @@
 # Contributing to WFL
 
+Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
+bot feedback, secrets and production boundaries follow
+[GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
+
+
 Thank you for your interest in WebFirst Language (WFL). This document is the
 root entry point for contribution policy. Day-to-day workflow detail lives in
 the development guide; **project authority and community rules** live in the
@@ -33,10 +38,10 @@ You do **not** need to be a formal Contributor to help. From a fork you can:
 ### Quick start
 
 1. Fork https://github.com/WebFirstLanguage/wfl  
-2. Create a branch: `git checkout -b feature/my-change`  
+2. Create a branch from current dev: `git checkout -b feature/my-change origin/dev`
 3. Follow TDD and quality gates in the
    [contributing guide](Docs/contributing/contributing-guide.md)  
-4. Open a pull request with a clear description  
+4. Open a pull request into `dev` with a clear description
 
 ### Non-negotiable project rules (summary)
 

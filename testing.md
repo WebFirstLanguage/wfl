@@ -1,5 +1,10 @@
 # WFL Testing — Policy & Project Profile
 
+Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
+bot feedback, secrets and production boundaries follow
+[GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
+
+
 This repository adopts the **Logbie Testing Policy** (reproduced verbatim in
 [§ Logbie Testing Policy](#logbie-testing-policy) below) and defines the WFL
 project testing profile required by that policy's §4.

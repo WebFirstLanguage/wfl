@@ -17,10 +17,11 @@ code, documentation, tests, and examples.
 
 1. **Fork** the repository
 2. **Clone** your fork
-3. **Create branch:** `git checkout -b feature/my-feature`
+3. **Create branch:** `git checkout -b feature/my-feature origin/dev`
 4. **Make changes** (TDD — tests first)
 5. **Test thoroughly**
-6. **Submit PR**
+6. **Submit PR into `dev`**; follow the current-revision CI, Yomi review and
+   authority gates in [GOVERNANCE.md](../../GOVERNANCE.md).
 
 Want trusted collaborator access? See
 [Becoming a Contributor](../../CONTRIBUTING.md#becoming-a-contributor).
