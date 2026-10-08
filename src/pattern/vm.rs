@@ -2375,4 +2375,69 @@ mod quantifier_extent_tests {
         assert_eq!(found.expect("matches").matched_text.len(), 50_000);
         assert_release_linear(started.elapsed(), "one or more any on 50k");
     }
+
+    fn literal_alternation(n: usize) -> PatternExpression {
+        PatternExpression::Alternative(
+            (0..n)
+                .map(|i| PatternExpression::Literal(format!("w{i}")))
+                .collect(),
+        )
+    }
+
+    fn anchored_literal_alternation(n: usize) -> PatternExpression {
+        PatternExpression::Alternative(
+            (0..n)
+                .map(|i| {
+                    PatternExpression::Sequence(vec![
+                        PatternExpression::Anchor(crate::parser::ast::Anchor::StartOfText),
+                        PatternExpression::Literal(format!("q{i}")),
+                    ])
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn thousand_arm_literal_alternation_stays_under_default_budget() {
+        let pattern = literal_alternation(1_000);
+        let text = "a".repeat(1_000);
+        let found = find_under_default(&pattern, &text)
+            .expect("1_000-arm miss over 1_000 chars must stay inside the default meter");
+        assert!(found.is_none());
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_thousand_arm_literal_alternation_stays_under_a_second() {
+        let pattern = literal_alternation(1_000);
+        let text = "a".repeat(1_000);
+        let started = Instant::now();
+        let found = find_under_default(&pattern, &text).expect("must not hit the meter");
+        assert!(found.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "1_000-arm alt over 1_000 chars must stay comparable to main, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn anchored_thousand_arm_alternation_hits_the_step_ceiling() {
+        let pattern = anchored_literal_alternation(1_000);
+        let text = "a".repeat(10_000);
+        let err = find_under_default(&pattern, &text)
+            .expect_err("anchored 1_000-arm seed walk must be metered");
+        assert!(
+            matches!(err, PatternError::StepLimitExceeded),
+            "expected step limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn over_10k_instruction_alternation_still_matches_on_a_short_input() {
+        let pattern = literal_alternation(3_500);
+        let found = find_under_default(&pattern, "hello w42x")
+            .expect("a 3_500-arm list must not reserve program.len() states");
+        assert_eq!(found.expect("w42 is in the list").matched_text, "w42");
+    }
 }
