@@ -154,6 +154,13 @@ struct VMState {
     pos: usize,                            // Current position in input text
     captures: Vec<Option<(usize, usize)>>, // Capture group start/end positions
     saves: Vec<usize>,                     // Saved positions for backtracking
+    /// Last input position at which *this thread* executed each `Split`.
+    /// Re-entering the same `Split` at the same `pos` is a zero-width
+    /// quantifier iteration; take the exit branch instead of looping.
+    /// Per-thread (cloned on `Split`) so another thread at the same
+    /// `(pc, pos)` is not pruned — that cross-thread `(pc, pos)` visited
+    /// set is not priority-safe in this VM.
+    split_pos: Vec<(usize, usize)>,
 }
 
 impl VMState {
@@ -163,6 +170,7 @@ impl VMState {
             pos: 0,
             captures: vec![None; num_captures],
             saves: vec![0; num_saves],
+            split_pos: Vec::new(),
         }
     }
 }
@@ -426,11 +434,13 @@ impl PatternVM {
     /// greedy loop can extend. The last recorded match is the extent.
     ///
     /// Generations here are `step()` waves that stop at the next `Split`, not
-    /// lockstep-by-input-position. A `(pc, pos)` visited set is therefore not
-    /// priority-safe: the first arrival is the thread that passed the fewest
-    /// Splits, so a later higher-priority arrival (or a later thread whose
-    /// captures differ) would be dropped. Do not add one. Backreference-free
-    /// runs stay bounded by the per-match step and state meter.
+    /// lockstep-by-input-position. A cross-thread `(pc, pos)` visited set is
+    /// therefore not priority-safe: the first arrival is the thread that
+    /// passed the fewest Splits, so a later higher-priority arrival (or a
+    /// later thread whose captures differ) would be dropped. Do not add one.
+    /// Zero-width quantifier loops are cut per-thread in `step` (`split_pos`).
+    /// Backreference-free runs stay bounded by that cutoff plus the per-match
+    /// step and state meter.
     fn find_at_position(
         &mut self,
         program: &Program,
@@ -563,6 +573,22 @@ impl PatternVM {
                 }
 
                 Instruction::Split(first, second) => {
+                    // Same thread, same Split, same pos: the previous
+                    // iteration matched empty. Take the exit (second) branch
+                    // only — do not loop forever, and do not prune any
+                    // other thread that later arrives at this (pc, pos).
+                    if let Some((_, last_pos)) =
+                        state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
+                    {
+                        if *last_pos == state.pos {
+                            state.pc = *second;
+                            continue;
+                        }
+                        *last_pos = state.pos;
+                    } else {
+                        state.split_pos.push((state.pc, state.pos));
+                    }
+
                     // Create two execution paths
                     let mut state1 = state.clone();
                     let mut state2 = state;

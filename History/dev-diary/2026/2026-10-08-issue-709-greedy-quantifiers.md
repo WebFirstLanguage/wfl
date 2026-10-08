@@ -45,13 +45,18 @@ priority; a `Match` records a candidate and drops lower-priority peers in that
 generation; already-queued higher-priority continuations keep running so the
 loop can extend; the last recorded match is the extent.
 
-A `(pc, pos)` visited set is **not** used. This VM's generations are `step()`
-waves that stop at the next `Split`, so the first arrival at `(pc, pos)` is the
-thread that passed the fewest Splits, not the highest-priority one. Deduping
-there pruned nested-quantifier/alternation threads and, with backreferences,
-dropped the thread that had set the capture (`find` missed while `matches`
-still succeeded). Backreference-free runs stay bounded by the per-match
-step/state meter.
+A cross-thread `(pc, pos)` visited set is **not** used. This VM's generations
+are `step()` waves that stop at the next `Split`, so the first arrival at
+`(pc, pos)` is the thread that passed the fewest Splits, not the highest-priority
+one. Deduping there pruned nested-quantifier/alternation threads and, with
+backreferences, dropped the thread that had set the capture (`find` missed
+while `matches` still succeeded).
+
+Zero-width quantifier iterations (`zero or more ""`, `zero or more optional
+"a"`) are cut per-thread: re-entering the same `Split` at the same input
+position takes the exit branch. That does not prune a later, higher-priority
+thread at the same `(pc, pos)`. Backreference-free runs stay bounded by that
+cutoff plus the per-match step/state meter.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
@@ -69,4 +74,6 @@ in the #752 review (the first nested-`one or more` case already returned
 Green: the same unit tests plus binary-level `find` / `find all` / `split` /
 `replace` / `capture` in `tests/issue_709_quantifier_greed_test.rs`,
 `TestPrograms/patterns/unbounded_quantifier_greed.test.wfl`, and the four
-reviewer cases after dropping the visited set.
+reviewer cases after dropping the visited set. After that drop, `zero or more
+""` and `zero or more optional "a"` spun until the step ceiling; the
+per-thread empty-iteration cutoff records the empty / greedy match instead.
