@@ -8,7 +8,7 @@
 use super::PatternError;
 use super::instruction::{Instruction, Program};
 use crate::exec::budget::{BudgetExceeded, ExecutionBudget, PatternMeter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Translate a per-match meter breach into the pattern VM's error type.
@@ -125,6 +125,26 @@ impl MatchResult {
             captures,
         }
     }
+}
+
+fn match_result_from_state(
+    start_pos: usize,
+    final_state: &VMState,
+    chars: &[char],
+    capture_names: &[String],
+) -> MatchResult {
+    let mut captures: HashMap<String, String> = HashMap::new();
+    for (i, name) in capture_names.iter().enumerate() {
+        if let Some((start, end)) = final_state.captures[i] {
+            let captured_text: String = if start <= end && end <= chars.len() {
+                chars[start..end].iter().collect()
+            } else {
+                String::new()
+            };
+            captures.insert(name.clone(), captured_text);
+        }
+    }
+    MatchResult::from_chars(start_pos, final_state.pos, chars, captures)
 }
 
 /// Virtual machine state for pattern execution
@@ -396,7 +416,15 @@ impl PatternVM {
         Ok(false)
     }
 
-    /// Find a match starting at a specific position
+    /// Find a match starting at a specific position.
+    ///
+    /// Quantifier extent is Pike-style greedy, not first-to-`Match`. `Split`'s
+    /// first branch is higher priority (the loop-back for `one or more` /
+    /// `zero or more` / `at least N`, and the first arm of `or`). A `Match`
+    /// records a candidate and drops lower-priority peers in this generation,
+    /// but already-queued higher-priority continuations keep running so a
+    /// greedy loop can extend. The last recorded match is the extent. A
+    /// `(pc, pos)` visited set keeps the longer sweep Thompson-linear.
     fn find_at_position(
         &mut self,
         program: &Program,
@@ -416,11 +444,18 @@ impl PatternVM {
             .reserve_states(states.len())
             .map_err(budget_to_pattern_error)?;
 
+        let mut best: Option<VMState> = None;
+        let mut visited: HashSet<(usize, usize)> = HashSet::new();
+
         while !states.is_empty() {
             let consumed = states.len();
             let mut next_states = Vec::new();
 
             for state in states {
+                if !visited.insert((state.pc, state.pos)) {
+                    continue;
+                }
+
                 // Transitions are charged inside `step()` (per instruction).
                 match self.step(program, chars, state)? {
                     StepResult::Continue(new_states) => {
@@ -430,28 +465,10 @@ impl PatternVM {
                         next_states.extend(new_states);
                     }
                     StepResult::Match(final_state) => {
-                        // Found a match, construct result with captures
-                        let mut captures: HashMap<String, String> = HashMap::new();
-
-                        // Extract captures from the final state, reusing the
-                        // already-collected character slice (no re-collect).
-                        for (i, name) in capture_names.iter().enumerate() {
-                            if let Some((start, end)) = final_state.captures[i] {
-                                let captured_text: String = if start <= end && end <= chars.len() {
-                                    chars[start..end].iter().collect()
-                                } else {
-                                    String::new()
-                                };
-                                captures.insert(name.clone(), captured_text);
-                            }
-                        }
-
-                        return Ok(Some(MatchResult::from_chars(
-                            start_pos,
-                            final_state.pos,
-                            chars,
-                            captures,
-                        )));
+                        best = Some(final_state);
+                        // Remaining threads in this generation are lower
+                        // priority (lazy exit, later alternatives).
+                        break;
                     }
                     StepResult::Fail => {
                         // This execution path failed, try others
@@ -463,7 +480,9 @@ impl PatternVM {
             states = next_states;
         }
 
-        Ok(None)
+        Ok(best.map(|final_state| {
+            match_result_from_state(start_pos, &final_state, chars, capture_names)
+        }))
     }
 
     /// Execute one step of the virtual machine.

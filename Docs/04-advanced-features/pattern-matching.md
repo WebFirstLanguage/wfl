@@ -128,7 +128,12 @@ end check
 
 ## Quantifiers
 
-Control how many times a pattern should match:
+Control how many times a pattern should match. Quantifiers are **greedy**: they
+take the longest run that still lets the rest of the pattern succeed.
+`one or more digit` in `a12345b` matches `12345`, not `1`. `zero or more` and
+`at least N` work the same way at their open end. Bounded forms (`exactly N`,
+`N to M`, `at most N`) stay inside their stated limits and take the longest run
+those limits allow.
 
 ### One or More
 

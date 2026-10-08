@@ -1,0 +1,62 @@
+# 2026-10-08 — Unbounded quantifiers matched the shortest run (#709)
+
+## Symptom
+
+```wfl
+create pattern digits:
+    one or more digit
+end pattern
+
+store s as "a1b22c333"
+display replace digits with "#" in s
+// actual:   a#b##c###
+// expected: a#b#c#
+```
+
+`find`, `find all`, `split ... on pattern`, `replace`, and `capture` all
+returned one character for `one or more digit`. Exit 0, no diagnostic.
+`zero or more digit` on `"12345"` matched empty; `at least 2 digit` on
+`"a12345b"` matched `"12"`. Bounded `2 to 4 digit` already matched `"1234"`.
+
+The shipped docs example — `one or more letter` over `"The quick brown fox"` as
+word extraction — returned 16 letters.
+
+## Root cause
+
+`find_at_position` returned on the first VM state that reached `Match` while
+sweeping the BFS frontier. `Split` queues both branches as peers, so the exit
+arm of a `OneOrMore` / `ZeroOrMore` / `AtLeast` loop won before the loop-back
+arm could consume another character.
+
+`Quantifier::Between` unrolls its optional repetitions inline with no `Jump`.
+The try-more thread is first in the next generation and happens to hit `Match`
+first — which is why the bounded form looked greedy while the unbounded forms
+did not. Extent depended on bytecode shape, not on a stated rule.
+
+`greedy` and `lazy` are lexed and listed as reserved words but are not accepted
+in pattern syntax. They do not define a lazy default. The docs treat
+`one or more` as a repeated class and as word extraction, so the specified
+default is greedy.
+
+## Fix
+
+`find_at_position` is now Pike-style greedy: `Split`'s first branch is higher
+priority; a `Match` records a candidate and drops lower-priority peers in that
+generation; already-queued higher-priority continuations keep running so the
+loop can extend; the last recorded match is the extent. A `(pc, pos)` visited
+set keeps the longer sweep Thompson-linear (one thread walking a 20k-digit run
+stays well under the 5_000_000-step ceiling).
+
+Boolean `execute_at_position` still returns on first success — it does not
+report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
+`"1"`), not POSIX leftmost-longest.
+
+## Verification
+
+Red: `cargo test --lib quantifier_extent_tests` at the test-only commit showed
+`"1"` / `""` / `"12"` / 16 letters. Bounded `2 to 4` and left-first
+alternation already passed.
+
+Green: the same unit tests plus binary-level `find` / `find all` / `split` /
+`replace` / `capture` in `tests/issue_709_quantifier_greed_test.rs` and
+`TestPrograms/patterns/unbounded_quantifier_greed.test.wfl`.

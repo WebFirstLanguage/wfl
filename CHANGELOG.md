@@ -49,6 +49,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   drop.
 
 ### Fixed
+- **Unbounded pattern quantifiers are greedy** (#709). `one or more`,
+  `zero or more`, and `at least N` previously matched the shortest run because
+  the pattern VM returned on the first state that reached `Match` in a
+  breadth-first sweep. `find`, `find all`, `split ... on pattern`,
+  `replace ... in ...`, and `capture` all reported that short extent and exited
+  0. They now take the longest run, consistent with bounded `N to M` and with
+  the documented word-extraction example (`one or more letter` over
+  `"The quick brown fox"` is four words, not sixteen letters). Ordered
+  `or` alternatives stay left-first. **Compatibility:** programs that silently
+  adapted to the undocumented shortest-match extents will observe different
+  (documented) text; validation-style patterns with trailing context already
+  forced the longer expansion and are unchanged.
 - **Optional TLS settings in the configuration wizard** can be skipped with
   Enter. Unset certificate/key paths are omitted from the generated file, so accepting
   every default now completes the wizard.
