@@ -177,16 +177,8 @@ pub fn wfl_exe() -> &'static str {
 /// bare relative path so it does not depend on the test process's working
 /// directory, and a missing binary fails with an actionable message instead of
 /// a bare `Os { code: 2, kind: NotFound }` from the eventual spawn.
-pub fn wfl_release_exe() -> PathBuf {
-    let name = if cfg!(target_os = "windows") {
-        "wfl.exe"
-    } else {
-        "wfl"
-    };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("release")
-        .join(name);
+/// Panic with an actionable message when a separately-built release binary is missing.
+pub fn require_existing_release_binary(path: PathBuf) -> PathBuf {
     assert!(
         path.exists(),
         "release binary not found at {}\n\
@@ -195,6 +187,20 @@ pub fn wfl_release_exe() -> PathBuf {
         path.display()
     );
     path
+}
+
+pub fn wfl_release_exe() -> PathBuf {
+    let name = if cfg!(target_os = "windows") {
+        "wfl.exe"
+    } else {
+        "wfl"
+    };
+    require_existing_release_binary(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("release")
+            .join(name),
+    )
 }
 
 /// Run inline WFL source (via [`wfl_exe`]) in a fresh temp dir, returning

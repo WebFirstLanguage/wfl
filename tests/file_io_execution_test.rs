@@ -9,14 +9,28 @@ use wfl::parser::Parser;
 mod file_io_execution_tests {
     use super::*;
 
-    fn cleanup_test_files(files: &[&str]) {
-        for file in files {
-            let _ = fs::remove_file(file);
-        }
+    /// Use forward slashes so Windows fixture paths do not become WFL string escapes.
+    fn wfl_path(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
     }
 
-    async fn execute_wfl_code(code: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let tokens = lex_wfl_with_positions(code);
+    async fn execute_wfl_code(
+        code: &str,
+        directory: &Path,
+        filenames: &[&str],
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Every test owns its files, including on assertion failure. Absolute
+        // paths keep concurrent tests independent without changing process cwd.
+        let directory_text = wfl_path(directory);
+        let mut code = code.replace(
+            "list files in \".\"",
+            &format!("list files in \"{directory_text}\""),
+        );
+        for filename in filenames {
+            let path = wfl_path(&directory.join(filename));
+            code = code.replace(&format!("\"{filename}\""), &format!("\"{path}\""));
+        }
+        let tokens = lex_wfl_with_positions(&code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
 
@@ -39,8 +53,8 @@ mod file_io_execution_tests {
 
     #[tokio::test]
     async fn test_basic_file_write_read_execution() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["test_exec_basic.txt"];
-        cleanup_test_files(&test_files);
 
         let code = r#"
             open file at "test_exec_basic.txt" for writing as test_file
@@ -56,7 +70,7 @@ mod file_io_execution_tests {
 
         // This test should fail initially because we need to verify the interpreter
         // actually creates files and reads content correctly
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "File I/O execution failed: {:?}",
@@ -65,26 +79,24 @@ mod file_io_execution_tests {
 
         // Verify the file was actually created
         assert!(
-            Path::new("test_exec_basic.txt").exists(),
+            directory.path().join("test_exec_basic.txt").exists(),
             "Test file was not created by interpreter"
         );
 
         // Verify file contents
-        let file_contents =
-            fs::read_to_string("test_exec_basic.txt").expect("Could not read test file");
+        let file_contents = fs::read_to_string(directory.path().join("test_exec_basic.txt"))
+            .expect("Could not read test file");
         assert_eq!(
             file_contents.trim(),
             "Hello from execution test!",
             "File contents don't match expected value"
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_file_append_execution() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["test_exec_append.txt"];
-        cleanup_test_files(&test_files);
 
         let code = r#"
             open file at "test_exec_append.txt" for writing as initial_file
@@ -102,31 +114,33 @@ mod file_io_execution_tests {
             display final_content
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "File append execution failed: {:?}",
             result.err()
         );
 
-        let file_contents =
-            fs::read_to_string("test_exec_append.txt").expect("Could not read append test file");
+        let file_contents = fs::read_to_string(directory.path().join("test_exec_append.txt"))
+            .expect("Could not read append test file");
         assert_eq!(
             file_contents.trim(),
             "Line 1\\nLine 2",
             "Appended file contents don't match expected value"
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_file_exists_execution() {
-        let test_files = ["test_exec_exists.txt"];
-        cleanup_test_files(&test_files);
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let test_files = ["test_exec_exists.txt", "nonexistent_file.txt"];
 
         // Create a test file first
-        fs::write("test_exec_exists.txt", "test content").expect("Failed to create test file");
+        fs::write(
+            directory.path().join("test_exec_exists.txt"),
+            "test content",
+        )
+        .expect("Failed to create test file");
 
         let code = r#"
             store exists_result as file exists at "test_exec_exists.txt"
@@ -140,24 +154,23 @@ mod file_io_execution_tests {
             end check
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "File exists execution failed: {:?}",
             result.err()
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_directory_listing_execution() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["test_dir_1.txt", "test_dir_2.log", "test_dir_3.txt"];
-        cleanup_test_files(&test_files);
 
         // Create test files
         for file in &test_files {
-            fs::write(file, "test content").expect("Failed to create test file");
+            fs::write(directory.path().join(file), "test content")
+                .expect("Failed to create test file");
         }
 
         let code = r#"
@@ -168,25 +181,27 @@ mod file_io_execution_tests {
             display "TXT files found: " with length of txt_files
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Directory listing execution failed: {:?}",
             result.err()
         );
-
-        cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_file_deletion_execution() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["test_delete_me.txt"];
 
         // Create test file first
-        fs::write("test_delete_me.txt", "This file should be deleted")
-            .expect("Failed to create test file");
+        fs::write(
+            directory.path().join("test_delete_me.txt"),
+            "This file should be deleted",
+        )
+        .expect("Failed to create test file");
         assert!(
-            Path::new("test_delete_me.txt").exists(),
+            directory.path().join("test_delete_me.txt").exists(),
             "Test file was not created for deletion test"
         );
 
@@ -198,7 +213,7 @@ mod file_io_execution_tests {
             end check
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "File deletion execution failed: {:?}",
@@ -207,17 +222,15 @@ mod file_io_execution_tests {
 
         // Verify file was actually deleted
         assert!(
-            !Path::new("test_delete_me.txt").exists(),
+            !directory.path().join("test_delete_me.txt").exists(),
             "Test file was not properly deleted by interpreter"
         );
-
-        cleanup_test_files(&test_files); // Just in case
     }
 
     #[tokio::test]
     async fn test_multiple_files_execution() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
         let test_files = ["multi_test_1.txt", "multi_test_2.log", "multi_test_3.dat"];
-        cleanup_test_files(&test_files);
 
         let code = r#"
             // Create multiple files with different content
@@ -243,7 +256,7 @@ mod file_io_execution_tests {
             end check
         "#;
 
-        let result = execute_wfl_code(code).await;
+        let result = execute_wfl_code(code, directory.path(), &test_files).await;
         assert!(
             result.is_ok(),
             "Multiple files execution failed: {:?}",
@@ -256,9 +269,13 @@ mod file_io_execution_tests {
             ("multi_test_2.log", "Log data for file 2"),
             ("multi_test_3.dat", "Binary-like data for file 3"),
         ] {
-            assert!(Path::new(file).exists(), "File {} was not created", file);
-            let content =
-                fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
+            assert!(
+                directory.path().join(file).exists(),
+                "File {} was not created",
+                file
+            );
+            let content = fs::read_to_string(directory.path().join(file))
+                .unwrap_or_else(|_| panic!("Could not read {}", file));
             assert_eq!(
                 content.trim(),
                 expected_content,
@@ -266,7 +283,28 @@ mod file_io_execution_tests {
                 file
             );
         }
+    }
 
-        cleanup_test_files(&test_files);
+    #[test]
+    fn file_io_execution_tempdir_removes_fixtures_on_panic() {
+        let leak = std::path::PathBuf::from("test_exec_basic.txt");
+        let _ = fs::remove_file(&leak);
+
+        let panic = std::panic::catch_unwind(|| {
+            let directory = tempfile::tempdir().expect("create isolated file fixture");
+            fs::write(directory.path().join("test_exec_basic.txt"), "fixture")
+                .expect("write fixture");
+            panic!("original assertion failure");
+        })
+        .expect_err("the original assertion must still propagate");
+        assert_eq!(
+            panic.downcast_ref::<&str>(),
+            Some(&"original assertion failure"),
+            "tempdir cleanup must preserve the original panic payload"
+        );
+        assert!(
+            !leak.exists(),
+            "a panicking execution test must not leave fixtures in the repo root"
+        );
     }
 }
