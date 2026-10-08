@@ -2481,6 +2481,22 @@ mod quantifier_extent_tests {
         assert!(found.is_none());
     }
 
+    fn one_or_more_literal_alternation(n: usize) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(literal_alternation(n)),
+            quantifier: Quantifier::OneOrMore,
+        }
+    }
+
+    #[test]
+    fn thousand_arm_one_or_more_list_stays_under_default_budget() {
+        let pattern = one_or_more_literal_alternation(1_000);
+        let text = "b".repeat(1_000);
+        let found = find_under_default(&pattern, &text)
+            .expect("one or more of a 1_000-arm list miss must stay inside the default meter");
+        assert!(found.is_none());
+    }
+
     #[cfg(not(debug_assertions))]
     #[test]
     fn release_thousand_arm_literal_alternation_stays_under_a_second() {
@@ -2492,6 +2508,21 @@ mod quantifier_extent_tests {
         assert!(
             started.elapsed() < Duration::from_secs(1),
             "1_000-arm alt over 1_000 chars must stay comparable to main, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_thousand_arm_one_or_more_list_stays_under_a_second() {
+        let pattern = one_or_more_literal_alternation(1_000);
+        let text = "b".repeat(1_000);
+        let started = Instant::now();
+        let found = find_under_default(&pattern, &text).expect("must not hit the meter");
+        assert!(found.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "one or more of a 1_000-arm list over 1_000 chars must stay comparable to main, took {:?}",
             started.elapsed()
         );
     }
