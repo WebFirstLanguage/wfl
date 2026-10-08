@@ -1,4 +1,12 @@
 {
+  "docs_examples/cli_errors/print_error_exit.wfl": {
+    "doc_section": "Docs/03-language-basics/error-handling.md#reporting-cli-failures",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 1,
+    "tags": ["errors", "cli", "stderr"],
+    "doc_purpose": "Show an intentional CLI diagnostic with a nonzero exit status"
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",

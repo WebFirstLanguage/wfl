@@ -219,6 +219,24 @@ end try
 An error occurred: Division by zero
 ```
 
+## Reporting CLI Failures
+
+Use `print_error` to write a text message to the process's stderr channel,
+then `exit program with code` to stop the program with a nonzero status.
+This reports an intentional CLI failure without creating a runtime error or
+a debug report:
+
+```wfl
+store pos as 42
+call print_error with ("jshrink: Unclosed string at position: " with pos)
+exit program with code 1
+```
+
+The message appears on stderr, stdout stays empty, and the process exits with
+status 1. `print_error` itself neither raises an error nor exits. Use
+`raise_error` when a caller needs to catch the failure with `when error`.
+See the [executable CLI example](../../TestPrograms/docs_examples/cli_errors/print_error_exit.wfl).
+
 ## Nested Try-Catch
 
 You can nest try-catch blocks:
