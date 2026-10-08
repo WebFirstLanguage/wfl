@@ -1002,6 +1002,19 @@ impl Analyzer {
         }
     }
 
+    /// Types of request-object fields readable as `path of req`. Shared by the
+    /// analyzer's `of`-form relaxation and the type checker's property-access
+    /// inference so the lists cannot drift (issue #647).
+    pub(crate) fn request_object_property_type(name: &str) -> Option<Type> {
+        Some(match name {
+            "method" | "path" | "query" | "client_ip" | "originating_ip" | "body" => Type::Text,
+            "body_bytes" => Type::Binary,
+            "headers" => Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            "ambiguous_auth_headers" => Type::Boolean,
+            _ => return None,
+        })
+    }
+
     /// Natural-language member access: `path of req` parses as a one-argument
     /// `of` call (`FunctionCall` with a bare-`Variable` callee). The runtime
     /// reads that as a property on the argument object when the callee is not
@@ -1009,18 +1022,7 @@ impl Analyzer {
     /// undefined variables (issue #647) or as "not a function" when a
     /// same-named loop binding exists after `wait for request`.
     fn is_request_object_property_access(name: &str, arguments: &[Argument]) -> bool {
-        arguments.len() == 1
-            && matches!(
-                name,
-                "method"
-                    | "path"
-                    | "query"
-                    | "client_ip"
-                    | "originating_ip"
-                    | "body"
-                    | "body_bytes"
-                    | "headers"
-            )
+        arguments.len() == 1 && Self::request_object_property_type(name).is_some()
     }
 
     fn analyze_statement(&mut self, statement: &Statement) {
