@@ -10,6 +10,6 @@ declare `mod common;`. That is declared once on `tests/suite/main.rs` as
 `crate::common`. No `tests/test_helpers.rs` consumers and no externally
 pinned target names are in this batch.
 
-The remaining 153 top-level `tests/*.rs` files stay standalone. Later
+The remaining 154 top-level `tests/*.rs` files stay standalone. Later
 batches still need the `mod common;` / `mod test_helpers;` consumers,
 the three pinned `--test` names, and Group A last.
