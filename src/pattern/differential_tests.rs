@@ -93,7 +93,7 @@ fn gen_pattern(rng: &mut StdRng, depth: u32) -> PatternExpression {
     if depth == 0 {
         return gen_leaf(rng);
     }
-    match rng.random_range(0..11) {
+    match rng.random_range(0..12) {
         0..=2 => gen_leaf(rng),
         3..=4 => PatternExpression::Quantified {
             pattern: Box::new(gen_pattern(rng, depth - 1)),
@@ -127,6 +127,9 @@ fn gen_pattern(rng: &mut StdRng, depth: u32) -> PatternExpression {
             ])),
             quantifier: Quantifier::ZeroOrMore,
         },
+        // Empty `or` arm inside a star, after a nested quantifier — the
+        // inner `or` must keep split_pos even though it is not a loop Split.
+        10 => empty_or_any_then_a_star_then_a_or_empty(),
         // Bounded quantifier arm inside `zero or more (… or …)`. `at most`
         // / `between` emit Splits that no Jump targets; empty re-entry
         // still has to take the Split exit.
@@ -224,6 +227,26 @@ fn regex_extent(expr: &PatternExpression, text: &str) -> Option<Option<String>> 
     Some(compiled.find(text).map(|m| m.as_str().to_string()))
 }
 
+fn empty_or_any_then_a_star_then_a_or_empty() -> PatternExpression {
+    PatternExpression::Quantified {
+        pattern: Box::new(PatternExpression::Sequence(vec![
+            PatternExpression::Alternative(vec![
+                PatternExpression::Literal(String::new()),
+                PatternExpression::CharacterClass(CharClass::Any),
+            ]),
+            PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::ZeroOrMore,
+            },
+            PatternExpression::Alternative(vec![
+                PatternExpression::Literal("a".to_string()),
+                PatternExpression::Literal(String::new()),
+            ]),
+        ])),
+        quantifier: Quantifier::ZeroOrMore,
+    }
+}
+
 fn bounded_quantifier_in_star_or(quantifier: Quantifier) -> PatternExpression {
     PatternExpression::Quantified {
         pattern: Box::new(PatternExpression::Alternative(vec![
@@ -248,6 +271,7 @@ fn review_shapes() -> Vec<(PatternExpression, &'static str)> {
             bounded_quantifier_in_star_or(Quantifier::AtMost(2)),
             "a-1bb--",
         ),
+        (empty_or_any_then_a_star_then_a_or_empty(), "ab"),
     ]
 }
 

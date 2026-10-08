@@ -2126,6 +2126,26 @@ mod quantifier_extent_tests {
         }
     }
 
+    fn empty_or_any_then_a_star_then_a_or_empty() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Sequence(vec![
+                PatternExpression::Alternative(vec![
+                    PatternExpression::Literal(String::new()),
+                    PatternExpression::CharacterClass(CharClass::Any),
+                ]),
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                    quantifier: Quantifier::ZeroOrMore,
+                },
+                PatternExpression::Alternative(vec![
+                    PatternExpression::Literal("a".to_string()),
+                    PatternExpression::Literal(String::new()),
+                ]),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
     fn assert_plain_agrees_with_backref(
         pattern: PatternExpression,
         text: &str,
@@ -2234,6 +2254,18 @@ mod quantifier_extent_tests {
         assert_plain_agrees_with_backref(
             between_zero_and_two_letter_or_dash_star(),
             "a-b",
+            Some("a"),
+        );
+    }
+
+    #[test]
+    fn empty_or_inside_star_after_nested_quantifier_agrees_with_backref() {
+        // An `or` inside a loop can be re-entered empty after a nested
+        // quantifier exits. That `or` still needs split_pos so the second
+        // arm is taken instead of dropping the thread.
+        assert_plain_agrees_with_backref(
+            empty_or_any_then_a_star_then_a_or_empty(),
+            "ab",
             Some("a"),
         );
     }

@@ -470,3 +470,17 @@ fn between_zero_and_two_letter_or_dash_star_on_a_dash_b_agrees_with_inert_backre
         "back: [a]",
     );
 }
+
+#[test]
+fn empty_or_inside_star_after_nested_quantifier_agrees_with_inert_backref() {
+    assert_plain_and_backref(
+        "create pattern p:\n    zero or more ((\"\" or any character) then zero or more \"a\" then (\"a\" or \"\"))\nend pattern\n\
+         store hit as find p in \"ab\"\n\
+         display \"plain: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "create pattern p:\n    capture {optional \"x\"} as e then zero or more ((\"\" or any character) then zero or more \"a\" then (\"a\" or \"\")) then same as captured \"e\"\nend pattern\n\
+         store hit as find p in \"ab\"\n\
+         display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "plain: [a]",
+        "back: [a]",
+    );
+}
