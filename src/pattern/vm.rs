@@ -2546,4 +2546,41 @@ mod quantifier_extent_tests {
             .expect("a 3_500-arm list must not reserve program.len() states");
         assert_eq!(found.expect("w42x is in the list").matched_text, "w42x");
     }
+
+    #[test]
+    fn fifteen_thousand_arm_list_finds_w5x_under_default_budget() {
+        let pattern = literal_alternation(15_000);
+        let found = find_under_default(&pattern, "zz w5x zz")
+            .expect("a 15_000-arm list must not charge one state per word");
+        assert_eq!(found.expect("w5x is in the list").matched_text, "w5x");
+    }
+
+    #[test]
+    fn fifteen_thousand_arm_one_or_more_list_finds_w5x_under_default_budget() {
+        let pattern = one_or_more_literal_alternation(15_000);
+        let found = find_under_default(&pattern, "zz w5x zz")
+            .expect("one or more of a 15_000-arm list must not charge one state per word");
+        assert_eq!(found.expect("w5x is in the list").matched_text, "w5x");
+    }
+
+    #[test]
+    fn six_thousand_arm_list_with_a_shared_first_char_finds_w5x() {
+        let pattern = literal_alternation(6_000);
+        let found = find_under_default(&pattern, "zz w5x zz")
+            .expect("overlapping frontiers of a 6_000-arm list must not exceed max_pattern_states");
+        assert_eq!(found.expect("w5x is in the list").matched_text, "w5x");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_ten_thousand_arm_one_or_more_list_compiles_under_50ms() {
+        let pattern = one_or_more_literal_alternation(10_000);
+        let started = Instant::now();
+        CompiledPattern::compile(&pattern).expect("10_000-arm one or more compiles");
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "nullable scan must run once per or, took {:?}",
+            started.elapsed()
+        );
+    }
 }
