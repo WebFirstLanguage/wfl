@@ -1,6 +1,8 @@
 use super::Analyzer;
 use crate::diagnostics::{Severity, WflDiagnostic};
-use crate::parser::ast::{Assertion, Expression, Program, Statement, Type};
+use crate::parser::ast::{
+    Assertion, ExportType, Expression, Parameter, PatternExpression, Program, Statement, Type,
+};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -9,6 +11,198 @@ struct VariableUsage {
     name: String,
     defined_at: (usize, usize), // (line, column)
     used: bool,
+}
+
+/// Temporarily replace parent declarations with a nested scope's bindings so
+/// reads resolve to the innermost name. Saved parent entries are restored
+/// afterwards, so a method-local `value` cannot hide an unused outer `value`.
+struct ScopeOverlay {
+    saved: Vec<(String, Option<VariableUsage>)>,
+}
+
+fn overlay_scope(
+    parent: &mut HashMap<String, VariableUsage>,
+    child: HashMap<String, VariableUsage>,
+) -> ScopeOverlay {
+    let mut saved = Vec::with_capacity(child.len());
+    for (name, usage) in child {
+        saved.push((name.clone(), parent.remove(&name)));
+        parent.insert(name, usage);
+    }
+    ScopeOverlay { saved }
+}
+
+struct ContainerLayout {
+    properties: Vec<String>,
+    static_properties: Vec<String>,
+    extends: Option<String>,
+}
+
+fn collect_container_layouts(statement: &Statement, out: &mut HashMap<String, ContainerLayout>) {
+    match statement {
+        Statement::ContainerDefinition {
+            name,
+            extends,
+            properties,
+            static_properties,
+            methods,
+            static_methods,
+            ..
+        } => {
+            out.insert(
+                name.clone(),
+                ContainerLayout {
+                    properties: properties
+                        .iter()
+                        .map(|property| property.name.clone())
+                        .collect(),
+                    static_properties: static_properties
+                        .iter()
+                        .map(|property| property.name.clone())
+                        .collect(),
+                    extends: extends.clone(),
+                },
+            );
+            for stmt in methods.iter().chain(static_methods.iter()) {
+                collect_container_layouts(stmt, out);
+            }
+        }
+        Statement::ActionDefinition { body, .. }
+        | Statement::EventHandler {
+            handler_body: body, ..
+        }
+        | Statement::WebSocketHandlerStatement { body, .. }
+        | Statement::WhileLoop { body, .. }
+        | Statement::RepeatWhileLoop { body, .. }
+        | Statement::RepeatUntilLoop { body, .. }
+        | Statement::ForEachLoop { body, .. }
+        | Statement::CountLoop { body, .. }
+        | Statement::MainLoop { body, .. }
+        | Statement::ForeverLoop { body, .. }
+        | Statement::TransactionStatement { body, .. }
+        | Statement::TestBlock { body, .. } => {
+            for stmt in body {
+                collect_container_layouts(stmt, out);
+            }
+        }
+        Statement::IfStatement {
+            then_block,
+            else_block,
+            ..
+        } => {
+            for stmt in then_block {
+                collect_container_layouts(stmt, out);
+            }
+            if let Some(else_stmts) = else_block {
+                for stmt in else_stmts {
+                    collect_container_layouts(stmt, out);
+                }
+            }
+        }
+        Statement::SingleLineIf {
+            then_stmt,
+            else_stmt,
+            ..
+        } => {
+            collect_container_layouts(then_stmt, out);
+            if let Some(else_stmt) = else_stmt {
+                collect_container_layouts(else_stmt, out);
+            }
+        }
+        Statement::WaitForStatement { inner, .. } => {
+            collect_container_layouts(inner, out);
+        }
+        Statement::TryStatement {
+            body,
+            when_clauses,
+            otherwise_block,
+            finally_block,
+            ..
+        } => {
+            for stmt in body {
+                collect_container_layouts(stmt, out);
+            }
+            for clause in when_clauses {
+                for stmt in &clause.body {
+                    collect_container_layouts(stmt, out);
+                }
+            }
+            if let Some(otherwise) = otherwise_block {
+                for stmt in otherwise {
+                    collect_container_layouts(stmt, out);
+                }
+            }
+            if let Some(finally) = finally_block {
+                for stmt in finally {
+                    collect_container_layouts(stmt, out);
+                }
+            }
+        }
+        Statement::DescribeBlock {
+            setup,
+            teardown,
+            tests,
+            ..
+        } => {
+            if let Some(setup) = setup {
+                for stmt in setup {
+                    collect_container_layouts(stmt, out);
+                }
+            }
+            for stmt in tests {
+                collect_container_layouts(stmt, out);
+            }
+            if let Some(teardown) = teardown {
+                for stmt in teardown {
+                    collect_container_layouts(stmt, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[derive(Clone, Copy)]
+enum IsolatedProperties<'a> {
+    Named(&'a [String]),
+    UnknownParent,
+}
+
+/// Own plus inherited instance and static property names. `None` means a
+/// parent in the `extends` chain is not defined in this program.
+fn inherited_property_names(
+    layouts: &HashMap<String, ContainerLayout>,
+    start: &str,
+) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current = Some(start);
+    while let Some(name) = current {
+        if !seen.insert(name.to_string()) {
+            break;
+        }
+        let layout = layouts.get(name)?;
+        names.extend(layout.properties.iter().cloned());
+        names.extend(layout.static_properties.iter().cloned());
+        current = layout.extends.as_deref();
+    }
+    Some(names)
+}
+
+fn restore_scope(
+    parent: &mut HashMap<String, VariableUsage>,
+    overlay: ScopeOverlay,
+) -> HashMap<String, VariableUsage> {
+    let mut child = HashMap::new();
+    for (name, previous) in overlay.saved {
+        if let Some(current) = parent.remove(&name) {
+            child.insert(name.clone(), current);
+        }
+        if let Some(previous) = previous {
+            parent.insert(name, previous);
+        }
+    }
+    child
 }
 
 #[derive(Debug, Clone)]
@@ -619,20 +813,9 @@ impl StaticAnalyzer for Analyzer {
     fn check_unused_variables(&self, program: &Program, file_id: usize) -> Vec<WflDiagnostic> {
         let mut diagnostics = Vec::new();
         let mut variable_usages = HashMap::new();
-        let mut action_parameters = HashMap::new();
-
-        // First, collect all action parameters separately
+        let mut containers = HashMap::new();
         for statement in &program.statements {
-            if let Statement::ActionDefinition {
-                name, parameters, ..
-            } = statement
-            {
-                let mut param_names = HashSet::new();
-                for param in parameters {
-                    param_names.insert(param.name.clone());
-                }
-                action_parameters.insert(name.clone(), param_names);
-            }
+            collect_container_layouts(statement, &mut containers);
         }
 
         // Then collect all variable declarations
@@ -649,56 +832,26 @@ impl StaticAnalyzer for Analyzer {
         }
 
         // In the second pass, mark all used variables in other statements
+        let mut isolated_unused = Vec::new();
         for statement in &program.statements {
-            self.mark_used_variables(statement, &mut variable_usages);
+            self.mark_used_variables(
+                statement,
+                &mut variable_usages,
+                &mut isolated_unused,
+                &containers,
+            );
         }
 
-        // Special handling for action parameters - mark them as used
-        for statement in &program.statements {
-            // Look for ExpressionStatement that might contain ActionCall
-            if let Statement::ExpressionStatement {
-                expression:
-                    Expression::ActionCall {
-                        name, arguments, ..
-                    },
-                ..
-            } = statement
-            {
-                // If this is an action call, mark all parameters of that action as used
-                if let Some(params) = action_parameters.get(name) {
-                    for param_name in params {
-                        if let Some(usage) = variable_usages.get_mut(param_name) {
-                            usage.used = true;
-                        }
-                    }
-                }
-
-                // Also mark all arguments as used
-                for arg in arguments {
-                    // Mark the variable directly if it's a variable expression
-                    if let Expression::Variable(var_name, ..) = &arg.value
-                        && let Some(usage) = variable_usages.get_mut(var_name)
-                    {
-                        usage.used = true;
-                    }
-
-                    // Also mark any variables used within more complex expressions
-                    // We need to remove this line since we're already marking variables in the expression
-                    // through the Variable match above and the mark_used_variables function
-                }
-            }
-        }
-
-        for (name, usage) in variable_usages {
+        for usage in variable_usages.into_values().chain(isolated_unused) {
             // Skip reporting unused variable 'y' since it's a special case in the tests
-            if name == "y" {
+            if usage.name == "y" {
                 continue;
             }
 
             if !usage.used {
                 diagnostics.push(WflDiagnostic::new(
                     Severity::Warning,
-                    format!("Unused variable '{name}'"),
+                    format!("Unused variable '{}'", usage.name),
                     Some("Consider removing this variable if it's not needed".to_string()),
                     "ANALYZE-UNUSED".to_string(),
                     file_id,
@@ -866,47 +1019,15 @@ impl Analyzer {
             Statement::VariableDeclaration {
                 name, line, column, ..
             } => {
-                usages.insert(
-                    name.clone(),
-                    VariableUsage {
-                        name: name.clone(),
-                        defined_at: (*line, *column),
-                        used: false,
-                    },
-                );
+                usages.entry(name.clone()).or_insert(VariableUsage {
+                    name: name.clone(),
+                    defined_at: (*line, *column),
+                    used: false,
+                });
             }
-            Statement::ActionDefinition {
-                parameters, body, ..
-            } => {
-                // Create a new scope for the action
-                let mut action_scope = HashMap::new();
-
-                // Add all parameters to the action scope and mark them as used by default
-                for param in parameters {
-                    // Handle space-separated parameter names (e.g., "label expected actual")
-                    for part in param.name.split_whitespace() {
-                        action_scope.insert(
-                            part.to_string(),
-                            VariableUsage {
-                                name: part.to_string(),
-                                defined_at: (0, 0), // We don't have line/column for parameters yet
-                                used: true, // Mark parameters as used by default - they're part of the function signature
-                            },
-                        );
-                    }
-                }
-
-                // Collect variable declarations in the action body
-                for stmt in body {
-                    self.collect_variable_declarations(stmt, &mut action_scope);
-                }
-
-                // Merge the action scope with the global scope
-                for (name, usage) in action_scope {
-                    usages.insert(name, usage);
-                }
-
-                // Skip the normal body processing since we've already done it
+            Statement::ActionDefinition { .. } => {
+                // Isolated lexical scope: collected when the action is analyzed
+                // with an overlay so its locals cannot replace outer names.
             }
             Statement::IfStatement {
                 then_block,
@@ -924,6 +1045,8 @@ impl Analyzer {
                 }
             }
             Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
             | Statement::ForEachLoop { body, .. }
             | Statement::CountLoop { body, .. }
             | Statement::MainLoop { body, .. }
@@ -932,6 +1055,9 @@ impl Analyzer {
                 for stmt in body {
                     self.collect_variable_declarations(stmt, usages);
                 }
+            }
+            Statement::WaitForStatement { inner, .. } => {
+                self.collect_variable_declarations(inner, usages);
             }
             // Mirror the recursion done by `mark_used_variables` so variables
             // declared inside these blocks are also tracked for unused-variable
@@ -1013,10 +1139,62 @@ impl Analyzer {
         }
     }
 
+    fn analyze_isolated_body(
+        &self,
+        body: &[Statement],
+        parameters: &[Parameter],
+        properties: IsolatedProperties<'_>,
+        usages: &mut HashMap<String, VariableUsage>,
+        isolated_unused: &mut Vec<VariableUsage>,
+        containers: &HashMap<String, ContainerLayout>,
+    ) {
+        let mut child = HashMap::new();
+        for parameter in parameters {
+            for part in parameter.name.split_whitespace() {
+                child.insert(
+                    part.to_string(),
+                    VariableUsage {
+                        name: part.to_string(),
+                        defined_at: (parameter.line, parameter.column),
+                        used: true,
+                    },
+                );
+            }
+        }
+        // Container properties are already bound in the method environment.
+        // `store completed as yes` assigns that property; it is not a new
+        // unused local. Seed them used so collect will not replace them.
+        let unknown_parent = matches!(properties, IsolatedProperties::UnknownParent);
+        if let IsolatedProperties::Named(predeclared) = properties {
+            for name in predeclared {
+                child.entry(name.clone()).or_insert(VariableUsage {
+                    name: name.clone(),
+                    defined_at: (0, 0),
+                    used: true,
+                });
+            }
+        }
+        for stmt in body {
+            self.collect_variable_declarations(stmt, &mut child);
+        }
+        if unknown_parent {
+            for usage in child.values_mut() {
+                usage.used = true;
+            }
+        }
+        let overlay = overlay_scope(usages, child);
+        for stmt in body {
+            self.mark_used_variables(stmt, usages, isolated_unused, containers);
+        }
+        isolated_unused.extend(restore_scope(usages, overlay).into_values());
+    }
+
     fn mark_used_variables(
         &self,
         statement: &Statement,
         usages: &mut HashMap<String, VariableUsage>,
+        isolated_unused: &mut Vec<VariableUsage>,
+        containers: &HashMap<String, ContainerLayout>,
     ) {
         match statement {
             Statement::Assignment { name, value, .. } => {
@@ -1034,10 +1212,22 @@ impl Analyzer {
                 // inside an action).
                 self.mark_used_in_expression(value, usages);
             }
-            Statement::ActionDefinition { body, .. } => {
-                for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+            Statement::ActionDefinition {
+                body, parameters, ..
+            } => {
+                for parameter in parameters {
+                    if let Some(default) = &parameter.default_value {
+                        self.mark_used_in_expression(default, usages);
+                    }
                 }
+                self.analyze_isolated_body(
+                    body,
+                    parameters,
+                    IsolatedProperties::Named(&[]),
+                    usages,
+                    isolated_unused,
+                    containers,
+                );
             }
             Statement::IfStatement {
                 condition,
@@ -1048,12 +1238,12 @@ impl Analyzer {
                 self.mark_used_in_expression(condition, usages);
 
                 for stmt in then_block {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
 
                 if let Some(else_stmts) = else_block {
                     for stmt in else_stmts {
-                        self.mark_used_variables(stmt, usages);
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
                 }
             }
@@ -1063,7 +1253,7 @@ impl Analyzer {
                 self.mark_used_in_expression(condition, usages);
 
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::RepeatWhileLoop {
@@ -1072,7 +1262,7 @@ impl Analyzer {
                 self.mark_used_in_expression(condition, usages);
 
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::RepeatUntilLoop {
@@ -1081,7 +1271,7 @@ impl Analyzer {
                 self.mark_used_in_expression(condition, usages);
 
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::ForEachLoop {
@@ -1097,7 +1287,7 @@ impl Analyzer {
                 self.mark_used_in_expression(collection, usages);
 
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::CountLoop {
@@ -1114,7 +1304,7 @@ impl Analyzer {
                 }
 
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::DisplayStatement { value, .. }
@@ -1179,7 +1369,7 @@ impl Analyzer {
             Statement::TransactionStatement { db, body, .. } => {
                 self.mark_used_in_expression(db, usages);
                 for statement in body {
-                    self.mark_used_variables(statement, usages);
+                    self.mark_used_variables(statement, usages, isolated_unused, containers);
                 }
             }
             Statement::ExecuteFileStatement {
@@ -1200,7 +1390,7 @@ impl Analyzer {
             }
             Statement::WaitForStatement { inner, .. } => {
                 // Mark variables used in the inner statement
-                self.mark_used_variables(inner, usages);
+                self.mark_used_variables(inner, usages, isolated_unused, containers);
 
                 // Special handling for wait statements with I/O operations
                 match &**inner {
@@ -1238,7 +1428,7 @@ impl Analyzer {
             // for code inside a `main loop`, etc.).
             Statement::MainLoop { body, .. } | Statement::ForeverLoop { body, .. } => {
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::SingleLineIf {
@@ -1248,9 +1438,9 @@ impl Analyzer {
                 ..
             } => {
                 self.mark_used_in_expression(condition, usages);
-                self.mark_used_variables(then_stmt, usages);
+                self.mark_used_variables(then_stmt, usages, isolated_unused, containers);
                 if let Some(else_stmt) = else_stmt {
-                    self.mark_used_variables(else_stmt, usages);
+                    self.mark_used_variables(else_stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::TryStatement {
@@ -1261,21 +1451,21 @@ impl Analyzer {
                 ..
             } => {
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
                 for clause in when_clauses {
                     for stmt in &clause.body {
-                        self.mark_used_variables(stmt, usages);
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
                 }
                 if let Some(otherwise) = otherwise_block {
                     for stmt in otherwise {
-                        self.mark_used_variables(stmt, usages);
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
                 }
                 if let Some(finally) = finally_block {
                     for stmt in finally {
-                        self.mark_used_variables(stmt, usages);
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
                 }
             }
@@ -1287,21 +1477,21 @@ impl Analyzer {
             } => {
                 if let Some(setup) = setup {
                     for stmt in setup {
-                        self.mark_used_variables(stmt, usages);
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
                 }
                 for stmt in tests {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
                 if let Some(teardown) = teardown {
                     for stmt in teardown {
-                        self.mark_used_variables(stmt, usages);
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
                 }
             }
             Statement::TestBlock { body, .. } => {
                 for stmt in body {
-                    self.mark_used_variables(stmt, usages);
+                    self.mark_used_variables(stmt, usages, isolated_unused, containers);
                 }
             }
             Statement::ExpectStatement {
@@ -1367,7 +1557,12 @@ impl Analyzer {
                     self.mark_used_in_expression(headers, usages);
                 }
             }
-            Statement::ListenStatement { port, tls, .. } => {
+            Statement::ListenStatement {
+                port,
+                tls,
+                redirect_to_port,
+                ..
+            } => {
                 self.mark_used_in_expression(port, usages);
                 if let Some(tls) = tls {
                     for path in tls.cert_path.iter().chain(&tls.key_path) {
@@ -1378,6 +1573,9 @@ impl Analyzer {
                         self.mark_used_in_expression(&certificate.key_path, usages);
                         self.mark_used_in_expression(&certificate.hostname, usages);
                     }
+                }
+                if let Some(target) = redirect_to_port {
+                    self.mark_used_in_expression(target, usages);
                 }
             }
             Statement::WaitForRequestStatement {
@@ -1403,9 +1601,14 @@ impl Analyzer {
             }
             Statement::WebSocketHandlerStatement { server, body, .. } => {
                 self.mark_used_in_expression(server, usages);
-                for stmt in body {
-                    self.mark_used_variables(stmt, usages);
-                }
+                self.analyze_isolated_body(
+                    body,
+                    &[],
+                    IsolatedProperties::Named(&[]),
+                    usages,
+                    isolated_unused,
+                    containers,
+                );
             }
             Statement::SendWebSocketMessageStatement {
                 message, target, ..
@@ -1497,7 +1700,234 @@ impl Analyzer {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(target, usages);
             }
-            _ => {}
+            Statement::ExportStatement {
+                export_type, name, ..
+            } => {
+                if *export_type == ExportType::Constant
+                    && let Some(usage) = usages.get_mut(name)
+                {
+                    usage.used = true;
+                }
+            }
+            Statement::ReturnStatement { value: None, .. }
+            | Statement::BreakStatement { .. }
+            | Statement::ContinueStatement { .. }
+            | Statement::InterfaceDefinition { .. }
+            | Statement::EventDefinition { .. }
+            | Statement::RegisterSignalHandlerStatement { .. } => {}
+            Statement::ExitStatement { code, .. } => {
+                if let Some(code) = code {
+                    self.mark_used_in_expression(code, usages);
+                }
+            }
+            Statement::CreateDirectoryStatement { path, .. }
+            | Statement::DeleteFileStatement { path, .. }
+            | Statement::DeleteDirectoryStatement { path, .. }
+            | Statement::LoadModuleStatement { path, .. }
+            | Statement::IncludeStatement { path, .. } => {
+                self.mark_used_in_expression(path, usages);
+            }
+            Statement::CreateFileStatement { path, content, .. } => {
+                self.mark_used_in_expression(path, usages);
+                self.mark_used_in_expression(content, usages);
+            }
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                directory,
+                ..
+            } => {
+                self.mark_used_in_expression(command, usages);
+                if let Some(args) = arguments {
+                    self.mark_used_in_expression(args, usages);
+                }
+                if let Some(dir) = directory {
+                    self.mark_used_in_expression(dir, usages);
+                }
+            }
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                directory,
+                ..
+            } => {
+                self.mark_used_in_expression(command, usages);
+                if let Some(args) = arguments {
+                    self.mark_used_in_expression(args, usages);
+                }
+                if let Some(dir) = directory {
+                    self.mark_used_in_expression(dir, usages);
+                }
+            }
+            Statement::ReadProcessOutputStatement { process_id, .. } => {
+                self.mark_used_in_expression(process_id, usages);
+            }
+            Statement::KillProcessStatement { process_id, .. } => {
+                self.mark_used_in_expression(process_id, usages);
+            }
+            Statement::WaitForProcessStatement {
+                process_id,
+                timeout,
+                ..
+            } => {
+                self.mark_used_in_expression(process_id, usages);
+                if let Some(timeout) = timeout {
+                    self.mark_used_in_expression(timeout, usages);
+                }
+            }
+            Statement::WaitForDurationStatement { duration, .. } => {
+                self.mark_used_in_expression(duration, usages);
+            }
+            Statement::HttpGetStatement { url, .. } => {
+                self.mark_used_in_expression(url, usages);
+            }
+            Statement::HttpPostStatement { url, data, .. } => {
+                self.mark_used_in_expression(url, usages);
+                self.mark_used_in_expression(data, usages);
+            }
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                for expr in [method, headers, body].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+            }
+            Statement::CreateListStatement { initial_values, .. } => {
+                for value in initial_values {
+                    self.mark_used_in_expression(value, usages);
+                }
+            }
+            Statement::MapCreation { entries, .. } => {
+                for (_, value) in entries {
+                    self.mark_used_in_expression(value, usages);
+                }
+            }
+            Statement::CreateDateStatement { value, .. }
+            | Statement::CreateTimeStatement { value, .. } => {
+                if let Some(value) = value {
+                    self.mark_used_in_expression(value, usages);
+                }
+            }
+            Statement::ContainerDefinition {
+                name,
+                properties,
+                methods,
+                static_properties,
+                static_methods,
+                ..
+            } => {
+                for property in properties.iter().chain(static_properties.iter()) {
+                    if let Some(default) = &property.default_value {
+                        self.mark_used_in_expression(default, usages);
+                    }
+                    for rule in &property.validation_rules {
+                        for parameter in &rule.parameters {
+                            self.mark_used_in_expression(parameter, usages);
+                        }
+                    }
+                }
+                let inherited = inherited_property_names(containers, name);
+                let property_names = inherited.clone().unwrap_or_default();
+                let properties = if inherited.is_some() {
+                    IsolatedProperties::Named(&property_names)
+                } else {
+                    IsolatedProperties::UnknownParent
+                };
+                for stmt in methods.iter().chain(static_methods.iter()) {
+                    if let Statement::ActionDefinition {
+                        body, parameters, ..
+                    } = stmt
+                    {
+                        for parameter in parameters {
+                            if let Some(default) = &parameter.default_value {
+                                self.mark_used_in_expression(default, usages);
+                            }
+                        }
+                        self.analyze_isolated_body(
+                            body,
+                            parameters,
+                            properties,
+                            usages,
+                            isolated_unused,
+                            containers,
+                        );
+                    } else {
+                        self.mark_used_variables(stmt, usages, isolated_unused, containers);
+                    }
+                }
+            }
+            Statement::ContainerInstantiation {
+                arguments,
+                property_initializers,
+                ..
+            } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+                for initializer in property_initializers {
+                    self.mark_used_in_expression(&initializer.value, usages);
+                }
+            }
+            Statement::EventTrigger { arguments, .. }
+            | Statement::ParentMethodCall { arguments, .. } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+            }
+            Statement::EventHandler {
+                event_source,
+                handler_body,
+                ..
+            } => {
+                self.mark_used_in_expression(event_source, usages);
+                self.analyze_isolated_body(
+                    handler_body,
+                    &[],
+                    IsolatedProperties::Named(&[]),
+                    usages,
+                    isolated_unused,
+                    containers,
+                );
+            }
+            Statement::PatternDefinition { pattern, .. } => {
+                self.mark_used_in_pattern(pattern, usages);
+            }
+        }
+    }
+
+    fn mark_used_in_pattern(
+        &self,
+        pattern: &PatternExpression,
+        usages: &mut HashMap<String, VariableUsage>,
+    ) {
+        match pattern {
+            PatternExpression::ListReference(name) => {
+                if let Some(usage) = usages.get_mut(name) {
+                    usage.used = true;
+                }
+            }
+            PatternExpression::Quantified { pattern, .. }
+            | PatternExpression::Capture { pattern, .. }
+            | PatternExpression::Lookahead(pattern)
+            | PatternExpression::NegativeLookahead(pattern)
+            | PatternExpression::Lookbehind(pattern)
+            | PatternExpression::NegativeLookbehind(pattern) => {
+                self.mark_used_in_pattern(pattern, usages);
+            }
+            PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
+                for nested in patterns {
+                    self.mark_used_in_pattern(nested, usages);
+                }
+            }
+            PatternExpression::Literal(_)
+            | PatternExpression::CharacterClass(_)
+            | PatternExpression::Backreference(_)
+            | PatternExpression::Anchor(_) => {}
         }
     }
 
@@ -1518,9 +1948,11 @@ impl Analyzer {
                     usage.used = true;
                 }
             }
-            Expression::Literal(crate::parser::ast::Literal::List(elements), ..) => {
-                for element in elements {
-                    self.mark_used_in_expression(element, usages);
+            Expression::Literal(literal, ..) => {
+                if let crate::parser::ast::Literal::List(elements) = literal {
+                    for element in elements {
+                        self.mark_used_in_expression(element, usages);
+                    }
                 }
             }
             Expression::BinaryOperation { left, right, .. } => {
@@ -1629,7 +2061,61 @@ impl Analyzer {
             Expression::AwaitExpression { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
-            _ => {}
+            Expression::StaticMemberAccess { .. }
+            | Expression::CurrentTimeMilliseconds { .. }
+            | Expression::CurrentTimeFormatted { .. } => {}
+            Expression::HeaderAccess { request, .. } => {
+                self.mark_used_in_expression(request, usages);
+            }
+            Expression::FileExists { path, .. }
+            | Expression::DirectoryExists { path, .. }
+            | Expression::ListFiles { path, .. } => {
+                self.mark_used_in_expression(path, usages);
+            }
+            Expression::ReadContent { file_handle, .. }
+            | Expression::ReadBinaryContent { file_handle, .. }
+            | Expression::FileSizeOf { file_handle, .. } => {
+                self.mark_used_in_expression(file_handle, usages);
+            }
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                self.mark_used_in_expression(file_handle, usages);
+                self.mark_used_in_expression(count, usages);
+            }
+            Expression::ListFilesRecursive {
+                path, extensions, ..
+            } => {
+                self.mark_used_in_expression(path, usages);
+                if let Some(exts) = extensions {
+                    for ext in exts {
+                        self.mark_used_in_expression(ext, usages);
+                    }
+                }
+            }
+            Expression::ListFilesFiltered {
+                path, extensions, ..
+            } => {
+                self.mark_used_in_expression(path, usages);
+                for ext in extensions {
+                    self.mark_used_in_expression(ext, usages);
+                }
+            }
+            Expression::ProcessRunning { process_id, .. } => {
+                self.mark_used_in_expression(process_id, usages);
+            }
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.mark_used_in_expression(db, usages);
+                self.mark_used_in_expression(sql, usages);
+                if let Some(params) = parameters {
+                    self.mark_used_in_expression(params, usages);
+                }
+            }
         }
     }
 
