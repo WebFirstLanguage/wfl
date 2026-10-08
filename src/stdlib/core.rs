@@ -16,6 +16,21 @@ pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
+pub fn native_print_error(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("print_error", &args, 1)?;
+    match &args[0] {
+        Value::Text(message) => {
+            eprintln!("{message}");
+            Ok(Value::Null)
+        }
+        _ => Err(RuntimeError::new(
+            "print_error expects text".to_string(),
+            0,
+            0,
+        )),
+    }
+}
+
 pub fn native_typeof(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("typeof", &args, 1)?;
 
@@ -66,6 +81,7 @@ pub fn native_current_executable(args: Vec<Value>) -> Result<Value, RuntimeError
 
 pub fn register_core(env: &mut Environment) {
     env.define_native("print", native_print);
+    env.define_native("print_error", native_print_error);
     env.define_native("current_executable", native_current_executable);
 
     env.define_native("typeof", native_typeof);

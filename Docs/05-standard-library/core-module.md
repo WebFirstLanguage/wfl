@@ -28,6 +28,14 @@ See the [error-handling guide](../03-language-basics/error-handling.md) and
 `raise_error` uses the explicit standard-library call form (`call ... with`
 or `... of`), and is not a reserved keyword.
 
+### print_error
+
+`call print_error with message` writes text followed by a newline to the
+process's stderr channel. It accepts one text argument. A nontext value that
+reaches the function at runtime raises an argument error. The call does not
+change the process exit status; use `exit program with code 1` after it when a
+CLI command must fail. See [Reporting CLI Failures](../03-language-basics/error-handling.md#reporting-cli-failures).
+
 ### current_executable
 
 **Purpose:** Return the absolute path of the executable running this program.

@@ -1,0 +1,3 @@
+store pos as 42
+call print_error with ("jshrink: Unclosed string at position: " with pos)
+exit program with code 1

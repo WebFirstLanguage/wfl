@@ -2747,7 +2747,7 @@ impl TypeChecker {
             // Core functions
             "typeof" | "type_of" => Type::Text,
             "isnothing" | "is_nothing" => Type::Boolean,
-            "raise_error" => Type::Nothing,
+            "raise_error" | "print_error" => Type::Nothing,
             "print" | "sleep" | "foreach" => Type::Nothing, // Void functions
 
             // Math functions
