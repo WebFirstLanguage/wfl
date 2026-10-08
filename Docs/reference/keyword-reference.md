@@ -36,7 +36,7 @@ Quick lookup for all WFL reserved keywords.
 | `if` | Conditional | ✗ |
 | `in` | For each collection | ✗ |
 | `loop` | Loop reference | ✗ |
-| `otherwise` | Else / default clause | ✗ |
+| `otherwise` | Else, else-if (`otherwise check if`), or default clause | ✗ |
 | `repeat` | Loop construct | ✗ |
 | `reversed` | Reverse iteration | ✓ |
 | `route` | Dispatch on a value (match/switch) | ✗ |

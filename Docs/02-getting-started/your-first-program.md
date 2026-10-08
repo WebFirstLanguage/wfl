@@ -132,22 +132,18 @@ Let's add more logic:
 // Step 3b: Multiple conditions
 check if age is greater than or equal to 65:
     display "You are a senior citizen."
+otherwise check if age is greater than or equal to 18:
+    display "You are an adult."
+otherwise check if age is greater than or equal to 13:
+    display "You are a teenager."
 otherwise:
-    check if age is greater than or equal to 18:
-        display "You are an adult."
-    otherwise:
-        check if age is greater than or equal to 13:
-            display "You are a teenager."
-        otherwise:
-            display "You are a child."
-        end check
-    end check
+    display "You are a child."
 end check
 ```
 
 ### What You Learned
 
-- **Nested `otherwise: check if`** - Chain multiple conditions with nested blocks
+- **`otherwise check if`** - Chain extra conditions; the whole chain shares one `end check`
 - **Order matters** - Conditions are checked top to bottom
 
 ## Step 4: Loops
