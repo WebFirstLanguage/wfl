@@ -1,0 +1,16 @@
+// Converted from the remaining unique probe in `experiments/nexus/nexus.wfl`
+// (issue #668): `repeat until` runs the body first, then stops when the
+// condition becomes true. The gated TestPrograms/nexus/ set did not
+// previously assert this form.
+store count3 as 1
+store sum_repeat as 0
+repeat until count3 is greater than 5:
+    change sum_repeat to sum_repeat plus count3
+    change count3 to count3 plus 1
+end repeat
+
+describe "repeat until":
+    test "body-first loop sums 1 through 5":
+        expect sum_repeat to equal 15
+    end test
+end describe
