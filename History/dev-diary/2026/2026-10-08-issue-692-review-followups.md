@@ -21,3 +21,11 @@ still assert the process is running before kill and not running after.
 
 The `wfl_release_exe` documentation is back on `wfl_release_exe`;
 `require_existing_release_binary` keeps its one-line summary.
+
+The first rewrite-set guard skipped any `at` operand containing `/`, so a
+nested relative such as `subdir/output.txt` was treated as already
+absolute. Absolute now means `Path::is_absolute()` on this host: a path
+is listed-or-rejected when it would resolve against the process cwd
+here. Nested relatives are rejected on every OS. Windows drive and UNC
+forms are accepted unlisted only on Windows; on Unix they are relative
+and rejected.
