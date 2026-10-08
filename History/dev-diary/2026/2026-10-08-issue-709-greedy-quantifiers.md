@@ -88,6 +88,12 @@ and asserts Pike `find` equals the inert-backreference path. CI runs
 4_096 cases at seed `0x9E3779B97F4A7C15` plus 2_048 at seed `12345`.
 A local `WFL_PATTERN_DIFF_CASES` raise also compares the `regex` crate.
 
+List patterns compile to a wide `or` of literals. Pike now charges every
+epsilon step (so a 1_000-arm start-anchored miss hits the step ceiling
+instead of running unmetered), records `split_pos` only for loop
+`Split`s (a `Jump` target), and reserves live threads rather than
+`program.len()`. A 3_500-arm list still matches on a short input.
+
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
 `"1"`), not POSIX leftmost-longest.

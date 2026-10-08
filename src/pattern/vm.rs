@@ -210,7 +210,26 @@ struct PikeAdd<'a> {
     pos: usize,
     clist: &'a mut Vec<VMState>,
     seen: &'a mut HashSet<(usize, usize)>,
-    charge_epsilon: bool,
+    loop_splits: &'a [bool],
+}
+
+/// A `Split` that a `Jump` targets is a quantifier loop. `or` chains never
+/// jump back to their `Split`, so they do not need a `split_pos` entry.
+fn loop_split_flags(program: &Program) -> Vec<bool> {
+    let mut jump_to = vec![false; program.len().max(1)];
+    for inst in &program.instructions {
+        if let Instruction::Jump(target) = inst
+            && *target < jump_to.len()
+        {
+            jump_to[*target] = true;
+        }
+    }
+    program
+        .instructions
+        .iter()
+        .enumerate()
+        .map(|(pc, inst)| matches!(inst, Instruction::Split(_, _)) && jump_to[pc])
+        .collect()
 }
 
 fn pike_dedup_here(inst: &Instruction) -> bool {
@@ -583,9 +602,10 @@ impl PatternVM {
         let mut clist = Vec::new();
         let mut nlist = Vec::new();
         let mut seen = HashSet::new();
-        let _res = self
+        let loop_splits = loop_split_flags(program);
+        let mut res = self
             .meter
-            .reserve_states(program.len().max(1))
+            .reserve_states(0)
             .map_err(budget_to_pattern_error)?;
 
         let mut seed = VMState::new(program.num_captures, program.num_saves);
@@ -597,14 +617,16 @@ impl PatternVM {
             pos: start_pos,
             clist: &mut clist,
             seen: &mut seen,
-            charge_epsilon: false,
+            loop_splits: &loop_splits,
         })?;
+        res.grow(clist.len()).map_err(budget_to_pattern_error)?;
 
         let mut best: Option<VMState> = None;
         for pos in start_pos..=chars.len() {
             if clist.is_empty() {
                 break;
             }
+            let consumed = clist.len();
             seen.clear();
             nlist.clear();
             for thread in clist.drain(..) {
@@ -619,6 +641,7 @@ impl PatternVM {
                             next.pc += 1;
                             next.pos = pos + 1;
                             next.lit_offset = 0;
+                            let before = nlist.len();
                             self.pike_addthread(PikeAdd {
                                 program,
                                 chars,
@@ -626,8 +649,10 @@ impl PatternVM {
                                 pos: pos + 1,
                                 clist: &mut nlist,
                                 seen: &mut seen,
-                                charge_epsilon: true,
+                                loop_splits: &loop_splits,
                             })?;
+                            res.grow(nlist.len() - before)
+                                .map_err(budget_to_pattern_error)?;
                         }
                     }
                     Instruction::CharClass(class) => {
@@ -636,6 +661,7 @@ impl PatternVM {
                             next.pc += 1;
                             next.pos = pos + 1;
                             next.lit_offset = 0;
+                            let before = nlist.len();
                             self.pike_addthread(PikeAdd {
                                 program,
                                 chars,
@@ -643,8 +669,10 @@ impl PatternVM {
                                 pos: pos + 1,
                                 clist: &mut nlist,
                                 seen: &mut seen,
-                                charge_epsilon: true,
+                                loop_splits: &loop_splits,
                             })?;
+                            res.grow(nlist.len() - before)
+                                .map_err(budget_to_pattern_error)?;
                         }
                     }
                     Instruction::Literal(literal) => {
@@ -659,6 +687,7 @@ impl PatternVM {
                                 next.pc += 1;
                                 next.lit_offset = 0;
                             }
+                            let before = nlist.len();
                             self.pike_addthread(PikeAdd {
                                 program,
                                 chars,
@@ -666,8 +695,10 @@ impl PatternVM {
                                 pos: pos + 1,
                                 clist: &mut nlist,
                                 seen: &mut seen,
-                                charge_epsilon: true,
+                                loop_splits: &loop_splits,
                             })?;
+                            res.grow(nlist.len() - before)
+                                .map_err(budget_to_pattern_error)?;
                         }
                     }
                     Instruction::Match => {
@@ -677,6 +708,7 @@ impl PatternVM {
                     _ => {}
                 }
             }
+            res.release(consumed);
             std::mem::swap(&mut clist, &mut nlist);
         }
 
@@ -691,13 +723,11 @@ impl PatternVM {
             pos,
             clist,
             seen,
-            charge_epsilon,
+            loop_splits,
         } = args;
         let mut stack = vec![seed];
         while let Some(mut state) = stack.pop() {
-            if charge_epsilon {
-                self.meter.charge_step().map_err(budget_to_pattern_error)?;
-            }
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if state.pc >= program.instructions.len() {
                 continue;
             }
@@ -732,12 +762,14 @@ impl PatternVM {
                     stack.push(state);
                 }
                 Some(Instruction::Split(first, second)) => {
-                    if let Some((_, last_pos)) =
-                        state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
-                    {
-                        *last_pos = pos;
-                    } else {
-                        state.split_pos.push((state.pc, pos));
+                    if loop_splits.get(state.pc).copied().unwrap_or(false) {
+                        if let Some((_, last_pos)) =
+                            state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
+                        {
+                            *last_pos = pos;
+                        } else {
+                            state.split_pos.push((state.pc, pos));
+                        }
                     }
                     let mut later = state.clone();
                     later.pc = *second;
@@ -2379,7 +2411,7 @@ mod quantifier_extent_tests {
     fn literal_alternation(n: usize) -> PatternExpression {
         PatternExpression::Alternative(
             (0..n)
-                .map(|i| PatternExpression::Literal(format!("w{i}")))
+                .map(|i| PatternExpression::Literal(format!("w{i}x")))
                 .collect(),
         )
     }
@@ -2438,6 +2470,6 @@ mod quantifier_extent_tests {
         let pattern = literal_alternation(3_500);
         let found = find_under_default(&pattern, "hello w42x")
             .expect("a 3_500-arm list must not reserve program.len() states");
-        assert_eq!(found.expect("w42 is in the list").matched_text, "w42");
+        assert_eq!(found.expect("w42x is in the list").matched_text, "w42x");
     }
 }
