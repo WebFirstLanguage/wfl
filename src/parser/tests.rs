@@ -2292,6 +2292,122 @@ fn normal_pattern_quantifier_counts_remain_compatible() {
     }
 }
 
+fn parse_pattern_definition_body(body: &str) -> PatternExpression {
+    let input = format!("create pattern probe:\n    {body}\nend pattern");
+    let tokens = lex_wfl_with_positions(&input);
+    let mut parser = Parser::new(&tokens);
+    let statement = parser
+        .parse_statement()
+        .unwrap_or_else(|error| panic!("expected `{body}` to parse: {error}"));
+    let Statement::PatternDefinition { pattern, .. } = statement else {
+        panic!("expected a pattern definition for `{body}`");
+    };
+    pattern
+}
+
+/// `any letter` / `any digit` are the kitchen-sink spellings of the letter and
+/// digit classes (`experiments/syntax/pattern_kitchen_sink.wfl`, issue #669).
+#[test]
+fn any_letter_and_any_digit_parse_as_character_classes() {
+    assert_eq!(
+        parse_pattern_definition_body("any letter"),
+        PatternExpression::CharacterClass(CharClass::Letter)
+    );
+    assert_eq!(
+        parse_pattern_definition_body("any digit"),
+        PatternExpression::CharacterClass(CharClass::Digit)
+    );
+}
+
+/// `one or more of (...)` is optional `of` plus a parenthesized group. The
+/// kitchen sink uses it both for a single class and for a mixed alternative.
+#[test]
+fn one_or_more_of_parenthesized_group_parses() {
+    assert_eq!(
+        parse_pattern_definition_body("one or more of (digit)"),
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Digit)),
+            quantifier: Quantifier::OneOrMore,
+        }
+    );
+
+    assert_eq!(
+        parse_pattern_definition_body(r#"one or more of (any letter or digit or "._-")"#),
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::CharacterClass(CharClass::Letter),
+                PatternExpression::CharacterClass(CharClass::Digit),
+                PatternExpression::Literal("._-".to_string()),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        }
+    );
+}
+
+/// Plural class names after a numeric range (`2 to 6 letters`, `3 to 4 digits`)
+/// are used by the kitchen sink and are not covered by the singular cases
+/// in `normal_pattern_quantifier_counts_remain_compatible`.
+#[test]
+fn plural_class_names_parse_after_numeric_ranges() {
+    let letters = parse_pattern_definition_body("2 to 6 letters");
+    let PatternExpression::Quantified {
+        pattern: inner,
+        quantifier,
+    } = letters
+    else {
+        panic!("expected quantified letters, got {letters:?}");
+    };
+    assert_eq!(quantifier, Quantifier::Between(2, 6));
+    assert_eq!(
+        inner.as_ref(),
+        &PatternExpression::CharacterClass(CharClass::Letter)
+    );
+
+    let digits = parse_pattern_definition_body("3 to 4 digits");
+    let PatternExpression::Quantified {
+        pattern: inner,
+        quantifier,
+    } = digits
+    else {
+        panic!("expected quantified digits, got {digits:?}");
+    };
+    assert_eq!(quantifier, Quantifier::Between(3, 4));
+    assert_eq!(
+        inner.as_ref(),
+        &PatternExpression::CharacterClass(CharClass::Digit)
+    );
+}
+
+/// `matches pattern <name>` is the optional `pattern` keyword the kitchen
+/// sink uses; it must produce the same `PatternMatch` AST as `matches <name>`.
+#[test]
+fn matches_pattern_keyword_is_optional_for_named_patterns() {
+    for source in [
+        r#"store result as email3 matches pattern emailme"#,
+        r#"store result as email3 matches emailme"#,
+    ] {
+        let tokens = lex_wfl_with_positions(source);
+        let mut parser = Parser::new(&tokens);
+        let statement = parser
+            .parse_statement()
+            .unwrap_or_else(|error| panic!("expected `{source}` to parse: {error}"));
+        let Statement::VariableDeclaration { value, .. } = statement else {
+            panic!("expected a variable declaration for `{source}`");
+        };
+        let Expression::PatternMatch { text, pattern, .. } = value else {
+            panic!("expected PatternMatch for `{source}`, got {value:?}");
+        };
+        assert!(
+            matches!(text.as_ref(), Expression::Variable(n, ..) if n == "email3"),
+            "text side for `{source}`: {text:?}"
+        );
+        assert!(
+            matches!(pattern.as_ref(), Expression::Variable(n, ..) if n == "emailme"),
+            "pattern side for `{source}`: {pattern:?}"
+        );
+    }
+}
+
 // --- Multi-value `display` (concatenation of space-separated values) ---
 //
 // `display` accepts more than one space-separated value: quoted text is a

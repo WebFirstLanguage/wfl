@@ -482,6 +482,21 @@
       "security_classification": "public"
     },
     {
+      "path": "Archive/legacy-programs/syntax/pattern_kitchen_sink.wfl",
+      "original_path": "experiments/syntax/pattern_kitchen_sink.wfl",
+      "source_commit": "5c5ac2f61e0266da1b89f16f4b71f6b4ad7f09ef",
+      "sha256": "1b4f7cefaeb1dc60891be06fced6bd3de485f705998d6991897ee4f4f985819a",
+      "document_date": null,
+      "archived_at": "2026-10-08",
+      "kind": "legacy-program",
+      "status_at_archive": "superseded",
+      "reason": "Unasserted scratch prototype; remaining unique coverage folded into TestPrograms/patterns/ and parser unit tests (issue #669)",
+      "normative": false,
+      "superseded_by": "TestPrograms/patterns/",
+      "related_issues_or_prs": ["#669"],
+      "security_classification": "public"
+    },
+    {
       "path": "Archive/legacy-programs/syntax/test1.wfl",
       "original_path": "syntax_test/test1.wfl",
       "source_commit": "99c604a74c79514d60329dc4df9602aba5c60778",
