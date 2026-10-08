@@ -160,6 +160,37 @@ fn pattern_lookaround_is_stable_in_every_lint_mode() {
     assert_clean_source_in_every_lint_mode(source);
 }
 
+/// Issue #706: a correctly indented flat `otherwise check if …:` chain with a
+/// comparison condition must lint clean and stay byte-stable in every fix mode.
+#[test]
+fn flat_otherwise_check_if_comparison_is_stable_in_every_lint_mode() {
+    for source in [
+        "store x as 1\ncheck if x is equal to 1:\n    display \"a\"\notherwise check if x is equal to 2:\n    display \"b\"\nend check\n",
+        "store x as 3\ncheck if x is equal to 1:\n    display \"one\"\notherwise check if x is equal to 2:\n    display \"two\"\notherwise check if x is equal to 3:\n    display \"three\"\notherwise check if x is equal to 4:\n    display \"four\"\notherwise:\n    display \"other\"\nend check\ndisplay \"after\"\n",
+    ] {
+        assert_clean_source_in_every_lint_mode(source);
+    }
+}
+
+/// A real indentation error in a flat else-if body still fails `--lint`.
+#[test]
+fn misindented_flat_otherwise_check_if_body_fails_lint() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("program.wfl");
+    fs::write(
+        &path,
+        "store x as 1\ncheck if x is equal to 1:\n    display \"a\"\notherwise check if x is equal to 2:\ndisplay \"b\"\nend check\n",
+    )
+    .unwrap();
+    let lint = run(directory.path(), &["--lint", "program.wfl"]);
+    assert_status(&lint, 1);
+    let stderr = String::from_utf8_lossy(&lint.stderr);
+    assert!(
+        stderr.contains("LINT-INDENT"),
+        "expected an indentation warning, got: {stderr}"
+    );
+}
+
 /// A colonless else-if chain shares one end check, so all lint and formatter
 /// modes must preserve both the branch body and the following top-level line.
 #[test]
