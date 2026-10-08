@@ -22,6 +22,11 @@ mod file_io_execution_tests {
             .expect("panic payload should be a string")
     }
 
+    /// True when the operand does not resolve against the process cwd on this host.
+    fn is_absolute_wfl_path(path: &str) -> bool {
+        Path::new(path).is_absolute()
+    }
+
     /// Relative operands of `at "..."` write to the process cwd unless rewritten.
     fn relative_at_paths(code: &str) -> Vec<String> {
         let mut names = Vec::new();
@@ -32,7 +37,7 @@ mod file_io_execution_tests {
                 break;
             };
             let name = &remaining[..end];
-            if !name.is_empty() && !name.contains('/') {
+            if !name.is_empty() && !is_absolute_wfl_path(name) {
                 names.push(name.to_string());
             }
             remaining = &remaining[end + 1..];
@@ -361,26 +366,104 @@ mod file_io_execution_tests {
     }
 
     #[test]
-    fn rewrite_rejects_an_unlisted_relative_path() {
+    fn rewrite_rejects_an_unlisted_nested_relative_path() {
         let directory = tempfile::tempdir().expect("create isolated file fixture");
         let dir = directory.path().to_path_buf();
         let panic = std::panic::catch_unwind(move || {
             rewrite_fixture_paths(
-                r#"open file at "leaked.txt" for writing as fixture"#,
+                r#"open file at "subdir/output.txt" for writing as fixture"#,
                 &dir,
                 &[],
             );
         })
-        .expect_err("an unlisted relative path must panic before WFL runs");
+        .expect_err("a nested relative path must panic before WFL runs");
         let message = panic_message(panic);
         assert!(
-            message.contains("leaked.txt"),
-            "diagnostic must name the unlisted path: {message}"
+            message.contains("subdir/output.txt"),
+            "diagnostic must name the nested relative path: {message}"
         );
         assert!(
             message.contains("repo root"),
             "diagnostic must describe the leak: {message}"
         );
+    }
+
+    fn assert_unlisted_relative_is_rejected(relative: &str) {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let dir = directory.path().to_path_buf();
+        let code = format!(r#"open file at "{relative}" for writing as fixture"#);
+        let result = std::panic::catch_unwind(move || {
+            rewrite_fixture_paths(&code, &dir, &[]);
+        });
+        let panic = match result {
+            Err(payload) => payload,
+            Ok(_) => panic!("unlisted relative path {relative:?} must panic before WFL runs"),
+        };
+        let message = panic_message(panic);
+        let named = format!("{relative:?}");
+        assert!(
+            message.contains(&named),
+            "diagnostic must name the unlisted path {named}: {message}"
+        );
+        assert!(
+            message.contains("repo root"),
+            "diagnostic must describe the leak: {message}"
+        );
+    }
+
+    #[test]
+    fn rewrite_rejects_an_unlisted_relative_path() {
+        assert_unlisted_relative_is_rejected("leaked.txt");
+    }
+
+    #[test]
+    fn rewrite_rejects_drive_relative_and_dot_paths() {
+        for relative in ["C:foo", "./x", "../x", r"sub\\x"] {
+            assert_unlisted_relative_is_rejected(relative);
+        }
+    }
+
+    #[test]
+    fn rewrite_allows_a_host_absolute_temp_path_without_listing_it() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let absolute = wfl_path(&directory.path().join("already_absolute.txt"));
+        let code = format!(r#"open file at "{absolute}" for writing as fixture"#);
+        let rewritten = rewrite_fixture_paths(&code, directory.path(), &[]);
+        assert!(
+            rewritten.contains(&format!("\"{absolute}\"")),
+            "host-absolute temp path must stay unlisted: {rewritten}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rewrite_allows_unlisted_windows_absolute_paths() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let code = r#"
+            open file at "D:\\fixtures\\output.txt" for writing as drive_backslashes
+            open file at "C:/fixtures/output.txt" for writing as drive_slashes
+        "#;
+        let rewritten = rewrite_fixture_paths(code, directory.path(), &[]);
+        assert!(
+            rewritten.contains(r#""D:\\fixtures\\output.txt""#),
+            "escaped Windows drive path must stay unlisted: {rewritten}"
+        );
+        assert!(
+            rewritten.contains(r#""C:/fixtures/output.txt""#),
+            "forward-slash Windows drive path must stay unlisted: {rewritten}"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn rewrite_rejects_unlisted_windows_style_paths() {
+        for relative in [
+            r"D:\\fixtures\\output.txt",
+            "C:/fixtures/output.txt",
+            r"\\leak.txt",
+        ] {
+            assert_unlisted_relative_is_rejected(relative);
+        }
     }
 
     #[test]
