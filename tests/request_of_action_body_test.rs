@@ -12,6 +12,7 @@ use tempfile::TempDir;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
+use wfl::typechecker::{TypeCheckError, TypeChecker};
 
 fn wfl(args: &[&str], path: &Path) -> (Option<i32>, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_wfl"))
@@ -44,6 +45,20 @@ fn analyze_result(source: &str) -> Result<Vec<String>, Vec<String>> {
             .map(|error| error.message.clone())
             .collect()),
         Err(errors) => Err(errors.into_iter().map(|error| error.message).collect()),
+    }
+}
+
+fn typecheck_diagnostics(source: &str) -> Result<(), Vec<String>> {
+    let tokens = lex_wfl_with_positions(source);
+    let program = Parser::new(&tokens)
+        .parse()
+        .unwrap_or_else(|errors| panic!("test program must parse: {errors:?}\n{source}"));
+    match TypeChecker::new().check_types(&program) {
+        Ok(()) => Ok(()),
+        Err(TypeCheckError::Types(errors)) => {
+            Err(errors.into_iter().map(|error| error.message).collect())
+        }
+        Err(other) => panic!("unexpected type-check failure: {other:?}"),
     }
 }
 
@@ -146,5 +161,46 @@ end action
                 || message.contains("Undefined action 'missing_field'")
         }),
         "unknown of-form must still be reported: {errors:?}"
+    );
+}
+
+/// Normal type checking (the CLI path, not `--analyze`) must not warn
+/// `Cannot call Text` when `wait for request` has bound `path` as Text.
+#[test]
+fn documented_request_of_action_typechecks_without_warnings() {
+    let result = typecheck_diagnostics(DOCUMENTED_ACTION);
+    assert!(
+        result.is_ok(),
+        "documented path/method/body of req must type-check with no warnings: {result:?}"
+    );
+}
+
+/// `ambiguous_auth_headers` is on the request object; `of req` inside an
+/// action must analyze and type-check as Boolean, not as undefined.
+#[test]
+fn ambiguous_auth_headers_of_req_inside_action() {
+    let source = r#"
+define action called handle with parameters req:
+    store ambiguous as ambiguous_auth_headers of req
+    check if ambiguous:
+        respond to req with "ambiguous"
+    otherwise:
+        respond to req with "ok"
+    end check
+end action
+
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
+call handle with req
+"#;
+    let analyzed = analyze_result(source);
+    assert!(
+        analyzed.is_ok(),
+        "ambiguous_auth_headers of req must analyze: {analyzed:?}"
+    );
+    let typed = typecheck_diagnostics(source);
+    assert!(
+        typed.is_ok(),
+        "ambiguous_auth_headers of req must type-check: {typed:?}"
     );
 }
