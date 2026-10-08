@@ -162,6 +162,12 @@ fn collect_container_layouts(statement: &Statement, out: &mut HashMap<String, Co
     }
 }
 
+#[derive(Clone, Copy)]
+enum IsolatedProperties<'a> {
+    Named(&'a [String]),
+    UnknownParent,
+}
+
 /// Own plus inherited instance and static property names. `None` means a
 /// parent in the `extends` chain is not defined in this program.
 fn inherited_property_names(
@@ -1137,8 +1143,7 @@ impl Analyzer {
         &self,
         body: &[Statement],
         parameters: &[Parameter],
-        predeclared: &[String],
-        unknown_parent: bool,
+        properties: IsolatedProperties<'_>,
         usages: &mut HashMap<String, VariableUsage>,
         isolated_unused: &mut Vec<VariableUsage>,
         containers: &HashMap<String, ContainerLayout>,
@@ -1159,12 +1164,15 @@ impl Analyzer {
         // Container properties are already bound in the method environment.
         // `store completed as yes` assigns that property; it is not a new
         // unused local. Seed them used so collect will not replace them.
-        for name in predeclared {
-            child.entry(name.clone()).or_insert(VariableUsage {
-                name: name.clone(),
-                defined_at: (0, 0),
-                used: true,
-            });
+        let unknown_parent = matches!(properties, IsolatedProperties::UnknownParent);
+        if let IsolatedProperties::Named(predeclared) = properties {
+            for name in predeclared {
+                child.entry(name.clone()).or_insert(VariableUsage {
+                    name: name.clone(),
+                    defined_at: (0, 0),
+                    used: true,
+                });
+            }
         }
         for stmt in body {
             self.collect_variable_declarations(stmt, &mut child);
@@ -1215,8 +1223,7 @@ impl Analyzer {
                 self.analyze_isolated_body(
                     body,
                     parameters,
-                    &[],
-                    false,
+                    IsolatedProperties::Named(&[]),
                     usages,
                     isolated_unused,
                     containers,
@@ -1597,8 +1604,7 @@ impl Analyzer {
                 self.analyze_isolated_body(
                     body,
                     &[],
-                    &[],
-                    false,
+                    IsolatedProperties::Named(&[]),
                     usages,
                     isolated_unused,
                     containers,
@@ -1826,8 +1832,12 @@ impl Analyzer {
                     }
                 }
                 let inherited = inherited_property_names(containers, name);
-                let unknown_parent = inherited.is_none();
-                let property_names = inherited.unwrap_or_default();
+                let property_names = inherited.clone().unwrap_or_default();
+                let properties = if inherited.is_some() {
+                    IsolatedProperties::Named(&property_names)
+                } else {
+                    IsolatedProperties::UnknownParent
+                };
                 for stmt in methods.iter().chain(static_methods.iter()) {
                     if let Statement::ActionDefinition {
                         body, parameters, ..
@@ -1841,8 +1851,7 @@ impl Analyzer {
                         self.analyze_isolated_body(
                             body,
                             parameters,
-                            &property_names,
-                            unknown_parent,
+                            properties,
                             usages,
                             isolated_unused,
                             containers,
@@ -1879,8 +1888,7 @@ impl Analyzer {
                 self.analyze_isolated_body(
                     handler_body,
                     &[],
-                    &[],
-                    false,
+                    IsolatedProperties::Named(&[]),
                     usages,
                     isolated_unused,
                     containers,
