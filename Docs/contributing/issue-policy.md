@@ -52,8 +52,11 @@ satisfies the required approvals:
    tests, and evidence required by `testing.md`.
 2. All required CI checks pass on the final PR head and the latest target branch
    or merge-queue result. Pending, skipped, waived, flaky, and known-failing
-   required checks are not passes. Relevant test layers outside CI must also
-   pass when `testing.md` requires them.
+   required checks are not passes. The PR's target branch must trigger the
+   workflows that produce those checks; a branch rule that requires a check
+   does not run it. If a required check has no run for this PR, autonomous
+   merge is blocked. Relevant test layers outside CI must also pass when
+   `testing.md` requires them.
 3. At least one review bot independent of the author agent has examined the
    final diff and evidence, along with any other required review bots. The
    agent addresses each actionable finding with a fix or a documented,
