@@ -52,11 +52,18 @@ one. Deduping there pruned nested-quantifier/alternation threads and, with
 backreferences, dropped the thread that had set the capture (`find` missed
 while `matches` still succeeded).
 
-Zero-width quantifier iterations (`zero or more ""`, `zero or more optional
-"a"`) are cut per-thread: re-entering the same `Split` at the same input
-position takes the exit branch. That does not prune a later, higher-priority
-thread at the same `(pc, pos)`. Backreference-free runs stay bounded by that
-cutoff plus the per-match step/state meter.
+Backreference-free `find` is a lockstep Pike VM: threads advance one input
+position at a time, `addthread` follows epsilon in priority order with a
+per-position `pc` set, and a Split-choice path keeps left-first `or` from
+being overwritten by a longer later arm. Empty quantifier loops terminate
+because the same `pc` is not re-entered at the same position. Programs that
+contain a `Backreference` keep the no-dedup sweep, with a per-thread
+empty-iteration cutoff in `step` and the per-match meter as the bound.
+
+Without Pike, a failing higher-priority arm such as `(one or more (letter
+or letter) then "!") or letter` exceeded the default state budget at 12
+letters; `main` returned `a` in a handful of steps. That is R3 (untrusted
+input / resource exhaustion), not R2.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is

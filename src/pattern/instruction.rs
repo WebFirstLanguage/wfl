@@ -222,6 +222,18 @@ impl Program {
         self.instructions.get(pc)
     }
 
+    /// True when any instruction (including nested lookbehind programs)
+    /// is a backreference. Those programs cannot use `(pc, pos)` dedup.
+    pub fn contains_backreference(&self) -> bool {
+        self.instructions.iter().any(|inst| match inst {
+            Instruction::Backreference(_) => true,
+            Instruction::CheckLookbehind(inner) | Instruction::CheckNegativeLookbehind(inner) => {
+                inner.contains_backreference()
+            }
+            _ => false,
+        })
+    }
+
     /// Set the number of capture groups in this program
     pub fn set_num_captures(&mut self, count: usize) {
         self.num_captures = count;

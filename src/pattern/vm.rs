@@ -18,6 +18,29 @@ use std::sync::Arc;
 /// `main loop`) — the wall-clock deadline. A deadline breach is mapped to the
 /// timeout variant (so it surfaces as the historic `[Timeout]` error), not the
 /// step-limit error.
+fn matching_end_pc(
+    program: &Program,
+    begin_pc: usize,
+    is_begin: impl Fn(&Instruction) -> bool,
+    is_end: impl Fn(&Instruction) -> bool,
+) -> Option<usize> {
+    let mut end_pc = begin_pc + 1;
+    let mut depth = 1;
+    while depth > 0 && end_pc < program.instructions.len() {
+        let inst = &program.instructions[end_pc];
+        if is_begin(inst) {
+            depth += 1;
+        } else if is_end(inst) {
+            depth -= 1;
+        }
+        if depth == 0 {
+            return Some(end_pc);
+        }
+        end_pc += 1;
+    }
+    None
+}
+
 fn budget_to_pattern_error(exceeded: BudgetExceeded) -> PatternError {
     match exceeded {
         BudgetExceeded::PatternStates { .. } => PatternError::StateLimitExceeded,
@@ -161,6 +184,10 @@ struct VMState {
     /// `(pc, pos)` is not pruned — that cross-thread `(pc, pos)` visited
     /// set is not priority-safe in this VM.
     split_pos: Vec<(usize, usize)>,
+    /// Split-choice path; lexicographically smaller is higher priority.
+    /// First branch appends `0`, second appends `1`, so an inner `or`
+    /// arm still outranks the outer quantifier's exit.
+    priority: Vec<u8>,
 }
 
 impl VMState {
@@ -171,8 +198,19 @@ impl VMState {
             captures: vec![None; num_captures],
             saves: vec![0; num_saves],
             split_pos: Vec::new(),
+            priority: Vec::new(),
         }
     }
+}
+
+struct PikeAdd<'a> {
+    program: &'a Program,
+    chars: &'a [char],
+    seed: VMState,
+    pos: usize,
+    clist: &'a mut Vec<VMState>,
+    visited: &'a mut [u32],
+    visit_gen: u32,
 }
 
 /// Pattern matching virtual machine.
@@ -428,19 +466,20 @@ impl PatternVM {
     ///
     /// Quantifier extent is Pike-style greedy, not first-to-`Match`. `Split`'s
     /// first branch is higher priority (the loop-back for `one or more` /
-    /// `zero or more` / `at least N`, and the first arm of `or`). A `Match`
-    /// records a candidate and drops lower-priority peers in this generation,
-    /// but already-queued higher-priority continuations keep running so a
-    /// greedy loop can extend. The last recorded match is the extent.
+    /// `zero or more` / `at least N`, and the first arm of `or`).
     ///
-    /// Generations here are `step()` waves that stop at the next `Split`, not
-    /// lockstep-by-input-position. A cross-thread `(pc, pos)` visited set is
-    /// therefore not priority-safe: the first arrival is the thread that
-    /// passed the fewest Splits, so a later higher-priority arrival (or a
-    /// later thread whose captures differ) would be dropped. Do not add one.
-    /// Zero-width quantifier loops are cut per-thread in `step` (`split_pos`).
-    /// Backreference-free runs stay bounded by that cutoff plus the per-match
-    /// step and state meter.
+    /// Backreference-free programs use a lockstep Pike VM: all threads at
+    /// one input position are advanced before the next, and `addthread`
+    /// follows epsilon (`Jump`/`Split`/captures/anchors) in priority order
+    /// with a per-position `pc` set. First arrival at a `pc` is then the
+    /// highest-priority thread, so dedup is safe and matching is
+    /// `O(len × program)`. Empty quantifier loops terminate because the
+    /// same `Split` is not re-entered at the same position.
+    ///
+    /// Programs that contain a `Backreference` keep the no-dedup sweep:
+    /// a thread's future depends on its captures, so `(pc, pos)` alone is
+    /// not a sound key. That path is bounded by the per-match meter and
+    /// the per-thread empty-iteration cutoff in `step`.
     fn find_at_position(
         &mut self,
         program: &Program,
@@ -448,13 +487,27 @@ impl PatternVM {
         start_pos: usize,
         capture_names: &[String],
     ) -> Result<Option<MatchResult>, PatternError> {
+        let best = if program.contains_backreference() {
+            self.find_at_position_backtracking(program, chars, start_pos)?
+        } else {
+            self.find_at_position_pike(program, chars, start_pos)?
+        };
+        Ok(best.map(|final_state| {
+            match_result_from_state(start_pos, &final_state, chars, capture_names)
+        }))
+    }
+
+    fn find_at_position_backtracking(
+        &mut self,
+        program: &Program,
+        chars: &[char],
+        start_pos: usize,
+    ) -> Result<Option<VMState>, PatternError> {
         let initial_state = VMState::new(program.num_captures, program.num_saves);
         let mut states = vec![VMState {
             pos: start_pos,
             ..initial_state
         }];
-        // See `execute_at_position`: one reservation counts all live states
-        // across current + next + nested frontiers, grown/shrunk per generation.
         let mut res = self
             .meter
             .reserve_states(states.len())
@@ -467,33 +520,316 @@ impl PatternVM {
             let mut next_states = Vec::new();
 
             for state in states {
-                // Transitions are charged inside `step()` (per instruction).
                 match self.step(program, chars, state)? {
                     StepResult::Continue(new_states) => {
-                        // Fail fast on exponential state fan-out.
                         res.grow(new_states.len())
                             .map_err(budget_to_pattern_error)?;
                         next_states.extend(new_states);
                     }
                     StepResult::Match(final_state) => {
                         best = Some(final_state);
-                        // Remaining threads in this generation are lower
-                        // priority (lazy exit, later alternatives).
                         break;
                     }
-                    StepResult::Fail => {
-                        // This execution path failed, try others
-                    }
+                    StepResult::Fail => {}
                 }
             }
 
-            res.release(consumed); // the previous generation is now consumed
+            res.release(consumed);
             states = next_states;
         }
 
-        Ok(best.map(|final_state| {
-            match_result_from_state(start_pos, &final_state, chars, capture_names)
-        }))
+        Ok(best)
+    }
+
+    /// Lockstep Pike NFA: one input position at a time, priority-ordered
+    /// `addthread`, per-position `pc` set. Multi-char `Literal` is queued
+    /// at `pos + len` rather than expanded at compile time.
+    fn find_at_position_pike(
+        &mut self,
+        program: &Program,
+        chars: &[char],
+        start_pos: usize,
+    ) -> Result<Option<VMState>, PatternError> {
+        let npos = chars.len() + 1;
+        if start_pos > chars.len() {
+            return Ok(None);
+        }
+        let mut scheduled: Vec<Vec<VMState>> = vec![Vec::new(); npos];
+        scheduled[start_pos].push(VMState::new(program.num_captures, program.num_saves));
+        scheduled[start_pos][0].pos = start_pos;
+
+        let mut visited = vec![0u32; program.len().max(1)];
+        let mut visit_gen: u32 = 0;
+        let mut best: Option<VMState> = None;
+        let slot_cap = program.len().max(1);
+        let _res = self
+            .meter
+            .reserve_states(slot_cap)
+            .map_err(budget_to_pattern_error)?;
+
+        for pos in start_pos..npos {
+            visit_gen = visit_gen.wrapping_add(1);
+            if visit_gen == 0 {
+                visited.fill(0);
+                visit_gen = 1;
+            }
+            let mut incoming = std::mem::take(&mut scheduled[pos]);
+            incoming.sort_by(|a, b| a.priority.cmp(&b.priority));
+            let mut clist = Vec::new();
+            for state in incoming {
+                self.pike_addthread(PikeAdd {
+                    program,
+                    chars,
+                    seed: state,
+                    pos,
+                    clist: &mut clist,
+                    visited: &mut visited,
+                    visit_gen,
+                })?;
+            }
+            clist.sort_by(|a, b| a.priority.cmp(&b.priority));
+
+            for thread in clist {
+                self.meter.charge_step().map_err(budget_to_pattern_error)?;
+                let Some(inst) = program.get(thread.pc) else {
+                    continue;
+                };
+                match inst {
+                    Instruction::Char(expected) => {
+                        if pos < chars.len() && chars[pos] == *expected {
+                            let mut next = thread;
+                            next.pc += 1;
+                            next.pos = pos + 1;
+                            scheduled[pos + 1].push(next);
+                        }
+                    }
+                    Instruction::CharClass(class) => {
+                        if pos < chars.len() && class.matches(chars[pos]) {
+                            let mut next = thread;
+                            next.pc += 1;
+                            next.pos = pos + 1;
+                            scheduled[pos + 1].push(next);
+                        }
+                    }
+                    Instruction::Literal(literal) => {
+                        let lit: Vec<char> = literal.chars().collect();
+                        let end = pos + lit.len();
+                        if end <= chars.len() && chars[pos..end] == lit[..] {
+                            let mut next = thread;
+                            next.pc += 1;
+                            next.pos = end;
+                            scheduled[end].push(next);
+                        }
+                    }
+                    Instruction::Match => {
+                        let pri = thread.priority.clone();
+                        best = Some(thread);
+                        for later in scheduled.iter_mut() {
+                            later.retain(|s| s.priority <= pri);
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(best)
+    }
+
+    fn pike_addthread(&mut self, args: PikeAdd<'_>) -> Result<(), PatternError> {
+        let PikeAdd {
+            program,
+            chars,
+            seed,
+            pos,
+            clist,
+            visited,
+            visit_gen,
+        } = args;
+        let mut stack = vec![seed];
+        while let Some(mut state) = stack.pop() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
+            if state.pc >= program.instructions.len() {
+                continue;
+            }
+            if let Some(slot) = visited.get_mut(state.pc) {
+                if *slot == visit_gen {
+                    continue;
+                }
+                *slot = visit_gen;
+            }
+            state.pos = pos;
+            match program.get(state.pc) {
+                None => {}
+                Some(Instruction::Jump(target)) => {
+                    state.pc = *target;
+                    stack.push(state);
+                }
+                Some(Instruction::Split(first, second)) => {
+                    let mut later = state.clone();
+                    later.pc = *second;
+                    later.priority.push(1);
+                    state.priority.push(0);
+                    state.pc = *first;
+                    stack.push(later);
+                    stack.push(state);
+                }
+                Some(Instruction::StartCapture(idx)) => {
+                    if *idx < state.captures.len() {
+                        state.captures[*idx] = Some((pos, pos));
+                    }
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::EndCapture(idx)) => {
+                    if *idx < state.captures.len()
+                        && let Some((start, _)) = state.captures[*idx]
+                    {
+                        state.captures[*idx] = Some((start, pos));
+                    }
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::StartAnchor) => {
+                    if pos == 0 {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(Instruction::EndAnchor) => {
+                    if pos == chars.len() {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(Instruction::Save(slot)) => {
+                    if *slot < state.saves.len() {
+                        state.saves[*slot] = pos;
+                    }
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::Restore(slot)) => {
+                    if *slot < state.saves.len() {
+                        // Restore is epsilon for the current position's
+                        // closure only when it does not move `pos`; a
+                        // restore to another index is handled as a
+                        // reschedule of this thread at that position.
+                        let restored = state.saves[*slot];
+                        state.pc += 1;
+                        if restored == pos {
+                            stack.push(state);
+                        }
+                    }
+                }
+                Some(Instruction::Fail) => {}
+                Some(Instruction::BeginLookahead) => {
+                    if let Some(end_pc) = matching_end_pc(
+                        program,
+                        state.pc,
+                        |i| matches!(i, Instruction::BeginLookahead),
+                        |i| matches!(i, Instruction::EndLookahead),
+                    ) {
+                        let matched = self
+                            .lookaround_subprogram_matches(program, chars, pos, state.pc, end_pc)?;
+                        if matched {
+                            state.pc = end_pc + 1;
+                            stack.push(state);
+                        }
+                    }
+                }
+                Some(Instruction::BeginNegativeLookahead) => {
+                    if let Some(end_pc) = matching_end_pc(
+                        program,
+                        state.pc,
+                        |i| matches!(i, Instruction::BeginNegativeLookahead),
+                        |i| matches!(i, Instruction::EndNegativeLookahead),
+                    ) {
+                        let matched = self
+                            .lookaround_subprogram_matches(program, chars, pos, state.pc, end_pc)?;
+                        if !matched {
+                            state.pc = end_pc + 1;
+                            stack.push(state);
+                        }
+                    }
+                }
+                Some(Instruction::EndLookahead | Instruction::EndNegativeLookahead) => {
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::CheckLookbehind(inner)) => {
+                    if self.lookbehind_holds(inner, chars, pos)? {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(Instruction::CheckNegativeLookbehind(inner)) => {
+                    if !self.lookbehind_holds(inner, chars, pos)? {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(
+                    Instruction::Char(_)
+                    | Instruction::CharClass(_)
+                    | Instruction::Literal(_)
+                    | Instruction::Match
+                    | Instruction::Backreference(_),
+                ) => {
+                    clist.push(state);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn lookaround_subprogram_matches(
+        &mut self,
+        program: &Program,
+        chars: &[char],
+        pos: usize,
+        begin_pc: usize,
+        end_pc: usize,
+    ) -> Result<bool, PatternError> {
+        let mut sub = Program::new();
+        for i in (begin_pc + 1)..end_pc {
+            sub.push(program.instructions[i].clone());
+        }
+        sub.push(Instruction::Match);
+        let mut nested = PatternVM::with_meter(Arc::clone(&self.meter));
+        #[cfg(test)]
+        {
+            nested.debug = self.debug;
+        }
+        nested.execute_at_position(&sub, chars, pos)
+    }
+
+    fn lookbehind_holds(
+        &mut self,
+        lookbehind_program: &Program,
+        chars: &[char],
+        pos: usize,
+    ) -> Result<bool, PatternError> {
+        if pos == 0 {
+            return Ok(false);
+        }
+        let max_lookback = pos.min(1000);
+        for start_offset in 1..=max_lookback {
+            let start_pos = pos - start_offset;
+            let mut lookbehind_vm = PatternVM::with_meter(Arc::clone(&self.meter));
+            let text_slice: String = chars[start_pos..pos].iter().collect();
+            if lookbehind_vm.run_execute(lookbehind_program, &text_slice)? {
+                let matches = lookbehind_vm.run_find_all(lookbehind_program, &text_slice, &[])?;
+                if let Some(first_match) = matches.first()
+                    && first_match.start == 0
+                    && first_match.end == start_offset
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 
     /// Execute one step of the virtual machine.
@@ -1356,10 +1692,7 @@ mod quantifier_extent_tests {
 
     fn alt_expensive_then_letter(inner: PatternExpression) -> PatternExpression {
         PatternExpression::Alternative(vec![
-            PatternExpression::Sequence(vec![
-                inner,
-                PatternExpression::Literal("!".to_string()),
-            ]),
+            PatternExpression::Sequence(vec![inner, PatternExpression::Literal("!".to_string())]),
             PatternExpression::CharacterClass(CharClass::Letter),
         ])
     }
