@@ -11,16 +11,16 @@ with `with`, call `print_error`, then `exit program with code 1`. A library can
 continue using `raise_error` when its caller must catch the failure.
 
 The real-binary CLI regression was observed failing before implementation in
-test-only commits `a77a191e` and `75e395df`: `print_error` was an undefined
-action. It now checks stderr, stdout, exit status, absence of a debug report,
-and rejection of a dynamic nontext message. The documentation example uses
-the same CLI program and expects status 1.
+test-only commits `e4f6e4cb` and `8dd47987`: `print_error` was an undefined
+action. It now checks exact stderr output, stdout, exit status, absence of a
+debug report, the successful standalone call, and rejection of a dynamic
+nontext message. The documentation example uses the same CLI program and
+expects status 1.
 
 On the release binary, that example exited 1 with empty stdout and exactly
-`jshrink: Unclosed string at position: 42` on stderr. The focused CLI tests,
-full workspace Rust tests, formatting, Clippy, static hygiene check, and web
-integration flow passed. The full documentation validator passed 35 of 38
-examples; three unrelated diamond-module examples failed when run alone. The
-release integration runner passed its Rust tests and 156 WFL programs, but
-eight SQLite programs failed and one file I/O program timed out. Those required
-gates remain open for the change record.
+`jshrink: Unclosed string at position: 42` plus one newline on stderr. After
+rebasing onto main, the three focused CLI tests, full workspace Rust suite,
+formatting, Clippy, and repository hygiene checks passed. The full documentation
+validator passed all 39 examples. The release integration runner passed its
+Rust tests and 165 WFL programs (24 skipped by the suite); the web flow passed
+all three server tests.
