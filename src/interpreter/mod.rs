@@ -19579,19 +19579,6 @@ mod process_tests {
         }
     }
 
-    async fn wait_until_process_stops(client: &IoClient, proc_id: &str) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            if !client.is_process_running(proc_id).await {
-                return;
-            }
-            if tokio::time::Instant::now() >= deadline {
-                panic!("timed out waiting for process {proc_id} to stop");
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
     /// Invoke one ignored helper test in a fresh copy of this test binary. This
     /// is cross-platform and avoids depending on optional shell utilities in CI.
     fn test_helper_command(filter: &str) -> (String, Vec<String>) {
@@ -19887,13 +19874,13 @@ mod process_tests {
             "Process should be running"
         );
 
-        // Kill the process
+        // kill_process unregisters the id and awaits terminate_foreground_child
+        // (start_kill + wait). is_process_running is then false because the
+        // handle is gone, not because a later poll observed OS teardown.
         client
             .kill_process(&proc_id)
             .await
             .expect("Failed to kill process");
-
-        wait_until_process_stops(&client, &proc_id).await;
 
         // Process should no longer be running
         assert!(
@@ -19919,13 +19906,13 @@ mod process_tests {
             "Process should be running"
         );
 
-        // Kill the process
+        // kill_process unregisters the id and awaits terminate_foreground_child
+        // (start_kill + wait). is_process_running is then false because the
+        // handle is gone, not because a later poll observed OS teardown.
         client
             .kill_process(&proc_id)
             .await
             .expect("Failed to kill process");
-
-        wait_until_process_stops(&client, &proc_id).await;
 
         // Process should no longer be running
         assert!(

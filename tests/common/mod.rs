@@ -166,17 +166,6 @@ pub fn wfl_exe() -> &'static str {
     env!("CARGO_BIN_EXE_wfl")
 }
 
-/// Path to the separately-built `target/release/wfl` binary. This is a
-/// *different* binary from [`wfl_exe`] (which may point at a debug build) —
-/// callers that need the release binary specifically (e.g. because a sibling
-/// helper in the same file already assumes it, or the test predates
-/// `CARGO_BIN_EXE_wfl` and was never migrated) use this instead.
-///
-/// Unlike [`wfl_exe`], this binary is **not** built by `cargo test`; it has to
-/// exist already. The path is anchored to `CARGO_MANIFEST_DIR` rather than a
-/// bare relative path so it does not depend on the test process's working
-/// directory, and a missing binary fails with an actionable message instead of
-/// a bare `Os { code: 2, kind: NotFound }` from the eventual spawn.
 /// Panic with an actionable message when a separately-built release binary is missing.
 pub fn require_existing_release_binary(path: PathBuf) -> PathBuf {
     assert!(
@@ -189,6 +178,17 @@ pub fn require_existing_release_binary(path: PathBuf) -> PathBuf {
     path
 }
 
+/// Path to the separately-built `target/release/wfl` binary. This is a
+/// *different* binary from [`wfl_exe`] (which may point at a debug build) —
+/// callers that need the release binary specifically (e.g. because a sibling
+/// helper in the same file already assumes it, or the test predates
+/// `CARGO_BIN_EXE_wfl` and was never migrated) use this instead.
+///
+/// Unlike [`wfl_exe`], this binary is **not** built by `cargo test`; it has to
+/// exist already. The path is anchored to `CARGO_MANIFEST_DIR` rather than a
+/// bare relative path so it does not depend on the test process's working
+/// directory, and a missing binary fails with an actionable message instead of
+/// a bare `Os { code: 2, kind: NotFound }` from the eventual spawn.
 pub fn wfl_release_exe() -> PathBuf {
     let name = if cfg!(target_os = "windows") {
         "wfl.exe"
