@@ -184,10 +184,10 @@ struct VMState {
     /// `(pc, pos)` is not pruned — that cross-thread `(pc, pos)` visited
     /// set is not priority-safe in this VM.
     split_pos: Vec<(usize, usize)>,
-    /// Split-choice path; lexicographically smaller is higher priority.
-    /// First branch appends `0`, second appends `1`, so an inner `or`
-    /// arm still outranks the outer quantifier's exit.
-    priority: Vec<u8>,
+    /// How far this thread has matched inside a multi-char `Literal`.
+    /// Literals advance one character per lockstep position so the
+    /// thread list order stays the priority order.
+    lit_offset: usize,
 }
 
 impl VMState {
@@ -198,7 +198,7 @@ impl VMState {
             captures: vec![None; num_captures],
             saves: vec![0; num_saves],
             split_pos: Vec::new(),
-            priority: Vec::new(),
+            lit_offset: 0,
         }
     }
 }
@@ -470,11 +470,13 @@ impl PatternVM {
     ///
     /// Backreference-free programs use a lockstep Pike VM: all threads at
     /// one input position are advanced before the next, and `addthread`
-    /// follows epsilon (`Jump`/`Split`/captures/anchors) in priority order
+    /// follows epsilon (`Jump`/`Split`/captures/anchors) in list order
     /// with a per-position `pc` set. First arrival at a `pc` is then the
-    /// highest-priority thread, so dedup is safe and matching is
-    /// `O(len × program)`. Empty quantifier loops terminate because the
-    /// same `Split` is not re-entered at the same position.
+    /// highest-priority thread, so dedup is safe. Each start is
+    /// `O(remaining × program)` and stops when no thread remains, so a
+    /// failed start does not scan the rest of the input. Empty quantifier
+    /// iterations take that thread's `Split` exit (left-first) instead of
+    /// dropping the thread.
     ///
     /// Programs that contain a `Backreference` keep the no-dedup sweep:
     /// a thread's future depends on its captures, so `(pc, pos)` alone is
@@ -541,55 +543,53 @@ impl PatternVM {
         Ok(best)
     }
 
-    /// Lockstep Pike NFA: one input position at a time, priority-ordered
-    /// `addthread`, per-position `pc` set. Multi-char `Literal` is queued
-    /// at `pos + len` rather than expanded at compile time.
+    /// Lockstep Pike NFA: one input position at a time. Thread-list order
+    /// is priority. `Literal` advances one character per step (`lit_offset`)
+    /// so nothing jumps ahead. Empty quantifier iterations take the `Split`
+    /// exit on that thread before the per-position `pc` set drops them.
+    /// Idle positions are not visited: the loop stops when no thread remains.
     fn find_at_position_pike(
         &mut self,
         program: &Program,
         chars: &[char],
         start_pos: usize,
     ) -> Result<Option<VMState>, PatternError> {
-        let npos = chars.len() + 1;
         if start_pos > chars.len() {
             return Ok(None);
         }
-        let mut scheduled: Vec<Vec<VMState>> = vec![Vec::new(); npos];
-        scheduled[start_pos].push(VMState::new(program.num_captures, program.num_saves));
-        scheduled[start_pos][0].pos = start_pos;
-
+        let mut clist = Vec::new();
+        let mut nlist = Vec::new();
         let mut visited = vec![0u32; program.len().max(1)];
-        let mut visit_gen: u32 = 0;
-        let mut best: Option<VMState> = None;
-        let slot_cap = program.len().max(1);
+        let mut visit_gen: u32 = 1;
         let _res = self
             .meter
-            .reserve_states(slot_cap)
+            .reserve_states(program.len().max(1))
             .map_err(budget_to_pattern_error)?;
 
-        for pos in start_pos..npos {
+        let mut seed = VMState::new(program.num_captures, program.num_saves);
+        seed.pos = start_pos;
+        self.pike_addthread(PikeAdd {
+            program,
+            chars,
+            seed,
+            pos: start_pos,
+            clist: &mut clist,
+            visited: &mut visited,
+            visit_gen,
+        })?;
+
+        let mut best: Option<VMState> = None;
+        for pos in start_pos..=chars.len() {
+            if clist.is_empty() {
+                break;
+            }
             visit_gen = visit_gen.wrapping_add(1);
             if visit_gen == 0 {
                 visited.fill(0);
                 visit_gen = 1;
             }
-            let mut incoming = std::mem::take(&mut scheduled[pos]);
-            incoming.sort_by(|a, b| a.priority.cmp(&b.priority));
-            let mut clist = Vec::new();
-            for state in incoming {
-                self.pike_addthread(PikeAdd {
-                    program,
-                    chars,
-                    seed: state,
-                    pos,
-                    clist: &mut clist,
-                    visited: &mut visited,
-                    visit_gen,
-                })?;
-            }
-            clist.sort_by(|a, b| a.priority.cmp(&b.priority));
-
-            for thread in clist {
+            nlist.clear();
+            for thread in clist.drain(..) {
                 self.meter.charge_step().map_err(budget_to_pattern_error)?;
                 let Some(inst) = program.get(thread.pc) else {
                     continue;
@@ -600,7 +600,16 @@ impl PatternVM {
                             let mut next = thread;
                             next.pc += 1;
                             next.pos = pos + 1;
-                            scheduled[pos + 1].push(next);
+                            next.lit_offset = 0;
+                            self.pike_addthread(PikeAdd {
+                                program,
+                                chars,
+                                seed: next,
+                                pos: pos + 1,
+                                clist: &mut nlist,
+                                visited: &mut visited,
+                                visit_gen,
+                            })?;
                         }
                     }
                     Instruction::CharClass(class) => {
@@ -608,30 +617,49 @@ impl PatternVM {
                             let mut next = thread;
                             next.pc += 1;
                             next.pos = pos + 1;
-                            scheduled[pos + 1].push(next);
+                            next.lit_offset = 0;
+                            self.pike_addthread(PikeAdd {
+                                program,
+                                chars,
+                                seed: next,
+                                pos: pos + 1,
+                                clist: &mut nlist,
+                                visited: &mut visited,
+                                visit_gen,
+                            })?;
                         }
                     }
                     Instruction::Literal(literal) => {
-                        let lit: Vec<char> = literal.chars().collect();
-                        let end = pos + lit.len();
-                        if end <= chars.len() && chars[pos..end] == lit[..] {
+                        if let Some(expected) = literal.chars().nth(thread.lit_offset)
+                            && pos < chars.len()
+                            && chars[pos] == expected
+                        {
                             let mut next = thread;
-                            next.pc += 1;
-                            next.pos = end;
-                            scheduled[end].push(next);
+                            next.lit_offset += 1;
+                            next.pos = pos + 1;
+                            if next.lit_offset >= literal.chars().count() {
+                                next.pc += 1;
+                                next.lit_offset = 0;
+                            }
+                            self.pike_addthread(PikeAdd {
+                                program,
+                                chars,
+                                seed: next,
+                                pos: pos + 1,
+                                clist: &mut nlist,
+                                visited: &mut visited,
+                                visit_gen,
+                            })?;
                         }
                     }
                     Instruction::Match => {
-                        let pri = thread.priority.clone();
                         best = Some(thread);
-                        for later in scheduled.iter_mut() {
-                            later.retain(|s| s.priority <= pri);
-                        }
                         break;
                     }
                     _ => {}
                 }
             }
+            std::mem::swap(&mut clist, &mut nlist);
         }
 
         Ok(best)
@@ -653,6 +681,20 @@ impl PatternVM {
             if state.pc >= program.instructions.len() {
                 continue;
             }
+            // Empty quantifier iteration: this thread already entered this
+            // Split at this pos. Take the exit *before* the per-position
+            // visited set would drop the thread and let a lower-priority
+            // arm win.
+            if let Some(Instruction::Split(_, second)) = program.get(state.pc)
+                && state
+                    .split_pos
+                    .iter()
+                    .any(|&(pc, at)| pc == state.pc && at == pos)
+            {
+                state.pc = *second;
+                stack.push(state);
+                continue;
+            }
             if let Some(slot) = visited.get_mut(state.pc) {
                 if *slot == visit_gen {
                     continue;
@@ -667,10 +709,15 @@ impl PatternVM {
                     stack.push(state);
                 }
                 Some(Instruction::Split(first, second)) => {
+                    if let Some((_, last_pos)) =
+                        state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
+                    {
+                        *last_pos = pos;
+                    } else {
+                        state.split_pos.push((state.pc, pos));
+                    }
                     let mut later = state.clone();
                     later.pc = *second;
-                    later.priority.push(1);
-                    state.priority.push(0);
                     state.pc = *first;
                     stack.push(later);
                     stack.push(state);
@@ -711,11 +758,10 @@ impl PatternVM {
                     stack.push(state);
                 }
                 Some(Instruction::Restore(slot)) => {
+                    // The compiler never emits `Save`/`Restore`. If a
+                    // restored position differs from this lockstep `pos`,
+                    // drop the thread rather than pretend it is rescheduled.
                     if *slot < state.saves.len() {
-                        // Restore is epsilon for the current position's
-                        // closure only when it does not move `pos`; a
-                        // restore to another index is handled as a
-                        // reschedule of this thread at that position.
                         let restored = state.saves[*slot];
                         state.pc += 1;
                         if restored == pos {
@@ -1970,7 +2016,8 @@ mod quantifier_extent_tests {
         let plain = optional_dash_or_digit_star();
         let with_backref = with_inert_backref(optional_dash_or_digit_star());
         let pike = find_under_default(&plain, "12").expect("pike must not hit the meter");
-        let back = find_under_default(&with_backref, "12").expect("backref path must not hit the meter");
+        let back =
+            find_under_default(&with_backref, "12").expect("backref path must not hit the meter");
         assert_eq!(
             pike.as_ref().map(|m| m.matched_text.as_str()),
             Some(""),
@@ -1988,7 +2035,8 @@ mod quantifier_extent_tests {
         let plain = whitespace_star_or_letter_star();
         let with_backref = with_inert_backref(whitespace_star_or_letter_star());
         let pike = find_under_default(&plain, "ab").expect("pike must not hit the meter");
-        let back = find_under_default(&with_backref, "ab").expect("backref path must not hit the meter");
+        let back =
+            find_under_default(&with_backref, "ab").expect("backref path must not hit the meter");
         assert_eq!(
             pike.as_ref().map(|m| m.matched_text.as_str()),
             Some(""),

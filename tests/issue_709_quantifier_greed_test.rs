@@ -334,8 +334,14 @@ fn empty_or_arm_in_star_agrees_with_inert_backref() {
          store hit as find p in \"12\"\n\
          display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
     );
-    assert!(plain.contains("plain: []"), "pike path must be left-first empty: {plain}");
-    assert!(backed.contains("back: []"), "backref path must be left-first empty: {backed}");
+    assert!(
+        plain.contains("plain: []"),
+        "pike path must be left-first empty: {plain}"
+    );
+    assert!(
+        backed.contains("back: []"),
+        "backref path must be left-first empty: {backed}"
+    );
     assert_eq!(code1, Some(0), "{plain}");
     assert_eq!(code2, Some(0), "{backed}");
 }
@@ -343,17 +349,23 @@ fn empty_or_arm_in_star_agrees_with_inert_backref() {
 #[test]
 fn empty_whitespace_or_letter_star_agrees_with_inert_backref() {
     let (plain, code1) = run_src(
-        "create pattern p:\n    zero or more (zero or more whitespace or letter)\nend pattern\n\
+        "create pattern p:\n    zero or more ((zero or more whitespace) or letter)\nend pattern\n\
          store hit as find p in \"ab\"\n\
          display \"plain: [\" with hit[\"matched_text\"] with \"]\"\n",
     );
     let (backed, code2) = run_src(
-        "create pattern p:\n    capture {optional \"x\"} as e then zero or more (zero or more whitespace or letter) then same as captured \"e\"\nend pattern\n\
+        "create pattern p:\n    capture {optional \"x\"} as e then zero or more ((zero or more whitespace) or letter) then same as captured \"e\"\nend pattern\n\
          store hit as find p in \"ab\"\n\
          display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
     );
-    assert!(plain.contains("plain: []"), "pike path must be left-first empty: {plain}");
-    assert!(backed.contains("back: []"), "backref path must be left-first empty: {backed}");
+    assert!(
+        plain.contains("plain: []"),
+        "pike path must be left-first empty: {plain}"
+    );
+    assert!(
+        backed.contains("back: []"),
+        "backref path must be left-first empty: {backed}"
+    );
     assert_eq!(code1, Some(0), "{plain}");
     assert_eq!(code2, Some(0), "{backed}");
 }

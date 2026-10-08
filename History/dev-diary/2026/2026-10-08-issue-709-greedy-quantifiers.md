@@ -65,6 +65,14 @@ or letter) then "!") or letter` exceeded the default state budget at 12
 letters; `main` returned `a` in a handful of steps. That is R3 (untrusted
 input / resource exhaustion), not R2.
 
+The first Pike path allocated an O(len) schedule per start and walked to
+end of input after threads died, so `find "z"` in 50k letters took tens of
+seconds. It also dropped empty `Split` loop-backs at the visited set, so
+`zero or more (optional "-" or digit)` on `12` returned `12` while the
+backreference path (and `re`) returned empty. Lockstep `clist`/`nlist`,
+one-char `Literal` steps, early exit, and a per-thread empty-iteration
+exit fix both.
+
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
 `"1"`), not POSIX leftmost-longest.
