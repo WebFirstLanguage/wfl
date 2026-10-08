@@ -8,15 +8,15 @@ describe "Unbounded quantifiers match the longest run":
             one or more digit
         end pattern
         store hit as find digits in "a12345b"
-        store text as hit["matched_text"]
-        expect text to equal "12345"
+        store matched as hit.matched_text
+        expect matched to equal "12345"
     end test
 
     test "find all extracts words not letters":
         create pattern word:
             one or more letter
         end pattern
-        store word_matches as find all word in "The quick brown fox"
+        store word_matches as pattern_find_all of "The quick brown fox" and word
         expect word_matches to have length 4
     end test
 
@@ -44,8 +44,9 @@ describe "Unbounded quantifiers match the longest run":
             capture {one or more digit} as number
         end pattern
         store m as find id in "abc12345"
-        store captured as (m["captures"])["number"]
-        expect captured to equal "12345"
+        store caps as m.captures
+        store number_text as caps.number
+        expect number_text to equal "12345"
     end test
 
 end describe

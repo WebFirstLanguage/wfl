@@ -28,7 +28,7 @@ fn find_all_one_or_more_letter_returns_words() {
     let (out, code) = run_src(
         "create pattern word:\n    one or more letter\nend pattern\n\
          store text as \"The quick brown fox\"\n\
-         store word_matches as find all word in text\n\
+         store word_matches as pattern_find_all of text and word\n\
          display \"words found: \" with length of word_matches\n",
     );
     assert!(
@@ -78,7 +78,8 @@ fn capture_keeps_the_full_digit_run() {
     let (out, code) = run_src(
         "create pattern id:\n    capture {one or more digit} as number\nend pattern\n\
          store m as find id in \"abc12345\"\n\
-         display \"captured: [\" with (m[\"captures\"])[\"number\"] with \"]\"\n",
+         store caps as m.captures\n\
+         display \"captured: [\" with caps.number with \"]\"\n",
     );
     assert!(
         out.contains("captured: [12345]"),
