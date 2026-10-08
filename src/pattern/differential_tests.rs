@@ -93,7 +93,7 @@ fn gen_pattern(rng: &mut StdRng, depth: u32) -> PatternExpression {
     if depth == 0 {
         return gen_leaf(rng);
     }
-    match rng.random_range(0..10) {
+    match rng.random_range(0..11) {
         0..=2 => gen_leaf(rng),
         3..=4 => PatternExpression::Quantified {
             pattern: Box::new(gen_pattern(rng, depth - 1)),
@@ -117,13 +117,31 @@ fn gen_pattern(rng: &mut StdRng, depth: u32) -> PatternExpression {
             Anchor::EndOfText
         }),
         // Nested star of (nullable | class) — the empty-iteration class.
-        _ => PatternExpression::Quantified {
+        9 => PatternExpression::Quantified {
             pattern: Box::new(PatternExpression::Alternative(vec![
                 PatternExpression::Quantified {
                     pattern: Box::new(gen_pattern(rng, depth.saturating_sub(2))),
                     quantifier: Quantifier::ZeroOrMore,
                 },
                 PatternExpression::CharacterClass(gen_class(rng)),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        },
+        // Bounded quantifier arm inside `zero or more (… or …)`. `at most`
+        // / `between` emit Splits that no Jump targets; empty re-entry
+        // still has to take the Split exit.
+        _ => PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                    quantifier: if rng.random_bool(0.5) {
+                        Quantifier::AtMost(rng.random_range(2..=3))
+                    } else {
+                        let lo = rng.random_range(0..=1);
+                        Quantifier::Between(lo, lo + rng.random_range(1..=2))
+                    },
+                },
+                PatternExpression::Literal("-".to_string()),
             ])),
             quantifier: Quantifier::ZeroOrMore,
         },
@@ -139,7 +157,9 @@ fn gen_haystack(rng: &mut StdRng) -> String {
             "12",
             "the king is running",
             "sing ring bring",
-        ][rng.random_range(0..6)]
+            "a-b",
+            "a-1bb--",
+        ][rng.random_range(0..8)]
         .to_string();
     }
     let len = rng.random_range(0..=8);
@@ -204,56 +224,95 @@ fn regex_extent(expr: &PatternExpression, text: &str) -> Option<Option<String>> 
     Some(compiled.find(text).map(|m| m.as_str().to_string()))
 }
 
+fn bounded_quantifier_in_star_or(quantifier: Quantifier) -> PatternExpression {
+    PatternExpression::Quantified {
+        pattern: Box::new(PatternExpression::Alternative(vec![
+            PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                quantifier,
+            },
+            PatternExpression::Literal("-".to_string()),
+        ])),
+        quantifier: Quantifier::ZeroOrMore,
+    }
+}
+
+fn review_shapes() -> Vec<(PatternExpression, &'static str)> {
+    vec![
+        (bounded_quantifier_in_star_or(Quantifier::AtMost(2)), "a-b"),
+        (
+            bounded_quantifier_in_star_or(Quantifier::Between(1, 2)),
+            "a-b",
+        ),
+        (
+            bounded_quantifier_in_star_or(Quantifier::AtMost(2)),
+            "a-1bb--",
+        ),
+    ]
+}
+
 fn run_differential(seed: u64, cases: usize) -> DiffReport {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut report = DiffReport {
         total: cases,
         ..DiffReport::default()
     };
-    for _ in 0..cases {
+    let mut remaining = cases;
+    for (pattern, text) in review_shapes() {
+        if remaining == 0 {
+            break;
+        }
+        remaining -= 1;
+        compare_case(&mut report, pattern, text);
+    }
+    for _ in 0..remaining {
         let depth = rng.random_range(0..=3);
         let pattern = gen_pattern(&mut rng, depth);
         let text = gen_haystack(&mut rng);
-        let pike = match extent(&pattern, &text) {
-            Ok(v) => v,
-            Err(e) if e.starts_with("compile") => {
-                report.compile_fail += 1;
-                continue;
-            }
-            Err(_) => {
-                report.budget_fail += 1;
-                continue;
-            }
-        };
-        let back = match extent(&with_inert_backref(pattern.clone()), &text) {
-            Ok(v) => v,
-            Err(_) => {
-                report.budget_fail += 1;
-                continue;
-            }
-        };
-        if pike != back {
-            report.pike_vs_backref += 1;
-            report.push_mismatch(format!(
-                "pike≠backref pattern={pattern:?} text={text:?} pike={pike:?} back={back:?}"
-            ));
+        compare_case(&mut report, pattern, &text);
+    }
+    report
+}
+
+fn compare_case(report: &mut DiffReport, pattern: PatternExpression, text: &str) {
+    let pike = match extent(&pattern, text) {
+        Ok(v) => v,
+        Err(e) if e.starts_with("compile") => {
+            report.compile_fail += 1;
+            return;
         }
-        match regex_extent(&pattern, &text) {
-            None => report.regex_untranslatable += 1,
-            Some(re) => {
-                if pike != re {
-                    report.pike_vs_regex += 1;
-                    report.push_mismatch(format!(
-                        "pike≠regex pattern={pattern:?} text={text:?} pike={pike:?} re={re:?}"
-                    ));
-                }
-                if back != re {
-                    report.backref_vs_regex += 1;
-                }
+        Err(_) => {
+            report.budget_fail += 1;
+            return;
+        }
+    };
+    let back = match extent(&with_inert_backref(pattern.clone()), text) {
+        Ok(v) => v,
+        Err(_) => {
+            report.budget_fail += 1;
+            return;
+        }
+    };
+    if pike != back {
+        report.pike_vs_backref += 1;
+        report.push_mismatch(format!(
+            "pike≠backref pattern={pattern:?} text={text:?} pike={pike:?} back={back:?}"
+        ));
+    }
+    match regex_extent(&pattern, text) {
+        None => report.regex_untranslatable += 1,
+        Some(re) => {
+            if pike != re {
+                report.pike_vs_regex += 1;
+                report.push_mismatch(format!(
+                    "pike≠regex pattern={pattern:?} text={text:?} pike={pike:?} re={re:?}"
+                ));
+            }
+            if back != re {
+                report.backref_vs_regex += 1;
             }
         }
     }
-    report
 }
 
 fn case_count() -> usize {

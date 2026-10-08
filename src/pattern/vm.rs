@@ -2132,6 +2132,26 @@ mod quantifier_extent_tests {
         }
     }
 
+    fn at_most_two_letter_or_dash_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::AtMost(2)),
+                PatternExpression::Literal("-".to_string()),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn between_one_and_two_letter_or_dash_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::Between(1, 2)),
+                PatternExpression::Literal("-".to_string()),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
     fn assert_plain_agrees_with_backref(
         pattern: PatternExpression,
         text: &str,
@@ -2225,6 +2245,23 @@ mod quantifier_extent_tests {
     #[test]
     fn optional_letter_or_digit_star_on_a1_agrees_with_backref() {
         assert_plain_agrees_with_backref(optional_letter_or_digit_star(), "a1", Some("a"));
+    }
+
+    #[test]
+    fn zero_or_more_at_most_two_letter_or_dash_on_a_dash_b_agrees_with_backref() {
+        // `at most 2` emits optional Splits that no Jump targets. Empty
+        // re-entry through the second optional must take that Split's exit
+        // (left-first) so the "-" arm does not extend the star past `a`.
+        assert_plain_agrees_with_backref(at_most_two_letter_or_dash_star(), "a-b", Some("a"));
+    }
+
+    #[test]
+    fn zero_or_more_between_one_and_two_letter_or_dash_on_a_dash_b_agrees_with_backref() {
+        assert_plain_agrees_with_backref(
+            between_one_and_two_letter_or_dash_star(),
+            "a-b",
+            Some("a"),
+        );
     }
 
     #[test]
