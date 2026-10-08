@@ -77,8 +77,11 @@ bindings (`… as page`) are writes, not reads. Action, container-method,
 event-handler, and websocket-handler bodies are isolated scopes, so a
 method-local `value` cannot hide an unused outer `value` (and the reverse).
 `store completed as yes` inside a method assigns the container property
-and is not an unused local. `export constant X` counts as a use of `X`;
-action and container exports are not variable bindings.
+(including inherited properties via `extends`) and is not an unused local.
+If a parent container is not defined in the same file, method-local stores
+in that child are not reported. Calling an action does not mark an outer
+binding that happens to share a parameter name. `export constant X` counts
+as a use of `X`; action and container exports are not variable bindings.
 
 **Traverses AST** to build symbol tables and validate semantics.
 

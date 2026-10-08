@@ -45,3 +45,13 @@ docs Task Manager example: that `store` assigns the container property,
 which is already bound in the method environment. Method analysis now
 predeclares property names so a property write is not a new unused
 local. Red: `9f89c168`.
+
+A later review found two remaining holes. Calling `show` with a parameter
+named `value` still marked an unused top-level `value` used, because a
+post-pass treated action parameter names as outer-scope reads. That pass
+is gone; parameters are already `used` in the isolated action scope.
+Inherited properties were missing from method predeclaration: `store name
+as "Rex"` in `container Dog extends Animal` assigned the parent property
+but warned unused. The unused pass now walks each container's `extends`
+chain (cycle-safe). If a parent is not defined in the file, method-local
+stores in that container are not reported. Red: `832b8831`.
