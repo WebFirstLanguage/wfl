@@ -683,6 +683,7 @@ export constant VERSION
 - **Documentation**: Makes module interface explicit and clear
 - **Validation**: Ensures exported items actually exist at compile/lint time
 - **Best Practices**: Encourages conscious design of module interfaces
+- **Unused-variable analysis**: `export constant X` counts as a use of `X` for `ANALYZE-UNUSED` (`wfl --analyze`). Action and container exports are not variable bindings.
 
 **Future Enhancements:** The export statement establishes the foundation for selective module exposure and namespace control in future WFL versions.
 
