@@ -75,6 +75,10 @@ pub struct PatternCompiler {
     /// Instructions emitted across the root program and embedded lookbehind
     /// programs. Lookbehind compilers share this counter with their parent.
     emitted_instructions: Arc<AtomicUsize>,
+    /// Nesting depth of `compile_quantified`. `or` Splits inside a
+    /// quantifier body can be re-entered empty and need `split_pos`;
+    /// top-level `or` chains (list patterns) do not.
+    quant_depth: usize,
 }
 
 impl PatternCompiler {
@@ -101,6 +105,7 @@ impl PatternCompiler {
             save_counter: 0,
             max_instructions,
             emitted_instructions,
+            quant_depth: 0,
         }
     }
 
@@ -619,7 +624,7 @@ impl PatternCompiler {
             } else {
                 // Not the last - emit split and compile pattern
                 let split_addr = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0, false))?; // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0, self.quant_depth > 0))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -652,6 +657,17 @@ impl PatternCompiler {
 
     /// Compile a quantified pattern
     fn compile_quantified(
+        &mut self,
+        pattern: &PatternExpression,
+        quantifier: &Quantifier,
+    ) -> Result<(), PatternError> {
+        self.quant_depth += 1;
+        let result = self.compile_quantified_body(pattern, quantifier);
+        self.quant_depth -= 1;
+        result
+    }
+
+    fn compile_quantified_body(
         &mut self,
         pattern: &PatternExpression,
         quantifier: &Quantifier,

@@ -63,10 +63,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   forced the longer expansion and are unchanged. Empty re-entry through
   `at most N` / `N to M` optional splits (no `Jump` back) still takes that
   split's exit, so `zero or more ((at most 2 letter) or "-")` on `"a-b"` is
-  `"a"`. Wide list-pattern `or` chains stay out of empty-iteration tracking
-  and stay linear; a failed start now charges a few meter steps (about 3
-  for `find "z"`), so the default ceiling covers about 2 MiB of dead starts
-  rather than `main`'s ~4.9 MiB. 1 MiB remains inside the budget.
+  `"a"`. An `or` inside a quantifier body is tracked so empty re-entry
+  takes the next arm (`zero or more (("" or any character) then zero or
+  more "a" then ("a" or ""))` on `"ab"` is `"a"`). Top-level list-pattern
+  `or` chains stay untracked and stay linear; a failed start now charges
+  a few meter steps (about 3 for `find "z"`), so the default ceiling
+  covers about 2 MiB of dead starts rather than `main`'s ~4.9 MiB. 1 MiB
+  remains inside the budget.
 - **Optional TLS settings in the configuration wizard** can be skipped with
   Enter. Unset certificate/key paths are omitted from the generated file, so accepting
   every default now completes the wizard.
