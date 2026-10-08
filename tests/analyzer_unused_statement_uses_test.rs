@@ -321,6 +321,47 @@ open url at "http://example.invalid" with method "GET" and read response as requ
     );
 }
 
+/// Container method / action scopes must not share one name-keyed usage map.
+#[test]
+fn unused_outer_binding_is_not_hidden_by_same_named_method_local() {
+    let source = r#"
+store value as 1
+create container Counter:
+    action bump:
+        store value as 2
+        display value
+    end
+end
+"#;
+    assert_unused(source, &["value"]);
+}
+
+#[test]
+fn unused_method_local_is_not_hidden_by_same_named_outer_read() {
+    let source = r#"
+store item as 1
+display item
+create container Box:
+    action fill:
+        store item as 2
+    end
+end
+"#;
+    assert_unused(source, &["item"]);
+}
+
+/// Exporting a stored constant is a use of that binding.
+#[test]
+fn export_constant_counts_as_a_use() {
+    let source = r#"
+store new constant api_key_count as 3
+export constant api_key_count
+store dead as 0
+"#;
+    assert_used(source, &["api_key_count"]);
+    assert_unused(source, &["dead"]);
+}
+
 /// The issue's gated-suite examples: assertion-only bindings must stay clean.
 #[test]
 fn gated_expect_only_bindings_are_not_unused() {
@@ -345,12 +386,17 @@ fn gated_test_programs_do_not_emit_analyze_unused() {
     );
 
     let mut failures = Vec::new();
+    let mut parse_failures = Vec::new();
     for path in &files {
         let source = fs::read_to_string(path)
             .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
         let tokens = lex_wfl_with_positions(&source);
-        let Ok(program) = Parser::new(&tokens).parse() else {
-            continue;
+        let program = match Parser::new(&tokens).parse() {
+            Ok(program) => program,
+            Err(errors) => {
+                parse_failures.push(format!("{}: {errors:?}", path.display()));
+                continue;
+            }
         };
         let unused: Vec<_> = Analyzer::new()
             .check_unused_variables(&program, 0)
@@ -362,6 +408,11 @@ fn gated_test_programs_do_not_emit_analyze_unused() {
             failures.push(format!("{}: {unused:?}", path.display()));
         }
     }
+    assert!(
+        parse_failures.is_empty(),
+        "gated test programs must parse for the unused-variable guard to apply:\n{}",
+        parse_failures.join("\n")
+    );
     assert!(
         failures.is_empty(),
         "ANALYZE-UNUSED on gated test programs:\n{}",
