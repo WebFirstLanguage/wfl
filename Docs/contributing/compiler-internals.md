@@ -67,7 +67,21 @@ Execution / Output
 - Action defined before call
 - Scope validation
 - Dead code detection
-- Unused variable warnings
+- Unused variable warnings (`ANALYZE-UNUSED`)
+
+`ANALYZE-UNUSED` (`wfl --analyze`) warns on a stored binding that is never
+read. Every statement and expression operand that reads a name counts as a
+use, including `expect`, `create file` / `create list`, container
+instantiation, and process/HTTP/include operands. HTTP and process *output*
+bindings (`… as page`) are writes, not reads. Action, container-method,
+event-handler, and websocket-handler bodies are isolated scopes, so a
+method-local `value` cannot hide an unused outer `value` (and the reverse).
+`store completed as yes` inside a method assigns the container property
+(including inherited properties via `extends`) and is not an unused local.
+If a parent container is not defined in the same file, method-local stores
+in that child are not reported. Calling an action does not mark an outer
+binding that happens to share a parameter name. `export constant X` counts
+as a use of `X`; action and container exports are not variable bindings.
 
 **Traverses AST** to build symbol tables and validate semantics.
 
