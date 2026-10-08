@@ -20,3 +20,10 @@ unhandled operands, `wfl --analyze` on the combined repro, and a guard
 that gated `TestPrograms/**/*.test.wfl` emit no `ANALYZE-UNUSED`.
 Genuinely unread bindings still warn. After the exhaustive visitor those
 tests pass.
+
+Review of the first green found seven new arms marking HTTP/process
+*output* names as used. Those names are writes, not reads, and are not
+collected as declarations, so the mark only hid a prior unread `store`
+of the same name. The streaming HTTP arms already skip `variable_name`.
+The process/HTTP arms now match them. Negative tests for a stored name
+rebound as an output and never read failed first (0401c26c).

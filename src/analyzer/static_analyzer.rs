@@ -1559,7 +1559,6 @@ impl Analyzer {
                 command,
                 arguments,
                 directory,
-                variable_name,
                 ..
             } => {
                 self.mark_used_in_expression(command, usages);
@@ -1568,18 +1567,12 @@ impl Analyzer {
                 }
                 if let Some(dir) = directory {
                     self.mark_used_in_expression(dir, usages);
-                }
-                if let Some(name) = variable_name
-                    && let Some(usage) = usages.get_mut(name)
-                {
-                    usage.used = true;
                 }
             }
             Statement::SpawnProcessStatement {
                 command,
                 arguments,
                 directory,
-                variable_name,
                 ..
             } => {
                 self.mark_used_in_expression(command, usages);
@@ -1589,26 +1582,15 @@ impl Analyzer {
                 if let Some(dir) = directory {
                     self.mark_used_in_expression(dir, usages);
                 }
-                if let Some(usage) = usages.get_mut(variable_name) {
-                    usage.used = true;
-                }
             }
-            Statement::ReadProcessOutputStatement {
-                process_id,
-                variable_name,
-                ..
-            } => {
+            Statement::ReadProcessOutputStatement { process_id, .. } => {
                 self.mark_used_in_expression(process_id, usages);
-                if let Some(usage) = usages.get_mut(variable_name) {
-                    usage.used = true;
-                }
             }
             Statement::KillProcessStatement { process_id, .. } => {
                 self.mark_used_in_expression(process_id, usages);
             }
             Statement::WaitForProcessStatement {
                 process_id,
-                variable_name,
                 timeout,
                 ..
             } => {
@@ -1616,49 +1598,27 @@ impl Analyzer {
                 if let Some(timeout) = timeout {
                     self.mark_used_in_expression(timeout, usages);
                 }
-                if let Some(name) = variable_name
-                    && let Some(usage) = usages.get_mut(name)
-                {
-                    usage.used = true;
-                }
             }
             Statement::WaitForDurationStatement { duration, .. } => {
                 self.mark_used_in_expression(duration, usages);
             }
-            Statement::HttpGetStatement {
-                url, variable_name, ..
-            } => {
+            Statement::HttpGetStatement { url, .. } => {
                 self.mark_used_in_expression(url, usages);
-                if let Some(usage) = usages.get_mut(variable_name) {
-                    usage.used = true;
-                }
             }
-            Statement::HttpPostStatement {
-                url,
-                data,
-                variable_name,
-                ..
-            } => {
+            Statement::HttpPostStatement { url, data, .. } => {
                 self.mark_used_in_expression(url, usages);
                 self.mark_used_in_expression(data, usages);
-                if let Some(usage) = usages.get_mut(variable_name) {
-                    usage.used = true;
-                }
             }
             Statement::HttpRequestStatement {
                 url,
                 method,
                 headers,
                 body,
-                variable_name,
                 ..
             } => {
                 self.mark_used_in_expression(url, usages);
                 for expr in [method, headers, body].into_iter().flatten() {
                     self.mark_used_in_expression(expr, usages);
-                }
-                if let Some(usage) = usages.get_mut(variable_name) {
-                    usage.used = true;
                 }
             }
             Statement::CreateListStatement { initial_values, .. } => {
