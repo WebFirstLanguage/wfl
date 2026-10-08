@@ -2,18 +2,37 @@
 ///
 /// Tests the full pipeline: parse → analyze → typecheck → interpret
 /// for binary file operations.
+mod common;
+
 use std::path::PathBuf;
 
-fn wfl_binary() -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("target");
-    path.push("release");
-    if cfg!(windows) {
-        path.push("wfl.exe");
-    } else {
-        path.push("wfl");
-    }
-    path
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .expect("panic payload should be a string")
+}
+
+#[test]
+fn missing_release_binary_explains_how_to_build() {
+    let missing = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("release")
+        .join("definitely-missing-wfl-for-issue-692");
+    let panic = std::panic::catch_unwind(|| {
+        let _ = common::require_existing_release_binary(missing.clone());
+    })
+    .expect_err("a missing release binary must panic with an actionable message");
+    let message = panic_message(panic);
+    assert!(
+        message.contains("cargo build --release"),
+        "diagnostic must tell the user how to build: {message}"
+    );
+    assert!(
+        message.contains("definitely-missing-wfl-for-issue-692"),
+        "diagnostic must include the missing path: {message}"
+    );
 }
 
 /// Run a WFL script in the given directory.
@@ -22,7 +41,7 @@ fn run_wfl_in(dir: &std::path::Path, source: &str) -> (String, String, bool) {
     let script_path = dir.join("test.wfl");
     std::fs::write(&script_path, source).expect("failed to write script");
 
-    let output = std::process::Command::new(wfl_binary())
+    let output = std::process::Command::new(common::wfl_release_exe())
         .arg("test.wfl")
         .current_dir(dir)
         .output()
@@ -147,7 +166,7 @@ close wh
     let script = dir.path().join("parse_test.wfl");
     std::fs::write(&script, source).expect("write script");
 
-    let output = std::process::Command::new(wfl_binary())
+    let output = std::process::Command::new(common::wfl_release_exe())
         .arg("--parse")
         .arg(script.to_str().unwrap())
         .output()
