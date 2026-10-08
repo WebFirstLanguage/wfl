@@ -287,6 +287,21 @@
       "security_classification": "public"
     },
     {
+      "path": "Archive/legacy-programs/nexus/nexus.wfl",
+      "original_path": "experiments/nexus/nexus.wfl",
+      "source_commit": "5c5ac2f61e0266da1b89f16f4b71f6b4ad7f09ef",
+      "sha256": "b7b311a023cd78b282aa26228e6cfbf26d72de205eecef9922bffd418b487255",
+      "document_date": null,
+      "archived_at": "2026-10-08",
+      "kind": "legacy-program",
+      "status_at_archive": "superseded",
+      "reason": "Unasserted scratch prototype; remaining unique coverage folded into TestPrograms/nexus/ (issue #668)",
+      "normative": false,
+      "superseded_by": "TestPrograms/nexus/",
+      "related_issues_or_prs": ["#668"],
+      "security_classification": "public"
+    },
+    {
       "path": "Archive/legacy-programs/nexus/nexus_partial.wfl",
       "original_path": "Nexus/nexus_partial.wfl",
       "source_commit": "99c604a74c79514d60329dc4df9602aba5c60778",
