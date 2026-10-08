@@ -21,3 +21,10 @@ still assert the process is running before kill and not running after.
 
 The `wfl_release_exe` documentation is back on `wfl_release_exe`;
 `require_existing_release_binary` keeps its one-line summary.
+
+The first rewrite-set guard skipped any `at` operand containing `/`, so a
+nested relative such as `subdir/output.txt` was treated as already
+absolute. The check is now "is this path absolute?": Unix `/...`,
+Windows `C:/...` / `C:\...`, and UNC, with a nested-relative rejection
+test and an unlisted-absolute allowance so Windows drive paths are not
+flagged on Linux.

@@ -22,6 +22,20 @@ mod file_io_execution_tests {
             .expect("panic payload should be a string")
     }
 
+    /// True for Unix `/...`, Windows `C:/...` / `C:\...`, and UNC `//server/...`.
+    /// Nested relatives such as `subdir/output.txt` stay relative on every OS.
+    fn is_absolute_wfl_path(path: &str) -> bool {
+        if Path::new(path).is_absolute() {
+            return true;
+        }
+        let normalized = path.replace('\\', "/");
+        if Path::new(&normalized).is_absolute() {
+            return true;
+        }
+        let bytes = normalized.as_bytes();
+        bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/'
+    }
+
     /// Relative operands of `at "..."` write to the process cwd unless rewritten.
     fn relative_at_paths(code: &str) -> Vec<String> {
         let mut names = Vec::new();
@@ -32,7 +46,7 @@ mod file_io_execution_tests {
                 break;
             };
             let name = &remaining[..end];
-            if !name.is_empty() && !name.contains('/') {
+            if !name.is_empty() && !is_absolute_wfl_path(name) {
                 names.push(name.to_string());
             }
             remaining = &remaining[end + 1..];
@@ -361,6 +375,29 @@ mod file_io_execution_tests {
     }
 
     #[test]
+    fn rewrite_rejects_an_unlisted_nested_relative_path() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let dir = directory.path().to_path_buf();
+        let panic = std::panic::catch_unwind(move || {
+            rewrite_fixture_paths(
+                r#"open file at "subdir/output.txt" for writing as fixture"#,
+                &dir,
+                &[],
+            );
+        })
+        .expect_err("a nested relative path must panic before WFL runs");
+        let message = panic_message(panic);
+        assert!(
+            message.contains("subdir/output.txt"),
+            "diagnostic must name the nested relative path: {message}"
+        );
+        assert!(
+            message.contains("repo root"),
+            "diagnostic must describe the leak: {message}"
+        );
+    }
+
+    #[test]
     fn rewrite_rejects_an_unlisted_relative_path() {
         let directory = tempfile::tempdir().expect("create isolated file fixture");
         let dir = directory.path().to_path_buf();
@@ -380,6 +417,28 @@ mod file_io_execution_tests {
         assert!(
             message.contains("repo root"),
             "diagnostic must describe the leak: {message}"
+        );
+    }
+
+    #[test]
+    fn rewrite_allows_an_absolute_at_path_without_listing_it() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let absolute = wfl_path(&directory.path().join("already_absolute.txt"));
+        let windows_absolute = r"C:\Users\fixture\output.txt";
+        let code = format!(
+            r#"
+            open file at "{absolute}" for writing as unix_style
+            open file at "{windows_absolute}" for writing as windows_style
+            "#
+        );
+        let rewritten = rewrite_fixture_paths(&code, directory.path(), &[]);
+        assert!(
+            rewritten.contains(&format!("\"{absolute}\"")),
+            "Unix-style absolute path must stay unlisted: {rewritten}"
+        );
+        assert!(
+            rewritten.contains(&format!("\"{windows_absolute}\"")),
+            "Windows absolute path must stay unlisted: {rewritten}"
         );
     }
 
