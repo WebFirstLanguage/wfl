@@ -9,6 +9,7 @@ repository so contributors have a single source of truth.
 |---|---|
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community behavior and enforcement |
 | [AI_POLICY.md](AI_POLICY.md) | AI-assisted work is welcome; anti-discrimination |
+| [Docs/contributing/issue-policy.md](Docs/contributing/issue-policy.md) | Ranked issue types and agent dispatch, merge, and closure rules |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute and apply for Contributor status |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting and supported versions |
 | [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Binding repository hygiene and layout policy (§3.8) |
@@ -46,7 +47,7 @@ and, over time, **Maintainers**.
 
 | Role | Who | Rights and duties |
 |---|---|---|
-| **Maintainer** | Brad (Logbie LLC); additional people may be appointed | Final authority on technical direction, merges to protected branches, releases, security response, governance changes, trademark/project identity, and Contributor appointments |
+| **Maintainer** | Brad (Logbie LLC); additional people may be appointed | Final authority on technical direction, merge policy and non-delegated merges to protected branches, releases, security response, governance changes, trademark/project identity, and Contributor appointments |
 | **Contributor** | People granted write access after application and approval | Open PRs from branches, review others’ work, triage issues as delegated, help enforce the Code of Conduct as delegated. Does **not** alone merge to `main` unless also a Maintainer or explicitly delegated for a path |
 | **Participant** | Anyone who opens issues, discussions, or PRs from a fork | Propose changes, report bugs, improve docs; must follow the Code of Conduct |
 
@@ -58,7 +59,7 @@ may care about.
 
 | Decision type | Who decides | Notes |
 |---|---|---|
-| Day-to-day PR merge | Maintainer(s) | Based on review, CI, and project policies below |
+| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Based on review, CI, and project policies below |
 | Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules |
 | Security advisories and embargo | Maintainer(s) | Per [SECURITY.md](SECURITY.md) |
 | Appointing Contributors / Maintainers | Maintainer(s) | See [CONTRIBUTING.md](CONTRIBUTING.md) application process |
@@ -178,6 +179,16 @@ process. The machine-readable profile is `.repo-hygiene.toml`;
 Widening an allowlist to silence a violation without Maintainer approval is
 itself a policy violation.
 
+### 3.9 Agent issue handling
+
+[The issue policy](Docs/contributing/issue-policy.md) delegates dispatch,
+merge, and linked-issue closure for well-defined I1 bug fixes and routine
+corrections to project-run AI agents after required CI and review-bot gates
+pass. New features and unclear behavior need a Maintainer's dispatch decision
+and human merge approval. This delegation does not extend to releases,
+security response, or general issue triage. Human contributors may use AI under
+`AI_POLICY.md` regardless of issue type.
+
 ---
 
 ## 4. Contribution paths
@@ -207,9 +218,11 @@ is no automatic promotion timeline; appointments are explicit and public
 3. Update docs, tests, and Dev Diary as required by §3.  
 4. Open a PR with a clear summary, motivation, test notes, and compatibility
    impact (template in the collaboration guide).  
-5. Address review feedback. AI-assisted work is welcome; the human author is
-   accountable (see [AI_POLICY.md](AI_POLICY.md)).  
-6. Maintainer merges when checks and policies are satisfied.
+5. Address review feedback. AI-assisted work is welcome; accountability
+   follows [AI_POLICY.md](AI_POLICY.md).
+6. A Maintainer merges when checks and policies are satisfied, except that a
+   project-run agent may merge an eligible I1 fix under §3.9 after its required
+   CI, review, and evidence gates pass.
 
 Maintainers may reject or request changes for any reason grounded in these
 policies, including style that violates WFL’s natural-language design goals,
