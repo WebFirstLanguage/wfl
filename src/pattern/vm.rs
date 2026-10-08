@@ -582,10 +582,9 @@ impl PatternVM {
         let mut clist = Vec::new();
         let mut nlist = Vec::new();
         let mut seen = HashSet::new();
-        let mut res = self
-            .meter
-            .reserve_states(0)
-            .map_err(budget_to_pattern_error)?;
+        // Pike live threads are bounded by `(pc, lit_offset)` dedup and the
+        // compile-instruction cap. Do not count them against
+        // `max_pattern_states` — that knob is for the backtracking sweep.
 
         let mut seed = VMState::new(program.num_captures, program.num_saves);
         seed.pos = start_pos;
@@ -597,14 +596,12 @@ impl PatternVM {
             clist: &mut clist,
             seen: &mut seen,
         })?;
-        res.grow(clist.len()).map_err(budget_to_pattern_error)?;
 
         let mut best: Option<VMState> = None;
         for pos in start_pos..=chars.len() {
             if clist.is_empty() {
                 break;
             }
-            let consumed = clist.len();
             seen.clear();
             nlist.clear();
             for thread in clist.drain(..) {
@@ -619,7 +616,6 @@ impl PatternVM {
                             next.pc += 1;
                             next.pos = pos + 1;
                             next.lit_offset = 0;
-                            let before = nlist.len();
                             self.pike_addthread(PikeAdd {
                                 program,
                                 chars,
@@ -628,8 +624,6 @@ impl PatternVM {
                                 clist: &mut nlist,
                                 seen: &mut seen,
                             })?;
-                            res.grow(nlist.len() - before)
-                                .map_err(budget_to_pattern_error)?;
                         }
                     }
                     Instruction::CharClass(class) => {
@@ -638,7 +632,6 @@ impl PatternVM {
                             next.pc += 1;
                             next.pos = pos + 1;
                             next.lit_offset = 0;
-                            let before = nlist.len();
                             self.pike_addthread(PikeAdd {
                                 program,
                                 chars,
@@ -647,8 +640,6 @@ impl PatternVM {
                                 clist: &mut nlist,
                                 seen: &mut seen,
                             })?;
-                            res.grow(nlist.len() - before)
-                                .map_err(budget_to_pattern_error)?;
                         }
                     }
                     Instruction::Literal(literal) => {
@@ -663,7 +654,6 @@ impl PatternVM {
                                 next.pc += 1;
                                 next.lit_offset = 0;
                             }
-                            let before = nlist.len();
                             self.pike_addthread(PikeAdd {
                                 program,
                                 chars,
@@ -672,8 +662,6 @@ impl PatternVM {
                                 clist: &mut nlist,
                                 seen: &mut seen,
                             })?;
-                            res.grow(nlist.len() - before)
-                                .map_err(budget_to_pattern_error)?;
                         }
                     }
                     Instruction::Match => {
@@ -683,7 +671,6 @@ impl PatternVM {
                     _ => {}
                 }
             }
-            res.release(consumed);
             std::mem::swap(&mut clist, &mut nlist);
         }
 

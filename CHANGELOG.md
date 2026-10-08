@@ -67,8 +67,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   takes the next arm (`zero or more (("" or any character) then zero or
   more "a" then ("a" or ""))` on `"ab"` is `"a"`). An `or` inside a
   quantifier is tracked only when some arm can match empty, so
-  `one or more` of a large list stays linear. Top-level list-pattern
-  `or` chains stay untracked; a failed start now charges
+  `one or more` of a large list stays linear. The nullable scan runs
+  once per `or`. Pike threads are not counted against
+  `max_pattern_states`, so a 15_000-word list still matches. Top-level
+  list-pattern `or` chains stay untracked; a failed start now charges
   a few meter steps (about 3 for `find "z"`), so the default ceiling
   covers about 2 MiB of dead starts rather than `main`'s ~4.9 MiB. 1 MiB
   remains inside the budget.

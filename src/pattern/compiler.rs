@@ -613,6 +613,7 @@ impl PatternCompiler {
         // L2: <pattern3>
         // END:
 
+        let track = self.quant_depth > 0 && patterns.iter().any(is_nullable);
         let mut jump_to_end = Vec::new();
         let _split_locations: Vec<usize> = Vec::new();
 
@@ -624,7 +625,6 @@ impl PatternCompiler {
             } else {
                 // Not the last - emit split and compile pattern
                 let split_addr = self.program.len();
-                let track = self.quant_depth > 0 && patterns.iter().any(is_nullable);
                 self.emit_instruction(Instruction::Split(0, 0, track))?; // Will be patched
 
                 self.compile_expression(pattern)?;

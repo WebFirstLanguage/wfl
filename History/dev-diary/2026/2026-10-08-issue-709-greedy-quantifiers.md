@@ -101,7 +101,10 @@ and `is_nullable`); top-level and non-nullable list-pattern `or`
 chains stay untracked. `zero or more (("" or any character) then zero
 or more "a" then ("a" or ""))` on `"ab"` is `"a"` on both engines.
 `one or more` of a 1_000-arm list over 1_000 chars stays under a
-second in release.
+second in release. Pike no longer reserves `max_pattern_states` per
+live thread, so 15_000-word lists still match. The nullable check
+runs once per `or`, so compiling `one or more` of a 10_000-arm list
+stays under 50 ms.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
