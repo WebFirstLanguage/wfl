@@ -17,7 +17,8 @@ Three remaining unique loop forms from `nexus.wfl` were folded in as
 - `nested_loop_exit.wfl` — `exit loop` leaves every enclosing loop (the
   counterpart of `nested_loop_control.wfl`, which pins `break`)
 - `forever_break.wfl` — `break` stops a `repeat forever`
-- `repeat_until.wfl` — body-first `repeat until` sums 1 through 5
+- `repeat_until.wfl` — body-first `repeat until` sums 1 through 5, and
+  an already-true condition still runs the body once
 
 The original `nexus.wfl` is retained byte-for-byte at
 `Archive/legacy-programs/nexus/nexus.wfl`. The experiment directory is gone.
