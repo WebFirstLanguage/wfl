@@ -21,3 +21,6 @@ observing the caller's `change`, the no-include fatal guard, and an analyzer
 check that the warning is a variable warning. After the helper (commit
 50c2e91f) those tests pass. `Docs/04-advanced-features/modules.md` documents
 the warning and the working `change` of an included variable.
+`TestPrograms/modules/include_change_variable.wfl` is the gated end-to-end
+example (`change` at top level after `include from`; `describe`/`expect`
+asserts the shared binding).
