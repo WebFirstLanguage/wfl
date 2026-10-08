@@ -892,12 +892,11 @@ fn test_lint_still_flags_misindented_flat_otherwise_check_if_body() {
         .into_iter()
         .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
         .collect();
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("4 spaces")
-                && diagnostic.message.contains("found 0")),
-        "mis-indented else-if body must still be flagged: {diagnostics:?}"
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0].line, 5);
+    assert_eq!(
+        diagnostics[0].message,
+        "Line should be indented with 4 spaces, found 0"
     );
 }
 

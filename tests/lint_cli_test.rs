@@ -185,9 +185,18 @@ fn misindented_flat_otherwise_check_if_body_fails_lint() {
     let lint = run(directory.path(), &["--lint", "program.wfl"]);
     assert_status(&lint, 1);
     let stderr = String::from_utf8_lossy(&lint.stderr);
+    assert_eq!(
+        stderr.matches("LINT-INDENT").count(),
+        1,
+        "expected one indentation warning, got: {stderr}"
+    );
     assert!(
-        stderr.contains("LINT-INDENT"),
-        "expected an indentation warning, got: {stderr}"
+        stderr.contains("Line should be indented with 4 spaces, found 0"),
+        "expected the else-if body warning, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("8 spaces"),
+        "a desynced nest must not also warn, got: {stderr}"
     );
 }
 
