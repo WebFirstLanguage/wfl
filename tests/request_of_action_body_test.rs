@@ -55,7 +55,10 @@ define action called handle with parameters req:
     store b as body of req
     store bytes as body_bytes of req
     store ua as header "User-Agent" of req
-    respond to req with m with " " with p with " " with ua
+    store reply as m with " " with p with " " with q with " " with ua with " " with b
+    respond to req with reply
+    store byte_count as length of bytes
+    display byte_count
 end action
 
 listen on port 8080 as web_server
