@@ -7,8 +7,9 @@
 // byte generation into native Rust so WFL auth/session code has a correct,
 // non-DoS-prone primitive instead of hand-rolling them in interpreted WFL.
 
-mod common;
-use common::{expect_bool_result as expect_bool, expect_text_result as expect_text, run_wfl_code};
+use crate::common::{
+    expect_bool_result as expect_bool, expect_text_result as expect_text, run_wfl_code,
+};
 
 // === PBKDF2-HMAC-SHA256 (well-known / RFC-style vectors) ===
 // Vectors: P="password", S="salt". These are the canonical PBKDF2-HMAC-SHA256
