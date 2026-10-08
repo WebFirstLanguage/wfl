@@ -27,3 +27,15 @@ collected as declarations, so the mark only hid a prior unread `store`
 of the same name. The streaming HTTP arms already skip `variable_name`.
 The process/HTTP arms now match them. Negative tests for a stored name
 rebound as an output and never read failed first (0401c26c).
+
+Review of that green found a real scope collision: collecting container
+methods into the same name-keyed map let a method-local replace an outer
+binding (and the reverse). Reproduced both ways (`value` unused at top
+level while a method reads its own `value`; outer `item` read while a
+method `store item` is unread). Action, method, event-handler, and
+websocket-handler bodies now overlay their declarations and restore the
+parent map. `export constant X` marks `X` used. The gated
+`TestPrograms/**/*.test.wfl` sweep fails if any file does not parse.
+`Docs/contributing/compiler-internals.md` documents `ANALYZE-UNUSED`
+(there is no dedicated diagnostic page). Red tests for the scope and
+export cases failed first (42c9fae8).
