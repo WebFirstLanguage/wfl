@@ -8,7 +8,7 @@
 use super::PatternError;
 use super::instruction::{Instruction, Program};
 use crate::exec::budget::{BudgetExceeded, ExecutionBudget, PatternMeter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Translate a per-match meter breach into the pattern VM's error type.
@@ -209,8 +209,19 @@ struct PikeAdd<'a> {
     seed: VMState,
     pos: usize,
     clist: &'a mut Vec<VMState>,
-    visited: &'a mut [u32],
-    visit_gen: u32,
+    seen: &'a mut HashSet<(usize, usize)>,
+    charge_epsilon: bool,
+}
+
+fn pike_dedup_here(inst: &Instruction) -> bool {
+    matches!(
+        inst,
+        Instruction::Split(_, _)
+            | Instruction::Char(_)
+            | Instruction::CharClass(_)
+            | Instruction::Literal(_)
+            | Instruction::Match
+    )
 }
 
 /// Pattern matching virtual machine.
@@ -477,13 +488,17 @@ impl PatternVM {
     /// one input position are advanced before the next, and `addthread`
     /// follows epsilon (`Jump`/`Split`/captures/anchors) in list order
     /// with a per-position `pc` set. First arrival at a `pc` is then the
-    /// highest-priority thread, so dedup is safe. A failed start is
-    /// `O(program)`: the lockstep loop stops when no thread remains, so
-    /// it does not walk the rest of the input. A successful start is
-    /// `O(consumed × program)`. Unanchored `find` / `find all` are
-    /// therefore `O(len × program)` overall, not `O(len × program)` per
-    /// start. Empty quantifier iterations take that thread's `Split`
-    /// exit (left-first) instead of dropping the thread.
+    /// highest-priority thread, so dedup is safe. Dedup keys
+    /// `(pc, lit_offset)` and runs only at `Split` and at
+    /// thread-producing instructions, so a mid-literal thread is not
+    /// dropped by a fresh arrival at the same `pc`, and an empty
+    /// iteration can still reach its loop `Split` through `Jump`s.
+    /// A start that dies on the first character is `O(program)`. A
+    /// start that consumes a long prefix before failing is
+    /// `O(consumed × program)` — the same class as `main`, because
+    /// each start restarts Pike. Empty quantifier iterations take
+    /// that thread's `Split` exit (left-first) instead of dropping
+    /// the thread.
     ///
     /// Programs that contain a `Backreference` keep the no-dedup sweep:
     /// a thread's future depends on its captures, so `(pc, pos)` alone is
@@ -552,9 +567,10 @@ impl PatternVM {
 
     /// Lockstep Pike NFA: one input position at a time. Thread-list order
     /// is priority. `Literal` advances one character per step (`lit_offset`)
-    /// so nothing jumps ahead. Empty quantifier iterations take the `Split`
-    /// exit on that thread before the per-position `pc` set drops them.
-    /// Idle positions are not visited: the loop stops when no thread remains.
+    /// so nothing jumps ahead. Dedup is `(pc, lit_offset)` at `Split` and
+    /// thread-producing instructions only. Empty quantifier iterations
+    /// take the `Split` exit on that thread. Idle positions are not
+    /// visited: the loop stops when no thread remains.
     fn find_at_position_pike(
         &mut self,
         program: &Program,
@@ -566,8 +582,7 @@ impl PatternVM {
         }
         let mut clist = Vec::new();
         let mut nlist = Vec::new();
-        let mut visited = vec![0u32; program.len().max(1)];
-        let mut visit_gen: u32 = 1;
+        let mut seen = HashSet::new();
         let _res = self
             .meter
             .reserve_states(program.len().max(1))
@@ -581,24 +596,16 @@ impl PatternVM {
             seed,
             pos: start_pos,
             clist: &mut clist,
-            visited: &mut visited,
-            visit_gen,
+            seen: &mut seen,
+            charge_epsilon: false,
         })?;
 
         let mut best: Option<VMState> = None;
         for pos in start_pos..=chars.len() {
-            // Charge every lockstep slot, including one past a dead
-            // frontier, so an idle walk to end-of-input cannot bypass
-            // the meter if the empty-list cutoff is removed.
-            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if clist.is_empty() {
                 break;
             }
-            visit_gen = visit_gen.wrapping_add(1);
-            if visit_gen == 0 {
-                visited.fill(0);
-                visit_gen = 1;
-            }
+            seen.clear();
             nlist.clear();
             for thread in clist.drain(..) {
                 self.meter.charge_step().map_err(budget_to_pattern_error)?;
@@ -618,8 +625,8 @@ impl PatternVM {
                                 seed: next,
                                 pos: pos + 1,
                                 clist: &mut nlist,
-                                visited: &mut visited,
-                                visit_gen,
+                                seen: &mut seen,
+                                charge_epsilon: true,
                             })?;
                         }
                     }
@@ -635,8 +642,8 @@ impl PatternVM {
                                 seed: next,
                                 pos: pos + 1,
                                 clist: &mut nlist,
-                                visited: &mut visited,
-                                visit_gen,
+                                seen: &mut seen,
+                                charge_epsilon: true,
                             })?;
                         }
                     }
@@ -658,8 +665,8 @@ impl PatternVM {
                                 seed: next,
                                 pos: pos + 1,
                                 clist: &mut nlist,
-                                visited: &mut visited,
-                                visit_gen,
+                                seen: &mut seen,
+                                charge_epsilon: true,
                             })?;
                         }
                     }
@@ -683,12 +690,14 @@ impl PatternVM {
             seed,
             pos,
             clist,
-            visited,
-            visit_gen,
+            seen,
+            charge_epsilon,
         } = args;
         let mut stack = vec![seed];
         while let Some(mut state) = stack.pop() {
-            self.meter.charge_step().map_err(budget_to_pattern_error)?;
+            if charge_epsilon {
+                self.meter.charge_step().map_err(budget_to_pattern_error)?;
+            }
             if state.pc >= program.instructions.len() {
                 continue;
             }
@@ -706,11 +715,14 @@ impl PatternVM {
                 stack.push(state);
                 continue;
             }
-            if let Some(slot) = visited.get_mut(state.pc) {
-                if *slot == visit_gen {
-                    continue;
-                }
-                *slot = visit_gen;
+            // Dedup only at Split and at thread-producing instructions,
+            // keyed by (pc, lit_offset). Jump/capture/anchor pcs stay
+            // open so an empty loop-back can reach its Split.
+            if let Some(inst) = program.get(state.pc)
+                && pike_dedup_here(inst)
+                && !seen.insert((state.pc, state.lit_offset))
+            {
+                continue;
             }
             state.pos = pos;
             match program.get(state.pc) {

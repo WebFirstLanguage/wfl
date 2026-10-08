@@ -71,12 +71,15 @@ seconds. It also dropped empty `Split` loop-backs at the visited set, so
 `zero or more (optional "-" or digit)` on `12` returned `12` while the
 backreference path (and `re`) returned empty. Lockstep `clist`/`nlist`,
 one-char `Literal` steps, early exit, and a per-thread empty-iteration
-exit fix both. A failed start is O(program); unanchored find is
-O(len × program) overall — not O(len × program) per start. Each start
-and each lockstep slot is charged so a reintroduced idle walk hits the
-meter. Release-mode timing tests pin `find "z"` in 50k `a`s, trailing
-`needle`, `find all one or more whitespace` on 30k, and `one or more any`
-on 50k under 500 ms.
+exit fix both. A failed start is O(program). A start that consumes a long prefix
+before failing is still O(consumed × program), because each start
+restarts Pike — the same class as `main`. Dedup keys `(pc, lit_offset)`
+and skips `Jump`/capture/anchor pcs so mid-literal threads and empty
+loop-backs survive. Failed starts charge about one step (the start
+itself); live consume work is charged per thread. Release-mode timing
+tests pin `find "z"` in 50k `a`s, trailing `needle`, `find all one or
+more whitespace` on 30k, and `one or more any` on 50k under 500 ms.
+`find "z"` over 1 MiB stays under the default step ceiling.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
