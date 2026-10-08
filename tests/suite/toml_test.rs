@@ -9,8 +9,7 @@
 
 use wfl::interpreter::value::Value;
 
-mod common;
-use common::{expect_number, expect_text, get_global, run_wfl};
+use crate::common::{expect_number, expect_text, get_global, run_wfl};
 
 // ---------------------------------------------------------------------------
 // Parsing — the priority half of the issue.
