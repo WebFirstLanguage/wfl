@@ -6,14 +6,31 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod action_return_type_residuals_test;
+mod ambiguous_write_analyzer_test;
+mod ambiguous_write_branch_typecheck_test;
+mod analyzer_include_expect_test;
+mod analyzer_unused_statement_uses_test;
+mod constant_mutation_analyzer_test;
+mod contains_unification_test;
 mod crypto_async_test;
 mod crypto_kdf_test;
 mod crypto_seal_test;
 mod crypto_test;
+mod database_analyzer_test;
+mod export_constant_mutability_test;
+mod export_statement_test;
+mod include_change_variable_test;
+mod include_diamond_test;
+mod include_preserves_constness_test;
+mod include_statement_test;
+mod nothing_reassign_widen_test;
 mod password_hashing_test;
 mod random_functions_test;
+mod recursive_action_return_type_test;
 mod sha256_hmac_test;
 mod toml_test;
+mod transaction_analyzer_walk_test;
 mod typechecker_alias_provenance_residual_test;
 mod typechecker_builtin_contract_test;
 mod typechecker_container_contract_test;
