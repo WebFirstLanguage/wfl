@@ -18,6 +18,6 @@ collects actions.
 Red tests in `tests/include_change_variable_test.rs` failed first (commit
 a4466b13): the issue repro (`no` then `yes`, exit 0), the included action
 observing the caller's `change`, the no-include fatal guard, and an analyzer
-check that the warning is a variable warning. After the helper those tests
-pass. `Docs/04-advanced-features/modules.md` documents the warning and the
-working `change` of an included variable.
+check that the warning is a variable warning. After the helper (commit
+50c2e91f) those tests pass. `Docs/04-advanced-features/modules.md` documents
+the warning and the working `change` of an included variable.
