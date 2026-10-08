@@ -68,27 +68,23 @@ end check
 
 ### Chained Conditionals (Else If)
 
-You can chain multiple conditions by nesting `check if` blocks inside `otherwise` clauses:
+Chain extra conditions with a flat `otherwise check if` arm. Every arm shares one
+`end check`, and each branch header stays at the same indent as the opening
+`check if`:
 
 ```wfl
 store score as 85
 
 check if score is greater than or equal to 90:
     display "Grade: A"
+otherwise check if score is greater than or equal to 80:
+    display "Grade: B"
+otherwise check if score is greater than or equal to 70:
+    display "Grade: C"
+otherwise check if score is greater than or equal to 60:
+    display "Grade: D"
 otherwise:
-    check if score is greater than or equal to 80:
-        display "Grade: B"
-    otherwise:
-        check if score is greater than or equal to 70:
-            display "Grade: C"
-        otherwise:
-            check if score is greater than or equal to 60:
-                display "Grade: D"
-            otherwise:
-                display "Grade: F"
-            end check
-        end check
-    end check
+    display "Grade: F"
 end check
 ```
 
@@ -96,18 +92,18 @@ end check
 ```wfl
 check if <condition1>:
     <statements>
+otherwise check if <condition2>:
+    <statements>
+otherwise check if <condition3>:
+    <statements>
 otherwise:
-    check if <condition2>:
-        <statements>
-    otherwise:
-        check if <condition3>:
-            <statements>
-        otherwise:
-            <statements>
-        end check
-    end check
+    <statements>
 end check
 ```
+
+Nesting `check if` under `otherwise:` is still valid. It needs an `end check`
+for each nested check, so prefer the flat form when the arms are alternatives
+of the same decision.
 
 ## Conditions
 
