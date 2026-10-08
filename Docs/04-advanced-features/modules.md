@@ -82,6 +82,8 @@ Before a program runs (and with `wfl --analyze`), the CLI reads each literal `in
 
 Otherwise the analyzer emits a **non-fatal** `Undefined action '<name>'` warning. The warning also stays when the analyzer cannot check the name: a dynamic path (`include from module_path`), an include inside a block, or a file it cannot read or parse. The warning does not stop the program. At runtime the call works only if an include has defined the action by then; a misspelled name is still an error.
 
+`change` of a name that is not defined in this file is the same kind of **non-fatal** warning (`Undefined variable '<name>'`) when the program uses `include from`. The analyzer does not scan included files for variable bindings, so the warning stays even when the included file defines the name. The program still runs; at runtime the assignment succeeds if an include has defined a mutable variable by then.
+
 This check has its own operation allowance, so it does not use up the program's `max_operations`. If it runs out, the remaining warnings stay. The program's time limit still applies to it.
 
 ### Including the same file more than once (diamond includes)
@@ -205,6 +207,8 @@ end
 
 # Variables are also available
 display utility_value  # Works: "shared utility"
+change utility_value to "updated"  # Works: the included binding is shared
+display utility_value  # "updated"
 ```
 
 ### Using Load Module (Isolated)
