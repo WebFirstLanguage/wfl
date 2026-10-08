@@ -1231,10 +1231,9 @@ mod quantifier_extent_tests {
     //! #709: unbounded quantifiers must take the longest run (greedy), matching
     //! the documented `one or more letter` word-extraction example and the
     //! already-longest bounded `N to M` form.
-    use crate::exec::budget::{BudgetLimits, ExecutionBudget};
+    use crate::exec::budget::ExecutionBudget;
     use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
     use crate::pattern::CompiledPattern;
-    use std::sync::Arc;
 
     fn digit_quantified(quantifier: Quantifier) -> PatternExpression {
         PatternExpression::Quantified {
@@ -1347,29 +1346,72 @@ mod quantifier_extent_tests {
         assert_eq!(find_text(&pattern, "12"), "1");
     }
 
+    fn find_under_default(
+        pattern: &PatternExpression,
+        text: &str,
+    ) -> Result<Option<crate::pattern::MatchResult>, crate::pattern::PatternError> {
+        let compiled = CompiledPattern::compile(pattern).expect("pattern compiles");
+        compiled.find_with_budget(text, &ExecutionBudget::current_or_default())
+    }
+
+    fn alt_expensive_then_letter(inner: PatternExpression) -> PatternExpression {
+        PatternExpression::Alternative(vec![
+            PatternExpression::Sequence(vec![
+                inner,
+                PatternExpression::Literal("!".to_string()),
+            ]),
+            PatternExpression::CharacterClass(CharClass::Letter),
+        ])
+    }
+
     #[test]
     fn greedy_unbounded_quantifier_stays_under_a_linear_step_ceiling() {
-        // Nested `letter or letter` fans the frontier. Without a `(pc, pos)`
-        // visited set the per-match meter is the bound: a linear step/state
-        // ceiling must be enough for a 2_000-letter run.
-        let text = "a".repeat(2_000);
-        let pattern = PatternExpression::Quantified {
+        // Failing higher-priority arm (`… then "!"`) must not explode the
+        // frontier: default 5_000_000 / 10_000 ceilings have to return `a`.
+        let text = "a".repeat(64);
+        let pattern = alt_expensive_then_letter(PatternExpression::Quantified {
             pattern: Box::new(PatternExpression::Alternative(vec![
                 PatternExpression::CharacterClass(CharClass::Letter),
                 PatternExpression::CharacterClass(CharClass::Letter),
             ])),
             quantifier: Quantifier::OneOrMore,
-        };
-        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
-        let mut limits = BudgetLimits::unlimited();
-        limits.max_pattern_steps = text.len() * 64;
-        limits.max_pattern_states = 512;
-        let budget = Arc::new(ExecutionBudget::new(limits));
-        let found = compiled
-            .find_with_budget(&text, &budget)
-            .expect("a linear ceiling must cover this backreference-free match");
-        let found = found.expect("the letter run matches");
-        assert_eq!(found.matched_text.len(), 2_000);
+        });
+        let found = find_under_default(&pattern, &text)
+            .expect("default budget must cover this backreference-free match");
+        let found = found.expect("the letter alternative matches");
+        assert_eq!(found.matched_text, "a");
+    }
+
+    #[test]
+    fn nested_one_or_more_then_bang_or_letter_stays_under_default_budget() {
+        let text = "a".repeat(64);
+        let pattern = alt_expensive_then_letter(PatternExpression::Quantified {
+            pattern: Box::new(letter_quantified(Quantifier::OneOrMore)),
+            quantifier: Quantifier::OneOrMore,
+        });
+        let found = find_under_default(&pattern, &text)
+            .expect("default budget must cover nested one-or-more then bang");
+        assert_eq!(found.expect("letter alternative matches").matched_text, "a");
+    }
+
+    #[test]
+    fn two_letter_runs_then_bang_or_letter_stays_under_default_budget() {
+        let text = "a".repeat(4_000);
+        let pattern = alt_expensive_then_letter(PatternExpression::Sequence(vec![
+            letter_quantified(Quantifier::OneOrMore),
+            letter_quantified(Quantifier::OneOrMore),
+        ]));
+        let found = find_under_default(&pattern, &text)
+            .expect("default budget must cover the quadratic then-bang arm");
+        assert_eq!(found.expect("letter alternative matches").matched_text, "a");
+    }
+
+    #[test]
+    fn oversized_non_match_under_default_budget_returns_none() {
+        let text = "a".repeat(4_000);
+        let found = find_under_default(&digit_quantified(Quantifier::OneOrMore), &text)
+            .expect("oversized non-match must not exhaust the meter");
+        assert!(found.is_none(), "digits do not match a letter run");
     }
 
     #[test]
@@ -1464,6 +1506,71 @@ mod quantifier_extent_tests {
         assert_eq!(found.matched_text, "");
         assert_eq!(found.start, 0);
         assert_eq!(found.end, 0);
+    }
+
+    #[test]
+    fn zero_or_more_optional_a_on_b_is_empty() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::Optional,
+            }),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let found = find_under_default(&pattern, "b").expect("must not hit the meter");
+        assert_eq!(found.expect("nullable star matches").matched_text, "");
+    }
+
+    #[test]
+    fn zero_or_more_optional_a_on_aab_is_aa() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::Optional,
+            }),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let found = find_under_default(&pattern, "aab").expect("must not hit the meter");
+        assert_eq!(found.expect("nullable star is greedy").matched_text, "aa");
+    }
+
+    #[test]
+    fn one_or_more_of_zero_or_more_digit_terminates() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(digit_quantified(Quantifier::ZeroOrMore)),
+            quantifier: Quantifier::OneOrMore,
+        };
+        let found = find_under_default(&pattern, "x12").expect("must not hit the meter");
+        assert!(found.is_some(), "nullable plus still matches");
+    }
+
+    #[test]
+    fn zero_or_more_letter_or_optional_digit_on_ab1() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::CharacterClass(CharClass::Letter),
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Digit)),
+                    quantifier: Quantifier::Optional,
+                },
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let found = find_under_default(&pattern, "ab1-").expect("must not hit the meter");
+        assert_eq!(found.expect("greedy run").matched_text, "ab1");
+    }
+
+    #[test]
+    fn x_then_zero_or_more_of_zero_or_more_letter() {
+        let pattern = PatternExpression::Sequence(vec![
+            PatternExpression::Literal("x".to_string()),
+            PatternExpression::Quantified {
+                pattern: Box::new(letter_quantified(Quantifier::ZeroOrMore)),
+                quantifier: Quantifier::ZeroOrMore,
+            },
+        ]);
+        let found = find_under_default(&pattern, "xab").expect("must not hit the meter");
+        assert_eq!(found.expect("greedy run").matched_text, "xab");
     }
 
     #[test]

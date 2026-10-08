@@ -191,3 +191,133 @@ fn zero_or_more_optional_literal_is_greedy() {
     );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
+
+#[test]
+fn zero_or_more_optional_a_on_b_is_empty() {
+    let (out, code) = run_src(
+        "create pattern p:\n    zero or more (optional \"a\")\nend pattern\n\
+         store hit as find p in \"b\"\n\
+         display \"n1b: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(
+        !out.contains("limit exceeded"),
+        "nullable star must not blow the meter: {out}"
+    );
+    assert!(out.contains("n1b: []"), "empty match on b: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn zero_or_more_optional_a_on_aab_is_aa() {
+    let (out, code) = run_src(
+        "create pattern p:\n    zero or more (optional \"a\")\nend pattern\n\
+         store hit as find p in \"aab\"\n\
+         display \"n1aab: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(
+        !out.contains("limit exceeded"),
+        "nullable star must not blow the meter: {out}"
+    );
+    assert!(out.contains("n1aab: [aa]"), "greedy aa: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn one_or_more_of_zero_or_more_digit_terminates() {
+    let (out, code) = run_src(
+        "create pattern p:\n    one or more (zero or more digit)\nend pattern\n\
+         store hit as find p in \"x12\"\n\
+         display \"n2: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(
+        !out.contains("limit exceeded"),
+        "nullable plus must not blow the meter: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn zero_or_more_letter_or_optional_digit_gives_ab1() {
+    let (out, code) = run_src(
+        "create pattern p:\n    zero or more (letter or optional digit)\nend pattern\n\
+         store hit as find p in \"ab1-\"\n\
+         display \"n3: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(
+        !out.contains("limit exceeded"),
+        "nullable alt-star must not blow the meter: {out}"
+    );
+    assert!(out.contains("n3: [ab1]"), "greedy ab1: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn x_then_star_of_star_letter() {
+    let (out, code) = run_src(
+        "create pattern p:\n    \"x\" then zero or more (zero or more letter)\nend pattern\n\
+         store hit as find p in \"xab\"\n\
+         display \"n4: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(
+        !out.contains("limit exceeded"),
+        "nested nullable star must not blow the meter: {out}"
+    );
+    assert!(out.contains("n4: [xab]"), "greedy xab: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+fn expensive_alt_src(inner: &str, haystack: &str, tag: &str) -> String {
+    format!(
+        "create pattern p:\n    ({inner} then \"!\") or letter\nend pattern\n\
+         store hit as find p in \"{haystack}\"\n\
+         display \"{tag}: [\" with hit[\"matched_text\"] with \"]\"\n"
+    )
+}
+
+#[test]
+fn expensive_letter_or_letter_then_bang_returns_a() {
+    let hay = "a".repeat(64);
+    let (out, code) = run_src(&expensive_alt_src(
+        "one or more (letter or letter)",
+        &hay,
+        "e1",
+    ));
+    assert!(
+        !out.contains("limit exceeded"),
+        "failing higher-priority arm must stay linear: {out}"
+    );
+    assert!(out.contains("e1: [a]"), "left-first letter: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn expensive_nested_one_or_more_then_bang_returns_a() {
+    let hay = "a".repeat(64);
+    let (out, code) = run_src(&expensive_alt_src(
+        "one or more (one or more letter)",
+        &hay,
+        "e1b",
+    ));
+    assert!(
+        !out.contains("limit exceeded"),
+        "nested one-or-more then bang must stay linear: {out}"
+    );
+    assert!(out.contains("e1b: [a]"), "left-first letter: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn expensive_two_letter_runs_then_bang_returns_a() {
+    let hay = "a".repeat(4_000);
+    let (out, code) = run_src(&expensive_alt_src(
+        "one or more letter then one or more letter",
+        &hay,
+        "e2",
+    ));
+    assert!(
+        !out.contains("limit exceeded"),
+        "quadratic then-bang arm must stay linear: {out}"
+    );
+    assert!(out.contains("e2: [a]"), "left-first letter: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
