@@ -1924,4 +1924,140 @@ mod quantifier_extent_tests {
         let found = found.expect("optional-star matches");
         assert_eq!(found.matched_text, "aaa");
     }
+
+    fn with_inert_backref(inner: PatternExpression) -> PatternExpression {
+        PatternExpression::Sequence(vec![
+            PatternExpression::Capture {
+                name: "e".to_string(),
+                pattern: Box::new(PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::Literal("x".to_string())),
+                    quantifier: Quantifier::Optional,
+                }),
+            },
+            inner,
+            PatternExpression::Backreference("e".to_string()),
+        ])
+    }
+
+    fn optional_dash_or_digit_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::Literal("-".to_string())),
+                    quantifier: Quantifier::Optional,
+                },
+                PatternExpression::CharacterClass(CharClass::Digit),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn whitespace_star_or_letter_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Whitespace)),
+                    quantifier: Quantifier::ZeroOrMore,
+                },
+                PatternExpression::CharacterClass(CharClass::Letter),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    #[test]
+    fn empty_or_arm_in_star_is_left_first_without_and_with_backref() {
+        let plain = optional_dash_or_digit_star();
+        let with_backref = with_inert_backref(optional_dash_or_digit_star());
+        let pike = find_under_default(&plain, "12").expect("pike must not hit the meter");
+        let back = find_under_default(&with_backref, "12").expect("backref path must not hit the meter");
+        assert_eq!(
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            Some(""),
+            "left-first empty optional-dash must win over digit"
+        );
+        assert_eq!(
+            back.as_ref().map(|m| m.matched_text.as_str()),
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            "inert backreference must not change the extent"
+        );
+    }
+
+    #[test]
+    fn empty_whitespace_or_letter_star_agrees_with_backref_path() {
+        let plain = whitespace_star_or_letter_star();
+        let with_backref = with_inert_backref(whitespace_star_or_letter_star());
+        let pike = find_under_default(&plain, "ab").expect("pike must not hit the meter");
+        let back = find_under_default(&with_backref, "ab").expect("backref path must not hit the meter");
+        assert_eq!(
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            Some(""),
+            "left-first empty whitespace-star must win over letter"
+        );
+        assert_eq!(
+            back.as_ref().map(|m| m.matched_text.as_str()),
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            "inert backreference must not change the extent"
+        );
+    }
+
+    #[test]
+    fn find_missing_literal_in_a_long_haystack_stays_under_a_second() {
+        let text = "a".repeat(50_000);
+        let started = std::time::Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
+            .expect("must not hit the meter");
+        assert!(found.is_none());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "find of a missing literal must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn find_needle_at_end_of_a_long_haystack_stays_under_a_second() {
+        let text = format!("{}needle", "a".repeat(50_000));
+        let started = std::time::Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("needle".to_string()), &text)
+            .expect("must not hit the meter");
+        assert_eq!(found.expect("needle is at the end").matched_text, "needle");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "find of a trailing literal must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn find_all_words_on_a_long_haystack_stays_under_a_second() {
+        let text = "ab ".repeat(10_000);
+        let started = std::time::Instant::now();
+        let words = find_all_texts(&letter_quantified(Quantifier::OneOrMore), &text);
+        assert_eq!(words.len(), 10_000);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "find all words must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn find_all_whitespace_on_a_long_haystack_stays_under_a_second() {
+        let text = "ab ".repeat(10_000);
+        let started = std::time::Instant::now();
+        let spaces = find_all_texts(
+            &PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::CharacterClass(CharClass::Whitespace)),
+                quantifier: Quantifier::OneOrMore,
+            },
+            &text,
+        );
+        assert_eq!(spaces.len(), 10_000);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "find all whitespace must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
 }
