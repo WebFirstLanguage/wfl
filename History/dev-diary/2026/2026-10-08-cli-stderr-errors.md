@@ -15,7 +15,8 @@ test-only commits `e4f6e4cb` and `8dd47987`: `print_error` was an undefined
 action. It now checks exact stderr output, stdout, exit status, absence of a
 debug report, the successful standalone call, and rejection of a dynamic
 nontext message. The documentation example uses the same CLI program and
-expects status 1.
+expects status 1. It lives under `error_examples` so the generic CI program
+sweep does not demand a zero exit; the docs validator asserts the intended 1.
 
 On the release binary, that example exited 1 with empty stdout and exactly
 `jshrink: Unclosed string at position: 42` plus one newline on stderr. After

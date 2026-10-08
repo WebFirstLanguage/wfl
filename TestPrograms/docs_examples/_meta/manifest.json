@@ -1,5 +1,5 @@
 {
-  "docs_examples/cli_errors/print_error_exit.wfl": {
+  "docs_examples/error_examples/print_error_exit.wfl": {
     "doc_section": "Docs/03-language-basics/error-handling.md#reporting-cli-failures",
     "type": "executable",
     "validate_layers": [1, 2, 3, 4, 5],
