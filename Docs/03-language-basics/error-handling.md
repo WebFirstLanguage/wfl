@@ -235,7 +235,7 @@ exit program with code 1
 The message appears on stderr, stdout stays empty, and the process exits with
 status 1. `print_error` itself neither raises an error nor exits. Use
 `raise_error` when a caller needs to catch the failure with `when error`.
-See the [executable CLI example](../../TestPrograms/docs_examples/cli_errors/print_error_exit.wfl).
+See the [executable CLI example](../../TestPrograms/docs_examples/error_examples/print_error_exit.wfl).
 
 ## Nested Try-Catch
 
