@@ -846,20 +846,20 @@ Extend the grade calculator to include comments:
 
 ✅ **Test edge cases:** Test with boundary values (e.g., exactly 18, not just 17 or 19)
 
-❌ **Don't repeat conditions:** Use nested `otherwise: check if` blocks for multiple conditions
+❌ **Don't repeat conditions:** Use a flat `otherwise check if` chain for alternatives of one decision
 
 ❌ **Don't make unreachable conditions:** Order matters!
 
-❌ **Don't nest too deeply:** More than 3 levels is hard to read
+❌ **Don't nest too deeply:** More than 3 levels is hard to read; a flat chain stays at one level
 
 ## What You've Learned
 
 In this section, you learned:
 
 ✅ **Basic conditionals** - `check if`, `otherwise`, `end check`
-✅ **Multiple conditions** - Nested `otherwise: check if` blocks
+✅ **Multiple conditions** - Flat `otherwise check if` chains (nested `otherwise:` / `check if` remains valid)
 ✅ **Logical operators** - `and`, `or`, `not`
-✅ **Nested conditionals** - Conditionals inside conditionals
+✅ **Nested conditionals** - Conditionals inside conditionals when an arm has its own decision
 ✅ **Common patterns** - Range checking, validation, status determination
 ✅ **Short-circuit evaluation** - Automatic optimization
 ✅ **Best practices** - Clear, maintainable conditional code
