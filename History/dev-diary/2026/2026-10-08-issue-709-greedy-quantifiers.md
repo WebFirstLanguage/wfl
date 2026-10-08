@@ -43,9 +43,15 @@ default is greedy.
 `find_at_position` is now Pike-style greedy: `Split`'s first branch is higher
 priority; a `Match` records a candidate and drops lower-priority peers in that
 generation; already-queued higher-priority continuations keep running so the
-loop can extend; the last recorded match is the extent. A `(pc, pos)` visited
-set keeps the longer sweep Thompson-linear (one thread walking a 20k-digit run
-stays well under the 5_000_000-step ceiling).
+loop can extend; the last recorded match is the extent.
+
+A `(pc, pos)` visited set is **not** used. This VM's generations are `step()`
+waves that stop at the next `Split`, so the first arrival at `(pc, pos)` is the
+thread that passed the fewest Splits, not the highest-priority one. Deduping
+there pruned nested-quantifier/alternation threads and, with backreferences,
+dropped the thread that had set the capture (`find` missed while `matches`
+still succeeded). Backreference-free runs stay bounded by the per-match
+step/state meter.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
@@ -55,8 +61,12 @@ report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
 
 Red: `cargo test --lib quantifier_extent_tests` at the test-only commit showed
 `"1"` / `""` / `"12"` / 16 letters. Bounded `2 to 4` and left-first
-alternation already passed.
+alternation already passed. On the `(pc, pos)` visited revision the real
+binary gave `ba` / `1` / no-match for the nested-alt and backreference cases
+in the #752 review (the first nested-`one or more` case already returned
+`bb` on the binary).
 
 Green: the same unit tests plus binary-level `find` / `find all` / `split` /
-`replace` / `capture` in `tests/issue_709_quantifier_greed_test.rs` and
-`TestPrograms/patterns/unbounded_quantifier_greed.test.wfl`.
+`replace` / `capture` in `tests/issue_709_quantifier_greed_test.rs`,
+`TestPrograms/patterns/unbounded_quantifier_greed.test.wfl`, and the four
+reviewer cases after dropping the visited set.

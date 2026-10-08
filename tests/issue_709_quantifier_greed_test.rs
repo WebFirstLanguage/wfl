@@ -87,3 +87,68 @@ fn capture_keeps_the_full_digit_run() {
     );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
+
+#[test]
+fn nested_one_or_more_with_a_shorter_inner_alt_is_greedy() {
+    let (out, code) = run_src(
+        "create pattern p:\n    one or more (one or more letter or letter letter)\nend pattern\n\
+         store hit as find p in \"bb\"\n\
+         display \"p1: [\" with hit.matched_text with \"]\"\n",
+    );
+    assert!(
+        out.contains("p1: [bb]"),
+        "inner letter-letter must not steal the greedy extent: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn at_least_n_with_an_inner_alternation_is_greedy() {
+    let (out, code) = run_src(
+        "create pattern p:\n    at least 2 (one or more letter or \"ab\")\nend pattern\n\
+         store hit as find p in \"bab\"\n\
+         display \"p2: [\" with hit.matched_text with \"]\"\n",
+    );
+    assert!(
+        out.contains("p2: [bab]"),
+        "at least 2 must keep the full greedy run: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn nested_alternation_under_one_or_more_is_greedy() {
+    let (out, code) = run_src(
+        "create pattern p:\n    one or more ((\"1\" or \"a1\") or \"11\")\nend pattern\n\
+         store hit as find p in \"11\"\n\
+         display \"p3: [\" with hit.matched_text with \"]\"\n",
+    );
+    assert!(
+        out.contains("p3: [11]"),
+        "left-first inner alt must still allow the greedy outer run: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn backreference_find_keeps_the_capture_setting_thread() {
+    let (out, code) = run_src(
+        "create pattern p:\n    (\"b\" or capture {letter} as c) then optional \"-\" then same as captured \"c\"\nend pattern\n\
+         store hit as find p in \"bb\"\n\
+         check if isnothing of hit:\n    display \"p4: NONE\"\n\
+         otherwise:\n    display \"p4: [\" with hit.matched_text with \"]\"\n\
+         end check\n\
+         check if \"bb\" matches p:\n    display \"p4 matches: yes\"\n\
+         otherwise:\n    display \"p4 matches: no\"\n\
+         end check\n",
+    );
+    assert!(
+        out.contains("p4: [bb]"),
+        "find must not drop the thread that set the capture: {out}"
+    );
+    assert!(
+        out.contains("p4 matches: yes"),
+        "matches and find must agree: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}

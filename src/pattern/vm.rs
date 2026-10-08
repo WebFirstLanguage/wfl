@@ -8,7 +8,7 @@
 use super::PatternError;
 use super::instruction::{Instruction, Program};
 use crate::exec::budget::{BudgetExceeded, ExecutionBudget, PatternMeter};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Translate a per-match meter breach into the pattern VM's error type.
@@ -423,8 +423,14 @@ impl PatternVM {
     /// `zero or more` / `at least N`, and the first arm of `or`). A `Match`
     /// records a candidate and drops lower-priority peers in this generation,
     /// but already-queued higher-priority continuations keep running so a
-    /// greedy loop can extend. The last recorded match is the extent. A
-    /// `(pc, pos)` visited set keeps the longer sweep Thompson-linear.
+    /// greedy loop can extend. The last recorded match is the extent.
+    ///
+    /// Generations here are `step()` waves that stop at the next `Split`, not
+    /// lockstep-by-input-position. A `(pc, pos)` visited set is therefore not
+    /// priority-safe: the first arrival is the thread that passed the fewest
+    /// Splits, so a later higher-priority arrival (or a later thread whose
+    /// captures differ) would be dropped. Do not add one. Backreference-free
+    /// runs stay bounded by the per-match step and state meter.
     fn find_at_position(
         &mut self,
         program: &Program,
@@ -445,17 +451,12 @@ impl PatternVM {
             .map_err(budget_to_pattern_error)?;
 
         let mut best: Option<VMState> = None;
-        let mut visited: HashSet<(usize, usize)> = HashSet::new();
 
         while !states.is_empty() {
             let consumed = states.len();
             let mut next_states = Vec::new();
 
             for state in states {
-                if !visited.insert((state.pc, state.pos)) {
-                    continue;
-                }
-
                 // Transitions are charged inside `step()` (per instruction).
                 match self.step(program, chars, state)? {
                     StepResult::Continue(new_states) => {
@@ -1204,9 +1205,10 @@ mod quantifier_extent_tests {
     //! #709: unbounded quantifiers must take the longest run (greedy), matching
     //! the documented `one or more letter` word-extraction example and the
     //! already-longest bounded `N to M` form.
+    use crate::exec::budget::{BudgetLimits, ExecutionBudget};
     use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
     use crate::pattern::CompiledPattern;
-    use std::time::Instant;
+    use std::sync::Arc;
 
     fn digit_quantified(quantifier: Quantifier) -> PatternExpression {
         PatternExpression::Quantified {
@@ -1320,19 +1322,102 @@ mod quantifier_extent_tests {
     }
 
     #[test]
-    fn greedy_unbounded_quantifier_stays_linear_on_a_long_run() {
-        // Continuing past the first Match must not explode: a 20k-digit run is
-        // one thread walking the input, well under the 5_000_000 step ceiling.
-        let text = "9".repeat(20_000);
-        let compiled = CompiledPattern::compile(&digit_quantified(Quantifier::OneOrMore))
-            .expect("pattern compiles");
-        let started = Instant::now();
-        let found = compiled.find(&text).expect("the digit run matches");
-        assert_eq!(found.matched_text.len(), 20_000);
+    fn greedy_unbounded_quantifier_stays_under_a_linear_step_ceiling() {
+        // Nested `letter or letter` fans the frontier. Without a `(pc, pos)`
+        // visited set the per-match meter is the bound: a linear step/state
+        // ceiling must be enough for a 2_000-letter run.
+        let text = "a".repeat(2_000);
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::CharacterClass(CharClass::Letter),
+                PatternExpression::CharacterClass(CharClass::Letter),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_pattern_steps = text.len() * 64;
+        limits.max_pattern_states = 512;
+        let budget = Arc::new(ExecutionBudget::new(limits));
+        let found = compiled
+            .find_with_budget(&text, &budget)
+            .expect("a linear ceiling must cover this backreference-free match");
+        let found = found.expect("the letter run matches");
+        assert_eq!(found.matched_text.len(), 2_000);
+    }
+
+    #[test]
+    fn nested_one_or_more_with_a_shorter_inner_alt_stays_greedy() {
+        // `one or more (one or more letter or letter letter)` on `bb`.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::OneOrMore),
+                PatternExpression::Sequence(vec![
+                    PatternExpression::CharacterClass(CharClass::Letter),
+                    PatternExpression::CharacterClass(CharClass::Letter),
+                ]),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        };
+        assert_eq!(find_text(&pattern, "bb"), "bb");
+    }
+
+    #[test]
+    fn at_least_n_with_an_inner_alternation_stays_greedy() {
+        // `at least 2 (one or more letter or "ab")` on `bab`.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::OneOrMore),
+                PatternExpression::Literal("ab".to_string()),
+            ])),
+            quantifier: Quantifier::AtLeast(2),
+        };
+        assert_eq!(find_text(&pattern, "bab"), "bab");
+    }
+
+    #[test]
+    fn nested_alternation_under_one_or_more_stays_greedy() {
+        // `one or more (("1" or "a1") or "11")` on `11`.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Alternative(vec![
+                    PatternExpression::Literal("1".to_string()),
+                    PatternExpression::Literal("a1".to_string()),
+                ]),
+                PatternExpression::Literal("11".to_string()),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        };
+        assert_eq!(find_text(&pattern, "11"), "11");
+    }
+
+    #[test]
+    fn backreference_find_agrees_with_matches() {
+        // `("b" or capture {letter} as c) then optional "-" then same as captured "c"`
+        // on `bb`. Deduping by `(pc, pos)` drops the thread that set `c`.
+        let pattern = PatternExpression::Sequence(vec![
+            PatternExpression::Alternative(vec![
+                PatternExpression::Literal("b".to_string()),
+                PatternExpression::Capture {
+                    name: "c".to_string(),
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                },
+            ]),
+            PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("-".to_string())),
+                quantifier: Quantifier::Optional,
+            },
+            PatternExpression::Backreference("c".to_string()),
+        ]);
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
         assert!(
-            started.elapsed().as_secs() < 2,
-            "greedy match of a 20k run must stay linear, took {:?}",
-            started.elapsed()
+            compiled.matches("bb"),
+            "execute (no visited set) already matches"
         );
+        let found = compiled
+            .find("bb")
+            .expect("find must keep the capture-setting thread");
+        assert_eq!(found.matched_text, "bb");
+        assert_eq!(found.captures.get("c").map(String::as_str), Some("b"));
     }
 }
