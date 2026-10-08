@@ -1,8 +1,7 @@
 // TDD Tests for standard SHA-256 and HMAC-SHA256 builtins (issue #558)
 // Webhook verification (e.g. Stripe) requires standard HMAC-SHA256, not just WFLHASH.
 
-mod common;
-use common::{expect_text_result as expect_text, run_wfl_code};
+use crate::common::{expect_text_result as expect_text, run_wfl_code};
 
 // === SHA-256 (FIPS 180-4 / well-known vectors) ===
 
