@@ -1179,3 +1179,141 @@ mod unicode_lookbehind_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod quantifier_extent_tests {
+    //! #709: unbounded quantifiers must take the longest run (greedy), matching
+    //! the documented `one or more letter` word-extraction example and the
+    //! already-longest bounded `N to M` form.
+    use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
+    use crate::pattern::CompiledPattern;
+    use std::time::Instant;
+
+    fn digit_quantified(quantifier: Quantifier) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Digit)),
+            quantifier,
+        }
+    }
+
+    fn letter_quantified(quantifier: Quantifier) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+            quantifier,
+        }
+    }
+
+    fn find_text(pattern: &PatternExpression, text: &str) -> String {
+        CompiledPattern::compile(pattern)
+            .expect("pattern compiles")
+            .find(text)
+            .expect("pattern matches")
+            .matched_text
+    }
+
+    fn find_all_texts(pattern: &PatternExpression, text: &str) -> Vec<String> {
+        CompiledPattern::compile(pattern)
+            .expect("pattern compiles")
+            .find_all(text)
+            .into_iter()
+            .map(|m| m.matched_text)
+            .collect()
+    }
+
+    #[test]
+    fn one_or_more_digit_matches_the_full_run() {
+        // Issue table: first-to-Match currently returns "1" on this input.
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::OneOrMore), "a12345b"),
+            "12345"
+        );
+    }
+
+    #[test]
+    fn zero_or_more_digit_matches_the_full_run_not_empty() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::ZeroOrMore), "12345"),
+            "12345"
+        );
+    }
+
+    #[test]
+    fn at_least_n_digit_keeps_consuming_past_the_minimum() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::AtLeast(2)), "a12345b"),
+            "12345"
+        );
+    }
+
+    #[test]
+    fn bounded_between_still_takes_the_longest_allowed_run() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::Between(2, 4)), "a12345b"),
+            "1234"
+        );
+    }
+
+    #[test]
+    fn exactly_n_keeps_its_fixed_extent() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::Exactly(3)), "a12345b"),
+            "123"
+        );
+    }
+
+    #[test]
+    fn find_all_one_or_more_letter_extracts_words() {
+        // Docs/05-standard-library/pattern-module.md presents this as word
+        // extraction. Current BFS accept-first returns 16 single letters.
+        assert_eq!(
+            find_all_texts(
+                &letter_quantified(Quantifier::OneOrMore),
+                "The quick brown fox"
+            ),
+            vec!["The", "quick", "brown", "fox"]
+        );
+    }
+
+    #[test]
+    fn capture_one_or_more_digit_keeps_the_full_run() {
+        let pattern = PatternExpression::Capture {
+            name: "number".to_string(),
+            pattern: Box::new(digit_quantified(Quantifier::OneOrMore)),
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let found = compiled.find("abc12345").expect("digits are present");
+        assert_eq!(found.matched_text, "12345");
+        assert_eq!(
+            found.captures.get("number").map(String::as_str),
+            Some("12345")
+        );
+    }
+
+    #[test]
+    fn left_first_alternation_is_not_rewritten_to_longest() {
+        // Pike-style greedy must not turn ordered alternation into POSIX
+        // leftmost-longest. `"1" or "12"` on "12" stays the first alternative.
+        let pattern = PatternExpression::Alternative(vec![
+            PatternExpression::Literal("1".to_string()),
+            PatternExpression::Literal("12".to_string()),
+        ]);
+        assert_eq!(find_text(&pattern, "12"), "1");
+    }
+
+    #[test]
+    fn greedy_unbounded_quantifier_stays_linear_on_a_long_run() {
+        // Continuing past the first Match must not explode: a 20k-digit run is
+        // one thread walking the input, well under the 5_000_000 step ceiling.
+        let text = "9".repeat(20_000);
+        let compiled = CompiledPattern::compile(&digit_quantified(Quantifier::OneOrMore))
+            .expect("pattern compiles");
+        let started = Instant::now();
+        let found = compiled.find(&text).expect("the digit run matches");
+        assert_eq!(found.matched_text.len(), 20_000);
+        assert!(
+            started.elapsed().as_secs() < 2,
+            "greedy match of a 20k run must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+}
