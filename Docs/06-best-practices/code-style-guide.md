@@ -260,23 +260,26 @@ Avoid packing complex branches on one line:
 // check if x is 5: display "Five" otherwise: display "Not five" end check
 ```
 
-### Nested conditionals
+### Chained conditionals
 
-When chaining branches, nest under `otherwise:` (do not write `otherwise check if` as a single flat phrase):
+When the arms are alternatives of one decision, write a flat
+`otherwise check if` chain. Keep every branch header at the same indent and
+close the chain with a single `end check`:
 
 ```wfl
 store score as 85
 
 check if score is greater than 90:
     display "Excellent"
+otherwise check if score is greater than 70:
+    display "Good"
 otherwise:
-    check if score is greater than 70:
-        display "Good"
-    otherwise:
-        display "Keep practicing"
-    end check
+    display "Keep practicing"
 end check
 ```
+
+Nesting `check if` under `otherwise:` is still valid when an arm contains its
+own independent decision. Do not add a nested `end check` to a flat chain.
 
 ## Complete Example
 

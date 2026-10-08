@@ -63,20 +63,18 @@ Next year: 31
 
 ## 3. Conditionals — [`03_conditionals.wfl`](03_conditionals.wfl)
 
-Comparisons are words (`is greater than or equal to`). To chain choices, **nest**
-the next check inside `otherwise:`.
+Comparisons are words (`is greater than or equal to`). To chain choices, write
+`otherwise check if`; the whole chain shares one `end check`.
 
 ```wfl
 store score as 82
 
 check if score is greater than or equal to 90:
     display "Grade: A"
+otherwise check if score is greater than or equal to 80:
+    display "Grade: B"
 otherwise:
-    check if score is greater than or equal to 80:
-        display "Grade: B"
-    otherwise:
-        display "Grade: C or below"
-    end check
+    display "Grade: C or below"
 end check
 ```
 ```text
