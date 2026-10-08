@@ -189,6 +189,7 @@ store cmd_args as ["hi"]
 execute command cmd with arguments cmd_args
 
 store get_url as "http://example.invalid"
+store get_body as ""
 open url at get_url and read content as get_body
 
 store post_url as "http://example.invalid"
@@ -229,6 +230,7 @@ end check
 
 store spawn_cmd as "echo"
 wait for spawn command spawn_cmd as spawned_proc
+store spawn_out as ""
 wait for read output from process spawned_proc as spawn_out
 kill process spawned_proc
 
@@ -261,7 +263,62 @@ store dead as "never read"
             "spawn_cmd",
         ],
     );
-    assert_unused(source, &["dead"]);
+    assert_unused(source, &["dead", "get_body", "spawn_out"]);
+}
+
+/// Output bindings are writes, not reads. A prior `store` of the same name
+/// that is never read must stay unused — matching `HttpStreamStatement`.
+#[test]
+fn output_bindings_do_not_count_as_uses() {
+    assert_unused(
+        r#"
+store page as ""
+open url at "http://example.invalid" and read content as page
+"#,
+        &["page"],
+    );
+    assert_unused(
+        r#"
+store cmd_out as ""
+execute command "echo" as cmd_out
+"#,
+        &["cmd_out"],
+    );
+    assert_unused(
+        r#"
+store spawned_proc as ""
+wait for spawn command "echo" as spawned_proc
+"#,
+        &["spawned_proc"],
+    );
+    assert_unused(
+        r#"
+store process_out as ""
+wait for read output from process "1" as process_out
+"#,
+        &["process_out"],
+    );
+    assert_unused(
+        r#"
+store wait_out as ""
+wait for process "1" to complete and read result as wait_out
+"#,
+        &["wait_out"],
+    );
+    assert_unused(
+        r#"
+store post_out as ""
+open url at "http://example.invalid" with method "POST" and body "x" and read content as post_out
+"#,
+        &["post_out"],
+    );
+    assert_unused(
+        r#"
+store request_out as ""
+open url at "http://example.invalid" with method "GET" and read response as request_out
+"#,
+        &["request_out"],
+    );
 }
 
 /// The issue's gated-suite examples: assertion-only bindings must stay clean.
