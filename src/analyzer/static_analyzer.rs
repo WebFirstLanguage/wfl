@@ -1,6 +1,6 @@
 use super::Analyzer;
 use crate::diagnostics::{Severity, WflDiagnostic};
-use crate::parser::ast::{Assertion, Expression, Program, Statement, Type};
+use crate::parser::ast::{Assertion, Expression, PatternExpression, Program, Statement, Type};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -924,12 +924,32 @@ impl Analyzer {
                 }
             }
             Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
             | Statement::ForEachLoop { body, .. }
             | Statement::CountLoop { body, .. }
             | Statement::MainLoop { body, .. }
             | Statement::ForeverLoop { body, .. }
-            | Statement::TransactionStatement { body, .. } => {
+            | Statement::TransactionStatement { body, .. }
+            | Statement::WebSocketHandlerStatement { body, .. } => {
                 for stmt in body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            Statement::WaitForStatement { inner, .. } => {
+                self.collect_variable_declarations(inner, usages);
+            }
+            Statement::EventHandler { handler_body, .. } => {
+                for stmt in handler_body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            Statement::ContainerDefinition {
+                methods,
+                static_methods,
+                ..
+            } => {
+                for stmt in methods.iter().chain(static_methods.iter()) {
                     self.collect_variable_declarations(stmt, usages);
                 }
             }
@@ -1034,7 +1054,14 @@ impl Analyzer {
                 // inside an action).
                 self.mark_used_in_expression(value, usages);
             }
-            Statement::ActionDefinition { body, .. } => {
+            Statement::ActionDefinition {
+                body, parameters, ..
+            } => {
+                for parameter in parameters {
+                    if let Some(default) = &parameter.default_value {
+                        self.mark_used_in_expression(default, usages);
+                    }
+                }
                 for stmt in body {
                     self.mark_used_variables(stmt, usages);
                 }
@@ -1367,7 +1394,12 @@ impl Analyzer {
                     self.mark_used_in_expression(headers, usages);
                 }
             }
-            Statement::ListenStatement { port, tls, .. } => {
+            Statement::ListenStatement {
+                port,
+                tls,
+                redirect_to_port,
+                ..
+            } => {
                 self.mark_used_in_expression(port, usages);
                 if let Some(tls) = tls {
                     for path in tls.cert_path.iter().chain(&tls.key_path) {
@@ -1378,6 +1410,9 @@ impl Analyzer {
                         self.mark_used_in_expression(&certificate.key_path, usages);
                         self.mark_used_in_expression(&certificate.hostname, usages);
                     }
+                }
+                if let Some(target) = redirect_to_port {
+                    self.mark_used_in_expression(target, usages);
                 }
             }
             Statement::WaitForRequestStatement {
@@ -1497,7 +1532,234 @@ impl Analyzer {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(target, usages);
             }
-            _ => {}
+            Statement::ReturnStatement { value: None, .. }
+            | Statement::BreakStatement { .. }
+            | Statement::ContinueStatement { .. }
+            | Statement::ExportStatement { .. }
+            | Statement::InterfaceDefinition { .. }
+            | Statement::EventDefinition { .. }
+            | Statement::RegisterSignalHandlerStatement { .. } => {}
+            Statement::ExitStatement { code, .. } => {
+                if let Some(code) = code {
+                    self.mark_used_in_expression(code, usages);
+                }
+            }
+            Statement::CreateDirectoryStatement { path, .. }
+            | Statement::DeleteFileStatement { path, .. }
+            | Statement::DeleteDirectoryStatement { path, .. }
+            | Statement::LoadModuleStatement { path, .. }
+            | Statement::IncludeStatement { path, .. } => {
+                self.mark_used_in_expression(path, usages);
+            }
+            Statement::CreateFileStatement { path, content, .. } => {
+                self.mark_used_in_expression(path, usages);
+                self.mark_used_in_expression(content, usages);
+            }
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                directory,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(command, usages);
+                if let Some(args) = arguments {
+                    self.mark_used_in_expression(args, usages);
+                }
+                if let Some(dir) = directory {
+                    self.mark_used_in_expression(dir, usages);
+                }
+                if let Some(name) = variable_name
+                    && let Some(usage) = usages.get_mut(name)
+                {
+                    usage.used = true;
+                }
+            }
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                directory,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(command, usages);
+                if let Some(args) = arguments {
+                    self.mark_used_in_expression(args, usages);
+                }
+                if let Some(dir) = directory {
+                    self.mark_used_in_expression(dir, usages);
+                }
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(process_id, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::KillProcessStatement { process_id, .. } => {
+                self.mark_used_in_expression(process_id, usages);
+            }
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name,
+                timeout,
+                ..
+            } => {
+                self.mark_used_in_expression(process_id, usages);
+                if let Some(timeout) = timeout {
+                    self.mark_used_in_expression(timeout, usages);
+                }
+                if let Some(name) = variable_name
+                    && let Some(usage) = usages.get_mut(name)
+                {
+                    usage.used = true;
+                }
+            }
+            Statement::WaitForDurationStatement { duration, .. } => {
+                self.mark_used_in_expression(duration, usages);
+            }
+            Statement::HttpGetStatement {
+                url, variable_name, ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::HttpPostStatement {
+                url,
+                data,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                self.mark_used_in_expression(data, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                for expr in [method, headers, body].into_iter().flatten() {
+                    self.mark_used_in_expression(expr, usages);
+                }
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::CreateListStatement { initial_values, .. } => {
+                for value in initial_values {
+                    self.mark_used_in_expression(value, usages);
+                }
+            }
+            Statement::MapCreation { entries, .. } => {
+                for (_, value) in entries {
+                    self.mark_used_in_expression(value, usages);
+                }
+            }
+            Statement::CreateDateStatement { value, .. }
+            | Statement::CreateTimeStatement { value, .. } => {
+                if let Some(value) = value {
+                    self.mark_used_in_expression(value, usages);
+                }
+            }
+            Statement::ContainerDefinition {
+                properties,
+                methods,
+                static_properties,
+                static_methods,
+                ..
+            } => {
+                for property in properties.iter().chain(static_properties.iter()) {
+                    if let Some(default) = &property.default_value {
+                        self.mark_used_in_expression(default, usages);
+                    }
+                    for rule in &property.validation_rules {
+                        for parameter in &rule.parameters {
+                            self.mark_used_in_expression(parameter, usages);
+                        }
+                    }
+                }
+                for stmt in methods.iter().chain(static_methods.iter()) {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::ContainerInstantiation {
+                arguments,
+                property_initializers,
+                ..
+            } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+                for initializer in property_initializers {
+                    self.mark_used_in_expression(&initializer.value, usages);
+                }
+            }
+            Statement::EventTrigger { arguments, .. }
+            | Statement::ParentMethodCall { arguments, .. } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+            }
+            Statement::EventHandler {
+                event_source,
+                handler_body,
+                ..
+            } => {
+                self.mark_used_in_expression(event_source, usages);
+                for stmt in handler_body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::PatternDefinition { pattern, .. } => {
+                self.mark_used_in_pattern(pattern, usages);
+            }
+        }
+    }
+
+    fn mark_used_in_pattern(
+        &self,
+        pattern: &PatternExpression,
+        usages: &mut HashMap<String, VariableUsage>,
+    ) {
+        match pattern {
+            PatternExpression::ListReference(name) => {
+                if let Some(usage) = usages.get_mut(name) {
+                    usage.used = true;
+                }
+            }
+            PatternExpression::Quantified { pattern, .. }
+            | PatternExpression::Capture { pattern, .. }
+            | PatternExpression::Lookahead(pattern)
+            | PatternExpression::NegativeLookahead(pattern)
+            | PatternExpression::Lookbehind(pattern)
+            | PatternExpression::NegativeLookbehind(pattern) => {
+                self.mark_used_in_pattern(pattern, usages);
+            }
+            PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
+                for nested in patterns {
+                    self.mark_used_in_pattern(nested, usages);
+                }
+            }
+            PatternExpression::Literal(_)
+            | PatternExpression::CharacterClass(_)
+            | PatternExpression::Backreference(_)
+            | PatternExpression::Anchor(_) => {}
         }
     }
 
@@ -1518,9 +1780,11 @@ impl Analyzer {
                     usage.used = true;
                 }
             }
-            Expression::Literal(crate::parser::ast::Literal::List(elements), ..) => {
-                for element in elements {
-                    self.mark_used_in_expression(element, usages);
+            Expression::Literal(literal, ..) => {
+                if let crate::parser::ast::Literal::List(elements) = literal {
+                    for element in elements {
+                        self.mark_used_in_expression(element, usages);
+                    }
                 }
             }
             Expression::BinaryOperation { left, right, .. } => {
@@ -1629,7 +1893,61 @@ impl Analyzer {
             Expression::AwaitExpression { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
-            _ => {}
+            Expression::StaticMemberAccess { .. }
+            | Expression::CurrentTimeMilliseconds { .. }
+            | Expression::CurrentTimeFormatted { .. } => {}
+            Expression::HeaderAccess { request, .. } => {
+                self.mark_used_in_expression(request, usages);
+            }
+            Expression::FileExists { path, .. }
+            | Expression::DirectoryExists { path, .. }
+            | Expression::ListFiles { path, .. } => {
+                self.mark_used_in_expression(path, usages);
+            }
+            Expression::ReadContent { file_handle, .. }
+            | Expression::ReadBinaryContent { file_handle, .. }
+            | Expression::FileSizeOf { file_handle, .. } => {
+                self.mark_used_in_expression(file_handle, usages);
+            }
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                self.mark_used_in_expression(file_handle, usages);
+                self.mark_used_in_expression(count, usages);
+            }
+            Expression::ListFilesRecursive {
+                path, extensions, ..
+            } => {
+                self.mark_used_in_expression(path, usages);
+                if let Some(exts) = extensions {
+                    for ext in exts {
+                        self.mark_used_in_expression(ext, usages);
+                    }
+                }
+            }
+            Expression::ListFilesFiltered {
+                path, extensions, ..
+            } => {
+                self.mark_used_in_expression(path, usages);
+                for ext in extensions {
+                    self.mark_used_in_expression(ext, usages);
+                }
+            }
+            Expression::ProcessRunning { process_id, .. } => {
+                self.mark_used_in_expression(process_id, usages);
+            }
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.mark_used_in_expression(db, usages);
+                self.mark_used_in_expression(sql, usages);
+                if let Some(params) = parameters {
+                    self.mark_used_in_expression(params, usages);
+                }
+            }
         }
     }
 

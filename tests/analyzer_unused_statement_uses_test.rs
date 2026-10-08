@@ -37,7 +37,9 @@ fn assert_used(source: &str, names: &[&str]) {
     let messages = unused_messages(source);
     for name in names {
         assert!(
-            !messages.iter().any(|message| message.contains(&format!("'{name}'"))),
+            !messages
+                .iter()
+                .any(|message| message.contains(&format!("'{name}'"))),
             "variable `{name}` is read and must not be unused; got {messages:?}\n{source}"
         );
     }
@@ -47,7 +49,9 @@ fn assert_unused(source: &str, names: &[&str]) {
     let messages = unused_messages(source);
     for name in names {
         assert!(
-            messages.iter().any(|message| message.contains(&format!("'{name}'"))),
+            messages
+                .iter()
+                .any(|message| message.contains(&format!("'{name}'"))),
             "variable `{name}` is never read and must stay unused; got {messages:?}\n{source}"
         );
     }
@@ -285,9 +289,8 @@ fn gated_test_programs_do_not_emit_analyze_unused() {
 
     let mut failures = Vec::new();
     for path in &files {
-        let source = fs::read_to_string(path).unwrap_or_else(|error| {
-            panic!("read {}: {error}", path.display())
-        });
+        let source = fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
         let tokens = lex_wfl_with_positions(&source);
         let Ok(program) = Parser::new(&tokens).parse() else {
             continue;
@@ -310,9 +313,8 @@ fn gated_test_programs_do_not_emit_analyze_unused() {
 }
 
 fn collect_test_wfl(dir: &Path, out: &mut Vec<PathBuf>) {
-    let entries = fs::read_dir(dir).unwrap_or_else(|error| {
-        panic!("read {}: {error}", dir.display())
-    });
+    let entries =
+        fs::read_dir(dir).unwrap_or_else(|error| panic!("read {}: {error}", dir.display()));
     for entry in entries {
         let entry = entry.expect("directory entry");
         let path = entry.path();
@@ -367,7 +369,11 @@ store dead as "never read"
     .unwrap();
 
     let (status, output) = analyze_cli(&path);
-    assert_eq!(status, Some(1), "a genuine unused binding must exit 1: {output}");
+    assert_eq!(
+        status,
+        Some(1),
+        "a genuine unused binding must exit 1: {output}"
+    );
     for name in ["v", "target_path", "body_text", "seed_val", "who_name"] {
         assert!(
             !output.contains(&format!("Unused variable '{name}'")),
