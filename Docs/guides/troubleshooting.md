@@ -139,24 +139,25 @@ end check
 
 ### Parse Error with Conditionals
 
-**Problem:** Using flat `otherwise check if` (doesn't exist).
+**Problem:** Extra `end check` on a flat `otherwise check if` chain.
 
-**Solution:**
+A flat chain shares **one** `end check`. Each nested `otherwise:` / `check if`
+pair needs its own closer, but the flat form does not.
+
 ```wfl
-// Wrong:
+// Wrong — the flat chain already closed:
 check if a:
-    code
-otherwise check if b:  // This syntax doesn't exist
-    code
+    display "a"
+otherwise check if b:
+    display "b"
+end check
 end check
 
-// Right (use nesting):
+// Right — one closer for the whole chain:
 check if a:
-    code
-otherwise:
-    check if b:
-        code
-    end check
+    display "a"
+otherwise check if b:
+    display "b"
 end check
 ```
 
