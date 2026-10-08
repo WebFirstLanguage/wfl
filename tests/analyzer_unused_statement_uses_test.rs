@@ -350,6 +350,35 @@ end
     assert_unused(source, &["item"]);
 }
 
+/// `store completed as yes` inside a method writes the container property.
+/// That must not be reported as an unused method-local once scopes are isolated.
+#[test]
+fn container_property_store_is_not_an_unused_method_local() {
+    let source = r#"
+create container Task:
+    property completed: Boolean
+    action mark_complete:
+        store completed as yes
+        store leftover as 1
+    end
+    action show:
+        check if completed is yes:
+            display "done"
+        end check
+    end
+end
+store dead as 0
+"#;
+    let messages = unused_messages(source);
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("'completed'")),
+        "property write must not look like an unused local; got {messages:?}"
+    );
+    assert_unused(source, &["leftover", "dead"]);
+}
+
 /// Exporting a stored constant is a use of that binding.
 #[test]
 fn export_constant_counts_as_a_use() {
