@@ -369,3 +369,76 @@ fn empty_whitespace_or_letter_star_agrees_with_inert_backref() {
     assert_eq!(code1, Some(0), "{plain}");
     assert_eq!(code2, Some(0), "{backed}");
 }
+
+fn assert_plain_and_backref(plain_src: &str, back_src: &str, plain_tag: &str, back_tag: &str) {
+    let (plain, code1) = run_src(plain_src);
+    let (backed, code2) = run_src(back_src);
+    assert!(plain.contains(plain_tag), "pike path: {plain}");
+    assert!(backed.contains(back_tag), "backref path: {backed}");
+    assert_eq!(code1, Some(0), "{plain}");
+    assert_eq!(code2, Some(0), "{backed}");
+}
+
+#[test]
+fn letter_plus_then_ing_agrees_with_inert_backref() {
+    assert_plain_and_backref(
+        "create pattern p:\n    one or more letter then \"ing\"\nend pattern\n\
+         store hit as find p in \"sing\"\n\
+         display \"plain: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "create pattern p:\n    capture {optional \"x\"} as e then one or more letter then \"ing\" then same as captured \"e\"\nend pattern\n\
+         store hit as find p in \"sing\"\n\
+         display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "plain: [sing]",
+        "back: [sing]",
+    );
+}
+
+#[test]
+fn letter_plus_then_ing_finds_king() {
+    let (out, code) = run_src(
+        "create pattern p:\n    one or more letter then \"ing\"\nend pattern\n\
+         store hit as find p in \"the king is running\"\n\
+         display \"hit: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(out.contains("hit: [king]"), "must find king: {out}");
+    assert_eq!(code, Some(0), "{out}");
+}
+
+#[test]
+fn find_all_letter_plus_ing_finds_three_words() {
+    let (out, code) = run_src(
+        "create pattern p:\n    one or more letter then \"ing\"\nend pattern\n\
+         store hits as pattern_find_all of \"sing ring bring\" and p\n\
+         display \"count: \" with length of hits\n",
+    );
+    assert!(out.contains("count: 3"), "three -ing words: {out}");
+    assert_eq!(code, Some(0), "{out}");
+}
+
+#[test]
+fn optional_letter_then_ab_agrees_with_inert_backref() {
+    assert_plain_and_backref(
+        "create pattern p:\n    optional letter then \"ab\"\nend pattern\n\
+         store hit as find p in \"ab\"\n\
+         display \"plain: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "create pattern p:\n    capture {optional \"x\"} as e then optional letter then \"ab\" then same as captured \"e\"\nend pattern\n\
+         store hit as find p in \"ab\"\n\
+         display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "plain: [ab]",
+        "back: [ab]",
+    );
+}
+
+#[test]
+fn letter_star_or_digit_star_on_ab1_agrees_with_inert_backref() {
+    assert_plain_and_backref(
+        "create pattern p:\n    zero or more ((zero or more letter) or digit)\nend pattern\n\
+         store hit as find p in \"ab1\"\n\
+         display \"plain: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "create pattern p:\n    capture {optional \"x\"} as e then zero or more ((zero or more letter) or digit) then same as captured \"e\"\nend pattern\n\
+         store hit as find p in \"ab1\"\n\
+         display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
+        "plain: [ab]",
+        "back: [ab]",
+    );
+}

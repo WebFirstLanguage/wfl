@@ -2048,6 +2048,66 @@ mod quantifier_extent_tests {
         }
     }
 
+    fn letter_plus_then_ing() -> PatternExpression {
+        PatternExpression::Sequence(vec![
+            letter_quantified(Quantifier::OneOrMore),
+            PatternExpression::Literal("ing".to_string()),
+        ])
+    }
+
+    fn optional_letter_then_ab() -> PatternExpression {
+        PatternExpression::Sequence(vec![
+            PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                quantifier: Quantifier::Optional,
+            },
+            PatternExpression::Literal("ab".to_string()),
+        ])
+    }
+
+    fn letter_star_or_digit_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::ZeroOrMore),
+                PatternExpression::CharacterClass(CharClass::Digit),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn optional_letter_or_digit_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                    quantifier: Quantifier::Optional,
+                },
+                PatternExpression::CharacterClass(CharClass::Digit),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn assert_plain_agrees_with_backref(
+        pattern: PatternExpression,
+        text: &str,
+        expected: Option<&str>,
+    ) {
+        let pike = find_under_default(&pattern, text).expect("pike must not hit the meter");
+        let back = find_under_default(&with_inert_backref(pattern), text)
+            .expect("backref path must not hit the meter");
+        assert_eq!(
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            expected,
+            "Pike extent"
+        );
+        assert_eq!(
+            back.as_ref().map(|m| m.matched_text.as_str()),
+            expected,
+            "inert backreference must not change the extent"
+        );
+    }
+
     #[test]
     fn empty_or_arm_in_star_is_left_first_without_and_with_backref() {
         let plain = optional_dash_or_digit_star();
@@ -2084,6 +2144,51 @@ mod quantifier_extent_tests {
             pike.as_ref().map(|m| m.matched_text.as_str()),
             "inert backreference must not change the extent"
         );
+    }
+
+    #[test]
+    fn one_or_more_letter_then_ing_on_sing_agrees_with_backref() {
+        assert_plain_agrees_with_backref(letter_plus_then_ing(), "sing", Some("sing"));
+    }
+
+    #[test]
+    fn one_or_more_letter_then_ing_on_the_king_agrees_with_backref() {
+        assert_plain_agrees_with_backref(
+            letter_plus_then_ing(),
+            "the king is running",
+            Some("king"),
+        );
+    }
+
+    #[test]
+    fn find_all_letter_plus_ing_finds_each_word() {
+        assert_eq!(
+            find_all_texts(&letter_plus_then_ing(), "sing ring bring"),
+            vec!["sing", "ring", "bring"]
+        );
+    }
+
+    #[test]
+    fn optional_letter_then_ab_on_ab_agrees_with_backref() {
+        assert_plain_agrees_with_backref(optional_letter_then_ab(), "ab", Some("ab"));
+    }
+
+    #[test]
+    fn letter_star_or_digit_star_on_ab1_agrees_with_backref() {
+        assert_plain_agrees_with_backref(letter_star_or_digit_star(), "ab1", Some("ab"));
+    }
+
+    #[test]
+    fn optional_letter_or_digit_star_on_a1_agrees_with_backref() {
+        assert_plain_agrees_with_backref(optional_letter_or_digit_star(), "a1", Some("a"));
+    }
+
+    #[test]
+    fn find_missing_z_in_one_mib_under_default_budget_returns_none() {
+        let text = "a".repeat(1024 * 1024);
+        let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
+            .expect("1 MiB miss must stay under the default step ceiling");
+        assert!(found.is_none());
     }
 
     #[test]
