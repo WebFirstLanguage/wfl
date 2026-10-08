@@ -152,3 +152,42 @@ fn backreference_find_keeps_the_capture_setting_thread() {
     );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
+
+#[test]
+fn zero_or_more_empty_literal_finds_empty() {
+    let (out, code) = run_src(
+        "create pattern p:\n    zero or more \"\"\nend pattern\n\
+         store hit as find p in \"abc\"\n\
+         display \"empty: [\" with hit[\"matched_text\"] with \"]\"\n",
+    );
+    assert!(
+        !out.contains("step limit") && !out.contains("resource"),
+        "nullable star must not blow the pattern meter: {out}"
+    );
+    assert!(
+        out.contains("empty: []"),
+        "zero or more empty literal matches empty: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn zero_or_more_optional_literal_is_greedy() {
+    let (out, code) = run_src(
+        "create pattern p:\n    zero or more optional \"a\"\nend pattern\n\
+         store hit as find p in \"aaa\"\n\
+         display \"opt: [\" with hit[\"matched_text\"] with \"]\"\n\
+         store parts as split \"xaaay\" on pattern p\n\
+         display \"split: \" with length of parts\n\
+         display \"replaced: [\" with (replace p with \"#\" in \"aaa\") with \"]\"\n",
+    );
+    assert!(
+        !out.contains("step limit") && !out.contains("resource"),
+        "nullable star must not blow the pattern meter: {out}"
+    );
+    assert!(
+        out.contains("opt: [aaa]"),
+        "zero or more optional a must stay greedy: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}

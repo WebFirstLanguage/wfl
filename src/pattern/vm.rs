@@ -1420,4 +1420,42 @@ mod quantifier_extent_tests {
         assert_eq!(found.matched_text, "bb");
         assert_eq!(found.captures.get("c").map(String::as_str), Some("b"));
     }
+
+    #[test]
+    fn zero_or_more_empty_literal_finds_empty_without_blowing_the_meter() {
+        // `zero or more ""` — the loop body is nullable, so the greedy
+        // continuation returns to the same Split at the same pos. find must
+        // record the empty match, not spin until the step ceiling.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Literal(String::new())),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let found = compiled
+            .find_with_budget("abc", &ExecutionBudget::current_or_default())
+            .expect("must not hit the step/state ceiling");
+        let found = found.expect("empty literal-star matches at the start");
+        assert_eq!(found.matched_text, "");
+        assert_eq!(found.start, 0);
+        assert_eq!(found.end, 0);
+    }
+
+    #[test]
+    fn zero_or_more_optional_literal_stays_greedy_without_blowing_the_meter() {
+        // `zero or more optional "a"` on `aaa` must consume the run, then stop
+        // when an iteration matches empty.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::Optional,
+            }),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let found = compiled
+            .find_with_budget("aaa", &ExecutionBudget::current_or_default())
+            .expect("must not hit the step/state ceiling");
+        let found = found.expect("optional-star matches");
+        assert_eq!(found.matched_text, "aaa");
+    }
 }
