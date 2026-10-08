@@ -210,32 +210,12 @@ struct PikeAdd<'a> {
     pos: usize,
     clist: &'a mut Vec<VMState>,
     seen: &'a mut HashSet<(usize, usize)>,
-    loop_splits: &'a [bool],
-}
-
-/// A `Split` that a `Jump` targets is a quantifier loop. `or` chains never
-/// jump back to their `Split`, so they do not need a `split_pos` entry.
-fn loop_split_flags(program: &Program) -> Vec<bool> {
-    let mut jump_to = vec![false; program.len().max(1)];
-    for inst in &program.instructions {
-        if let Instruction::Jump(target) = inst
-            && *target < jump_to.len()
-        {
-            jump_to[*target] = true;
-        }
-    }
-    program
-        .instructions
-        .iter()
-        .enumerate()
-        .map(|(pc, inst)| matches!(inst, Instruction::Split(_, _)) && jump_to[pc])
-        .collect()
 }
 
 fn pike_dedup_here(inst: &Instruction) -> bool {
     matches!(
         inst,
-        Instruction::Split(_, _)
+        Instruction::Split(_, _, _)
             | Instruction::Char(_)
             | Instruction::CharClass(_)
             | Instruction::Literal(_)
@@ -602,7 +582,6 @@ impl PatternVM {
         let mut clist = Vec::new();
         let mut nlist = Vec::new();
         let mut seen = HashSet::new();
-        let loop_splits = loop_split_flags(program);
         let mut res = self
             .meter
             .reserve_states(0)
@@ -617,7 +596,6 @@ impl PatternVM {
             pos: start_pos,
             clist: &mut clist,
             seen: &mut seen,
-            loop_splits: &loop_splits,
         })?;
         res.grow(clist.len()).map_err(budget_to_pattern_error)?;
 
@@ -649,7 +627,6 @@ impl PatternVM {
                                 pos: pos + 1,
                                 clist: &mut nlist,
                                 seen: &mut seen,
-                                loop_splits: &loop_splits,
                             })?;
                             res.grow(nlist.len() - before)
                                 .map_err(budget_to_pattern_error)?;
@@ -669,7 +646,6 @@ impl PatternVM {
                                 pos: pos + 1,
                                 clist: &mut nlist,
                                 seen: &mut seen,
-                                loop_splits: &loop_splits,
                             })?;
                             res.grow(nlist.len() - before)
                                 .map_err(budget_to_pattern_error)?;
@@ -695,7 +671,6 @@ impl PatternVM {
                                 pos: pos + 1,
                                 clist: &mut nlist,
                                 seen: &mut seen,
-                                loop_splits: &loop_splits,
                             })?;
                             res.grow(nlist.len() - before)
                                 .map_err(budget_to_pattern_error)?;
@@ -723,7 +698,6 @@ impl PatternVM {
             pos,
             clist,
             seen,
-            loop_splits,
         } = args;
         let mut stack = vec![seed];
         while let Some(mut state) = stack.pop() {
@@ -735,7 +709,7 @@ impl PatternVM {
             // Split at this pos. Take the exit *before* the per-position
             // visited set would drop the thread and let a lower-priority
             // arm win.
-            if let Some(Instruction::Split(_, second)) = program.get(state.pc)
+            if let Some(Instruction::Split(_, second, _)) = program.get(state.pc)
                 && state
                     .split_pos
                     .iter()
@@ -761,8 +735,8 @@ impl PatternVM {
                     state.pc = *target;
                     stack.push(state);
                 }
-                Some(Instruction::Split(first, second)) => {
-                    if loop_splits.get(state.pc).copied().unwrap_or(false) {
+                Some(Instruction::Split(first, second, track_empty)) => {
+                    if *track_empty {
                         if let Some((_, last_pos)) =
                             state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
                         {
@@ -1010,7 +984,7 @@ impl PatternVM {
                     state.pc = *target;
                 }
 
-                Instruction::Split(first, second) => {
+                Instruction::Split(first, second, _) => {
                     // Same thread, same Split, same pos: the previous
                     // iteration matched empty. Take the exit (second) branch
                     // only — do not loop forever, and do not prune any
@@ -1501,7 +1475,7 @@ mod tests {
     fn test_split_alternative() {
         // Pattern: 'a' | 'b'
         let mut program = Program::new();
-        program.push(Instruction::Split(1, 3)); // Try 'a' at 1, or 'b' at 3
+        program.push(Instruction::Split(1, 3, false)); // Try 'a' at 1, or 'b' at 3
         program.push(Instruction::Char('a')); // 1
         program.push(Instruction::Jump(4)); // 2: Jump to Match
         program.push(Instruction::Char('b')); // 3
@@ -2142,10 +2116,10 @@ mod quantifier_extent_tests {
         }
     }
 
-    fn between_one_and_two_letter_or_dash_star() -> PatternExpression {
+    fn between_zero_and_two_letter_or_dash_star() -> PatternExpression {
         PatternExpression::Quantified {
             pattern: Box::new(PatternExpression::Alternative(vec![
-                letter_quantified(Quantifier::Between(1, 2)),
+                letter_quantified(Quantifier::Between(0, 2)),
                 PatternExpression::Literal("-".to_string()),
             ])),
             quantifier: Quantifier::ZeroOrMore,
@@ -2256,9 +2230,9 @@ mod quantifier_extent_tests {
     }
 
     #[test]
-    fn zero_or_more_between_one_and_two_letter_or_dash_on_a_dash_b_agrees_with_backref() {
+    fn zero_or_more_between_zero_and_two_letter_or_dash_on_a_dash_b_agrees_with_backref() {
         assert_plain_agrees_with_backref(
-            between_one_and_two_letter_or_dash_star(),
+            between_zero_and_two_letter_or_dash_star(),
             "a-b",
             Some("a"),
         );

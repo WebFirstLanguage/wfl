@@ -241,7 +241,7 @@ fn review_shapes() -> Vec<(PatternExpression, &'static str)> {
     vec![
         (bounded_quantifier_in_star_or(Quantifier::AtMost(2)), "a-b"),
         (
-            bounded_quantifier_in_star_or(Quantifier::Between(1, 2)),
+            bounded_quantifier_in_star_or(Quantifier::Between(0, 2)),
             "a-b",
         ),
         (

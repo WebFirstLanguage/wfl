@@ -31,8 +31,10 @@ pub enum Instruction {
     /// Jump to another instruction (used for alternatives and quantifiers)
     Jump(usize),
 
-    /// Split execution into two paths (for alternation and optional matching)
-    Split(usize, usize), // try first address, then second
+    /// Split execution into two paths (for alternation and optional matching).
+    /// The bool is `true` for quantifier-emitted splits so empty re-entry
+    /// takes the exit; `false` for `or` chains, which never loop.
+    Split(usize, usize, bool), // first, second, track_empty
 
     /// Start a capture group
     StartCapture(usize), // capture group index

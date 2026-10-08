@@ -458,12 +458,12 @@ fn at_most_two_letter_or_dash_star_on_a_dash_b_agrees_with_inert_backref() {
 }
 
 #[test]
-fn between_one_and_two_letter_or_dash_star_on_a_dash_b_agrees_with_inert_backref() {
+fn between_zero_and_two_letter_or_dash_star_on_a_dash_b_agrees_with_inert_backref() {
     assert_plain_and_backref(
-        "create pattern p:\n    zero or more ((1 to 2 letter) or \"-\")\nend pattern\n\
+        "create pattern p:\n    zero or more ((0 to 2 letter) or \"-\")\nend pattern\n\
          store hit as find p in \"a-b\"\n\
          display \"plain: [\" with hit[\"matched_text\"] with \"]\"\n",
-        "create pattern p:\n    capture {optional \"x\"} as e then zero or more ((1 to 2 letter) or \"-\") then same as captured \"e\"\nend pattern\n\
+        "create pattern p:\n    capture {optional \"x\"} as e then zero or more ((0 to 2 letter) or \"-\") then same as captured \"e\"\nend pattern\n\
          store hit as find p in \"a-b\"\n\
          display \"back: [\" with hit[\"matched_text\"] with \"]\"\n",
         "plain: [a]",

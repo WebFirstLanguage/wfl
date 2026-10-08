@@ -90,9 +90,12 @@ A local `WFL_PATTERN_DIFF_CASES` raise also compares the `regex` crate.
 
 List patterns compile to a wide `or` of literals. Pike now charges every
 epsilon step (so a 1_000-arm start-anchored miss hits the step ceiling
-instead of running unmetered), records `split_pos` only for loop
-`Split`s (a `Jump` target), and reserves live threads rather than
+instead of running unmetered), records `split_pos` only for
+compiler-tagged quantifier `Split`s (`optional` / `at most` / `between`
+/ loops — not `or` chains), and reserves live threads rather than
 `program.len()`. A 3_500-arm list still matches on a short input.
+`zero or more ((at most 2 letter) or "-")` on `"a-b"` is `"a"` on both
+Pike and the inert-backreference path.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
