@@ -345,7 +345,9 @@ impl PatternVM {
         self.meter.charge_step().map_err(budget_to_pattern_error)?;
         let chars: Vec<char> = text.chars().collect();
         // Try matching at each character position in the text.
+        // Charge each start so a quadratic start-scan cannot run unmetered.
         for start_pos in 0..=chars.len() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if self.execute_at_position(program, &chars, start_pos)? {
                 return Ok(true);
             }
@@ -366,7 +368,9 @@ impl PatternVM {
         self.meter.charge_step().map_err(budget_to_pattern_error)?;
         let chars: Vec<char> = text.chars().collect();
         // Try matching at each character position in the text.
+        // Charge each start so a quadratic start-scan cannot run unmetered.
         for start_pos in 0..=chars.len() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if let Some(result) =
                 self.find_at_position(program, &chars, start_pos, capture_names)?
             {
@@ -392,6 +396,7 @@ impl PatternVM {
         let mut pos = 0;
 
         while pos <= chars.len() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if let Some(result) = self.find_at_position(program, &chars, pos, capture_names)? {
                 pos = if result.end > result.start {
                     result.end // Move past this match
@@ -472,11 +477,13 @@ impl PatternVM {
     /// one input position are advanced before the next, and `addthread`
     /// follows epsilon (`Jump`/`Split`/captures/anchors) in list order
     /// with a per-position `pc` set. First arrival at a `pc` is then the
-    /// highest-priority thread, so dedup is safe. Each start is
-    /// `O(remaining × program)` and stops when no thread remains, so a
-    /// failed start does not scan the rest of the input. Empty quantifier
-    /// iterations take that thread's `Split` exit (left-first) instead of
-    /// dropping the thread.
+    /// highest-priority thread, so dedup is safe. A failed start is
+    /// `O(program)`: the lockstep loop stops when no thread remains, so
+    /// it does not walk the rest of the input. A successful start is
+    /// `O(consumed × program)`. Unanchored `find` / `find all` are
+    /// therefore `O(len × program)` overall, not `O(len × program)` per
+    /// start. Empty quantifier iterations take that thread's `Split`
+    /// exit (left-first) instead of dropping the thread.
     ///
     /// Programs that contain a `Backreference` keep the no-dedup sweep:
     /// a thread's future depends on its captures, so `(pc, pos)` alone is
@@ -580,6 +587,10 @@ impl PatternVM {
 
         let mut best: Option<VMState> = None;
         for pos in start_pos..=chars.len() {
+            // Charge every lockstep slot, including one past a dead
+            // frontier, so an idle walk to end-of-input cannot bypass
+            // the meter if the empty-list cutoff is removed.
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if clist.is_empty() {
                 break;
             }
@@ -758,9 +769,10 @@ impl PatternVM {
                     stack.push(state);
                 }
                 Some(Instruction::Restore(slot)) => {
-                    // The compiler never emits `Save`/`Restore`. If a
-                    // restored position differs from this lockstep `pos`,
-                    // drop the thread rather than pretend it is rescheduled.
+                    // Unreachable in compiled programs: the compiler
+                    // never emits `Save` or `Restore`. Kept so a
+                    // hand-built program cannot jump `pos` off this
+                    // lockstep schedule.
                     if *slot < state.saves.len() {
                         let restored = state.saves[*slot];
                         state.pc += 1;
@@ -1066,6 +1078,8 @@ impl PatternVM {
                 }
 
                 Instruction::Restore(slot) => {
+                    // Unreachable in compiled programs: the compiler
+                    // never emits `Save` or `Restore`.
                     if *slot < state.saves.len() {
                         state.pos = state.saves[*slot];
                     }
@@ -1613,9 +1627,11 @@ mod quantifier_extent_tests {
     //! #709: unbounded quantifiers must take the longest run (greedy), matching
     //! the documented `one or more letter` word-extraction example and the
     //! already-longest bounded `N to M` form.
-    use crate::exec::budget::ExecutionBudget;
+    use crate::exec::budget::{BudgetLimits, ExecutionBudget};
     use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
-    use crate::pattern::CompiledPattern;
+    use crate::pattern::{CompiledPattern, PatternError};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     fn digit_quantified(quantifier: Quantifier) -> PatternExpression {
         PatternExpression::Quantified {
@@ -1734,6 +1750,27 @@ mod quantifier_extent_tests {
     ) -> Result<Option<crate::pattern::MatchResult>, crate::pattern::PatternError> {
         let compiled = CompiledPattern::compile(pattern).expect("pattern compiles");
         compiled.find_with_budget(text, &ExecutionBudget::current_or_default())
+    }
+
+    fn budget_with_pattern_steps(max_pattern_steps: usize) -> Arc<ExecutionBudget> {
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_pattern_steps = max_pattern_steps;
+        limits.max_duration = None;
+        Arc::new(ExecutionBudget::new(limits))
+    }
+
+    fn one_or_more_any() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Any)),
+            quantifier: Quantifier::OneOrMore,
+        }
+    }
+
+    fn one_or_more_whitespace() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Whitespace)),
+            quantifier: Quantifier::OneOrMore,
+        }
     }
 
     fn alt_expensive_then_letter(inner: PatternExpression) -> PatternExpression {
@@ -2052,12 +2089,12 @@ mod quantifier_extent_tests {
     #[test]
     fn find_missing_literal_in_a_long_haystack_stays_under_a_second() {
         let text = "a".repeat(50_000);
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
             .expect("must not hit the meter");
         assert!(found.is_none());
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(2),
             "find of a missing literal must stay linear, took {:?}",
             started.elapsed()
         );
@@ -2066,12 +2103,12 @@ mod quantifier_extent_tests {
     #[test]
     fn find_needle_at_end_of_a_long_haystack_stays_under_a_second() {
         let text = format!("{}needle", "a".repeat(50_000));
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let found = find_under_default(&PatternExpression::Literal("needle".to_string()), &text)
             .expect("must not hit the meter");
         assert_eq!(found.expect("needle is at the end").matched_text, "needle");
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(2),
             "find of a trailing literal must stay linear, took {:?}",
             started.elapsed()
         );
@@ -2080,11 +2117,11 @@ mod quantifier_extent_tests {
     #[test]
     fn find_all_words_on_a_long_haystack_stays_under_a_second() {
         let text = "ab ".repeat(10_000);
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         let words = find_all_texts(&letter_quantified(Quantifier::OneOrMore), &text);
         assert_eq!(words.len(), 10_000);
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(2),
             "find all words must stay linear, took {:?}",
             started.elapsed()
         );
@@ -2093,19 +2130,132 @@ mod quantifier_extent_tests {
     #[test]
     fn find_all_whitespace_on_a_long_haystack_stays_under_a_second() {
         let text = "ab ".repeat(10_000);
-        let started = std::time::Instant::now();
-        let spaces = find_all_texts(
-            &PatternExpression::Quantified {
-                pattern: Box::new(PatternExpression::CharacterClass(CharClass::Whitespace)),
-                quantifier: Quantifier::OneOrMore,
-            },
-            &text,
-        );
+        let started = Instant::now();
+        let spaces = find_all_texts(&one_or_more_whitespace(), &text);
         assert_eq!(spaces.len(), 10_000);
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(2),
             "find all whitespace must stay linear, took {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn one_or_more_any_on_a_long_haystack_stays_under_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&one_or_more_any(), &text).expect("must not hit the meter");
+        assert_eq!(
+            found.expect("any-plus matches the run").matched_text.len(),
+            50_000
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "one or more any must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn missing_literal_find_stays_under_a_linear_step_ceiling() {
+        let n = 8_000;
+        let text = "a".repeat(n);
+        let compiled = CompiledPattern::compile(&PatternExpression::Literal("z".to_string()))
+            .expect("pattern compiles");
+        let found = compiled
+            .find_with_budget(&text, &budget_with_pattern_steps(n * 32))
+            .expect("charged start-scan must stay O(len × program), not O(len²)");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn start_scan_work_is_charged_against_the_meter() {
+        let n = 2_000;
+        let text = "a".repeat(n);
+        let compiled = CompiledPattern::compile(&PatternExpression::Literal("z".to_string()))
+            .expect("pattern compiles");
+        let err = compiled
+            .find_with_budget(&text, &budget_with_pattern_steps(n / 4))
+            .expect_err("each start position must consume budget");
+        assert!(
+            matches!(err, PatternError::StepLimitExceeded),
+            "expected step limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn one_or_more_any_stays_under_a_linear_step_ceiling() {
+        let n = 8_000;
+        let text = "a".repeat(n);
+        let compiled = CompiledPattern::compile(&one_or_more_any()).expect("pattern compiles");
+        let found = compiled
+            .find_with_budget(&text, &budget_with_pattern_steps(n * 32))
+            .expect("greedy any-plus must stay O(len × program)");
+        assert_eq!(found.expect("matches").matched_text.len(), n);
+    }
+
+    #[test]
+    fn find_all_whitespace_stays_under_a_linear_step_ceiling() {
+        let text = "ab ".repeat(4_000);
+        let compiled =
+            CompiledPattern::compile(&one_or_more_whitespace()).expect("pattern compiles");
+        let spaces = compiled
+            .find_all_with_budget(&text, &budget_with_pattern_steps(text.len() * 32))
+            .expect("find all whitespace must stay linear in the haystack");
+        assert_eq!(spaces.len(), 4_000);
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn assert_release_linear(elapsed: Duration, label: &str) {
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "{label} must stay linear in release, took {elapsed:?}"
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_find_missing_z_in_50k_as_stays_under_half_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
+            .expect("must not hit the meter");
+        assert!(found.is_none());
+        assert_release_linear(started.elapsed(), "find \"z\" in 50k a's");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_find_needle_at_end_of_50k_stays_under_half_a_second() {
+        let text = format!("{}needle", "a".repeat(50_000));
+        let started = Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("needle".to_string()), &text)
+            .expect("must not hit the meter");
+        assert_eq!(found.expect("needle is at the end").matched_text, "needle");
+        assert_release_linear(started.elapsed(), "find trailing needle");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_find_all_whitespace_on_30k_stays_under_half_a_second() {
+        let text = "ab ".repeat(10_000);
+        let started = Instant::now();
+        let compiled =
+            CompiledPattern::compile(&one_or_more_whitespace()).expect("pattern compiles");
+        let spaces = compiled
+            .find_all_with_budget(&text, &ExecutionBudget::current_or_default())
+            .expect("must not hit the meter");
+        assert_eq!(spaces.len(), 10_000);
+        assert_release_linear(started.elapsed(), "find all one or more whitespace on 30k");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_one_or_more_any_on_50k_stays_under_half_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&one_or_more_any(), &text).expect("must not hit the meter");
+        assert_eq!(found.expect("matches").matched_text.len(), 50_000);
+        assert_release_linear(started.elapsed(), "one or more any on 50k");
     }
 }

@@ -71,7 +71,12 @@ seconds. It also dropped empty `Split` loop-backs at the visited set, so
 `zero or more (optional "-" or digit)` on `12` returned `12` while the
 backreference path (and `re`) returned empty. Lockstep `clist`/`nlist`,
 one-char `Literal` steps, early exit, and a per-thread empty-iteration
-exit fix both.
+exit fix both. A failed start is O(program); unanchored find is
+O(len × program) overall — not O(len × program) per start. Each start
+and each lockstep slot is charged so a reintroduced idle walk hits the
+meter. Release-mode timing tests pin `find "z"` in 50k `a`s, trailing
+`needle`, `find all one or more whitespace` on 30k, and `one or more any`
+on 50k under 500 ms.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
