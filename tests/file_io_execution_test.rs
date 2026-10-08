@@ -424,7 +424,7 @@ mod file_io_execution_tests {
     fn rewrite_allows_an_absolute_at_path_without_listing_it() {
         let directory = tempfile::tempdir().expect("create isolated file fixture");
         let absolute = wfl_path(&directory.path().join("already_absolute.txt"));
-        let windows_absolute = r"C:\Users\fixture\output.txt";
+        let windows_absolute = r"D:\fixtures\output.txt";
         let code = format!(
             r#"
             open file at "{absolute}" for writing as unix_style
