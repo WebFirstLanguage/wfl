@@ -1,0 +1,52 @@
+// Greedy extents for unbounded quantifiers (#709).
+// The gated runner executes this with --test; a short match fails the file.
+
+describe "Unbounded quantifiers match the longest run":
+
+    test "find returns the full digit run":
+        create pattern digits:
+            one or more digit
+        end pattern
+        store hit as find digits in "a12345b"
+        store matched as hit.matched_text
+        expect matched to equal "12345"
+    end test
+
+    test "find all extracts words not letters":
+        create pattern word:
+            one or more letter
+        end pattern
+        store word_matches as pattern_find_all of "The quick brown fox" and word
+        expect word_matches to have length 4
+    end test
+
+    test "split on one or more whitespace yields three parts":
+        create pattern spaces:
+            one or more whitespace
+        end pattern
+        store parts as split "a  b   c" on pattern spaces
+        expect parts to have length 3
+        expect parts[0] to equal "a"
+        expect parts[1] to equal "b"
+        expect parts[2] to equal "c"
+    end test
+
+    test "replace rewrites each digit run once":
+        create pattern digits:
+            one or more digit
+        end pattern
+        store rewritten as replace digits with "#" in "a1b22c333"
+        expect rewritten to equal "a#b#c#"
+    end test
+
+    test "capture keeps the full digit run":
+        create pattern id:
+            capture {one or more digit} as number
+        end pattern
+        store m as find id in "abc12345"
+        store caps as m.captures
+        store number_text as caps.number
+        expect number_text to equal "12345"
+    end test
+
+end describe

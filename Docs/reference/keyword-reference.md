@@ -144,8 +144,8 @@ Quick lookup for all WFL reserved keywords.
 | `digit` | Digit class | ✗ |
 | `exactly` | Exact quantifier | ✗ |
 | `find` | Find pattern | ✗ |
-| `greedy` | Greedy matching | ✗ |
-| `lazy` | Lazy matching | ✗ |
+| `greedy` | Reserved word; not accepted in pattern syntax. Default quantifiers are already greedy. | ✗ |
+| `lazy` | Reserved word; not accepted in pattern syntax. There is no lazy quantifier spelling. | ✗ |
 | `letter` | Letter class | ✗ |
 | `matches` | Pattern match check | ✗ |
 | `more` | Quantifier part | ✗ |

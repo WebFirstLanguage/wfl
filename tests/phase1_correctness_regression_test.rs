@@ -405,12 +405,9 @@ fn issue_578_list_files_with_pattern_matches() {
     assert_eq!(code, Some(0), "program should exit 0 (#578): {out}");
 }
 
-// A `one or more letter` quantifier is ignored: `pattern_find_all` advances one
-// character at a time, so a four-word sentence yields 16 single-letter matches
-// instead of 4 word matches.
-// CURRENT (26.7.37): NMATCHES=16.
+// A `one or more letter` quantifier used to match one character at a time
+// (#578 / #709). `pattern_find_all` now returns whole words.
 #[test]
-#[ignore = "open defect #578: pattern-VM ignores the `one or more` quantifier"]
 fn issue_578_pattern_one_or_more_quantifier() {
     let (out, code) = run_src(
         "create pattern word:\n    one or more letter\nend pattern\n\

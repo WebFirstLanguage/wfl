@@ -75,6 +75,10 @@ pub struct PatternCompiler {
     /// Instructions emitted across the root program and embedded lookbehind
     /// programs. Lookbehind compilers share this counter with their parent.
     emitted_instructions: Arc<AtomicUsize>,
+    /// Nesting depth of `compile_quantified`. A nullable `or` inside a
+    /// quantifier body can be re-entered empty and needs `split_pos`;
+    /// top-level and non-nullable `or` chains (list patterns) do not.
+    quant_depth: usize,
 }
 
 impl PatternCompiler {
@@ -101,6 +105,7 @@ impl PatternCompiler {
             save_counter: 0,
             max_instructions,
             emitted_instructions,
+            quant_depth: 0,
         }
     }
 
@@ -608,6 +613,7 @@ impl PatternCompiler {
         // L2: <pattern3>
         // END:
 
+        let track = self.quant_depth > 0 && patterns.iter().any(is_nullable);
         let mut jump_to_end = Vec::new();
         let _split_locations: Vec<usize> = Vec::new();
 
@@ -619,7 +625,7 @@ impl PatternCompiler {
             } else {
                 // Not the last - emit split and compile pattern
                 let split_addr = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0, track))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -630,7 +636,7 @@ impl PatternCompiler {
 
                 // Patch the split to point to the next alternative
                 let next_alternative_addr = self.program.len();
-                if let Some(Instruction::Split(first, second)) =
+                if let Some(Instruction::Split(first, second, _)) =
                     self.program.instructions.get_mut(split_addr)
                 {
                     *first = split_addr + 1; // Next instruction (the pattern)
@@ -656,6 +662,17 @@ impl PatternCompiler {
         pattern: &PatternExpression,
         quantifier: &Quantifier,
     ) -> Result<(), PatternError> {
+        self.quant_depth += 1;
+        let result = self.compile_quantified_body(pattern, quantifier);
+        self.quant_depth -= 1;
+        result
+    }
+
+    fn compile_quantified_body(
+        &mut self,
+        pattern: &PatternExpression,
+        quantifier: &Quantifier,
+    ) -> Result<(), PatternError> {
         match quantifier {
             Quantifier::Optional => {
                 // Optional: split to pattern or skip
@@ -664,14 +681,14 @@ impl PatternCompiler {
                 // L2: (continue)
 
                 let split_addr = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0, true))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
                 let end_addr = self.program.len();
 
                 // Patch split
-                if let Some(Instruction::Split(first, second)) =
+                if let Some(Instruction::Split(first, second, _)) =
                     self.program.instructions.get_mut(split_addr)
                 {
                     *first = split_addr + 1; // Try the pattern
@@ -687,7 +704,7 @@ impl PatternCompiler {
                 // L3: (continue)
 
                 let loop_start = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0, true))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -697,7 +714,7 @@ impl PatternCompiler {
                 let end_addr = self.program.len();
 
                 // Patch split
-                if let Some(Instruction::Split(first, second)) =
+                if let Some(Instruction::Split(first, second, _)) =
                     self.program.instructions.get_mut(loop_start)
                 {
                     *first = loop_start + 1; // Try the pattern
@@ -716,7 +733,7 @@ impl PatternCompiler {
                 self.compile_expression(pattern)?;
 
                 let loop_start = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0, true))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -726,7 +743,7 @@ impl PatternCompiler {
                 let end_addr = self.program.len();
 
                 // Patch split
-                if let Some(Instruction::Split(first, second)) =
+                if let Some(Instruction::Split(first, second, _)) =
                     self.program.instructions.get_mut(loop_start)
                 {
                     *first = loop_start + 1; // Try another iteration
@@ -757,14 +774,14 @@ impl PatternCompiler {
                 let optional_count = *max - *min;
                 for _ in 0..optional_count {
                     let split_addr = self.program.len();
-                    self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                    self.emit_instruction(Instruction::Split(0, 0, true))?; // Will be patched
 
                     self.compile_expression(pattern)?;
 
                     let end_addr = self.program.len();
 
                     // Patch split
-                    if let Some(Instruction::Split(first, second)) =
+                    if let Some(Instruction::Split(first, second, _)) =
                         self.program.instructions.get_mut(split_addr)
                     {
                         *first = split_addr + 1; // Try the pattern
@@ -783,7 +800,7 @@ impl PatternCompiler {
 
                 // Then zero or more (same as ZeroOrMore logic)
                 let loop_start = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                self.emit_instruction(Instruction::Split(0, 0, true))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -793,7 +810,7 @@ impl PatternCompiler {
                 let end_addr = self.program.len();
 
                 // Patch split
-                if let Some(Instruction::Split(first, second)) =
+                if let Some(Instruction::Split(first, second, _)) =
                     self.program.instructions.get_mut(loop_start)
                 {
                     *first = loop_start + 1; // Try the pattern
@@ -806,14 +823,14 @@ impl PatternCompiler {
 
                 for _ in 0..*n {
                     let split_addr = self.program.len();
-                    self.emit_instruction(Instruction::Split(0, 0))?; // Will be patched
+                    self.emit_instruction(Instruction::Split(0, 0, true))?; // Will be patched
 
                     self.compile_expression(pattern)?;
 
                     let end_addr = self.program.len();
 
                     // Patch split
-                    if let Some(Instruction::Split(first, second)) =
+                    if let Some(Instruction::Split(first, second, _)) =
                         self.program.instructions.get_mut(split_addr)
                     {
                         *first = split_addr + 1; // Try the pattern
@@ -966,6 +983,30 @@ impl PatternCompiler {
     }
 }
 
+/// True when `p` can match the empty string. Used so an `or` Split
+/// inside a quantifier is tracked only when empty re-entry is possible.
+/// Non-nullable list arms stay cheap.
+fn is_nullable(p: &PatternExpression) -> bool {
+    match p {
+        PatternExpression::Literal(t) => t.is_empty(),
+        PatternExpression::CharacterClass(_) => false,
+        PatternExpression::Quantified {
+            pattern,
+            quantifier,
+        } => match quantifier {
+            Quantifier::Optional | Quantifier::ZeroOrMore | Quantifier::AtMost(_) => true,
+            Quantifier::Exactly(n) | Quantifier::AtLeast(n) | Quantifier::Between(n, _) => {
+                *n == 0 || is_nullable(pattern)
+            }
+            Quantifier::OneOrMore => is_nullable(pattern),
+        },
+        PatternExpression::Sequence(v) => v.iter().all(is_nullable),
+        PatternExpression::Alternative(v) => v.iter().any(is_nullable),
+        PatternExpression::Capture { pattern, .. } => is_nullable(pattern),
+        _ => true,
+    }
+}
+
 impl Default for PatternCompiler {
     fn default() -> Self {
         Self::new()
@@ -1054,9 +1095,10 @@ mod tests {
         // Should have: Split, Char, Match
         assert_eq!(program.instructions.len(), 3);
         match &program.instructions[0] {
-            Instruction::Split(first, second) => {
+            Instruction::Split(first, second, track_empty) => {
                 assert_eq!(*first, 1); // Try the character
                 assert_eq!(*second, 2); // Or skip to Match
+                assert!(*track_empty, "optional is a quantifier Split");
             }
             _ => panic!("Expected Split instruction"),
         }

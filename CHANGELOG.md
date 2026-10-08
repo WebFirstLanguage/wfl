@@ -49,6 +49,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   drop.
 
 ### Fixed
+- **Unbounded pattern quantifiers are greedy** (#709). `one or more`,
+  `zero or more`, and `at least N` previously matched the shortest run because
+  the pattern VM returned on the first state that reached `Match` in a
+  breadth-first sweep. `find`, `find all`, `split ... on pattern`,
+  `replace ... in ...`, and `capture` all reported that short extent and exited
+  0. They now take the longest run, consistent with bounded `N to M` and with
+  the documented word-extraction example (`one or more letter` over
+  `"The quick brown fox"` is four words, not sixteen letters). Ordered
+  `or` alternatives stay left-first. **Compatibility:** programs that silently
+  adapted to the undocumented shortest-match extents will observe different
+  (documented) text; validation-style patterns with trailing context already
+  forced the longer expansion and are unchanged. Empty re-entry through
+  `at most N` / `N to M` optional splits (no `Jump` back) still takes that
+  split's exit, so `zero or more ((at most 2 letter) or "-")` on `"a-b"` is
+  `"a"`. An `or` inside a quantifier body is tracked so empty re-entry
+  takes the next arm (`zero or more (("" or any character) then zero or
+  more "a" then ("a" or ""))` on `"ab"` is `"a"`). An `or` inside a
+  quantifier is tracked only when some arm can match empty, so
+  `one or more` of a large list stays linear. The nullable scan runs
+  once per `or`. Pike threads are not counted against
+  `max_pattern_states`, so a 15_000-word list still matches. Top-level
+  list-pattern `or` chains stay untracked; a failed start now charges
+  a few meter steps (about 3 for `find "z"`), so the default ceiling
+  covers about 2 MiB of dead starts rather than `main`'s ~4.9 MiB. 1 MiB
+  remains inside the budget.
 - **Optional TLS settings in the configuration wizard** can be skipped with
   Enter. Unset certificate/key paths are omitted from the generated file, so accepting
   every default now completes the wizard.
