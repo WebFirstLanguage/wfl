@@ -96,9 +96,12 @@ compiler-tagged quantifier `Split`s (`optional` / `at most` / `between`
 `program.len()`. A 3_500-arm list still matches on a short input.
 `zero or more ((at most 2 letter) or "-")` on `"a-b"` is `"a"` on both
 Pike and the inert-backreference path. `or` Splits inside a quantifier
-body are tracked (`quant_depth > 0`); top-level list-pattern `or`
+body are tracked only when some arm is nullable (`quant_depth > 0`
+and `is_nullable`); top-level and non-nullable list-pattern `or`
 chains stay untracked. `zero or more (("" or any character) then zero
 or more "a" then ("a" or ""))` on `"ab"` is `"a"` on both engines.
+`one or more` of a 1_000-arm list over 1_000 chars stays under a
+second in release.
 
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is

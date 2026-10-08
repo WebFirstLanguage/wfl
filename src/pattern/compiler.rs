@@ -75,9 +75,9 @@ pub struct PatternCompiler {
     /// Instructions emitted across the root program and embedded lookbehind
     /// programs. Lookbehind compilers share this counter with their parent.
     emitted_instructions: Arc<AtomicUsize>,
-    /// Nesting depth of `compile_quantified`. `or` Splits inside a
-    /// quantifier body can be re-entered empty and need `split_pos`;
-    /// top-level `or` chains (list patterns) do not.
+    /// Nesting depth of `compile_quantified`. A nullable `or` inside a
+    /// quantifier body can be re-entered empty and needs `split_pos`;
+    /// top-level and non-nullable `or` chains (list patterns) do not.
     quant_depth: usize,
 }
 
@@ -624,7 +624,8 @@ impl PatternCompiler {
             } else {
                 // Not the last - emit split and compile pattern
                 let split_addr = self.program.len();
-                self.emit_instruction(Instruction::Split(0, 0, self.quant_depth > 0))?; // Will be patched
+                let track = self.quant_depth > 0 && patterns.iter().any(is_nullable);
+                self.emit_instruction(Instruction::Split(0, 0, track))?; // Will be patched
 
                 self.compile_expression(pattern)?;
 
@@ -979,6 +980,30 @@ impl PatternCompiler {
             PatternExpression::Capture { pattern, .. } => self.calculate_pattern_length(pattern),
             _ => None, // Quantifiers, alternatives, etc. don't have fixed length
         }
+    }
+}
+
+/// True when `p` can match the empty string. Used so an `or` Split
+/// inside a quantifier is tracked only when empty re-entry is possible.
+/// Non-nullable list arms stay cheap.
+fn is_nullable(p: &PatternExpression) -> bool {
+    match p {
+        PatternExpression::Literal(t) => t.is_empty(),
+        PatternExpression::CharacterClass(_) => false,
+        PatternExpression::Quantified {
+            pattern,
+            quantifier,
+        } => match quantifier {
+            Quantifier::Optional | Quantifier::ZeroOrMore | Quantifier::AtMost(_) => true,
+            Quantifier::Exactly(n) | Quantifier::AtLeast(n) | Quantifier::Between(n, _) => {
+                *n == 0 || is_nullable(pattern)
+            }
+            Quantifier::OneOrMore => is_nullable(pattern),
+        },
+        PatternExpression::Sequence(v) => v.iter().all(is_nullable),
+        PatternExpression::Alternative(v) => v.iter().any(is_nullable),
+        PatternExpression::Capture { pattern, .. } => is_nullable(pattern),
+        _ => true,
     }
 }
 

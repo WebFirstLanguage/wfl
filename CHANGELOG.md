@@ -65,8 +65,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   split's exit, so `zero or more ((at most 2 letter) or "-")` on `"a-b"` is
   `"a"`. An `or` inside a quantifier body is tracked so empty re-entry
   takes the next arm (`zero or more (("" or any character) then zero or
-  more "a" then ("a" or ""))` on `"ab"` is `"a"`). Top-level list-pattern
-  `or` chains stay untracked and stay linear; a failed start now charges
+  more "a" then ("a" or ""))` on `"ab"` is `"a"`). An `or` inside a
+  quantifier is tracked only when some arm can match empty, so
+  `one or more` of a large list stays linear. Top-level list-pattern
+  `or` chains stay untracked; a failed start now charges
   a few meter steps (about 3 for `find "z"`), so the default ceiling
   covers about 2 MiB of dead starts rather than `main`'s ~4.9 MiB. 1 MiB
   remains inside the budget.
