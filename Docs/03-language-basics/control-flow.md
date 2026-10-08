@@ -68,27 +68,23 @@ end check
 
 ### Chained Conditionals (Else If)
 
-You can chain multiple conditions by nesting `check if` blocks inside `otherwise` clauses:
+Chain extra conditions with a flat `otherwise check if` arm. Every arm shares one
+`end check`, and each branch header stays at the same indent as the opening
+`check if`:
 
 ```wfl
 store score as 85
 
 check if score is greater than or equal to 90:
     display "Grade: A"
+otherwise check if score is greater than or equal to 80:
+    display "Grade: B"
+otherwise check if score is greater than or equal to 70:
+    display "Grade: C"
+otherwise check if score is greater than or equal to 60:
+    display "Grade: D"
 otherwise:
-    check if score is greater than or equal to 80:
-        display "Grade: B"
-    otherwise:
-        check if score is greater than or equal to 70:
-            display "Grade: C"
-        otherwise:
-            check if score is greater than or equal to 60:
-                display "Grade: D"
-            otherwise:
-                display "Grade: F"
-            end check
-        end check
-    end check
+    display "Grade: F"
 end check
 ```
 
@@ -96,18 +92,18 @@ end check
 ```wfl
 check if <condition1>:
     <statements>
+otherwise check if <condition2>:
+    <statements>
+otherwise check if <condition3>:
+    <statements>
 otherwise:
-    check if <condition2>:
-        <statements>
-    otherwise:
-        check if <condition3>:
-            <statements>
-        otherwise:
-            <statements>
-        end check
-    end check
+    <statements>
 end check
 ```
+
+Nesting `check if` under `otherwise:` is still valid. It needs an `end check`
+for each nested check, so prefer the flat form when the arms are alternatives
+of the same decision.
 
 ## Conditions
 
@@ -850,20 +846,20 @@ Extend the grade calculator to include comments:
 
 ✅ **Test edge cases:** Test with boundary values (e.g., exactly 18, not just 17 or 19)
 
-❌ **Don't repeat conditions:** Use nested `otherwise: check if` blocks for multiple conditions
+❌ **Don't repeat conditions:** Use a flat `otherwise check if` chain for alternatives of one decision
 
 ❌ **Don't make unreachable conditions:** Order matters!
 
-❌ **Don't nest too deeply:** More than 3 levels is hard to read
+❌ **Don't nest too deeply:** More than 3 levels is hard to read; a flat chain stays at one level
 
 ## What You've Learned
 
 In this section, you learned:
 
 ✅ **Basic conditionals** - `check if`, `otherwise`, `end check`
-✅ **Multiple conditions** - Nested `otherwise: check if` blocks
+✅ **Multiple conditions** - Flat `otherwise check if` chains (nested `otherwise:` / `check if` remains valid)
 ✅ **Logical operators** - `and`, `or`, `not`
-✅ **Nested conditionals** - Conditionals inside conditionals
+✅ **Nested conditionals** - Conditionals inside conditionals when an arm has its own decision
 ✅ **Common patterns** - Range checking, validation, status determination
 ✅ **Short-circuit evaluation** - Automatic optimization
 ✅ **Best practices** - Clear, maintainable conditional code

@@ -179,7 +179,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `not` | Logical NOT | `check if not x:` |
 | `on` | Event handler | `on click:` |
 | `or` | Logical OR | `check if x is 5 or y is 10:` |
-| `otherwise` | Else clause | `otherwise:` |
+| `otherwise` | Else / else-if clause | `otherwise:` / `otherwise check if` |
 | `private` | Private visibility | `private property age` |
 | `property` | Container property | `property name: Text` |
 | `public` | Public visibility | `public property name` |
@@ -673,7 +673,7 @@ Complete reference table of all 181 keywords.
 | `open` | Other | File I/O | ❌ | `open file` |
 | `optional` | Other | Pattern | ❌ | `optional match` |
 | `or` | Structural | Comparison | ❌ | `x or y` |
-| `otherwise` | Structural | Control Flow | ❌ | `otherwise:` |
+| `otherwise` | Structural | Control Flow | ❌ | `otherwise:` / `otherwise check if` |
 | `output` | Other | Process | ❌ | `process output` |
 | `parent` | Contextual | OOP | ✅ | `parent reference` |
 | `pattern` | Contextual | Pattern | ✅ | `define pattern` |

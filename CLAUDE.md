@@ -266,7 +266,7 @@ agent MUST follow:
   - Run validation: `python scripts/validate_docs_examples.py`
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
-  - Conditionals use NESTED blocks: `otherwise: check if`, NOT `otherwise check if`
+  - Conditionals: flat `otherwise check if` chains share one `end check`; nested `otherwise:` / `check if` needs an `end check` per nested check
   - Reserved keywords: **181 keywords total** (54 structural, 29 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
     - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.

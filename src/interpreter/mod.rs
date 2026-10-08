@@ -19557,6 +19557,28 @@ mod process_tests {
         })
     }
 
+    /// `read_process_output` drains the capture buffer, so callers that poll
+    /// must accumulate chunks instead of replacing the previous read.
+    async fn wait_for_captured_output(client: &IoClient, proc_id: &str, needle: &str) -> String {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let mut output = String::new();
+        loop {
+            match client.read_process_output(proc_id).await {
+                Ok(chunk) => output.push_str(&chunk),
+                Err(error) => panic!("Failed to read process output: {error}"),
+            }
+            if output.contains(needle) {
+                return output;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                panic!(
+                    "timed out waiting for process output to contain {needle:?}; captured {output:?}"
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     /// Invoke one ignored helper test in a fresh copy of this test binary. This
     /// is cross-platform and avoids depending on optional shell utilities in CI.
     fn test_helper_command(filter: &str) -> (String, Vec<String>) {
@@ -19852,14 +19874,13 @@ mod process_tests {
             "Process should be running"
         );
 
-        // Kill the process
+        // kill_process unregisters the id and awaits terminate_foreground_child
+        // (start_kill + wait). is_process_running is then false because the
+        // handle is gone, not because a later poll observed OS teardown.
         client
             .kill_process(&proc_id)
             .await
             .expect("Failed to kill process");
-
-        // Give it time to terminate
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Process should no longer be running
         assert!(
@@ -19885,14 +19906,13 @@ mod process_tests {
             "Process should be running"
         );
 
-        // Kill the process
+        // kill_process unregisters the id and awaits terminate_foreground_child
+        // (start_kill + wait). is_process_running is then false because the
+        // handle is gone, not because a later poll observed OS teardown.
         client
             .kill_process(&proc_id)
             .await
             .expect("Failed to kill process");
-
-        // Give it time to terminate
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Process should no longer be running
         assert!(
@@ -19916,13 +19936,7 @@ mod process_tests {
             .await
             .expect("Failed to spawn process");
 
-        // Give process time to complete and output to be captured
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-
-        let output = client
-            .read_process_output(&proc_id)
-            .await
-            .expect("Failed to read process output");
+        let output = wait_for_captured_output(&client, &proc_id, "test output").await;
 
         assert!(
             output.contains("test output"),

@@ -2,6 +2,8 @@ use std::fs;
 use std::process::Command;
 use tempfile::NamedTempFile;
 
+mod common;
+
 /// Robust temporary file cleanup wrapper
 struct TempWflFile {
     _file: NamedTempFile, // Keep file alive for automatic cleanup
@@ -27,14 +29,7 @@ fn run_wfl(code: &str) -> String {
     // Create temporary WFL file with automatic cleanup
     let temp_file = TempWflFile::new(code).expect("Failed to create temp file");
 
-    // Run the WFL interpreter
-    let wfl_exe = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let output = Command::new(wfl_exe)
+    let output = Command::new(common::wfl_release_exe())
         .arg(temp_file.path())
         .output()
         .expect("Failed to execute WFL");

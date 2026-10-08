@@ -166,6 +166,18 @@ pub fn wfl_exe() -> &'static str {
     env!("CARGO_BIN_EXE_wfl")
 }
 
+/// Panic with an actionable message when a separately-built release binary is missing.
+pub fn require_existing_release_binary(path: PathBuf) -> PathBuf {
+    assert!(
+        path.exists(),
+        "release binary not found at {}\n\
+         This test runs the separately-built release binary; `cargo test` does not build it.\n\
+         Run `cargo build --release` first.",
+        path.display()
+    );
+    path
+}
+
 /// Path to the separately-built `target/release/wfl` binary. This is a
 /// *different* binary from [`wfl_exe`] (which may point at a debug build) —
 /// callers that need the release binary specifically (e.g. because a sibling
@@ -183,18 +195,12 @@ pub fn wfl_release_exe() -> PathBuf {
     } else {
         "wfl"
     };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("release")
-        .join(name);
-    assert!(
-        path.exists(),
-        "release binary not found at {}\n\
-         This test runs the separately-built release binary; `cargo test` does not build it.\n\
-         Run `cargo build --release` first.",
-        path.display()
-    );
-    path
+    require_existing_release_binary(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("release")
+            .join(name),
+    )
 }
 
 /// Run inline WFL source (via [`wfl_exe`]) in a fresh temp dir, returning
