@@ -28,8 +28,29 @@ fn intentional_failure_writes_only_custom_stderr_and_exits_nonzero() {
     assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
     assert!(output.stdout.is_empty(), "stdout must stay empty");
     assert_eq!(
-        stderr.lines().collect::<Vec<_>>(),
-        ["jshrink: Unclosed string at position: 42"]
+        stderr.replace("\r\n", "\n"),
+        "jshrink: Unclosed string at position: 42\n"
+    );
+    assert!(!dir.path().join("diagnostic_debug.txt").exists());
+}
+
+#[test]
+fn print_error_alone_keeps_success_status() {
+    let dir = TempDir::new().expect("tempdir");
+    let script = dir.path().join("warning.wfl");
+    fs::write(&script, "call print_error with \"warning\"\n").expect("write WFL script");
+
+    let output = Command::new(wfl_exe())
+        .arg(&script)
+        .current_dir(dir.path())
+        .output()
+        .expect("run WFL CLI");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty(), "stdout must stay empty");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
+        "warning\n"
     );
     assert!(!dir.path().join("diagnostic_debug.txt").exists());
 }
