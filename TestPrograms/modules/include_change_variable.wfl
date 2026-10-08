@@ -1,0 +1,14 @@
+// Issue #708: an include-exposed variable can be changed from the includer.
+// The analyzer used to fatal `change` of that name; the runtime already
+// mutated the shared binding.
+include from "../../tests/fixtures/modules/include_change_shared.wfl"
+
+store before_change as shared_flag
+change shared_flag to yes
+
+describe "include-exposed change":
+    test "change updates the included shared binding":
+        expect before_change to equal no
+        expect shared_flag to equal yes
+    end test
+end describe
