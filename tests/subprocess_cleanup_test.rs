@@ -2,6 +2,8 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
+mod common;
+
 /// Temp directory with a `.wfl` program and permissive `.wflcfg` for intentional subprocess tests.
 struct TempWflEnv {
     _dir: TempDir,
@@ -36,13 +38,7 @@ warn_on_shell_execution = false
 fn run_wfl(code: &str) -> Result<String, String> {
     let env = TempWflEnv::new(code).expect("Failed to create temp WFL env");
 
-    let wfl_exe = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let output = Command::new(wfl_exe)
+    let output = Command::new(common::wfl_release_exe())
         .arg(env.path())
         .output()
         .expect("Failed to execute WFL");
