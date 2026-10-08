@@ -14,6 +14,63 @@ mod file_io_execution_tests {
         path.to_string_lossy().replace('\\', "/")
     }
 
+    fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+        payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .expect("panic payload should be a string")
+    }
+
+    /// Relative operands of `at "..."` write to the process cwd unless rewritten.
+    fn relative_at_paths(code: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut remaining = code;
+        while let Some(start) = remaining.find(" at \"") {
+            remaining = &remaining[start + 5..];
+            let Some(end) = remaining.find('"') else {
+                break;
+            };
+            let name = &remaining[..end];
+            if !name.is_empty() && !name.contains('/') {
+                names.push(name.to_string());
+            }
+            remaining = &remaining[end + 1..];
+        }
+        names
+    }
+
+    fn rewrite_fixture_paths(code: &str, directory: &Path, filenames: &[&str]) -> String {
+        // A listed name that is not in the program is a stale rewrite set.
+        // An `at "name"` operand that is not listed stays relative and leaks
+        // into the repo root — that is the original hygiene defect.
+        for filename in filenames {
+            assert!(
+                code.contains(&format!("\"{filename}\"")),
+                "listed fixture {filename:?} does not appear in the WFL source; \
+                 the rewrite set is stale"
+            );
+        }
+        for name in relative_at_paths(code) {
+            assert!(
+                filenames.contains(&name.as_str()),
+                "WFL source uses relative path {name:?} that is not in the rewrite set; \
+                 it would be created in the repo root"
+            );
+        }
+
+        let directory_text = wfl_path(directory);
+        let mut rewritten = code.replace(
+            "list files in \".\"",
+            &format!("list files in \"{directory_text}\""),
+        );
+        for filename in filenames {
+            let path = wfl_path(&directory.join(filename));
+            rewritten = rewritten.replace(&format!("\"{filename}\""), &format!("\"{path}\""));
+        }
+        rewritten
+    }
+
     async fn execute_wfl_code(
         code: &str,
         directory: &Path,
@@ -21,15 +78,7 @@ mod file_io_execution_tests {
     ) -> Result<String, Box<dyn std::error::Error>> {
         // Every test owns its files, including on assertion failure. Absolute
         // paths keep concurrent tests independent without changing process cwd.
-        let directory_text = wfl_path(directory);
-        let mut code = code.replace(
-            "list files in \".\"",
-            &format!("list files in \"{directory_text}\""),
-        );
-        for filename in filenames {
-            let path = wfl_path(&directory.join(filename));
-            code = code.replace(&format!("\"{filename}\""), &format!("\"{path}\""));
-        }
+        let code = rewrite_fixture_paths(code, directory, filenames);
         let tokens = lex_wfl_with_positions(&code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
@@ -181,7 +230,10 @@ mod file_io_execution_tests {
             display "TXT files found: " with length of txt_files
         "#;
 
-        let result = execute_wfl_code(code, directory.path(), &test_files).await;
+        // The WFL source lists `"."`, not the fixture names. Those files are
+        // created in the temp dir in Rust; passing them here would be a stale
+        // rewrite set.
+        let result = execute_wfl_code(code, directory.path(), &[]).await;
         assert!(
             result.is_ok(),
             "Directory listing execution failed: {:?}",
@@ -286,25 +338,67 @@ mod file_io_execution_tests {
     }
 
     #[test]
-    fn file_io_execution_tempdir_removes_fixtures_on_panic() {
-        let leak = std::path::PathBuf::from("test_exec_basic.txt");
-        let _ = fs::remove_file(&leak);
-
-        let panic = std::panic::catch_unwind(|| {
-            let directory = tempfile::tempdir().expect("create isolated file fixture");
-            fs::write(directory.path().join("test_exec_basic.txt"), "fixture")
-                .expect("write fixture");
-            panic!("original assertion failure");
+    fn rewrite_rejects_a_listed_filename_missing_from_source() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let dir = directory.path().to_path_buf();
+        let panic = std::panic::catch_unwind(move || {
+            rewrite_fixture_paths(
+                r#"open file at "present.txt" for writing as fixture"#,
+                &dir,
+                &["present.txt", "missing_from_source.txt"],
+            );
         })
-        .expect_err("the original assertion must still propagate");
-        assert_eq!(
-            panic.downcast_ref::<&str>(),
-            Some(&"original assertion failure"),
-            "tempdir cleanup must preserve the original panic payload"
+        .expect_err("a stale rewrite set must panic");
+        let message = panic_message(panic);
+        assert!(
+            message.contains("missing_from_source.txt"),
+            "diagnostic must name the stale fixture: {message}"
         );
         assert!(
-            !leak.exists(),
-            "a panicking execution test must not leave fixtures in the repo root"
+            message.contains("does not appear in the WFL source"),
+            "diagnostic must say the rewrite set is stale: {message}"
+        );
+    }
+
+    #[test]
+    fn rewrite_rejects_an_unlisted_relative_path() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let dir = directory.path().to_path_buf();
+        let panic = std::panic::catch_unwind(move || {
+            rewrite_fixture_paths(
+                r#"open file at "leaked.txt" for writing as fixture"#,
+                &dir,
+                &[],
+            );
+        })
+        .expect_err("an unlisted relative path must panic before WFL runs");
+        let message = panic_message(panic);
+        assert!(
+            message.contains("leaked.txt"),
+            "diagnostic must name the unlisted path: {message}"
+        );
+        assert!(
+            message.contains("repo root"),
+            "diagnostic must describe the leak: {message}"
+        );
+    }
+
+    #[test]
+    fn rewrite_splices_listed_relative_paths() {
+        let directory = tempfile::tempdir().expect("create isolated file fixture");
+        let rewritten = rewrite_fixture_paths(
+            r#"open file at "kept.txt" for writing as fixture"#,
+            directory.path(),
+            &["kept.txt"],
+        );
+        let spliced = wfl_path(&directory.path().join("kept.txt"));
+        assert!(
+            !rewritten.contains("\"kept.txt\""),
+            "bare relative name must be rewritten: {rewritten}"
+        );
+        assert!(
+            rewritten.contains(&format!("\"{spliced}\"")),
+            "rewritten source must use the temp-dir path: {rewritten}"
         );
     }
 }
