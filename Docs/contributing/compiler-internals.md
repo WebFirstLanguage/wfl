@@ -76,8 +76,9 @@ instantiation, and process/HTTP/include operands. HTTP and process *output*
 bindings (`… as page`) are writes, not reads. Action, container-method,
 event-handler, and websocket-handler bodies are isolated scopes, so a
 method-local `value` cannot hide an unused outer `value` (and the reverse).
-`export constant X` counts as a use of `X`; action and container exports
-are not variable bindings.
+`store completed as yes` inside a method assigns the container property
+and is not an unused local. `export constant X` counts as a use of `X`;
+action and container exports are not variable bindings.
 
 **Traverses AST** to build symbol tables and validate semantics.
 

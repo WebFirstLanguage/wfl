@@ -904,14 +904,11 @@ impl Analyzer {
             Statement::VariableDeclaration {
                 name, line, column, ..
             } => {
-                usages.insert(
-                    name.clone(),
-                    VariableUsage {
-                        name: name.clone(),
-                        defined_at: (*line, *column),
-                        used: false,
-                    },
-                );
+                usages.entry(name.clone()).or_insert(VariableUsage {
+                    name: name.clone(),
+                    defined_at: (*line, *column),
+                    used: false,
+                });
             }
             Statement::ActionDefinition { .. } => {
                 // Isolated lexical scope: collected when the action is analyzed
@@ -1031,6 +1028,7 @@ impl Analyzer {
         &self,
         body: &[Statement],
         parameters: &[Parameter],
+        predeclared: &[String],
         usages: &mut HashMap<String, VariableUsage>,
         isolated_unused: &mut Vec<VariableUsage>,
     ) {
@@ -1046,6 +1044,16 @@ impl Analyzer {
                     },
                 );
             }
+        }
+        // Container properties are already bound in the method environment.
+        // `store completed as yes` assigns that property; it is not a new
+        // unused local. Seed them used so collect will not replace them.
+        for name in predeclared {
+            child.entry(name.clone()).or_insert(VariableUsage {
+                name: name.clone(),
+                defined_at: (0, 0),
+                used: true,
+            });
         }
         for stmt in body {
             self.collect_variable_declarations(stmt, &mut child);
@@ -1087,7 +1095,7 @@ impl Analyzer {
                         self.mark_used_in_expression(default, usages);
                     }
                 }
-                self.analyze_isolated_body(body, parameters, usages, isolated_unused);
+                self.analyze_isolated_body(body, parameters, &[], usages, isolated_unused);
             }
             Statement::IfStatement {
                 condition,
@@ -1461,7 +1469,7 @@ impl Analyzer {
             }
             Statement::WebSocketHandlerStatement { server, body, .. } => {
                 self.mark_used_in_expression(server, usages);
-                self.analyze_isolated_body(body, &[], usages, isolated_unused);
+                self.analyze_isolated_body(body, &[], &[], usages, isolated_unused);
             }
             Statement::SendWebSocketMessageStatement {
                 message, target, ..
@@ -1683,8 +1691,31 @@ impl Analyzer {
                         }
                     }
                 }
+                let property_names: Vec<String> = properties
+                    .iter()
+                    .chain(static_properties.iter())
+                    .map(|property| property.name.clone())
+                    .collect();
                 for stmt in methods.iter().chain(static_methods.iter()) {
-                    self.mark_used_variables(stmt, usages, isolated_unused);
+                    if let Statement::ActionDefinition {
+                        body, parameters, ..
+                    } = stmt
+                    {
+                        for parameter in parameters {
+                            if let Some(default) = &parameter.default_value {
+                                self.mark_used_in_expression(default, usages);
+                            }
+                        }
+                        self.analyze_isolated_body(
+                            body,
+                            parameters,
+                            &property_names,
+                            usages,
+                            isolated_unused,
+                        );
+                    } else {
+                        self.mark_used_variables(stmt, usages, isolated_unused);
+                    }
                 }
             }
             Statement::ContainerInstantiation {
@@ -1711,7 +1742,7 @@ impl Analyzer {
                 ..
             } => {
                 self.mark_used_in_expression(event_source, usages);
-                self.analyze_isolated_body(handler_body, &[], usages, isolated_unused);
+                self.analyze_isolated_body(handler_body, &[], &[], usages, isolated_unused);
             }
             Statement::PatternDefinition { pattern, .. } => {
                 self.mark_used_in_pattern(pattern, usages);

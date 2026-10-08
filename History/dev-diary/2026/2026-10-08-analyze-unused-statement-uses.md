@@ -39,3 +39,9 @@ parent map. `export constant X` marks `X` used. The gated
 `Docs/contributing/compiler-internals.md` documents `ANALYZE-UNUSED`
 (there is no dedicated diagnostic page). Red tests for the scope and
 export cases failed first (42c9fae8).
+
+Isolating method scopes then flagged `store completed as yes` in the
+docs Task Manager example: that `store` assigns the container property,
+which is already bound in the method environment. Method analysis now
+predeclares property names so a property write is not a new unused
+local. Red: `9f89c168`.
