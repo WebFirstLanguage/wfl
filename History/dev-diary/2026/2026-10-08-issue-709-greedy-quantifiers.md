@@ -81,6 +81,13 @@ tests pin `find "z"` in 50k `a`s, trailing `needle`, `find all one or
 more whitespace` on 30k, and `one or more any` on 50k under 500 ms.
 `find "z"` over 1 MiB stays under the default step ceiling.
 
+A seeded property test (`pattern::differential_tests`) generates random
+backreference-free patterns — multi-char literals, nested stars, empty
+alternatives, classes, quantifiers, sequences, captures and anchors —
+and asserts Pike `find` equals the inert-backreference path. CI runs
+4_096 cases at seed `0x9E3779B97F4A7C15` plus 2_048 at seed `12345`.
+A local `WFL_PATTERN_DIFF_CASES` raise also compares the `regex` crate.
+
 Boolean `execute_at_position` still returns on first success — it does not
 report extent. Ordered `or` stays left-first (`"1" or "12"` on `"12"` is
 `"1"`), not POSIX leftmost-longest.
