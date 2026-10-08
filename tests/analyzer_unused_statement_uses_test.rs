@@ -321,6 +321,19 @@ open url at "http://example.invalid" with method "GET" and read response as requ
     );
 }
 
+/// Calling an action must not mark an outer binding that shares a parameter name.
+#[test]
+fn unused_outer_binding_is_not_hidden_by_same_named_action_parameter() {
+    let source = r#"
+store value as 1
+define action called show with parameters value:
+    display value
+end action
+call show with 5
+"#;
+    assert_unused(source, &["value"]);
+}
+
 /// Container method / action scopes must not share one name-keyed usage map.
 #[test]
 fn unused_outer_binding_is_not_hidden_by_same_named_method_local() {
@@ -377,6 +390,63 @@ store dead as 0
         "property write must not look like an unused local; got {messages:?}"
     );
     assert_unused(source, &["leftover", "dead"]);
+}
+
+/// Inherited instance and static properties are bound in the child method
+/// environment. `store name as …` assigns the parent property.
+#[test]
+fn inherited_property_store_is_not_an_unused_method_local() {
+    let source = r#"
+create container Animal:
+    property name: Text
+    static property total: Number
+end
+create container Dog extends Animal:
+    action rename:
+        store name as "Rex"
+        store leftover as 1
+    end
+    action show:
+        display name
+    end
+    static action reset:
+        store total as 0
+        store leftover_static as 2
+    end
+end
+store dead as 0
+"#;
+    let messages = unused_messages(source);
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("'name'") || message.contains("'total'")),
+        "inherited property writes must not look unused; got {messages:?}"
+    );
+    assert_unused(source, &["leftover", "leftover_static", "dead"]);
+}
+
+/// An unknown parent may contribute properties this file cannot see, so
+/// method-local stores in that container must not be reported unused.
+#[test]
+fn unknown_parent_does_not_report_method_local_stores() {
+    let source = r#"
+create container Dog extends UnknownAnimal:
+    action rename:
+        store name as "Rex"
+        store leftover as 1
+    end
+end
+store dead as 0
+"#;
+    let messages = unused_messages(source);
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("'name'") || message.contains("'leftover'")),
+        "unknown parent: method stores must not be reported; got {messages:?}"
+    );
+    assert_unused(source, &["dead"]);
 }
 
 /// Exporting a stored constant is a use of that binding.
