@@ -1,0 +1,23 @@
+// Converted from the remaining unique probe in
+// `experiments/syntax/pattern_kitchen_sink.wfl` (issue #669):
+// `one or more of (digit)` — optional `of` plus a parenthesized class.
+
+create pattern phone_number:
+    one or more of (digit)
+    then "-"
+    then one or more of (digit)
+    then "-"
+    then one or more of (digit)
+end pattern
+
+describe "parenthesized digit runs from the kitchen sink":
+
+    test "dashed phone digits match":
+        expect "123-456-7890" matches phone_number to be yes
+    end test
+
+    test "text without dashes does not match the dashed pattern":
+        expect "1234567890" matches phone_number to be no
+    end test
+
+end describe

@@ -1,4 +1,4 @@
-use crate::parser::ast::{Expression, Literal, Parameter, Program, Statement, Type};
+use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -408,8 +408,9 @@ pub struct Analyzer {
     current_method_is_static: Option<bool>,
     /// True when the program contains `include from` statements. Included files
     /// are resolved dynamically at runtime, so the analyzer cannot know which
-    /// actions/variables they expose; undefined-action errors are downgraded to
-    /// warnings to avoid false fatal failures for include-exposed actions.
+    /// actions/variables they expose; undefined-action and undefined-variable
+    /// (`change` target) errors are downgraded to warnings to avoid false fatal
+    /// failures for include-exposed names.
     has_includes: bool,
     /// Index of the top-level statement being analyzed, if any.
     current_statement_index: Option<usize>,
@@ -859,9 +860,10 @@ impl Analyzer {
 
         // Detect include statements up front. Includes are resolved at runtime
         // and can expose actions/variables the analyzer never sees, so their
-        // presence relaxes undefined-action reporting (see `has_includes`).
-        // Assign directly (not just set-to-true) so a reused analyzer instance
-        // does not carry a stale flag from a previous program.
+        // presence relaxes undefined-action and undefined-variable reporting
+        // (see `has_includes`). Assign directly (not just set-to-true) so a
+        // reused analyzer instance does not carry a stale flag from a previous
+        // program.
         self.has_includes = program_has_includes(program);
 
         // Stored-action alias state is per-program.
@@ -1002,6 +1004,61 @@ impl Analyzer {
         }
     }
 
+    /// Include-aware relaxation for an assignment target that is not in scope
+    /// and not a container property. When the program uses `include from`, the
+    /// name may be a variable exposed by an included file at runtime (which the
+    /// analyzer cannot see), so a fatal error would abort before the include
+    /// runs — instead a non-fatal `Undefined variable` warning is emitted and
+    /// `true` is returned. When there are no includes, nothing is emitted and
+    /// `false` is returned, signalling the caller to apply its own fatal
+    /// handling.
+    ///
+    /// This is the assignment-target counterpart of
+    /// [`Self::warn_undefined_callee_if_includes`]. It uses a variable-specific
+    /// message so a `change` is not reported as an undefined action (issue
+    /// #708). It does not record an [`UndefinedActionSite`]; the CLI's
+    /// literal-include action scan cannot resolve variable bindings.
+    fn warn_undefined_variable_if_includes(
+        &mut self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> bool {
+        if self.has_includes {
+            self.warnings.push(SemanticError::new(
+                format!("Undefined variable '{name}'"),
+                line,
+                column,
+            ));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Types of request-object fields readable as `path of req`. Shared by the
+    /// analyzer's `of`-form relaxation and the type checker's property-access
+    /// inference so the lists cannot drift (issue #647).
+    pub(crate) fn request_object_property_type(name: &str) -> Option<Type> {
+        Some(match name {
+            "method" | "path" | "query" | "client_ip" | "originating_ip" | "body" => Type::Text,
+            "body_bytes" => Type::Binary,
+            "headers" => Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            "ambiguous_auth_headers" => Type::Boolean,
+            _ => return None,
+        })
+    }
+
+    /// Natural-language member access: `path of req` parses as a one-argument
+    /// `of` call (`FunctionCall` with a bare-`Variable` callee). The runtime
+    /// reads that as a property on the argument object when the callee is not
+    /// a function. The analyzer must not treat those request-field callees as
+    /// undefined variables (issue #647) or as "not a function" when a
+    /// same-named loop binding exists after `wait for request`.
+    fn is_request_object_property_access(name: &str, arguments: &[Argument]) -> bool {
+        arguments.len() == 1 && Self::request_object_property_type(name).is_some()
+    }
+
     fn analyze_statement(&mut self, statement: &Statement) {
         // Recursive front-end checkpoint. The entry poll in `analyze` fires once,
         // but this method recurses through every nested block, loop, `try`,
@@ -1126,7 +1183,9 @@ impl Analyzer {
                             false
                         };
 
-                    if !is_container_property {
+                    if !is_container_property
+                        && !self.warn_undefined_variable_if_includes(name, *line, *column)
+                    {
                         self.report_undefined_name(
                             format!("Variable '{name}' is not defined"),
                             *line,
@@ -5188,6 +5247,7 @@ impl Analyzer {
                                     }
                                 } else if is_injected_builtin
                                     || self.action_parameters.contains(name)
+                                    || Self::is_request_object_property_access(name, arguments)
                                 {
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
@@ -5204,6 +5264,7 @@ impl Analyzer {
                     } else if Self::is_builtin_function(name)
                         || self.action_parameters.contains(name)
                         || name == "count"
+                        || Self::is_request_object_property_access(name, arguments)
                     {
                         // A known builtin, an action parameter, or the count
                         // loop variable isn't present as a scope symbol but is

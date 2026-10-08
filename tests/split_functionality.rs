@@ -177,9 +177,18 @@ fn test_pattern_split_whitespace() {
         end pattern
         store parts as split text on pattern spaces
         display length of parts
+        display parts[0]
+        display parts[1]
+        display parts[2]
     "#,
     );
-    assert_eq!(result.trim(), "5"); // Pattern splits on individual spaces in "hello  world  test"
+    let lines: Vec<&str> = result.trim().lines().collect();
+    // `one or more " "` is greedy: a run of spaces is one delimiter, so
+    // "hello  world  test" yields three words, not five parts with empties.
+    assert_eq!(lines[0], "3");
+    assert_eq!(lines[1], "hello");
+    assert_eq!(lines[2], "world");
+    assert_eq!(lines[3], "test");
 }
 
 #[test]

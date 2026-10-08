@@ -31,8 +31,10 @@ pub enum Instruction {
     /// Jump to another instruction (used for alternatives and quantifiers)
     Jump(usize),
 
-    /// Split execution into two paths (for alternation and optional matching)
-    Split(usize, usize), // try first address, then second
+    /// Split execution into two paths (for alternation and optional matching).
+    /// The bool is `true` for quantifier-emitted splits so empty re-entry
+    /// takes the exit; `false` for `or` chains, which never loop.
+    Split(usize, usize, bool), // first, second, track_empty
 
     /// Start a capture group
     StartCapture(usize), // capture group index
@@ -220,6 +222,18 @@ impl Program {
     /// Get an instruction at a specific program counter
     pub fn get(&self, pc: usize) -> Option<&Instruction> {
         self.instructions.get(pc)
+    }
+
+    /// True when any instruction (including nested lookbehind programs)
+    /// is a backreference. Those programs cannot use `(pc, pos)` dedup.
+    pub fn contains_backreference(&self) -> bool {
+        self.instructions.iter().any(|inst| match inst {
+            Instruction::Backreference(_) => true,
+            Instruction::CheckLookbehind(inner) | Instruction::CheckNegativeLookbehind(inner) => {
+                inner.contains_backreference()
+            }
+            _ => false,
+        })
     }
 
     /// Set the number of capture groups in this program

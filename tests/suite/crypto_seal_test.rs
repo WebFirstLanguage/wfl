@@ -5,8 +5,7 @@
 // blob, or a mismatched context must all be rejected, and rejected the same way,
 // so `unseal` never becomes an oracle that distinguishes one failure from another.
 
-mod common;
-use common::{expect_text, get_global, run_wfl};
+use crate::common::{expect_text, get_global, run_wfl};
 
 /// A valid 32-byte key as 64 hex characters — the shape `secure_random_bytes of 32` returns.
 const KEY: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";

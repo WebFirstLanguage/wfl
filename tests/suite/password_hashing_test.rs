@@ -3,8 +3,9 @@
 // storing passwords. These builtins add slow, salted, memory/CPU-hard password
 // hashes that produce self-describing PHC/MCF strings and verify in constant time.
 
-mod common;
-use common::{expect_bool_result as expect_bool, expect_text_result as expect_text, run_wfl_code};
+use crate::common::{
+    expect_bool_result as expect_bool, expect_text_result as expect_text, run_wfl_code,
+};
 
 // === Generic password hashing (Argon2id default) ===
 
