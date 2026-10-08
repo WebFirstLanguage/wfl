@@ -371,7 +371,7 @@
       "tour",
       "control-flow"
     ],
-    "doc_purpose": "Docs README tour: nested conditionals"
+    "doc_purpose": "Docs README tour: flat otherwise check if chains"
   },
   "docs_examples/tour/04_loops.wfl": {
     "doc_section": "TestPrograms/docs_examples/tour/README.md",
