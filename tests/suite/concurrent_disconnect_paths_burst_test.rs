@@ -30,8 +30,6 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 /// Exactly fill the concurrent-handler cap. A second full wave cannot reach its
 /// lifecycle checkpoint until every result from the first wave has been consumed.
 const DISCONNECT_WAVE: usize = 256;
@@ -489,17 +487,6 @@ fn start_proxy_server(code: String) -> ProxyServer {
     }
 }
 
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready");
-}
-
 async fn hold_client_until_disconnect(
     port: u16,
     path: &'static str,
@@ -722,14 +709,16 @@ async fn test_disconnect_before_buffered_respond_does_not_kill_the_loop() {
     let mut gate = spawn_counting_gate().await;
     let mut iterations = spawn_iteration_counter().await;
     let latch = WaveLatch::new("buffered-respond disconnect");
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("disc-paths-buf");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DISC_PATHS_BUF_READY ", "srv");
     // `/slow` reaches the counting checkpoint and then parks on a filesystem
     // marker. The test removes that marker only after every client task confirms
     // its socket was dropped, so the subsequent buffered response deterministically
     // sees a disconnected receiver.
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             open url at "http://127.0.0.1:{counter_port}/tick" and stream response as iteration
             close iteration
@@ -761,7 +750,9 @@ async fn test_disconnect_before_buffered_respond_does_not_kill_the_loop() {
         release_path = latch.wfl_path.as_str(),
     );
     let server = start_proxy_server(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "DISC_PATHS_BUF_READY ")
+        .await
+        .port();
     drive_two_gated_disconnect_waves(
         port,
         "/slow",
@@ -780,13 +771,15 @@ async fn test_disconnect_before_stream_write_does_not_kill_the_loop() {
     let _heavy_case = HEAVY_CASE_LOCK.lock().await;
     let mut iterations = spawn_iteration_counter().await;
     let latch = WaveLatch::new("stream-write disconnect");
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("disc-paths-write");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DISC_PATHS_WRITE_READY ", "srv");
     // `/stream` sends the head and parks on a filesystem marker. Each client reads
     // that head and drops its socket; only after all client tasks return does the
     // test remove the marker and let the handler attempt its writes.
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             open url at "http://127.0.0.1:{counter_port}/tick" and stream response as iteration
             close iteration
@@ -820,7 +813,9 @@ async fn test_disconnect_before_stream_write_does_not_kill_the_loop() {
         release_path = latch.wfl_path.as_str(),
     );
     let server = start_proxy_server(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "DISC_PATHS_WRITE_READY ")
+        .await
+        .port();
     drive_two_stream_disconnect_waves(
         port,
         "/stream",
@@ -839,14 +834,16 @@ async fn test_disconnect_before_streaming_head_does_not_kill_the_loop() {
     let mut gate = spawn_counting_gate().await;
     let mut iterations = spawn_iteration_counter().await;
     let latch = WaveLatch::new("pre-streaming-head disconnect");
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("disc-paths-head");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DISC_PATHS_HEAD_READY ", "srv");
     // Client disconnects *before* the streaming head is sent (no head read). The
     // handler reaches the counting checkpoint and then parks on a marker. The test
     // releases it only after every client socket is confirmed dropped, so
     // `start streaming response` deterministically sees the disconnected request.
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             open url at "http://127.0.0.1:{counter_port}/tick" and stream response as iteration
             close iteration
@@ -880,7 +877,9 @@ async fn test_disconnect_before_streaming_head_does_not_kill_the_loop() {
         release_path = latch.wfl_path.as_str(),
     );
     let server = start_proxy_server(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "DISC_PATHS_HEAD_READY ")
+        .await
+        .port();
     drive_two_gated_disconnect_waves(
         port,
         "/prehead",
@@ -898,13 +897,15 @@ async fn test_disconnect_before_streaming_head_does_not_kill_the_loop() {
 async fn test_repeated_wait_timeouts_do_not_kill_the_loop() {
     let _heavy_case = HEAVY_CASE_LOCK.lock().await;
     let mut counter = spawn_iteration_counter().await;
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("disc-paths-wait");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DISC_PATHS_WAIT_READY ", "srv");
     // Finite `wait for request ... with timeout` that repeatedly expires with no
     // client traffic must not trip the structural breaker. After many idle
     // timeouts a real `/ping` must still be served.
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             open url at "http://127.0.0.1:{counter_port}/tick" and stream response as tick
             close tick
@@ -926,7 +927,9 @@ async fn test_repeated_wait_timeouts_do_not_kill_the_loop() {
         counter_port = counter.port,
     );
     let server = start_proxy_server(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "DISC_PATHS_WAIT_READY ")
+        .await
+        .port();
     // The loop initially starts 256 handlers. It can start handler 512 only after
     // consuming 256 finite request-wait expiries and refilling once more. A buggy
     // structural classifier breaks while consuming expiry 256 and tops out at 511,
