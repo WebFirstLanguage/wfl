@@ -13,8 +13,6 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::{Expression, Statement};
 
-mod common;
-
 // ----------------------------- parser tests ------------------------------
 
 fn parse_single_statement(code: &str) -> Statement {
@@ -231,27 +229,14 @@ fn join_server(handle: std::thread::JoinHandle<()>) {
     }
 }
 
-/// Wait until the WFL server has bound `port` and is accepting connections,
-/// instead of a fixed sleep that flakes on a loaded CI runner (spurious
-/// `Connection refused` when binding takes longer than the guess). A bare TCP
-/// connect that drops immediately is a safe readiness probe.
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready in time");
-}
-
 #[tokio::test]
 async fn test_streamed_response_lines_and_headers() {
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("stream-lines");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "STREAM_LINES_READY ", "s");
     let server_code = format!(
         r#"
-        listen on port {port} as s
+        listen on port 0 as s
+        {publish}
         wait for request comes in on s as req with timeout 10000
         start streaming response to req with status 200 and content type "application/x-ndjson" as out
         write line "alpha" to out
@@ -264,7 +249,9 @@ async fn test_streamed_response_lines_and_headers() {
     );
 
     let server_handle = start_server_thread(server_code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "STREAM_LINES_READY ")
+        .await
+        .port();
 
     let client = reqwest::Client::new();
     let response = client
@@ -289,7 +276,8 @@ async fn test_streamed_response_lines_and_headers() {
 
 #[tokio::test]
 async fn test_post_of_index_operands_execute_for_content_write_and_flush() {
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("stream-postof");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "STREAM_POSTOF_READY ", "s");
     let server_code = format!(
         r#"
         define action called choose with parameters values:
@@ -300,7 +288,8 @@ async fn test_post_of_index_operands_execute_for_content_write_and_flush() {
         end action
         store types as ["text/plain"]
         store chunks as ["post-of body"]
-        listen on port {port} as s
+        listen on port 0 as s
+        {publish}
         wait for request comes in on s as req with timeout 10000
         start streaming response to req with status 200 and content type choose of (types)[0] as out
         store streams as [out]
@@ -312,7 +301,9 @@ async fn test_post_of_index_operands_execute_for_content_write_and_flush() {
     );
 
     let server_handle = start_server_thread(server_code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "STREAM_POSTOF_READY ")
+        .await
+        .port();
 
     let response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/post-of"))
@@ -341,10 +332,12 @@ async fn test_post_of_index_operands_execute_for_content_write_and_flush() {
 async fn test_write_after_close_does_not_reach_client() {
     // Writing after `close out` is a catchable error and does NOT reach the
     // client: the client sees only the bytes written before close.
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("stream-after-close");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "STREAM_AFTER_CLOSE_READY ", "s");
     let server_code = format!(
         r#"
-        listen on port {port} as s
+        listen on port 0 as s
+        {publish}
         wait for request comes in on s as req with timeout 10000
         start streaming response to req with status 200 and content type "text/plain" as out
         write line "before" to out
@@ -359,7 +352,10 @@ async fn test_write_after_close_does_not_reach_client() {
     );
 
     let server_handle = start_server_thread(server_code);
-    wait_for_server(port).await;
+    let port =
+        crate::common::wait_for_published_web_server(&ready_path, "STREAM_AFTER_CLOSE_READY ")
+            .await
+            .port();
 
     let response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/x"))
@@ -381,10 +377,12 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
     // WITHOUT `close out` must still finalize the client's body on the way out.
     // Otherwise the sender lingers in the interpreter's stream table, the body is
     // never terminated, and the client hangs forever (and the table leaks).
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("stream-auto-close");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "STREAM_AUTO_CLOSE_READY ", "s");
     let server_code = format!(
         r#"
-        listen on port {port} as s
+        listen on port 0 as s
+        {publish}
         main loop:
             wait for request comes in on s as req with timeout 20000
             store p as req["path"]
@@ -401,7 +399,10 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
     );
 
     let server_handle = start_server_thread(server_code);
-    wait_for_server(port).await;
+    let port =
+        crate::common::wait_for_published_web_server(&ready_path, "STREAM_AUTO_CLOSE_READY ")
+            .await
+            .port();
 
     let response = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/x"))
@@ -429,10 +430,12 @@ async fn test_stream_auto_closes_when_handler_ends_without_close() {
 
 #[tokio::test]
 async fn test_streamed_response_write_chunk_verbatim() {
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("stream-chunk");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "STREAM_CHUNK_READY ", "s");
     let server_code = format!(
         r#"
-        listen on port {port} as s
+        listen on port 0 as s
+        {publish}
         wait for request comes in on s as req with timeout 10000
         start streaming response to req with status 201 and content type "text/plain" as out
         write chunk "one" to out
@@ -443,7 +446,9 @@ async fn test_streamed_response_write_chunk_verbatim() {
     );
 
     let server_handle = start_server_thread(server_code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "STREAM_CHUNK_READY ")
+        .await
+        .port();
 
     let client = reqwest::Client::new();
     let response = client

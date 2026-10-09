@@ -21,8 +21,6 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 const PROBE_DEADLINE: Duration = Duration::from_secs(10);
 
 struct EvaluationProbe {
@@ -190,17 +188,6 @@ fn start_proxy_server(code: String) -> ProxyServer {
     }
 }
 
-async fn wait_for_server(port: u16) {
-    let address = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&address).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("proxy server on {address} did not become ready");
-}
-
 async fn assert_ping_survives(port: u16, context: &str) {
     let response = tokio::time::timeout(
         PROBE_DEADLINE,
@@ -352,7 +339,8 @@ async fn response_expression_disconnects_cancel_upstreams_and_preserve_server_li
     let stream_status = spawn_evaluation_probe("streaming response status").await;
     let stream_content_type = spawn_evaluation_probe("streaming response content type").await;
     let stream_headers = spawn_evaluation_probe("streaming response headers").await;
-    let proxy_port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("resp-expr");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "RESP_EXPR_READY ", "srv");
 
     let actions = [
         stalled_action(
@@ -385,7 +373,8 @@ async fn response_expression_disconnects_cancel_upstreams_and_preserve_server_li
     let program = format!(
         r#"
 {actions}
-listen on port {proxy_port} as srv
+listen on port 0 as srv
+{publish}
 main loop concurrently:
     wait for request comes in on srv as req with timeout 30000
     store request_path as req["path"]
@@ -420,7 +409,9 @@ end loop
     );
 
     let server = start_proxy_server(program);
-    wait_for_server(proxy_port).await;
+    let proxy_port = crate::common::wait_for_published_web_server(&ready_path, "RESP_EXPR_READY ")
+        .await
+        .port();
 
     disconnect_at_checkpoint(
         proxy_port,

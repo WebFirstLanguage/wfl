@@ -87,9 +87,9 @@ validated statically (layers 1–4) via the docs-examples manifest instead.
 2. **Web server request/response**: `listen` → `wait for request` → `respond`
    over a real socket (`run_web_tests`, `tests/web_server_*`).
 3. **Streaming (client)**: `open url ... stream response` → `wait for next
-   line|chunk` → `nothing` at EOF (`tests/http_stream_test.rs`).
+   line|chunk` → `nothing` at EOF (`tests/suite/http_stream_test.rs`).
 4. **Streaming (server)**: `start streaming response` → `write line|chunk` →
-   `close` (`tests/http_server_streaming_test.rs`).
+   `close` (`tests/suite/http_server_streaming_test.rs`).
 5. **Concurrent handlers**: `main loop concurrently:` — a slow handler does not
    block a fast sibling; failures are contained (`tests/concurrent_main_loop_test.rs`).
 6. **File I/O**, **outbound HTTP**, **REPL**, **crypto/hashing**.

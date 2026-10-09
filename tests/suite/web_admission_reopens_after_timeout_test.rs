@@ -40,7 +40,9 @@ fn client() -> reqwest::Client {
 
 #[tokio::test]
 async fn admission_reopens_after_pending_requests_time_out() {
-    let port = 8241;
+    let ready_path = crate::common::unique_ready_path("admit-reopen");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "ADMIT_REOPEN_READY ", "test_server");
 
     // Cap in-flight admission at 2 and shed a dequeued-but-unanswered request
     // after 1s. The handler dequeues requests in a loop and NEVER responds, so
@@ -53,16 +55,18 @@ async fn admission_reopens_after_pending_requests_time_out() {
 
     let server_code = format!(
         "\
-listen on port {port} as test_server
+listen on port 0 as test_server
+{publish}
 count from 1 to 100:
     wait for request comes in on test_server as req with timeout 30000
 end count
-"
+    "
     );
 
     let _server = start_server(server_code, config);
-    // Let the listener bind.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "ADMIT_REOPEN_READY ")
+        .await
+        .port();
 
     let url = format!("http://127.0.0.1:{port}/");
 
