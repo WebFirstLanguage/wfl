@@ -18,10 +18,11 @@ code, documentation, tests, and examples.
 
 1. **Fork** the repository
 2. **Clone** your fork
-3. **Create branch:** `git checkout -b feature/my-feature`
+3. **Create branch:** `git checkout -b feature/my-feature origin/dev`
 4. **Make changes** (TDD — tests first)
 5. **Test thoroughly**
-6. **Submit PR**
+6. **Submit PR into `dev`**; follow the current-revision CI, Yomi review and
+   authority gates in [GOVERNANCE.md](../../GOVERNANCE.md).
 
 Want trusted collaborator access? See
 [Becoming a Contributor](../../CONTRIBUTING.md#becoming-a-contributor).
@@ -77,6 +78,9 @@ python scripts/validate_docs_examples.py --file path/to/example.wfl
 ```
 
 ### 4. Create PR
+
+Use the canonical template at
+[`.github/pull_request_template.md`](../../.github/pull_request_template.md).
 
 **PR should include:**
 - Clear description of changes

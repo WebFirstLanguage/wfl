@@ -1,5 +1,9 @@
 # Security Policy
 
+Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
+bot feedback, secrets and production boundaries follow
+[GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
+
 ## ⚠️ Alpha Software Notice
 
 **WFL is currently in alpha stage and should not be used in production environments.** This alpha status means that security features are still being developed and hardened. Use WFL only for development, testing, and educational purposes.
@@ -163,9 +167,9 @@ As alpha software, WFL has the following known limitations:
 
 ### Documentation
 
-- [WFL Architecture](Docs/technical/wfl-architecture-diagram.md) - Understanding system components
-- [Error Handling](Docs/language-reference/wfl-errors.md) - Secure error management
-- [Async Operations](Docs/language-reference/wfl-async.md) - Network security considerations
+- [WFL Architecture](Docs/contributing/architecture-overview.md) - Understanding system components
+- [Error Handling](Docs/03-language-basics/error-handling.md) - Secure error management
+- [Async Operations](Docs/04-advanced-features/async-programming.md) - Network security considerations
 
 ### Security Testing
 
