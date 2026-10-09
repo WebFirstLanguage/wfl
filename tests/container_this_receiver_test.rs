@@ -768,3 +768,160 @@ display "twice=" with twice of this
     assert!(stdout.contains("top=5"), "{stdout}");
     assert!(stdout.contains("twice=10"), "{stdout}");
 }
+
+#[test]
+fn a_container_declared_inside_an_action_gets_its_own_this() {
+    // Second review (#701): the enclosing action's `this` was treated as a
+    // user variable, so `this.note()` in `Nested` ran on the outer object
+    // (q.k=0, c.n=2).
+    let stdout = run_ok(
+        r#"create container C:
+    property n: Number
+    action note:
+        change n to n plus 1
+    end
+    action inner_def:
+        create container Nested:
+            property k: Number
+            action note:
+                change k to k plus 1
+            end
+            action twice:
+                this.note()
+                this.note()
+            end
+        end
+        create new Nested as q:
+            k is 0
+        end
+        q.twice()
+        display "q.k=" with q.k
+    end
+end
+create new C as c:
+    n is 0
+end
+c.inner_def()
+display "c.n=" with c.n
+"#,
+    );
+    assert!(stdout.contains("q.k=2"), "{stdout}");
+    assert!(stdout.contains("c.n=0"), "{stdout}");
+}
+
+#[test]
+fn this_is_decided_where_the_container_is_defined() {
+    // The analyzer decides `this` where the container is defined. A global
+    // `this` created later (a program that failed analysis before #701)
+    // must not take over at run time; one created earlier keeps its meaning
+    // (`existing_variables_named_this_keep_their_meaning_inside_actions`).
+    let stdout = run_ok(
+        r#"create container M:
+    property v: Number
+    action run:
+        display "inside " with this
+    end
+end
+store this as 41
+create new M as m:
+    v is 1
+end
+m.run()
+display "outside " with this
+"#,
+    );
+    assert!(stdout.contains("inside M instance"), "{stdout}");
+    assert!(stdout.contains("outside 41"), "{stdout}");
+}
+
+#[test]
+fn every_ordinary_action_call_form_keeps_the_object_coherent() {
+    // `X of this`, bare and expression zero-argument auto-calls, and an
+    // overloaded `call X with this and ...` each reach the running action's
+    // object; their writes and the caller's interleave without loss.
+    let stdout = run_ok(
+        r#"create container M:
+    property buf: Text
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+    action step:
+        store buf as "a"
+        store r as via_of of this
+        store buf as buf with "b"
+        noarg
+        store buf as buf with "c"
+        store z as noarg
+        store buf as buf with "d"
+        call tagged with this and "T"
+        store buf as buf with "e"
+    end
+end
+create new M as m:
+    buf is ""
+end
+define action called via_of with parameters o:
+    o.emit("O")
+    return "of"
+end action
+define action called noarg:
+    m.emit("N")
+end action
+define action called tagged with parameters o:
+    o.emit("1")
+end action
+define action called tagged with parameters o and tag:
+    o.emit(tag)
+end action
+m.step()
+display "buf=[" with m.buf with "]"
+"#,
+    );
+    assert!(stdout.contains("buf=[aObNcNdTe]"), "{stdout}");
+}
+
+#[test]
+fn a_static_action_given_this_keeps_the_object_coherent() {
+    let stdout = run_ok(
+        r#"create container M:
+    property buf: Text
+    static action stamp needs o: M:
+        o.emit("S")
+    end
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+    action step:
+        store buf as "a"
+        M.stamp(this)
+        store buf as buf with "z"
+    end
+end
+create new M as m:
+    buf is ""
+end
+m.step()
+display "buf=[" with m.buf with "]"
+"#,
+    );
+    assert!(stdout.contains("buf=[aSz]"), "{stdout}");
+}
+
+#[test]
+fn changing_this_in_a_static_action_names_the_static_reason() {
+    let source = r#"create container M:
+    static property total: Number defaults 0
+    static action reset:
+        change this to 0
+    end
+end
+M.reset()
+"#;
+    let errors = semantic_errors(source);
+    assert!(
+        errors
+            .iter()
+            .any(|message| message.contains("'this'") && message.contains("static action")),
+        "{errors:?}"
+    );
+}
