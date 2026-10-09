@@ -25,8 +25,12 @@ probe-then-rebind.
 `test_redirect_server_returns_301_with_location` listens on port 0 and
 uses 8443 only as the Location target (nothing binds it).
 
-The parser now accepts IPv6 handles (`WebServer:::1:port`) so
-`web_server_bind_address_test` can publish `::1`.
+The parser splits the remainder on the last colon and parses the host
+as `IpAddr`. WFL prints `WebServer::` + `addr.ip()` + `:` + port, so a
+`::1` bind is `WebServer::::1:port` (four colons) and `::` is
+`WebServer:::::port`. An earlier extra-colon restore targeted a
+made-up three-colon form and made `test_server_binds_to_ipv6_localhost`
+skip its `[::1]` request.
 
 `test_plain_http_to_tls_port_fails` keeps the original
 `wait for 2500 milliseconds` window. An extra HTTPS GET after the

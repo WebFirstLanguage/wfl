@@ -34,9 +34,11 @@ pub fn free_tcp_port() -> u16 {
 ///
 /// Only complete newline-terminated lines are accepted so a partial write is
 /// not treated as a bound address. The child must own the port before it
-/// prints this line (`listen on port 0` then `display`). IPv6 handles use
-/// `addr.ip()` Display (`::1`), so the remainder is parsed as `{ip}:{port}`
-/// rather than `SocketAddr` (`[::1]:port`).
+/// prints this line (`listen on port 0` then `display`). WFL formats the
+/// handle as `WebServer::` + `addr.ip()` + `:` + port, so a `::1` bind is
+/// `WebServer::::1:port` and a `::` bind is `WebServer:::::port`. After
+/// stripping the marker, split host/port on the last colon and parse the
+/// host as [`IpAddr`] (bare IPv6, no brackets).
 pub fn published_web_server_addr(log: &str, prefix: &str) -> Option<SocketAddr> {
     let marker = format!("{prefix}WebServer::");
     log.split_inclusive('\n')
@@ -45,15 +47,7 @@ pub fn published_web_server_addr(log: &str, prefix: &str) -> Option<SocketAddr> 
             line.trim_end()
                 .strip_prefix(marker.as_str())
                 .and_then(|rest| {
-                    // `WebServer::` + `::1` Display is `WebServer:::1:port`;
-                    // stripping the marker leaves `:1:port`. Restore the colon
-                    // so `rsplit_once` can split `::1` from the port.
-                    let restored = if rest.starts_with(':') {
-                        format!(":{rest}")
-                    } else {
-                        rest.to_string()
-                    };
-                    let (ip, port) = restored.rsplit_once(':')?;
+                    let (ip, port) = rest.rsplit_once(':')?;
                     let port: u16 = port.parse().ok()?;
                     let ip: IpAddr = ip.parse().ok()?;
                     Some(SocketAddr::new(ip, port))
@@ -104,12 +98,20 @@ pub async fn try_wait_for_published_web_server(
     timeout: Duration,
 ) -> Option<SocketAddr> {
     let deadline = Instant::now() + timeout;
+    let marker = format!("{prefix}WebServer::");
     loop {
-        if let Ok(log) = fs::read_to_string(ready_path)
-            && let Some(address) = published_web_server_addr(&log, prefix)
-        {
-            assert_ne!(address.port(), 0, "server must report its assigned port");
-            return Some(address);
+        if let Ok(log) = fs::read_to_string(ready_path) {
+            if let Some(address) = published_web_server_addr(&log, prefix) {
+                assert_ne!(address.port(), 0, "server must report its assigned port");
+                return Some(address);
+            }
+            let published_unparsed = log
+                .split_inclusive('\n')
+                .any(|line| line.ends_with('\n') && line.trim_end().starts_with(marker.as_str()));
+            assert!(
+                !published_unparsed,
+                "published {prefix}WebServer line did not parse: {log}"
+            );
         }
         if Instant::now() >= deadline {
             return None;

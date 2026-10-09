@@ -12,9 +12,16 @@ fn published_web_server_addr_parses_ipv4_ipv6_and_rejects_partial_lines() {
         published_web_server_addr("READY WebServer::127.0.0.1:8080\n", "READY "),
         Some("127.0.0.1:8080".parse().unwrap())
     );
+    // WFL formats `WebServer::` + `addr.ip()` + `:` + port. `::1` Display is
+    // `::1`, so the real handle is four colons: `WebServer::::1:8080`.
     assert_eq!(
-        published_web_server_addr("READY WebServer:::1:8080\n", "READY "),
+        published_web_server_addr("READY WebServer::::1:8080\n", "READY "),
         Some("[::1]:8080".parse().unwrap())
+    );
+    // Bind `::` (unspecified) is `WebServer::` + `::` + `:` + port.
+    assert_eq!(
+        published_web_server_addr("READY WebServer:::::8080\n", "READY "),
+        Some("[::]:8080".parse().unwrap())
     );
     assert!(
         published_web_server_addr("READY WebServer::127.0.0.1:8080", "READY ").is_none(),
@@ -134,34 +141,37 @@ mod bind_address_tests {
 
     #[tokio::test]
     async fn test_server_binds_to_ipv6_localhost() {
+        // Skip only when the host cannot bind IPv6 loopback. A published
+        // handle that fails to parse must not take this path.
+        if std::net::TcpListener::bind(("::1", 0)).is_err() {
+            return;
+        }
+
         let ready_path = crate::common::unique_ready_path("bind_v6");
         let server_code = listen_and_publish(&ready_path, "BIND_V6_READY ");
         let server_handle = start_server_with_config(server_code, "::1".to_string());
+        let address =
+            crate::common::wait_for_published_web_server(&ready_path, "BIND_V6_READY ").await;
+        assert_eq!(address.ip(), std::net::Ipv6Addr::LOCALHOST);
+        assert!(
+            address.to_string().starts_with("[::1]:"),
+            "client URL must target IPv6 loopback, got {address}"
+        );
 
-        let published = crate::common::try_wait_for_published_web_server(
-            &ready_path,
-            "BIND_V6_READY ",
-            Duration::from_secs(2),
-        )
-        .await;
-
-        // Note: This test may fail on systems without IPv6 support
-        // We just verify the server attempted to bind to the IPv6 address
-        if let Some(address) = published {
-            assert_eq!(address.ip(), std::net::Ipv6Addr::LOCALHOST);
-            let client = reqwest::Client::new();
-            let response = client
-                .post(format!("http://{address}/test"))
-                .header("Content-Length", "0")
-                .body("")
-                .timeout(Duration::from_secs(2))
-                .send()
-                .await;
-            if let Ok(resp) = response {
-                let body = resp.text().await.unwrap();
-                assert_eq!(body, "OK", "Server should respond correctly on IPv6");
-            }
-        }
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{address}/test"))
+            .header("Content-Length", "0")
+            .body("")
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .expect("Server should be accessible on [::1]");
+        assert_eq!(
+            response.text().await.unwrap(),
+            "OK",
+            "Server should respond correctly on IPv6"
+        );
 
         let _ = server_handle.join();
         let _ = std::fs::remove_file(&ready_path);
