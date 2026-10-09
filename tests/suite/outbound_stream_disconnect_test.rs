@@ -15,9 +15,7 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
-/// Upstream: send a chunked head + one body chunk, then STALL (send nothing
+/// Upstream: send a chunked head + one body chunk, then STALL (send nothing)
 /// more, so the proxy's next read blocks). Detect the proxy dropping the
 /// connection via a blocking read that returns 0 at peer close.
 async fn spawn_one_chunk_then_stall_upstream() -> (u16, tokio::sync::oneshot::Receiver<()>) {
@@ -67,29 +65,20 @@ fn start_proxy_server(code: String) -> std::thread::JoinHandle<()> {
     })
 }
 
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("proxy server on {addr} did not become ready");
-}
-
 #[tokio::test]
 async fn test_downstream_disconnect_cancels_blocked_upstream_read() {
     let (upstream_port, mut upstream_disconnect) = spawn_one_chunk_then_stall_upstream().await;
 
-    let proxy_port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("out_disc");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "OUT_DISC_READY ", "srv");
     // The handler proxies: read chunks from upstream and write them downstream.
     // After the first chunk it blocks on the stalled upstream. `outbound_stream_max_seconds`
     // is the default (300s), so ONLY a disconnect can cancel that blocked read
     // within the test window.
     let code = format!(
         r#"
-        listen on port {proxy_port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -113,7 +102,9 @@ async fn test_downstream_disconnect_cancels_blocked_upstream_read() {
     "#
     );
     let server = start_proxy_server(code);
-    wait_for_server(proxy_port).await;
+    let proxy_port = crate::common::wait_for_published_web_server(&ready_path, "OUT_DISC_READY ")
+        .await
+        .port();
 
     // Client: read the first proxied chunk, then DISCONNECT (drop the response)
     // while the handler is blocked reading the stalled upstream.
