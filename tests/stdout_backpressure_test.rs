@@ -244,13 +244,25 @@ async fn shutdown_does_not_wait_for_active_or_pending_output() {
     ready(&mut child, port).await;
     let client = reqwest::Client::new();
     let slow_client = client.clone();
-    let slow = tokio::spawn(async move { response(&slow_client, port, "/slow").await });
+    let slow = tokio::spawn(async move {
+        slow_client
+            .get(format!("http://127.0.0.1:{port}/slow"))
+            .send()
+            .await
+    });
     let mut stdout = server_stdout(&mut child, port).await;
-    bounded(stdout.read_exact(&mut [0]), "handler never wrote stdout")
+    let mut first = [0];
+    bounded(stdout.read_exact(&mut first), "handler never wrote stdout")
         .await
         .unwrap();
+    assert_eq!(first, [b'x']);
     let queued_client = client.clone();
-    let queued = tokio::spawn(async move { response(&queued_client, port, "/queued").await });
+    let queued = tokio::spawn(async move {
+        queued_client
+            .get(format!("http://127.0.0.1:{port}/queued"))
+            .send()
+            .await
+    });
     bounded(
         async {
             while !dir.path().join("queued.txt").exists() {
@@ -269,7 +281,9 @@ async fn shutdown_does_not_wait_for_active_or_pending_output() {
     );
     slow.abort();
     queued.abort();
-    let mut tail = Vec::new();
+    // Include the byte observed before exit: Windows need not retain the
+    // unread remainder of an interrupted pipe write after process shutdown.
+    let mut tail = first.to_vec();
     bounded(
         stdout.read_to_end(&mut tail),
         "stdout remained open after exit",
