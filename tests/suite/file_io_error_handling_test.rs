@@ -1,5 +1,3 @@
-mod common;
-
 use std::fs;
 use std::path::Path;
 use tokio::time::{Duration, timeout};
@@ -13,7 +11,7 @@ fn wfl_path(path: &Path) -> String {
 
 /// Parse and execute a fixture under this suite's original five-second deadline.
 async fn execute(code: &str) -> Interpreter {
-    timeout(Duration::from_secs(5), common::run_wfl(code))
+    timeout(Duration::from_secs(5), crate::common::run_wfl(code))
         .await
         .expect("Operation timed out")
         .expect("file I/O program failed")
@@ -22,7 +20,7 @@ async fn execute(code: &str) -> Interpreter {
 /// Inspect the script's outcome flags to verify which control-flow branch ran.
 fn assert_flag(interpreter: &Interpreter, name: &str, expected: bool) {
     assert!(
-        matches!(common::get_global(interpreter, name), Value::Bool(value) if value == expected),
+        matches!(crate::common::get_global(interpreter, name), Value::Bool(value) if value == expected),
         "{name} must be {expected}"
     );
 }

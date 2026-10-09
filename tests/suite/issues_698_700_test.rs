@@ -13,8 +13,7 @@
 //! — a silently-wrong answer with status 0 is exactly the failure mode #698
 //! and #700 describe.
 
-mod common;
-use common::{run_file_status, run_src};
+use crate::common::{run_file_status, run_src};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------

@@ -78,8 +78,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::{NamedTempFile, TempDir};
 
-mod common;
-use common::wfl_exe;
+use crate::common::wfl_exe;
 
 /// Hard wall-clock cap for a single program run. A regression that loops or
 /// hangs is killed here instead of consuming the whole job timeout.
