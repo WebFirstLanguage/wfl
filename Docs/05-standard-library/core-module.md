@@ -91,6 +91,46 @@ display 42
 
 ---
 
+### write_stdout
+
+`call write_stdout with text` writes one text argument to stdout as UTF-8,
+without adding spaces or a newline. The empty string writes no bytes; embedded
+newlines and other text characters are preserved. The call returns nothing.
+
+```wfl
+call write_stdout with "abc"
+call write_stdout with "def"
+```
+
+This produces exactly `abcdef` with no trailing newline. Use this for tools
+whose output is compared byte for byte or passed through a pipeline. `display`
+and `print` continue to add a newline.
+
+Output is flushed before the call returns. With `execute file ... and read
+output as ...`, it goes to the same capture buffer as `display` and `print`,
+including any final text without a newline. Nested and concurrent captures
+retain their existing isolation.
+
+Uncaptured output from `write_stdout`, `display` and `print` shares an ordered,
+bounded output queue. A pipe consumer that stops reading delays the emitting
+handler while unrelated concurrent handlers can continue. The call waits for
+its write and flush to finish; it does not silently discard output under pressure.
+
+Execution timeouts and cancellation can interrupt that wait. Cancelled output
+still waiting in the queue is skipped. An OS write already in progress cannot
+be recalled and may finish later; cancellation does not undo bytes already
+written. Server shutdown does not wait for a stalled stdout pipe.
+
+The argument must be text. Join values into text before calling when needed.
+Wrong argument counts and types raise an error. A stdout write or flush failure
+also raises an ordinary, catchable runtime error; some bytes may already have
+been written when an I/O failure occurs.
+
+Use the explicit call form shown above, or `write_stdout of text`. The name is
+not a reserved keyword. See the [executable example](../../TestPrograms/docs_examples/core/write_stdout.wfl).
+
+---
+
 ### typeof
 
 **Purpose:** Get the type name of a value as a string.

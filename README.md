@@ -159,3 +159,9 @@ Project conventions (also binding under governance):
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).
+
+## Contribution policy
+
+Read [GOVERNANCE.md](GOVERNANCE.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+Work on feature branches and open PRs into `dev`; current-revision CI and
+independent review are required.

@@ -2748,7 +2748,7 @@ impl TypeChecker {
             "typeof" | "type_of" => Type::Text,
             "isnothing" | "is_nothing" => Type::Boolean,
             "raise_error" => Type::Nothing,
-            "print" | "sleep" | "foreach" => Type::Nothing, // Void functions
+            "print" | "write_stdout" | "sleep" | "foreach" => Type::Nothing, // Void functions
 
             // Math functions
             "abs" | "round" | "floor" | "ceil" | "clamp" | "min" | "max" | "power" | "sqrt"

@@ -1,0 +1,16 @@
+describe "Exact stdout writer":
+    test "empty text returns nothing":
+        store write_result as write_stdout of ""
+        expect isnothing of write_result to be yes
+    end test
+    test "dynamic nontext arguments raise a catchable error":
+        store invalid_value as parse_json of "42"
+        store caught_message as ""
+        try:
+            call write_stdout with invalid_value
+        when error:
+            change caught_message to error_message
+        end try
+        expect caught_message contains "write_stdout expects text" to be yes
+    end test
+end describe

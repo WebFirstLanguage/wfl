@@ -67,6 +67,7 @@ fn register_core(analyzer: &mut Analyzer) {
     // `print` is variadic; its repeated Any contract is enforced separately.
     register(analyzer, &["print"], vec![], Type::Nothing);
     register(analyzer, &["raise_error"], vec![Type::Text], Type::Nothing);
+    register(analyzer, &["write_stdout"], vec![Type::Text], Type::Nothing);
     register(
         analyzer,
         &["typeof", "type_of"],

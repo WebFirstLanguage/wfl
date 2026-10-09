@@ -15,9 +15,101 @@ repository so contributors have a single source of truth.
 | [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Binding repository hygiene and layout policy (§3.8) |
 | [Docs/contributing/contributing-guide.md](Docs/contributing/contributing-guide.md) | Day-to-day development workflow |
 | [Docs/wfl-foundation.md](Docs/wfl-foundation.md) | 19 guiding principles and the No-Unlearning Invariant |
+| [testing.md](testing.md) | Binding testing policy and WFL profile |
 | [LICENSE](LICENSE) | Apache License 2.0 |
 
 ---
+
+## Common contribution policy — version 1.0 (2026-09-27)
+
+This version records Brad's approved Logbie LLC governance and subsequent CEO
+delegations of 2026-09-26, reconciled with the Maintainer merge rule and I1
+exception. It governs contribution authority; the repository's technical,
+compatibility, testing and licensing rules remain binding. Report substantive
+conflicts on the owning issue instead of silently relaxing a rule.
+
+### Branches and review
+
+- Start a short-lived feature, fix or documentation branch from current `dev`;
+  open its PR into `dev`. Never push directly to `dev`, `main` or a release
+  branch, or force-push shared branches. Promotion is `dev → main` by PR.
+- Maintainers merge. The only standing exception is an eligible I1 fix by a
+  project-run agent under §3.9 and
+  [the issue policy](Docs/contributing/issue-policy.md). Authors, including
+  agent authors, do not merge their own pull requests. This needs no separate
+  per-PR Brad approval once the ruleset, reviews, and CI below are satisfied.
+- GitHub ruleset **LOG-16 reviewed changes** is enforced on `main` and `dev`
+  with no bypass. It requires one approving review from someone other than the
+  author (approvals are dismissed on a new push), all review threads resolved,
+  the branch up to date with its base, merge commits only, and the 12 required
+  status checks passing. The ruleset blocks a merge that lacks that independent
+  approval.
+- Let triggered bot reviews finish; inspect reviews, inline comments and
+  discussions. Fix actionable findings or record a reasoned disposition and
+  resolve required discussions. Recheck checks and reviews immediately before
+  merging. Material changes require fresh applicable CI and independent review.
+- The PR owner remains responsible while CI or bot review is pending. Use an
+  actual scheduled monitor or event-driven continuation, not a promise to watch.
+- Do not bypass protections, use an administrator override, remove a check, or
+  rerun a genuine failure merely to manufacture green. Access is not authority.
+
+### Evidence and testing
+
+- Behavior changes start with a test failing for the intended reason, followed
+  by implementation and passing evidence. Retain exact commands, revisions,
+  results and run links under the repository testing policy.
+- GitHub Actions on the current reviewed revision is merge evidence; local
+  checks supplement it. Enumerate required jobs and their individual results.
+  Missing tools, environment failures, missing/pending checks and skipped,
+  cancelled or failed required suites are blocked verification, never passes.
+  An aggregate green result cannot stand in for an unrun required suite.
+- For prose-only work, record “Behavior tests N/A — documentation only” with
+  the reason and relevant documentation, link and policy checks. This does not
+  waive required CI. Existing risk classes and stricter technical gates remain.
+- Run agent-operated runtime tests on Starnet test VM 136 or 104, never VM 143;
+  coordinate risky-test snapshots with Nodoka. Preserve the repository's approved
+  GitHub Actions execution environments and record their actual results.
+
+### Promotion, release and production authority
+
+Azusa, CEO of Logbie LLC, may approve and perform builds, releases, merges to
+`main`, release promotions, tags and production deployments only when every
+required check passed on the exact commit being acted on: none skipped,
+missing, pending, flaky or failing. Record the SHA, required-check set and
+individual result links, then recheck immediately before acting. A different
+SHA or aggregate green is insufficient; a flaky rerun is not a waiver.
+Anything short of fully green stops for Brad's explicit authorization.
+Current-revision independent review and handled bot feedback remain required.
+
+Always Brad's decisions regardless of CI: spending money; deleting data,
+agents or repositories; anything touching secrets; VM configuration changes;
+and removing or weakening required checks. Release/deploy workflow changes,
+organization settings/membership and deletion of branches, rulesets or
+workflows also require Brad's explicit approval through the owning issue.
+
+Production hosts are read-only for agents: authorized config/log inspection
+only, without exposing secrets. No edits, restarts, installs or migrations.
+The conditional CEO production-deployment authority above is limited to the
+authorized deployment; it grants no general production administration.
+Other production changes go to Brad through Azusa.
+
+### Credentials, exceptions and enforcement
+
+Never commit, print, log or paste credentials into files, comments, PRs,
+command arguments or remote URLs. Inject authorized tokens through environment
+variables from approved storage, with minimal scope. Suspected exposure:
+stop propagation, report safe metadata, and coordinate response with Brad.
+Do not borrow another agent's or a human's credentials.
+
+Tie governed changes to an owning issue. Record exceptions with scope, reason,
+risk, owner, expiry and follow-up, and obtain Brad's explicit approval before
+acting. A deviation note is not approval and cannot silently amend policy.
+
+Policy text does not configure GitHub. Verify effective protections and actual
+required checks via the API. Report missing controls, identities and platform
+limits explicitly; never call a convention machine-enforced. In particular,
+a shared author identity cannot supply independent GitHub approval. Deferred
+identity enforcement does not authorize bypass or replace independent review.
 
 ## 1. Project identity
 
@@ -59,7 +151,7 @@ may care about.
 
 | Decision type | Who decides | Notes |
 |---|---|---|
-| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Based on review, CI, and project policies below |
+| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Current-revision CI, independent review, handled bot feedback, and the LOG-16 ruleset |
 | Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules |
 | Security advisories and embargo | Maintainer(s) | Per [SECURITY.md](SECURITY.md) |
 | Appointing Contributors / Maintainers | Maintainer(s) | See [CONTRIBUTING.md](CONTRIBUTING.md) application process |
@@ -164,8 +256,8 @@ and [Docs/06-best-practices/collaboration-guide.md](Docs/06-best-practices/colla
 - Version scheme: **YY.MM.BUILD** (e.g. `26.7.28`). Major (year) must stay
   **&lt; 256** for Windows MSI compatibility.  
 - Supported security versions are listed in [SECURITY.md](SECURITY.md).  
-- Maintainers cut releases; Contributors do not publish project releases unless
-  explicitly delegated.
+- Release authority follows the common policy above: Azusa only at the
+  exact-commit fully-green gate; Brad otherwise. No implicit delegation.
 
 ### 3.8 Repository hygiene and layout
 
@@ -217,12 +309,13 @@ is no automatic promotion timeline; appointments are explicit and public
 2. Fork (or use a branch if you have write access) and implement with TDD.  
 3. Update docs, tests, and Dev Diary as required by §3.  
 4. Open a PR with a clear summary, motivation, test notes, and compatibility
-   impact (template in the collaboration guide).  
+   impact (canonical template: [`.github/pull_request_template.md`](.github/pull_request_template.md)).
 5. Address review feedback. AI-assisted work is welcome; accountability
    follows [AI_POLICY.md](AI_POLICY.md).
 6. A Maintainer merges when checks and policies are satisfied, except that a
    project-run agent may merge an eligible I1 fix under §3.9 after its required
-   CI, review, and evidence gates pass.
+   CI, review, and evidence gates pass. Main/release actions follow the
+   common policy's conditional CEO gate.
 
 Maintainers may reject or request changes for any reason grounded in these
 policies, including style that violates WFL’s natural-language design goals,
