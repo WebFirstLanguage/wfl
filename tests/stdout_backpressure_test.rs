@@ -295,6 +295,14 @@ async fn execution_timeout_interrupts_stalled_stdout() {
         "1",
     );
     let mut stdout = child.stdout.take().unwrap();
+    // Timeout diagnostics can include the large source line. Drain stderr
+    // independently so this test stalls only stdout, not error reporting.
+    let mut error_pipe = child.stderr.take().unwrap();
+    let stderr_reader = tokio::spawn(async move {
+        let mut stderr = String::new();
+        error_pipe.read_to_string(&mut stderr).await.unwrap();
+        stderr
+    });
     bounded(stdout.read_exact(&mut [0]), "program never wrote stdout")
         .await
         .unwrap();
@@ -306,12 +314,6 @@ async fn execution_timeout_interrupts_stalled_stdout() {
         !dir.path().join("late.txt").exists(),
         "execution continued after timeout"
     );
-    let mut stderr = String::new();
-    bounded(
-        child.stderr.take().unwrap().read_to_string(&mut stderr),
-        "stderr stayed open",
-    )
-    .await
-    .unwrap();
+    let stderr = bounded(stderr_reader, "stderr stayed open").await.unwrap();
     assert!(stderr.contains("Timeout"), "{stderr}");
 }
