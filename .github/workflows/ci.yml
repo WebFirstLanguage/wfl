@@ -405,7 +405,7 @@ jobs:
           shared-key: database-tests
 
       - name: Run Database Tests
-        run: cargo test --test database_test --verbose
+        run: "cargo test --test suite --verbose -- database_test::"
 
   # Run WFL test programs to verify the interpreter works correctly
   run-wfl-programs:

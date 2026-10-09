@@ -142,7 +142,7 @@ if (-not $env:RUST_MIN_STACK) {
 }
 
 Write-Host "[INFO] Running split functionality tests..." -ForegroundColor Blue
-& cargo test --test split_functionality --verbose
+& cargo test --test suite --verbose -- split_functionality::
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Split functionality tests failed" -ForegroundColor Red
     exit 1

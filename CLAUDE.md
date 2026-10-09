@@ -214,7 +214,7 @@ agent MUST follow:
   prompt output depends on `TERM` and the platform. Tests that assert rustyline
   prompts with piped input must explicitly select line-oriented mode using
   `.env("TERM", "dumb")` on the child `Command`; see the helper in
-  `tests/config_command_test.rs`. Keep the setting local to that child, retain
+  `tests/suite/config_command_test.rs`. Keep the setting local to that child, retain
   prompt/value/exit-status assertions, and verify Linux and Windows results.
   Tests of terminal editing or TTY behavior need a real pseudo-terminal instead.
 - **Separate Cargo lockfiles**: The root workspace and `fuzz/` resolve

@@ -58,7 +58,7 @@ run_integration_tests() {
     
     # Run split functionality tests specifically
     print_status "Running split functionality tests..."
-    if cargo test --test split_functionality --verbose; then
+    if cargo test --test suite --verbose -- split_functionality::; then
         print_success "Split functionality tests passed"
     else
         print_error "Split functionality tests failed"

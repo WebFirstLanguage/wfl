@@ -10,8 +10,6 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::{NamedTempFile, TempDir};
 
-mod common;
-
 /// Must stay below the integration runner's unchanged 30-second program limit.
 const PROCESS_BOUND: Duration = Duration::from_secs(15);
 
@@ -77,7 +75,7 @@ end describe
     let stderr = NamedTempFile::new().expect("stderr capture");
 
     let mut child = ChildGuard(
-        Command::new(common::wfl_exe())
+        Command::new(crate::common::wfl_exe())
             .args(["--test", "tx.test.wfl"])
             .current_dir(directory.path())
             .env("WFL_GLOBAL_CONFIG_PATH", global_config.path())

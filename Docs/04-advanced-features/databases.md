@@ -385,5 +385,5 @@ close database db
 - SQLite needs no external services; `sqlite::memory:` is ideal for tests.
 - The repository's CI runs the full suite against live PostgreSQL 16 and
   MariaDB 11 containers. Locally, set `WFL_TEST_POSTGRES_URL` and/or
-  `WFL_TEST_MYSQL_URL` and run `cargo test --test database_test` to exercise
+  `WFL_TEST_MYSQL_URL` and run `cargo test --test suite -- database_test::` to exercise
   those backends; the tests skip quietly when the variables are unset.
