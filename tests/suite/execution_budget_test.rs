@@ -13,8 +13,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use wfl::config::load_config;
 
-mod test_helpers;
-
 /// Render a path for embedding in a WFL string literal. WFL treats `\` as an
 /// escape character, so Windows paths must use forward slashes (which the
 /// runtime accepts on every platform).
@@ -33,7 +31,7 @@ fn load_with_cfg(body: &str) -> wfl::config::WflConfig {
 /// budget knob can be exercised end-to-end without disturbing the shared temp
 /// dir other integration tests use. Returns the process output.
 fn run_with_cfg(cfg: Option<&str>, program: &str) -> std::process::Output {
-    let binary = test_helpers::get_wfl_binary_path();
+    let binary = crate::test_helpers::get_wfl_binary_path();
     let dir = tempfile::tempdir().expect("create temp dir");
     if let Some(cfg) = cfg {
         fs::write(dir.path().join(".wflcfg"), cfg).expect("write .wflcfg");
@@ -179,7 +177,7 @@ fn oversized_source_is_refused() {
 
 #[test]
 fn oversized_text_file_read_is_a_resource_error() {
-    let binary = test_helpers::get_wfl_binary_path();
+    let binary = crate::test_helpers::get_wfl_binary_path();
     let dir = tempfile::tempdir().expect("create temp dir");
     fs::write(dir.path().join(".wflcfg"), "max_file_read_size = 8\n").expect("cfg");
     let payload = dir.path().join("payload.txt");
@@ -373,7 +371,7 @@ fn nested_execute_file_source_is_size_checked() {
     )
     .expect("main");
 
-    let output = Command::new(test_helpers::get_wfl_binary_path())
+    let output = Command::new(crate::test_helpers::get_wfl_binary_path())
         .arg(&main)
         .output()
         .expect("run wfl");
@@ -410,7 +408,7 @@ fn execute_file_shares_the_parent_operation_budget() {
     let run = |name: &str, body: String| -> String {
         let path = dir.path().join(name);
         fs::write(&path, body).expect("write program");
-        let output = Command::new(test_helpers::get_wfl_binary_path())
+        let output = Command::new(crate::test_helpers::get_wfl_binary_path())
             .arg(&path)
             .output()
             .expect("run wfl");
@@ -487,7 +485,7 @@ fn execute_file_shares_the_parent_recursion_depth() {
     )
     .expect("parent");
 
-    let output = Command::new(test_helpers::get_wfl_binary_path())
+    let output = Command::new(crate::test_helpers::get_wfl_binary_path())
         .arg(&parent)
         .output()
         .expect("run wfl");
@@ -518,7 +516,7 @@ fn analyze_mode_consults_the_budget_in_the_front_end() {
     let script = dir.path().join("program.wfl");
     fs::write(&script, &program).expect("program");
 
-    let output = Command::new(test_helpers::get_wfl_binary_path())
+    let output = Command::new(crate::test_helpers::get_wfl_binary_path())
         .arg("--analyze")
         .arg(&script)
         .output()
@@ -954,7 +952,7 @@ fn cli_lex_dump_fails_on_a_budget_breach_instead_of_a_partial_dump() {
     fs::write(dir.path().join(".wflcfg"), "max_operations = 1\n").expect("cfg");
     let script = dir.path().join("big.wfl");
     fs::write(&script, big_lexer_source()).expect("program");
-    let output = Command::new(test_helpers::get_wfl_binary_path())
+    let output = Command::new(crate::test_helpers::get_wfl_binary_path())
         .arg("--lex")
         .arg(&script)
         .output()

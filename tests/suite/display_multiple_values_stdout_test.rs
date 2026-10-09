@@ -13,16 +13,14 @@
 //! `mutable_list_matches_with_byte_for_byte` below). These tests run the
 //! actual `wfl` binary end-to-end and assert exact stdout.
 
-mod test_helpers;
-
 /// Runs `program` as a temporary `.wfl` file and returns its stdout as a
 /// `String`, panicking with stderr if the process didn't exit successfully.
 ///
-/// Delegates to `test_helpers::run_wfl_program`, which runs the `wfl` binary
+/// Delegates to `crate::test_helpers::run_wfl_program`, which runs the `wfl` binary
 /// under a 30-second timeout (so a regression that stalls the interpreter fails
 /// the test instead of hanging CI) and cleans up the temporary script.
 fn run_wfl(program: &str) -> String {
-    let output = test_helpers::run_wfl_program(program, "display_multiple_values_stdout");
+    let output = crate::test_helpers::run_wfl_program(program, "display_multiple_values_stdout");
 
     assert!(
         output.status.success(),
@@ -231,9 +229,10 @@ fn keyword_led_values_fold_with_exact_output() {
     // (nothing ever creates it) and independent of the test's working
     // directory or any files a developer happens to have lying around in the
     // repo root.
-    let missing_path =
-        test_helpers::get_unique_test_file_path("display_multiple_values_stdout_does_not_exist")
-            .with_extension("missing");
+    let missing_path = crate::test_helpers::get_unique_test_file_path(
+        "display_multiple_values_stdout_does_not_exist",
+    )
+    .with_extension("missing");
     let missing_path = missing_path.to_str().expect("path should be valid UTF-8");
     // WFL string literals only recognize `\n`, `\t`, `\r`, `\\`, `\0`, and `\"`
     // as escapes (see `parse_string` in `src/lexer/token.rs`); anything else

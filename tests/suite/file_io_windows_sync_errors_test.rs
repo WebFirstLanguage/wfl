@@ -7,8 +7,7 @@
 /// 4. Cross-platform behavior is consistent where appropriate
 use std::fs;
 
-mod test_helpers;
-use test_helpers::*;
+use crate::test_helpers::*;
 
 #[cfg(windows)]
 #[test]

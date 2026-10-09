@@ -1,8 +1,7 @@
 /// Test that the modulo operator (%) works correctly
 ///
 /// This test verifies the implementation of the % operator for computing remainders.
-mod test_helpers;
-use test_helpers::*;
+use crate::test_helpers::*;
 
 #[test]
 fn test_modulo_operator_basic() {

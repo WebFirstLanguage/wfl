@@ -14,8 +14,7 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::Statement;
 
-mod test_helpers;
-use test_helpers::*;
+use crate::test_helpers::*;
 
 fn parse(source: &str) -> Result<wfl::parser::ast::Program, Vec<wfl::parser::ast::ParseError>> {
     let tokens = lex_wfl_with_positions(source);

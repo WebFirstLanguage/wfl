@@ -3,8 +3,7 @@
 ///
 /// This test verifies the fix for a bug where `store res as faulty` would store
 /// the function value instead of calling it and catching errors.
-mod test_helpers;
-use test_helpers::*;
+use crate::test_helpers::*;
 
 #[test]
 fn test_zero_arg_action_error_propagation() {

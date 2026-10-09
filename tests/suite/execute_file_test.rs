@@ -4,8 +4,6 @@
 // Executes another WFL file in-process with a nested interpreter, optionally
 // passing HTTP request context and capturing the child's display/print output.
 
-mod common;
-
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
@@ -562,8 +560,6 @@ async fn test_execute_file_dynamic_path_via_variable() {
 // Pass-through (no capture clause): child output reaches stdout
 // ---------------------------------------------------------------------------
 
-mod test_helpers;
-
 #[test]
 fn test_execute_file_without_capture_passes_output_through() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
@@ -574,8 +570,8 @@ fn test_execute_file_without_capture_passes_output_through() {
     // would be treated as escape sequences in the WFL string literal)
     let page_path = page_file.display().to_string().replace('\\', "/");
     let program = format!("execute wfl file at \"{page_path}\"\ndisplay \"MAIN_DONE\"\n");
-    let output = test_helpers::run_wfl_program(&program, "test_execute_file_passthrough");
-    test_helpers::assert_wfl_success_with_output(
+    let output = crate::test_helpers::run_wfl_program(&program, "test_execute_file_passthrough");
+    crate::test_helpers::assert_wfl_success_with_output(
         &output,
         &["PASSTHROUGH_MARKER", "MAIN_DONE"],
         &[],
@@ -598,7 +594,7 @@ async fn test_web_server_serves_executed_wfl_page() {
     )
     .expect("Failed to write page file");
 
-    let port = common::free_tcp_port();
+    let port = crate::common::free_tcp_port();
     let server_file = temp_dir.path().join("server.wfl");
     let server_code = format!(
         concat!(
