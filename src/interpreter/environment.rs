@@ -1,4 +1,4 @@
-use super::value::Value;
+use super::value::{ContainerInstanceValue, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,6 +22,12 @@ pub struct Environment {
     /// what makes diamond includes work: two files that both include the
     /// same shared file reach it once, not twice.
     pub included_files: HashSet<PathBuf>,
+    /// Set only on the frame a container action runs in: the object the
+    /// action was called on. That frame holds the action's working copies of
+    /// the object's properties, and a nested call on the same object finds it
+    /// by this marker to keep those copies and the object in step (#701).
+    /// Weak, because the frame's own `this` binding already holds the object.
+    pub method_receiver: Option<Weak<RefCell<ContainerInstanceValue>>>,
 }
 
 impl Environment {
@@ -36,6 +42,7 @@ impl Environment {
             parent: None,
             isolated: false,
             included_files: HashSet::new(),
+            method_receiver: None,
         }))
     }
 
@@ -50,6 +57,7 @@ impl Environment {
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
             included_files: HashSet::new(),
+            method_receiver: None,
         }))
     }
 
@@ -65,6 +73,7 @@ impl Environment {
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
             included_files: HashSet::new(),
+            method_receiver: None,
         }))
     }
 
@@ -83,6 +92,7 @@ impl Environment {
             parent: Some(Rc::downgrade(parent)),
             isolated: true,
             included_files: HashSet::new(),
+            method_receiver: None,
         }))
     }
 

@@ -159,6 +159,73 @@ action get_full_name: Text
 end
 ```
 
+### Calling Other Actions with `this`
+
+Inside an action, `this` means **the object the action was called on**. Use it
+to call another action of the same container, the same way code outside the
+container calls an action through the object's name:
+
+```wfl
+create container Greeter:
+    property name: Text
+    property greetings: Number
+
+    action greet: Text
+        this.count_greeting()
+        return this.message()
+    end
+
+    action message: Text
+        return "Hello, " with name with "! (greeting " with greetings with ")"
+    end
+
+    action count_greeting:
+        change greetings to greetings + 1
+    end
+end
+
+create new Greeter as greeter:
+    name is "Ada"
+    greetings is 0
+end
+
+display greeter.greet()                            // Hello, Ada! (greeting 1)
+display greeter.greet()                            // Hello, Ada! (greeting 2)
+display "Total greetings: " with greeter.greetings // Total greetings: 2
+```
+
+Outside the container you write `greeter.message()`. Inside it you write
+`this.message()`. Both run the same action on the same object.
+
+What to know about `this`:
+
+- **Changes are shared.** Property changes an action makes before calling
+  `this.other()` are visible to `other`, and the changes `other` makes are
+  visible when it returns. Recursion through `this` works the same way.
+- **Order does not matter.** An action can call a sibling declared later in
+  the container. In the example, `greet` calls `message`, which comes after it.
+- **Inheritance works.** `this.action()` also finds actions inherited from a
+  parent container. When a parent's action calls `this.action()` on an object
+  of a child container, the child's override runs (see
+  [Overriding Actions](#overriding-actions)).
+- **Reading properties.** `this.name` reads the property's current value,
+  including changes the action has just made.
+- **Other objects.** An action can call actions on other objects it is given,
+  for example `other.bump()`. Each call runs on its own object, and inside it
+  `this` means that object.
+- **`this` is fixed.** `change this to ...` and `store this as ...` are errors.
+- **Instance actions only.** A `static action` belongs to the container, not
+  to one object, so using `this` in it is an error.
+- **Not a reserved word.** Outside container actions, `this` is an ordinary
+  name, so existing variables called `this` keep working.
+
+A bare call such as `call count_greeting` is not looked up among the
+container's actions. WFL stops before running the program and names the fix:
+
+```
+error[ANALYZE-SEMANTIC]: 'count_greeting' is an action of container 'Greeter'. Inside the container's actions, call it on the current object: this.count_greeting(...)
+```
+
 ## Inheritance
 
 Containers can extend other containers:

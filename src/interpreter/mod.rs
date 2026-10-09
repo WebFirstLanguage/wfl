@@ -14758,21 +14758,52 @@ impl Interpreter {
                             static_method_context: None,
                         };
 
+                        // Evaluate the arguments first, in the caller's scope:
+                        // an argument may itself call an action on this object
+                        // (`this.emit(this.next_char())`), and the frame built
+                        // below must start from the state that call leaves.
+                        let mut arg_values = Vec::with_capacity(arguments.len());
+                        for arg in arguments {
+                            let arg_val = self
+                                .evaluate_expression(&arg.value, Rc::clone(&env))
+                                .await?;
+                            arg_values.push(arg_val);
+                        }
+
+                        // A caller already running an action of this same
+                        // object holds its properties as working copies. Push
+                        // them into the object before this call copies it, and
+                        // pull the results back afterwards (issue #701).
+                        let caller_frame = Self::method_frame_for(&env, instance_rc);
+                        if let Some(frame) = &caller_frame {
+                            Self::flush_method_frame(frame, instance_rc);
+                        }
+
                         // Create a new environment for the method execution
                         let method_env = Environment::new_child_env(&env);
 
-                        // Add 'this' to the environment
-                        let _ = method_env.borrow_mut().define("this", object_val.clone());
+                        // Every call owns its receiver: `define` would refuse
+                        // when a calling action already bound `this`, and this
+                        // call would then run against the caller's object.
+                        {
+                            let mut frame = method_env.borrow_mut();
+                            frame.method_receiver = Some(Rc::downgrade(instance_rc));
+                            let _ = frame.define_direct("this", object_val.clone());
+                        }
 
                         // Add container properties and events as accessible variables
                         {
                             let instance = instance_rc.borrow();
+                            let definition_env = method_val.env.upgrade();
 
                             // Add properties
                             for (prop_name, prop_value) in &instance.properties {
-                                let _ = method_env
-                                    .borrow_mut()
-                                    .define(prop_name, prop_value.clone());
+                                Self::bind_method_property(
+                                    &method_env,
+                                    definition_env.as_ref(),
+                                    prop_name,
+                                    prop_value,
+                                );
                             }
 
                             // Add events from the container definition
@@ -14788,15 +14819,6 @@ impl Interpreter {
                                 }
                             }
                         } // Drop instance borrow here
-
-                        // Evaluate the arguments
-                        let mut arg_values = Vec::with_capacity(arguments.len());
-                        for arg in arguments {
-                            let arg_val = self
-                                .evaluate_expression(&arg.value, Rc::clone(&env))
-                                .await?;
-                            arg_values.push(arg_val);
-                        }
 
                         // Create a modified function with the method environment
                         let method_function = FunctionValue {
@@ -14826,6 +14848,11 @@ impl Interpreter {
                                     .properties
                                     .insert(prop_name, updated_value);
                             }
+                        }
+
+                        // The caller's frame picks up what this call wrote back.
+                        if let Some(frame) = &caller_frame {
+                            Self::refresh_method_frame(frame, instance_rc);
                         }
 
                         result
@@ -15458,8 +15485,20 @@ impl Interpreter {
                 let obj_value = self.evaluate_expression(object, Rc::clone(&env)).await?;
                 match obj_value {
                     Value::ContainerInstance(instance) => {
+                        // While an action of this object runs, its frame holds
+                        // the current values; the object itself is only
+                        // updated when the action returns (`this.buf` right
+                        // after `store buf as ...`; issue #701).
+                        let working_copy = if instance.borrow().properties.contains_key(property) {
+                            Self::method_frame_for(&env, &instance)
+                                .and_then(|frame| frame.borrow().get_local(property))
+                        } else {
+                            None
+                        };
                         let instance_ref = instance.borrow();
-                        if let Some(prop_value) = instance_ref.properties.get(property) {
+                        if let Some(prop_value) = working_copy {
+                            Ok(prop_value)
+                        } else if let Some(prop_value) = instance_ref.properties.get(property) {
                             Ok(prop_value.clone())
                         } else {
                             Err(RuntimeError::new(
@@ -16089,6 +16128,92 @@ impl Interpreter {
                 }
                 Err(RuntimeError::new(message, line, column))
             }
+        }
+    }
+
+    /// The innermost frame on `env`'s scope chain that is running an action of
+    /// `instance` (issue #701). The object may be reached under any name —
+    /// `this`, a parameter, a global — so frames are matched by identity.
+    fn method_frame_for(
+        env: &Rc<RefCell<Environment>>,
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+    ) -> Option<Rc<RefCell<Environment>>> {
+        let mut scope = Some(Rc::clone(env));
+        while let Some(current) = scope {
+            let (is_frame, parent) = {
+                let borrowed = current.borrow();
+                let is_frame = borrowed
+                    .method_receiver
+                    .as_ref()
+                    .is_some_and(|receiver| std::ptr::eq(receiver.as_ptr(), Rc::as_ptr(instance)));
+                (
+                    is_frame,
+                    borrowed.parent.as_ref().and_then(std::rc::Weak::upgrade),
+                )
+            };
+            if is_frame {
+                return Some(current);
+            }
+            scope = parent;
+        }
+        None
+    }
+
+    /// Copy an action frame's working property values into its object, for
+    /// the properties the frame holds. Done before a nested call on the same
+    /// object so the callee starts from the caller's latest writes (#701).
+    fn flush_method_frame(
+        frame: &Rc<RefCell<Environment>>,
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+    ) {
+        let frame = frame.borrow();
+        let mut instance = instance.borrow_mut();
+        for (name, value) in instance.properties.iter_mut() {
+            if let Some(working) = frame.values.get(name) {
+                *value = working.clone();
+            }
+        }
+    }
+
+    /// The reverse of [`Self::flush_method_frame`]: after a nested call on the
+    /// same object has written its results back, the caller's frame picks
+    /// them up so its next read and its own write-back are not stale (#701).
+    fn refresh_method_frame(
+        frame: &Rc<RefCell<Environment>>,
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+    ) {
+        let instance = instance.borrow();
+        let mut frame = frame.borrow_mut();
+        for (name, value) in &instance.properties {
+            if let Some(working) = frame.values.get_mut(name) {
+                *working = value.clone();
+            }
+        }
+    }
+
+    /// Bind one of the receiver's properties in a new action frame.
+    ///
+    /// `define` refuses when an enclosing scope already has the name, and the
+    /// property then resolves to that outer binding. That stays the rule for a
+    /// binding visible where the container was defined (for example a
+    /// same-named global), which is also how the analyzer resolves the name.
+    /// A binding reachable only because the frame's parent is the caller's
+    /// scope — another action's working copy, or a caller's local or
+    /// parameter — must not stand in for the property, so the property is
+    /// bound over it (#701: `b.bump()` called inside `a.poke(b)` used to run
+    /// on `a`'s copies).
+    fn bind_method_property(
+        method_env: &Rc<RefCell<Environment>>,
+        definition_env: Option<&Rc<RefCell<Environment>>>,
+        name: &str,
+        value: &Value,
+    ) {
+        if method_env.borrow_mut().define(name, value.clone()).is_ok() {
+            return;
+        }
+        let lexically_visible = definition_env.is_some_and(|scope| scope.borrow().has(name));
+        if !lexically_visible {
+            let _ = method_env.borrow_mut().define_direct(name, value.clone());
         }
     }
 

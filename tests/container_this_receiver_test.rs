@@ -343,26 +343,135 @@ display M.build()
 
 #[test]
 fn this_cannot_be_reassigned_inside_an_action() {
-    let source = r#"create container M:
+    for statement in [r#"change this to "other""#, "store this as 5"] {
+        let source = format!(
+            "create container M:\n    property buf: Text\n    action step:\n        {statement}\n    end\nend\ncreate new M as m:\n    buf is \"\"\nend\nm.step()\n"
+        );
+        let errors = semantic_errors(&source);
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains("'this'") && message.contains("cannot be changed")),
+            "`{statement}`: {errors:?}"
+        );
+        let (status, _, _) = run(&source);
+        assert_eq!(status, Some(3), "`{statement}` must stay a semantic error");
+    }
+}
+
+#[test]
+fn a_parameter_named_like_a_property_does_not_capture_a_sibling_write() {
+    // `step`'s parameter `buf` hides the property inside `step` only. Before
+    // #701 the sibling's write landed in that parameter and was lost
+    // (printing "buf=p"); it must reach the property.
+    let stdout = run_ok(
+        r#"create container M:
     property buf: Text
-    action step:
-        change this to "other"
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+    action step needs buf: Text:
+        this.emit(buf)
     end
 end
 create new M as m:
-    buf is ""
+    buf is "p"
 end
-m.step()
-"#;
-    let errors = semantic_errors(source);
-    assert!(
-        errors
-            .iter()
-            .any(|message| message.contains("'this'") && message.contains("cannot be changed")),
-        "{errors:?}"
+m.step("q")
+display "buf=" with m.buf
+"#,
     );
-    let (status, _, _) = run(source);
-    assert_eq!(status, Some(3));
+    assert!(stdout.contains("buf=pq"), "{stdout}");
+}
+
+#[test]
+fn a_callers_local_named_like_a_property_does_not_leak_into_the_action() {
+    // An action reads its own property, as the analyzer already assumes.
+    // Before #701 a caller's same-named parameter or loop variable stood in
+    // for the property ("label=caller-param", "label=loop-var") and was then
+    // written into the object ("after: loop-var").
+    let stdout = run_ok(
+        r#"create container M:
+    property label: Text
+    action show: Text
+        return "label=" with label
+    end
+end
+create new M as m:
+    label is "property"
+end
+define action called run with parameters label:
+    display m.show()
+end action
+call run with "caller-param"
+for each label in ["loop-var"]:
+    display m.show()
+end for
+display "after: " with m.label
+"#,
+    );
+    assert_eq!(
+        stdout.matches("label=property").count(),
+        2,
+        "both calls must read the property: {stdout}"
+    );
+    assert!(!stdout.contains("caller-param"), "{stdout}");
+    assert!(!stdout.contains("label=loop-var"), "{stdout}");
+    assert!(stdout.contains("after: property"), "{stdout}");
+}
+
+#[test]
+fn a_same_named_global_keeps_its_historical_precedence() {
+    // Compatibility guard: a global visible where the container is defined
+    // still wins over a same-named property inside the action, exactly as
+    // before #701 and as the analyzer resolves the name. Changing that
+    // precedence is a separate language decision.
+    let stdout = run_ok(
+        r#"store n as 7
+create container C:
+    property n: Number
+    action show:
+        display "inside n=" with n
+    end
+end
+create new C as a:
+    n is 1
+end
+a.show()
+"#,
+    );
+    assert!(stdout.contains("inside n=7"), "{stdout}");
+}
+
+#[test]
+fn a_sibling_error_caught_by_the_caller_keeps_both_frames_writes() {
+    let stdout = run_ok(
+        r#"create container M:
+    property log: Text
+    action risky:
+        change log to log with "r"
+        store bad as 1 divided by "x"
+    end
+    action run: Text
+        change log to log with "a"
+        try:
+            this.risky()
+        when error:
+            change log to log with "!"
+        end try
+        change log to log with "z"
+        return log
+    end
+end
+create new M as m:
+    log is ""
+end
+display "run=" with m.run()
+display "log=" with m.log
+"#,
+    );
+    assert!(stdout.contains("run=ar!z"), "{stdout}");
+    assert!(stdout.contains("log=ar!z"), "{stdout}");
 }
 
 #[test]

@@ -112,6 +112,14 @@ pairs begin with `and certificate`; this adds no reserved words. See
 `raise_error` is an ordinary standard-library function called with `call
 raise_error with message` or `raise_error of message`; it is not a keyword.
 
+`this` is not a keyword either. Inside a container's instance action it is a
+predefined, read-only name for the object the action was called on, used to
+call sibling actions (`this.other_action()`) and read properties
+(`this.name`); see [Calling Other Actions with
+`this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
+Everywhere else it is an ordinary identifier, so `store this as 5` at the top
+level stays valid.
+
 ```wfl
 // All perfectly valid — these words are not reserved:
 store key as "secret_key_456"

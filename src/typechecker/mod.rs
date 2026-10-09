@@ -6582,6 +6582,19 @@ impl TypeChecker {
                         // and inferring return expressions, mirroring the
                         // top-level `ActionDefinition` arm (issue #553).
                         self.analyzer.push_scope();
+                        // An instance action's `this` is an object of this
+                        // container, so `this.sibling(...)` is checked like any
+                        // other method call (issue #701). Bound before the
+                        // parameters, as the analyzer does.
+                        if !is_static {
+                            self.analyzer.define_or_replace_symbol(Symbol {
+                                name: "this".to_string(),
+                                kind: SymbolKind::Variable { mutable: false },
+                                symbol_type: Some(Type::ContainerInstance(_name.clone())),
+                                line: *_method_line,
+                                column: *_method_column,
+                            });
+                        }
                         for param in parameters {
                             let param_symbol = Symbol {
                                 name: param.name.clone(),

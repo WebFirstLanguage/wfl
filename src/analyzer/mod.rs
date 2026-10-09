@@ -312,6 +312,11 @@ pub struct UndefinedActionSite {
     pub statement_index: Option<usize>,
 }
 
+/// Reported for `change this to ...` / `store this as ...` inside a
+/// container's instance action, where `this` is the receiver (issue #701).
+const THIS_CANNOT_CHANGE: &str =
+    "'this' always means the object this action was called on and cannot be changed";
+
 #[derive(Debug, Clone)]
 pub struct SemanticError {
     pub message: String,
@@ -1028,6 +1033,20 @@ impl Analyzer {
             Statement::VariableDeclaration {
                 name,
                 value,
+                line,
+                column,
+                ..
+            } if name == "this" && self.current_instance_container().is_some() => {
+                self.analyze_expression(value);
+                self.errors.push(SemanticError::new(
+                    THIS_CANNOT_CHANGE.to_string(),
+                    *line,
+                    *column,
+                ));
+            }
+            Statement::VariableDeclaration {
+                name,
+                value,
                 is_constant,
                 line,
                 column,
@@ -1100,11 +1119,17 @@ impl Analyzer {
                         SymbolKind::Variable { mutable } => {
                             is_variable_assignment = *mutable;
                             if !mutable {
-                                self.errors.push(SemanticError::new(
-                                    format!("Cannot modify constant '{name}' - constants are immutable once defined"),
-                                    *line,
-                                    *column,
-                                ));
+                                let message = if name == "this"
+                                    && self.current_instance_container().is_some()
+                                {
+                                    THIS_CANNOT_CHANGE.to_string()
+                                } else {
+                                    format!(
+                                        "Cannot modify constant '{name}' - constants are immutable once defined"
+                                    )
+                                };
+                                self.errors
+                                    .push(SemanticError::new(message, *line, *column));
                                 // Skip analyzing the value expression since the assignment itself is invalid
                                 skip_value_analysis = true;
                             }
@@ -2257,19 +2282,14 @@ impl Analyzer {
                         .insert(prop.name.clone(), prop_info);
                 }
 
-                // Make property metadata available while method bodies are
-                // analyzed. Methods are added to the local copy below and the
-                // completed definition replaces this provisional entry at the
-                // end of the arm.
-                self.register_container(container_info.clone());
-
-                // Process instance methods
+                // Register every instance action before any body is analyzed,
+                // so an action body can refer to a sibling declared after it
+                // (`this.later()`; issue #701).
                 for method in methods {
                     if let Statement::ActionDefinition {
                         name: method_name,
                         parameters,
                         return_type,
-                        body,
                         line: method_line,
                         column: method_column,
                         ..
@@ -2298,7 +2318,25 @@ impl Analyzer {
                         container_info
                             .methods
                             .insert(method_name.clone(), method_info);
+                    }
+                }
 
+                // Make property and action metadata available while method
+                // bodies are analyzed. Static methods are added to the local
+                // copy below and the completed definition replaces this
+                // provisional entry at the end of the arm.
+                self.register_container(container_info.clone());
+
+                // Process instance methods
+                for method in methods {
+                    if let Statement::ActionDefinition {
+                        parameters,
+                        body,
+                        line: method_line,
+                        column: method_column,
+                        ..
+                    } = method
+                    {
                         // Analyze method body
                         self.push_scope();
 
@@ -2307,6 +2345,18 @@ impl Analyzer {
                         let previous_method_is_static = self.current_method_is_static;
                         self.current_container = Some(name.clone());
                         self.current_method_is_static = Some(false);
+
+                        // `this` is the object the action was called on
+                        // (issue #701). It is bound innermost, before the
+                        // parameters, so it wins over any outer `this` exactly
+                        // as the interpreter's per-call binding does.
+                        self.current_scope.define_or_replace(Symbol {
+                            name: "this".to_string(),
+                            kind: SymbolKind::Variable { mutable: false },
+                            symbol_type: Some(Type::ContainerInstance(name.clone())),
+                            line: *method_line,
+                            column: *method_column,
+                        });
 
                         // Properties will be resolved through container context
                         // Don't add them as variables to avoid conflicts with assignments
@@ -3630,6 +3680,64 @@ impl Analyzer {
             current = container_info.extends.as_deref();
         }
         false
+    }
+
+    /// The container whose *instance* action body is being analyzed. Static
+    /// action bodies have no object, so they yield `None`.
+    fn current_instance_container(&self) -> Option<&str> {
+        match self.current_method_is_static {
+            Some(false) => self.current_container.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Whether `container_name`, or a container it extends, defines the
+    /// instance action `action_name`.
+    fn container_has_instance_action(&self, container_name: &str, action_name: &str) -> bool {
+        let mut current = Some(container_name);
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name) {
+                return false;
+            }
+            let Some(container_info) = self.containers.get(name) else {
+                return false;
+            };
+            if container_info.methods.contains_key(action_name) {
+                return true;
+            }
+            current = container_info.extends.as_deref();
+        }
+        false
+    }
+
+    /// The diagnostic for a name that resolves to nothing. Two container
+    /// cases spell out the fix (issue #701): a bare call of one of the
+    /// container's own actions, which is reached through `this`, and `this`
+    /// where there is no object for it to mean.
+    fn undefined_name_message(&self, name: &str, fallback: String) -> String {
+        if name == "this" {
+            return match (&self.current_container, self.current_method_is_static) {
+                (Some(container), Some(true)) => format!(
+                    "'this' cannot be used in a static action: static actions of container \
+                     '{container}' run on the container itself, not on one object"
+                ),
+                (None, _) => format!(
+                    "{fallback}. 'this' only exists inside a container's actions, where it \
+                     means the object the action was called on"
+                ),
+                _ => fallback,
+            };
+        }
+        if let Some(container) = self.current_instance_container()
+            && self.container_has_instance_action(container, name)
+        {
+            return format!(
+                "'{name}' is an action of container '{container}'. Inside the container's \
+                 actions, call it on the current object: this.{name}(...)"
+            );
+        }
+        fallback
     }
 
     fn container_instance_property_type(
@@ -5052,11 +5160,11 @@ impl Analyzer {
                         // no includes present the helper emits nothing and
                         // returns false, so a genuine typo stays fatal.
                         if !self.warn_undefined_callee_if_includes(name, *line, *column) {
-                            self.report_undefined_name(
+                            let message = self.undefined_name_message(
+                                name,
                                 format!("Variable '{name}' is not defined"),
-                                *line,
-                                *column,
                             );
+                            self.report_undefined_name(message, *line, *column);
                         }
                     }
                 }
@@ -5221,11 +5329,11 @@ impl Analyzer {
                         // the unconditional `analyze_expression(function)` above
                         // used to produce for a bare-Variable callee.
                         if !self.warn_undefined_callee_if_includes(name, *line, *column) {
-                            self.report_undefined_name(
+                            let message = self.undefined_name_message(
+                                name,
                                 format!("Variable '{name}' is not defined"),
-                                *line,
-                                *column,
                             );
+                            self.report_undefined_name(message, *line, *column);
                         }
                         for arg in arguments {
                             self.analyze_expression(&arg.value);
@@ -5396,11 +5504,10 @@ impl Analyzer {
                     // does not use `include from`, so it cannot be include-exposed
                     // at runtime — a genuine fatal error (see issues #548 / #580
                     // for the include-aware relaxation applied above).
-                    self.errors.push(SemanticError::new(
-                        format!("Undefined action '{}'", name),
-                        *line,
-                        *column,
-                    ));
+                    let message =
+                        self.undefined_name_message(name, format!("Undefined action '{name}'"));
+                    self.errors
+                        .push(SemanticError::new(message, *line, *column));
                 }
             }
             Expression::Literal(Literal::List(elements), _, _) => {

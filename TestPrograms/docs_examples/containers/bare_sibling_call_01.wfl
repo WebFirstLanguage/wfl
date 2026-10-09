@@ -1,0 +1,11 @@
+create container Greeter:
+    property greetings: Number
+
+    action count_greeting:
+        change greetings to greetings + 1
+    end
+
+    action greet:
+        call count_greeting
+    end
+end

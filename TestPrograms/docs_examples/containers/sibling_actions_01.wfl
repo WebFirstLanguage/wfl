@@ -1,0 +1,26 @@
+create container Greeter:
+    property name: Text
+    property greetings: Number
+
+    action greet: Text
+        this.count_greeting()
+        return this.message()
+    end
+
+    action message: Text
+        return "Hello, " with name with "! (greeting " with greetings with ")"
+    end
+
+    action count_greeting:
+        change greetings to greetings + 1
+    end
+end
+
+create new Greeter as greeter:
+    name is "Ada"
+    greetings is 0
+end
+
+display greeter.greet()
+display greeter.greet()
+display "Total greetings: " with greeter.greetings
