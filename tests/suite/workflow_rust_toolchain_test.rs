@@ -1,19 +1,20 @@
 //! Guard: every GitHub Actions job that runs Cargo must install a Rust toolchain
 //! *before* the first Cargo invocation.
 //!
-//! Background (the defect this reproduces): the `bump-version` job in `ci.yml`
-//! ran `python scripts/bump_version.py --update-all` — which shells out to
-//! `cargo update` and `cargo check --locked --manifest-path fuzz/Cargo.toml` —
-//! without ever installing a toolchain. It silently depended on whatever `rustc`
-//! the runner image happened to preinstall. When CI moved to Blacksmith runners
-//! that image shipped rustc 1.92.0, below this crate's `rust-version = "1.94"`
-//! (raised by `sqlx` 0.9), so the locked fuzz check failed and every push to
-//! `main` went red.
+//! Background (the defect this reproduces): a workflow job used to run
+//! `python scripts/bump_version.py --update-all` — which then shelled out to
+//! `cargo update` and `cargo check --locked` — without ever installing a
+//! toolchain. It silently depended on whatever `rustc` the runner image
+//! happened to preinstall. When CI moved to Blacksmith runners that image
+//! shipped rustc 1.92.0, below this crate's `rust-version = "1.94"` (raised
+//! by `sqlx` 0.9), so the locked fuzz check failed and every push to `main`
+//! went red.
 //!
-//! The Cargo dependency was invisible to a reader because it hid behind a Python
-//! script, so this guard resolves that indirection explicitly via
-//! `CARGO_INVOKING_SCRIPTS` — and `cargo_invoking_scripts_list_is_complete`
-//! keeps that list honest as scripts change.
+//! Version writes no longer invoke Cargo (they rewrite lock versions in
+//! place), but the guard still resolves script-to-Cargo indirection via
+//! `CARGO_INVOKING_SCRIPTS` so a later script cannot hide the same
+//! dependency. `cargo_invoking_scripts_list_is_complete` keeps that list
+//! honest as scripts change.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -21,7 +22,7 @@ use std::path::PathBuf;
 
 /// Scripts that shell out to Cargo. A job that runs one of these needs a
 /// toolchain just as much as a job that types `cargo` directly.
-const CARGO_INVOKING_SCRIPTS: &[&str] = &["bump_version.py"];
+const CARGO_INVOKING_SCRIPTS: &[&str] = &[];
 
 /// Markers for a step that *actually* installs or selects a Rust toolchain.
 ///

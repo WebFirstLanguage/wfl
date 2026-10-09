@@ -1,61 +1,29 @@
-name: Auto Version Bump
+name: Compute Next Version
 
 on:
-  workflow_dispatch:  # Manual trigger only (automatic version bumping now handled by ci.yml)
+  workflow_dispatch:  # Manual dry-run only; does not push to main or dev
 
 jobs:
-  bump-version:
-    # bump_version.py --update-all shells out to `cargo update` and a locked
-    # `cargo check` on the fuzz crate, so this compiles - keep 4 cores, and
-    # match the fuzz-check job it mirrors. ARM is 37.5% cheaper per vCPU.
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+  compute-version:
+    # Prints the next YY.M.BUILD from published v-tags. Nightly writes that
+    # version into the tree at build time and tags it after a successful
+    # publish; this workflow never commits or pushes.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Check out code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
-
-      # `bump_version.py` shells out to Cargo, so this job needs its own
-      # toolchain rather than whatever rustc the runner image preinstalls (which
-      # can be older than our `rust-version = "1.94"` MSRV). Same fix as the
-      # `bump-version` job in ci.yml.
-      - uses: dtolnay/rust-toolchain@stable
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Bump version
-        run: python scripts/bump_version.py --update-all
-
-      # This workflow writes directly to the repository, so it must prove
-      # hygiene and version agreement itself, immediately before pushing
-      # (REPOSITORY_HYGIENE.md §8).
-      - name: Static hygiene and version check before push
-        run: python scripts/check_repo_hygiene.py --mode static
-
-      - name: Push changes
-        if: ${{ success() }}
+      - name: Compute next version from tags
         run: |
-          git push origin HEAD:${{ github.ref_name }}
-      
-      - name: Tag the new version
-        if: ${{ success() }}
-        run: |
-          # Fetch existing tags to avoid conflicts
-          git fetch --tags
-          
-          # Extract version from version.rs
-          VERSION=$(grep -oP '(?<=VERSION: &str = ")[0-9]+\.[0-9]+\.[0-9]+' src/version.rs)
-          
-          # Check if this version tag already exists
-          if ! git tag -l | grep -q "^v$VERSION$"; then
-            git tag -a "v$VERSION" -m "Release $VERSION"
-            git push origin --tags
-          else
-            echo "Tag v$VERSION already exists, skipping tagging"
-          fi
+          VERSION="$(python scripts/bump_version.py --from-tags --print)"
+          echo "Next version from tags: $VERSION"

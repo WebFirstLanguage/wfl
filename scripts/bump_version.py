@@ -11,11 +11,17 @@ import argparse
 BUILD_META_FILE = ".build_meta.json"
 VERSION_FILE = "src/version.rs"
 CARGO_TOML = "Cargo.toml"
+CARGO_LOCK = "Cargo.lock"
+FUZZ_CARGO_LOCK = os.path.join("fuzz", "Cargo.lock")
 WIX_TOML = "wix.toml"
 VSCODE_EXTENSION_DIRS = ["vscode-extension", "vscode-wfl", "editors/vscode-wfl"]
 MODIFIED_FILES = []
 
-def parse_args():
+VERSION_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+
+
+def parse_args(argv=None):
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Update WFL version numbers across the project.")
     parser.add_argument("--skip-bump", action="store_true", help="Skip incrementing the build number")
@@ -23,7 +29,231 @@ def parse_args():
     parser.add_argument("--update-wix-only", action="store_true", help="Only update wix.toml")
     parser.add_argument("--skip-git", action="store_true", help="Skip git commit")
     parser.add_argument("--verbose", action="store_true", help="Show detailed output")
-    return parser.parse_args()
+    parser.add_argument(
+        "--from-tags",
+        action="store_true",
+        help="Compute the next YY.M.BUILD from published v-tags and the same-month floor",
+    )
+    parser.add_argument(
+        "--print",
+        dest="print_version",
+        action="store_true",
+        help="Print the computed or current version to stdout and do not write files",
+    )
+    parser.add_argument(
+        "--set-version",
+        metavar="X.Y.Z",
+        help="Write this exact version into the version mirrors without incrementing",
+    )
+    return parser.parse_args(argv)
+
+
+def utc_now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def calendar_parts(now=None):
+    """Return (YY, M, YYYY-MM-DD) from a UTC timestamp.
+
+    Naive datetimes are treated as UTC so a nightly just after midnight UTC on
+    the 1st uses the new month — the same calendar date as nightly-YYYY-MM-DD.
+    """
+    if now is None:
+        now = utc_now()
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    else:
+        now = now.astimezone(datetime.timezone.utc)
+    return now.year % 100, now.month, now.strftime("%Y-%m-%d")
+
+
+def nightly_tag_date(now=None):
+    return calendar_parts(now)[2]
+
+
+def parse_version(version):
+    match = VERSION_RE.fullmatch(version)
+    if not match:
+        print(f"Error: invalid version {version!r}, expected YY.M.N", file=sys.stderr)
+        sys.exit(1)
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def version_tag_names_from_ls_remote(output):
+    names = []
+    seen = set()
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        ref = parts[1]
+        if ref.endswith("^{}"):
+            continue
+        if not ref.startswith("refs/tags/"):
+            continue
+        name = ref[len("refs/tags/"):]
+        if VERSION_TAG_RE.match(name) and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def head_version_tags_from_ls_remote(output, head_sha):
+    peeled = {}
+    unpeeled = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        sha, ref = parts[0], parts[1]
+        is_peeled = ref.endswith("^{}")
+        if is_peeled:
+            ref = ref[:-3]
+        if not ref.startswith("refs/tags/"):
+            continue
+        name = ref[len("refs/tags/"):]
+        if not VERSION_TAG_RE.match(name):
+            continue
+        if is_peeled:
+            peeled[name] = sha
+        else:
+            unpeeled[name] = sha
+    matches = []
+    for name, sha in unpeeled.items():
+        commit = peeled.get(name, sha)
+        if commit == head_sha:
+            matches.append(name)
+    return matches
+
+
+def ls_remote_tags():
+    for target in ("origin", "."):
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", target],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout
+    print("Error: git ls-remote --tags failed", file=sys.stderr)
+    sys.exit(1)
+
+
+def read_floor_meta(path=None):
+    path = path or BUILD_META_FILE
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as handle:
+        try:
+            meta = json.load(handle)
+        except json.JSONDecodeError:
+            print(f"Error: {path} is not valid JSON", file=sys.stderr)
+            sys.exit(1)
+    return {
+        "year": int(meta.get("year", 0)),
+        "month": int(meta.get("month", 0)),
+        "build": int(meta.get("build", 0)),
+    }
+
+
+def discover_tag_state():
+    output = ls_remote_tags()
+    try:
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except subprocess.CalledProcessError as exc:
+        print(f"Error: cannot resolve HEAD: {exc}", file=sys.stderr)
+        sys.exit(1)
+    return (
+        version_tag_names_from_ls_remote(output),
+        head_version_tags_from_ls_remote(output, head),
+        read_floor_meta(),
+    )
+
+
+def next_version_from_tags(now=None, tag_names=None, floor=None, head_version_tags=None):
+    """Next YY.M.BUILD for the current UTC month, or the v-tag already on HEAD."""
+    if tag_names is None or floor is None or head_version_tags is None:
+        discovered_names, discovered_head, discovered_floor = discover_tag_state()
+        if tag_names is None:
+            tag_names = discovered_names
+        if head_version_tags is None:
+            head_version_tags = discovered_head
+        if floor is None:
+            floor = discovered_floor
+
+    for name in head_version_tags or []:
+        match = VERSION_TAG_RE.match(name)
+        if match:
+            return f"{int(match.group(1))}.{int(match.group(2))}.{int(match.group(3))}"
+
+    year, month, _ = calendar_parts(now)
+    max_n = 0
+    for name in tag_names or []:
+        match = VERSION_TAG_RE.match(name)
+        if not match:
+            continue
+        tag_year, tag_month, tag_build = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        if tag_year == year and tag_month == month:
+            max_n = max(max_n, tag_build)
+    next_n = max_n + 1 if max_n else 1
+    if floor:
+        floor_year = int(floor.get("year", 0))
+        floor_month = int(floor.get("month", 0))
+        floor_build = int(floor.get("build", 0))
+        if floor_year == year and floor_month == month:
+            next_n = max(next_n, floor_build)
+    return f"{year}.{month}.{next_n}"
+
+
+def write_version_mirrors(version):
+    """Write .build_meta.json and src/version.rs for an exact version."""
+    year, month, build = parse_version(version)
+    meta = {}
+    if os.path.exists(BUILD_META_FILE):
+        with open(BUILD_META_FILE, "r") as handle:
+            try:
+                meta = json.load(handle)
+            except json.JSONDecodeError:
+                print(f"Error: {BUILD_META_FILE} is not valid JSON", file=sys.stderr)
+                sys.exit(1)
+    meta["year"] = year
+    meta["month"] = month
+    meta["build"] = build
+    with open(BUILD_META_FILE, "w") as handle:
+        json.dump(meta, handle, indent=2)
+    MODIFIED_FILES.append(BUILD_META_FILE)
+
+    directory = os.path.dirname(VERSION_FILE)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with open(VERSION_FILE, "w") as handle:
+        handle.write(f'pub const VERSION: &str = "{version}";\n')
+    MODIFIED_FILES.append(VERSION_FILE)
+    return meta, version
+
+
+def rewrite_wfl_lock_version(lock_path, version):
+    """Rewrite the pinned `wfl` package version in a Cargo.lock file."""
+    if not os.path.exists(lock_path):
+        print(f"Warning: {lock_path} not found, skipping")
+        return False
+    with open(lock_path, "r") as handle:
+        content = handle.read()
+    new_content, count = re.subn(
+        r'(name = "wfl"\s*version = ")[^"]+(")',
+        rf"\g<1>{version}\2",
+        content,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if count != 1:
+        print(f"Error: Could not update wfl version in {lock_path}", file=sys.stderr)
+        sys.exit(1)
+    with open(lock_path, "w") as handle:
+        handle.write(new_content)
+    MODIFIED_FILES.append(lock_path)
+    print(f"Updated {lock_path} to {version}")
+    return True
 
 def get_current_version():
     """Get the current version from build_meta.json."""
@@ -52,9 +282,7 @@ def bump_version(skip_bump=False):
         print(f"Using current version: {old_version}")
         return meta, old_version
     
-    now = datetime.datetime.now()
-    current_year = now.year % 100  # Get 2-digit year
-    current_month = now.month
+    current_year, current_month, _ = calendar_parts()
     
     build_num = meta.get("build", 1)
     last_year = meta.get("year", current_year)
@@ -138,159 +366,37 @@ def _extract_wfl_lock_version(lock_path):
         sys.exit(1)
     return match.group(1)
 
-def update_cargo_lock():
-    """Update Cargo.lock to match Cargo.toml version by running cargo update.
-
-    Raises SystemExit on any error to ensure CI failure.
-    """
-    import subprocess
-
-    CARGO_LOCK = "Cargo.lock"
-
-    if not os.path.exists(CARGO_TOML):
-        print(f"Error: {CARGO_TOML} not found, cannot update Cargo.lock")
-        sys.exit(1)
-
-    print("Updating Cargo.lock to match Cargo.toml version...")
-
-    # Extract expected version from Cargo.toml
-    try:
-        with open(CARGO_TOML, "r") as f:
-            cargo_toml_content = f.read()
-
-        # Extract main package version from [package] section only
-        import re
-
-        # Find the [package] section
-        package_match = re.search(r'\[package\](.*?)(?:\n\[|$)', cargo_toml_content, re.DOTALL)
-        if not package_match:
-            print("Error: Could not find [package] section in Cargo.toml")
-            sys.exit(1)
-
-        package_section = package_match.group(1)
-
-        # Extract version from within the package section
-        version_match = re.search(r'^version = "([^"]+)"', package_section, re.MULTILINE)
-        if not version_match:
-            print("Error: Could not extract version from Cargo.toml")
-            sys.exit(1)
-
-        expected_version = version_match.group(1)
-        print(f"Expected version: {expected_version}")
-
-    except Exception as e:
-        print(f"Error reading Cargo.toml: {e}")
-        sys.exit(1)
-
-    # Run cargo update
-    try:
-        subprocess.run(
-            ["cargo", "update", "--package", "wfl"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        print("Cargo update completed successfully")
-
-    except subprocess.CalledProcessError as e:
-        print(f"Error running cargo update: {e}")
-        print(f"stdout: {e.stdout}")
-        print(f"stderr: {e.stderr}")
-        sys.exit(1)
-    except FileNotFoundError:
-        print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
-        sys.exit(1)
-
-    # Verify Cargo.lock exists and extract version
-    if not os.path.exists(CARGO_LOCK):
-        print(f"Error: {CARGO_LOCK} not found after cargo update")
-        sys.exit(1)
-
+def update_cargo_lock(expected_version):
+    """Rewrite the root Cargo.lock `wfl` version to match Cargo.toml."""
+    rewrite_wfl_lock_version(CARGO_LOCK, expected_version)
     actual_version = _extract_wfl_lock_version(CARGO_LOCK)
-    print(f"Cargo.lock version: {actual_version}")
-
-    # Verify versions match
-    if expected_version != actual_version:
+    if actual_version != expected_version:
         print("Error: Version mismatch!")
-        print(f"  Cargo.toml version: {expected_version}")
+        print(f"  expected: {expected_version}")
         print(f"  Cargo.lock version: {actual_version}")
-        print("Cargo.lock was not properly synchronized")
         sys.exit(1)
+    print(f"✓ Cargo.lock synchronized: {expected_version}")
 
-    print(f"✓ Version synchronization verified: {expected_version}")
-    MODIFIED_FILES.append(CARGO_LOCK)
 
 def update_fuzz_cargo_lock(expected_version):
-    """Sync + validate the standalone fuzz workspace's Cargo.lock after a bump.
+    """Rewrite the standalone fuzz workspace's Cargo.lock `wfl` version.
 
-    `fuzz/` is a SEPARATE cargo workspace (excluded from the root workspace) that
-    path-depends on the root `wfl` package, so `fuzz/Cargo.lock` pins the root
-    version too. `update_cargo_lock()` only refreshes the ROOT lock; if we don't
-    also refresh and STAGE `fuzz/Cargo.lock`, the committed fuzz lock goes stale
-    on every bump and the next `cargo check --locked --manifest-path
-    fuzz/Cargo.toml` (the `fuzz-check` CI gate) fails — and the bump commit is
-    `[skip ci]`, so nothing self-corrects. We also run that same locked check
-    here so a broken lock can never be committed/tagged.
-
-    Raises SystemExit on any error to ensure CI failure.
+    `fuzz/` is a separate cargo workspace that path-depends on root `wfl`, so
+    its lock pins the root version too. A path-dep version change is a string
+    rewrite — no dependency resolution — and keeps `cargo check --locked
+    --manifest-path fuzz/Cargo.toml` honest without shelling out to Cargo.
     """
-    FUZZ_MANIFEST = os.path.join("fuzz", "Cargo.toml")
-    FUZZ_LOCK = os.path.join("fuzz", "Cargo.lock")
-
-    if not (os.path.exists(FUZZ_MANIFEST) and os.path.exists(FUZZ_LOCK)):
-        print(f"Note: {FUZZ_LOCK} not present; skipping fuzz lock sync.")
+    if not os.path.exists(FUZZ_CARGO_LOCK):
+        print(f"Note: {FUZZ_CARGO_LOCK} not present; skipping fuzz lock sync.")
         return
-
-    print("Syncing fuzz/Cargo.lock to match the new root version...")
-
-    # Refresh only the `wfl` entry (a path dep) so the fuzz lock records the new
-    # version without churning unrelated dependencies.
-    try:
-        subprocess.run(
-            ["cargo", "update", "--package", "wfl", "--manifest-path", FUZZ_MANIFEST],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error running cargo update for fuzz/Cargo.lock: {e}")
-        print(f"stdout: {e.stdout}")
-        print(f"stderr: {e.stderr}")
-        sys.exit(1)
-    except FileNotFoundError:
-        print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
-        sys.exit(1)
-
-    # Verify the fuzz lock now records the expected version for `wfl`.
-    fuzz_version = _extract_wfl_lock_version(FUZZ_LOCK)
+    rewrite_wfl_lock_version(FUZZ_CARGO_LOCK, expected_version)
+    fuzz_version = _extract_wfl_lock_version(FUZZ_CARGO_LOCK)
     if fuzz_version != expected_version:
         print("Error: fuzz/Cargo.lock version mismatch!")
         print(f"  expected: {expected_version}")
         print(f"  fuzz/Cargo.lock: {fuzz_version}")
         sys.exit(1)
-
     print(f"✓ fuzz/Cargo.lock synchronized: {expected_version}")
-
-    # Prove the staged lock passes the SAME `--locked` gate the next PR's
-    # `fuzz-check` job runs, so a stale/inconsistent lock can never be
-    # committed or tagged by the [skip ci] bump.
-    try:
-        subprocess.run(
-            ["cargo", "check", "--locked", "--manifest-path", FUZZ_MANIFEST],
-            check=True,
-        )
-        print("✓ cargo check --locked --manifest-path fuzz/Cargo.toml passed")
-    except subprocess.CalledProcessError:
-        print(
-            "Error: locked fuzz check failed after bump; "
-            "refusing to stage a broken fuzz/Cargo.lock"
-        )
-        sys.exit(1)
-    except FileNotFoundError:
-        print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
-        sys.exit(1)
-
-    MODIFIED_FILES.append(FUZZ_LOCK)
 
 def update_wix_toml(version):
     """Update version in wix.toml."""
@@ -399,38 +505,59 @@ def commit_changes(version, skip_git=False):
         print(f"Error during git operations: {e}")
         return False
 
-def main():
-    args = parse_args()
-    
-    if args.update_wix_only:
-        # Just get current version and update wix.toml
+def _apply_all_mirrors(version):
+    update_cargo_toml(version)
+    update_cargo_lock(version)
+    update_fuzz_cargo_lock(version)
+    update_vscode_extensions(version)
+    update_wix_toml(version)
+    print(f"Updated all version references to {version}", file=sys.stderr)
+
+
+def main_with_args(argv=None):
+    args = parse_args(argv)
+
+    if args.from_tags and args.set_version:
+        print("Error: --from-tags and --set-version cannot be combined", file=sys.stderr)
+        return 2
+
+    if args.from_tags:
+        version = next_version_from_tags()
+        if args.print_version:
+            print(version)
+            return 0
+        meta, version = write_version_mirrors(version)
+    elif args.set_version:
+        version = args.set_version
+        if args.print_version:
+            print(version)
+            return 0
+        meta, version = write_version_mirrors(version)
+    elif args.update_wix_only:
         meta, version = get_current_version()
         update_wix_toml(version)
-        print(f"Updated wix.toml with version {version}")
+        print(f"Updated wix.toml with version {version}", file=sys.stderr)
         return 0
-    
-    # Bump the version in main files
-    meta, version = bump_version(args.skip_bump)
-    
-    # Update additional files based on arguments
+    else:
+        if args.print_version:
+            _meta, version = get_current_version()
+            print(version)
+            return 0
+        meta, version = bump_version(args.skip_bump)
+
     if args.update_all:
-        update_cargo_toml(version)
-        # Update Cargo.lock after Cargo.toml to ensure version synchronization
-        update_cargo_lock()
-        # The standalone fuzz workspace path-depends on root `wfl`, so its lock
-        # pins the root version too. Keep it in sync + staged, or the [skip ci]
-        # bump silently breaks the next `--locked` fuzz-check (see the function).
-        update_fuzz_cargo_lock(version)
-        update_vscode_extensions(version)
-        update_wix_toml(version)
-        print(f"Updated all version references to {version}")
-    
-    # Commit changes if needed
+        _apply_all_mirrors(version)
+
     if not args.skip_git:
         if not commit_changes(version, args.skip_git):
             return 1
-    
+
     return 0
+
+
+def main():
+    return main_with_args()
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -127,9 +127,12 @@ write to an approved output root rather than littering source directories.
 ### Product version
 
 Root `Cargo.toml` `[package].version` is the sole WFL product-version
-authority. `scripts/bump_version.py` updates it and regenerates every mirror
-atomically; the checker's version-drift rule fails CI when any declared source
-disagrees.
+authority. Nightly versions are numbered from published `vYY.M.N` tags at
+publish time (`scripts/bump_version.py --from-tags`); the committed
+`.build_meta.json` is a same-month floor only and is no longer bumped by a
+post-merge push to `main`. `scripts/bump_version.py --set-version` writes the
+computed version into every mirror at build time without committing. The
+checker's version-drift rule fails CI when any declared source disagrees.
 
 **Transitional state (explicitly not final):** `src/version.rs`,
 `.build_meta.json`, and the `wix.toml` version line are still hand-tracked
@@ -194,8 +197,9 @@ modes:
   outside the approved output roots.
 
 CI runs static mode early as the blocking `repo-hygiene` job and working-tree
-mode after the test suites; workflows that commit to the repository run the
-checks immediately before pushing. The checker's own unit tests live in
+mode after the test suites. CI does not push version-bump commits to
+protected branches (`main` / `dev`); the nightly workflow writes a `vX.Y.Z`
+tag after a successful publish. The checker's own unit tests live in
 `tests/tooling/`.
 
 ## 9. Exceptions

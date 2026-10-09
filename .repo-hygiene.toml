@@ -145,7 +145,7 @@ size-allowed = [
 [[generated]]
 path = "src/version.rs"
 generator = "scripts/bump_version.py"
-consumer = "runtime version reporting; CI version extraction in ci.yml/versioning.yml"
+consumer = "runtime version reporting; nightly --set-version writes at build time"
 owner = "Brad"
 justification = "Transitional product-version mirror pending single-source consolidation onto Cargo.toml (tracked follow-up issue #670). The version-drift rule keeps it honest."
 drift-check = "python3 scripts/check_repo_hygiene.py --mode static (version-drift rule)"
@@ -154,7 +154,7 @@ regeneration = "python3 scripts/bump_version.py --skip-bump --update-all"
 [[generated]]
 path = ".build_meta.json"
 generator = "scripts/bump_version.py"
-consumer = ".github/workflows/nightly.yml version read"
+consumer = "same-month floor for tag-based nightly versioning; nightly --set-version writes the published version at build time"
 owner = "Brad"
 justification = "Transitional version metadata pending single-source consolidation onto Cargo.toml (tracked follow-up issue #670)."
 drift-check = "python3 scripts/check_repo_hygiene.py --mode static (version-drift rule)"

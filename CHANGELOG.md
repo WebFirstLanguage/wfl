@@ -48,6 +48,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   (TOML has no null); `nothing` inside a list is an error rather than a silent
   drop.
 
+### Changed
+- **Nightly versions are numbered from `vYY.M.N` tags at publish time.** The
+  next build for the current UTC month is max N + 1, or 1 if none exist, and
+  the committed `.build_meta.json` is a same-month floor only. It is no longer
+  bumped automatically by a post-merge push to `main` (the LOG-16 ruleset
+  requires pull requests and status checks on `main`, so that push could not
+  succeed). A successful nightly writes the version into the tree at build
+  time and pushes the `vX.Y.Z` tag at the built commit; a same-commit rerun
+  reuses that tag instead of burning a new number.
+
 ### Fixed
 - **Unbounded pattern quantifiers are greedy** (#709). `one or more`,
   `zero or more`, and `at least N` previously matched the shortest run because
