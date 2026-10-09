@@ -1,6 +1,6 @@
 //! Stays a separate integration binary (#693): backpressure and early-chunk
-//! proofs use 1500ms–9s / 1500ms write-timeout windows that suite load
-//! would miss or inflate.
+//! proofs use a 1500ms–9s write-timeout window and a <1500ms early-flush
+//! bound that suite load would miss or inflate.
 //!
 //! Real-socket regressions (maintainer re-review, P1):
 //!

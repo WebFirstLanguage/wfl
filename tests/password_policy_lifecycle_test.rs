@@ -1,7 +1,7 @@
-//! Stays a separate integration binary (#693): configured hashing admission
-//! pins a process-wide Tokio blocking pool (`max_blocking_threads(1)`).
-//! Folding this into the shared suite would starve every other password test
-//! in the same process.
+//! Stays a separate integration binary (#693): the test saturates the
+//! process-wide configured-hashing admission (`POLICY_HASH_ADMISSION`, 16
+//! slots in `src/stdlib/crypto_async.rs`) to prove `busy` and recovery. Other
+//! suite tests that hash with a policy would see spurious `busy` or hold slots.
 
 use std::sync::Arc;
 use std::task::Poll;
