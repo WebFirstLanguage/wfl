@@ -18,19 +18,6 @@ use wfl::config::WflConfig;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready");
-}
-
 struct ControlledServer {
     thread: std::thread::JoinHandle<()>,
     drop_run: Option<tokio::sync::oneshot::Sender<()>>,
@@ -194,14 +181,16 @@ async fn spawn_dequeue_checkpoint() -> (u16, tokio::sync::oneshot::Receiver<Resu
 
 #[tokio::test]
 async fn test_dropped_run_closes_server_stream_while_interpreter_stays_alive() {
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("drop-stream");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DROP_STREAM_READY ", "srv");
 
     // Handler: start streaming, send a chunk, flush, then park. Receiving `hello`
     // is the exact checkpoint that the server stream exists before the run is
     // explicitly dropped.
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop:
             wait for request comes in on srv as req with timeout 60000
             start streaming response to req with status 200 and content type "text/plain" as out
@@ -213,7 +202,9 @@ async fn test_dropped_run_closes_server_stream_while_interpreter_stays_alive() {
     );
 
     let mut server = start_controlled_server(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "DROP_STREAM_READY ")
+        .await
+        .port();
 
     let mut response = tokio::time::timeout(
         Duration::from_secs(5),
@@ -269,10 +260,12 @@ async fn test_dropped_run_closes_server_stream_while_interpreter_stays_alive() {
 #[tokio::test]
 async fn test_dropped_run_answers_pending_request_with_500() {
     let (checkpoint_port, checkpoint_ready) = spawn_dequeue_checkpoint().await;
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("drop-500");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DROP_500_READY ", "srv");
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop:
             wait for request comes in on srv as req with timeout 60000
             open url at "http://127.0.0.1:{checkpoint_port}/dequeued" and stream response as checkpoint
@@ -282,7 +275,9 @@ async fn test_dropped_run_answers_pending_request_with_500() {
     );
 
     let mut server = start_controlled_server(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "DROP_500_READY ")
+        .await
+        .port();
 
     let url = format!("http://127.0.0.1:{port}/");
     let request = tokio::spawn(async move { reqwest::Client::new().get(url).send().await });

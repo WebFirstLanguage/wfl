@@ -27,8 +27,6 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 /// How many disconnecting clients to fire. Must exceed the concurrent loop's
 /// `MAX_CONSECUTIVE_FAILURES` (256) so, under the buggy behavior, the burst trips
 /// the structural breaker.
@@ -95,17 +93,6 @@ fn start_proxy_server(code: String) -> std::thread::JoinHandle<()> {
     })
 }
 
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("proxy server on {addr} did not become ready");
-}
-
 /// One disconnecting client: open `/proxy`, read the response head (proving the
 /// handler reached `start streaming response` and is now blocked on the upstream),
 /// then drop the socket to disconnect.
@@ -141,10 +128,12 @@ async fn fire_disconnect(proxy_port: u16) {
 async fn test_disconnect_burst_does_not_kill_concurrent_loop() {
     let (upstream_port, mut upstream_closes) = spawn_counting_stall_upstream().await;
 
-    let proxy_port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("disc-burst");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "DISC_BURST_READY ", "srv");
     let code = format!(
         r#"
-        listen on port {proxy_port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 30000
             store p as req["path"]
@@ -172,7 +161,9 @@ async fn test_disconnect_burst_does_not_kill_concurrent_loop() {
     "#
     );
     let server = start_proxy_server(code);
-    wait_for_server(proxy_port).await;
+    let proxy_port = crate::common::wait_for_published_web_server(&ready_path, "DISC_BURST_READY ")
+        .await
+        .port();
 
     // Fire a burst of disconnecting clients, bounded so none is shed with 503.
     let sem = Arc::new(Semaphore::new(CLIENT_CONCURRENCY));
