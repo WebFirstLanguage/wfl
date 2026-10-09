@@ -7,8 +7,7 @@
 // Shared harness: `get_wfl_binary_path`, `get_unique_test_file_path`, and
 // `run_wfl_program` (which already runs the binary under a 30s timeout, so a
 // bug that hangs the interpreter fails fast instead of stalling CI).
-mod test_helpers;
-use test_helpers::run_wfl_program;
+use crate::test_helpers::run_wfl_program;
 
 /// Run a program, assert it exited cleanly, and return trimmed stdout lines.
 fn run_ok(program: &str, test_name: &str) -> Vec<String> {

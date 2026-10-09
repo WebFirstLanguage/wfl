@@ -7,8 +7,7 @@
 ///
 /// The fix: `requires_async_evaluation()` pre-scans elements without executing them,
 /// so the sync fast path is skipped entirely when async is needed.
-mod test_helpers;
-use test_helpers::*;
+use crate::test_helpers::*;
 
 /// Count how many times a substring appears in the output
 fn count_occurrences(output: &std::process::Output, needle: &str) -> usize {
