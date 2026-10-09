@@ -14,8 +14,6 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-mod common;
-
 /// A temp-file SQLite database that removes itself on drop. File-backed because
 /// in-memory SQLite is capped at a single connection and so cannot exhibit the
 /// pooled-handle behaviour under test.
@@ -113,7 +111,7 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
 async fn an_unrelated_handler_is_not_enrolled_in_another_handlers_transaction() {
     let db = TempDb::new("not_enrolled");
     let url = &db.url;
-    let port = common::free_tcp_port();
+    let port = crate::common::free_tcp_port();
 
     let code = format!(
         r#"

@@ -12,8 +12,7 @@ use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-use common::{get_text, get_var, run_wfl_ok as run_wfl};
+use crate::common::{get_text, get_var, run_wfl_ok as run_wfl};
 
 /// Captured request: (request line + headers, body)
 type CapturedRequest = (String, String);
