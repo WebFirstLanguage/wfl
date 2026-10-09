@@ -925,3 +925,71 @@ M.reset()
         "{errors:?}"
     );
 }
+
+#[test]
+fn a_property_named_this_stays_a_property() {
+    // Codex review (#701): a container may declare `property this`. The name
+    // was never undefined there, so `this` keeps meaning the property:
+    // `change this to ...` must still compile, and reads and writes must
+    // reach the property (before #701 the runtime bound the object over it).
+    let stdout = run_ok(
+        r#"create container P:
+    property this: Number
+    action bump:
+        change this to this + 1
+    end
+    action show: Number
+        return this
+    end
+end
+create new P as p:
+    this is 5
+end
+p.bump()
+display "p.this=" with p.this
+display "show=" with p.show()
+"#,
+    );
+    assert!(stdout.contains("p.this=6"), "{stdout}");
+    assert!(stdout.contains("show=6"), "{stdout}");
+}
+
+#[test]
+fn overloaded_ordinary_actions_keep_the_object_coherent() {
+    // The overloaded `X of this` call and the overloaded zero-argument
+    // auto-call also record their caller.
+    let stdout = run_ok(
+        r#"create container M:
+    property buf: Text
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+    action step:
+        store buf as "a"
+        store r as via_of of this
+        store buf as buf with "b"
+        nudge
+        store buf as buf with "c"
+    end
+end
+create new M as m:
+    buf is ""
+end
+define action called via_of with parameters o:
+    o.emit("1")
+end action
+define action called via_of with parameters o and tag:
+    o.emit(tag)
+end action
+define action called nudge:
+    m.emit("Z")
+end action
+define action called nudge with parameters tag:
+    m.emit(tag)
+end action
+m.step()
+display "buf=[" with m.buf with "]"
+"#,
+    );
+    assert!(stdout.contains("buf=[a1bZc]"), "{stdout}");
+}
