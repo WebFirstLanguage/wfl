@@ -1,8 +1,10 @@
+// Split language coverage. Uses the cargo-built `wfl` binary (`wfl_exe`) so
+// the suite does not require a separately-built release tree. The integration
+// scripts still build release first and then filter this module.
+
 use std::fs;
 use std::process::Command;
 use tempfile::NamedTempFile;
-
-mod common;
 
 /// Robust temporary file cleanup wrapper
 struct TempWflFile {
@@ -29,7 +31,7 @@ fn run_wfl(code: &str) -> String {
     // Create temporary WFL file with automatic cleanup
     let temp_file = TempWflFile::new(code).expect("Failed to create temp file");
 
-    let output = Command::new(common::wfl_release_exe())
+    let output = Command::new(crate::common::wfl_exe())
         .arg(temp_file.path())
         .output()
         .expect("Failed to execute WFL");

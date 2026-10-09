@@ -7,8 +7,7 @@
 use std::path::PathBuf;
 use wfl::interpreter::value::Value;
 
-mod common;
-use common::{expect_number, expect_text, get_global, run_wfl};
+use crate::common::{expect_number, expect_text, get_global, run_wfl};
 
 fn expect_object_key(value: &Value, key: &str) -> Value {
     match value {
