@@ -312,8 +312,9 @@ pub struct UndefinedActionSite {
     pub statement_index: Option<usize>,
 }
 
-/// Reported for `change this to ...` / `store this as ...` inside a
-/// container's instance action, where `this` is the receiver (issue #701).
+/// Reported for `change this to ...` inside a container's instance action
+/// when `this` means the object (no variable of that name is in scope;
+/// issue #701).
 const THIS_CANNOT_CHANGE: &str =
     "'this' always means the object this action was called on and cannot be changed";
 
@@ -1033,20 +1034,6 @@ impl Analyzer {
             Statement::VariableDeclaration {
                 name,
                 value,
-                line,
-                column,
-                ..
-            } if name == "this" && self.current_instance_container().is_some() => {
-                self.analyze_expression(value);
-                self.errors.push(SemanticError::new(
-                    THIS_CANNOT_CHANGE.to_string(),
-                    *line,
-                    *column,
-                ));
-            }
-            Statement::VariableDeclaration {
-                name,
-                value,
                 is_constant,
                 line,
                 column,
@@ -1119,17 +1106,11 @@ impl Analyzer {
                         SymbolKind::Variable { mutable } => {
                             is_variable_assignment = *mutable;
                             if !mutable {
-                                let message = if name == "this"
-                                    && self.current_instance_container().is_some()
-                                {
-                                    THIS_CANNOT_CHANGE.to_string()
-                                } else {
-                                    format!(
-                                        "Cannot modify constant '{name}' - constants are immutable once defined"
-                                    )
-                                };
-                                self.errors
-                                    .push(SemanticError::new(message, *line, *column));
+                                self.errors.push(SemanticError::new(
+                                    format!("Cannot modify constant '{name}' - constants are immutable once defined"),
+                                    *line,
+                                    *column,
+                                ));
                                 // Skip analyzing the value expression since the assignment itself is invalid
                                 skip_value_analysis = true;
                             }
@@ -1151,7 +1132,14 @@ impl Analyzer {
                             false
                         };
 
-                    if !is_container_property {
+                    if name == "this" && self.current_instance_container().is_some() {
+                        // `this` resolves to the object here (#701).
+                        self.errors.push(SemanticError::new(
+                            THIS_CANNOT_CHANGE.to_string(),
+                            *line,
+                            *column,
+                        ));
+                    } else if !is_container_property {
                         self.report_undefined_name(
                             format!("Variable '{name}' is not defined"),
                             *line,
@@ -2330,11 +2318,7 @@ impl Analyzer {
                 // Process instance methods
                 for method in methods {
                     if let Statement::ActionDefinition {
-                        parameters,
-                        body,
-                        line: method_line,
-                        column: method_column,
-                        ..
+                        parameters, body, ..
                     } = method
                     {
                         // Analyze method body
@@ -2346,20 +2330,12 @@ impl Analyzer {
                         self.current_container = Some(name.clone());
                         self.current_method_is_static = Some(false);
 
-                        // `this` is the object the action was called on
-                        // (issue #701). It is bound innermost, before the
-                        // parameters, so it wins over any outer `this` exactly
-                        // as the interpreter's per-call binding does.
-                        self.current_scope.define_or_replace(Symbol {
-                            name: "this".to_string(),
-                            kind: SymbolKind::Variable { mutable: false },
-                            symbol_type: Some(Type::ContainerInstance(name.clone())),
-                            line: *method_line,
-                            column: *method_column,
-                        });
-
-                        // Properties will be resolved through container context
-                        // Don't add them as variables to avoid conflicts with assignments
+                        // Properties, and `this` (the object the action was
+                        // called on, issue #701), are resolved through the
+                        // container context rather than added as variables:
+                        // that avoids conflicts with assignments, and it keeps
+                        // `this` additive — a program's own variable named
+                        // `this` still resolves first.
 
                         // Add method parameters
                         for param in parameters {
@@ -5140,15 +5116,17 @@ impl Analyzer {
                 }
 
                 if self.current_scope.resolve(name).is_none() {
-                    // Check if it's a container property (including inherited)
+                    // Check if it's a container property (including inherited),
+                    // or `this` inside an instance action (#701)
                     let is_container_property =
                         if let Some(container_name) = &self.current_container {
                             self.is_container_property(container_name, name)
                         } else {
                             false
                         };
+                    let is_receiver = name == "this" && self.current_instance_container().is_some();
 
-                    if !is_container_property {
+                    if !is_container_property && !is_receiver {
                         // A bare unresolved name may be a zero-argument action
                         // exposed by an `include from` file and referenced by
                         // its bare name (e.g. `store x as greet`), which lowers

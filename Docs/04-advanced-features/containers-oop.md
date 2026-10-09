@@ -201,7 +201,10 @@ What to know about `this`:
 
 - **Changes are shared.** Property changes an action makes before calling
   `this.other()` are visible to `other`, and the changes `other` makes are
-  visible when it returns. Recursion through `this` works the same way.
+  visible when it returns. This also holds when the object reaches another
+  action under a different name, for example `call helper with this`.
+- **Each call keeps its own local variables.** A called action cannot see or
+  change the caller's local variables, so recursion through `this` works.
 - **Order does not matter.** An action can call a sibling declared later in
   the container. In the example, `greet` calls `message`, which comes after it.
 - **Inheritance works.** `this.action()` also finds actions inherited from a
@@ -213,11 +216,19 @@ What to know about `this`:
 - **Other objects.** An action can call actions on other objects it is given,
   for example `other.bump()`. Each call runs on its own object, and inside it
   `this` means that object.
-- **`this` is fixed.** `change this to ...` and `store this as ...` are errors.
+- **`this` is fixed.** `change this to ...` is an error.
 - **Instance actions only.** A `static action` belongs to the container, not
   to one object, so using `this` in it is an error.
-- **Not a reserved word.** Outside container actions, `this` is an ordinary
-  name, so existing variables called `this` keep working.
+- **Existing variables keep their meaning.** `this` is not a reserved word.
+  If a program already has its own variable named `this` where an action runs
+  (a top-level variable, or one the action creates with `store this as ...` or
+  `for each this in ...`), that variable keeps its meaning, and `this` there
+  does not mean the object. Rename such a variable to use `this` for the
+  object.
+- **Concurrent handlers.** Under `main loop concurrently:`, each running
+  action works on its own copy of its object's properties and writes the copy
+  back when it finishes. Two handlers running actions on the same object at
+  the same time can therefore overwrite each other's property changes.
 
 A bare call such as `call count_greeting` is not looked up among the
 container's actions. WFL stops before running the program and names the fix:
@@ -225,6 +236,10 @@ container's actions. WFL stops before running the program and names the fix:
 ```
 error[ANALYZE-SEMANTIC]: 'count_greeting' is an action of container 'Greeter'. Inside the container's actions, call it on the current object: this.count_greeting(...)
 ```
+
+In a file that uses `include from`, WFL cannot see which actions the included
+files define, so it only warns about the bare call, and the call fails with
+`Undefined action 'count_greeting'` when it runs.
 
 ## Inheritance
 

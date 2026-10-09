@@ -397,9 +397,11 @@ display "outer this " with this
     let stdout = run_ok(
         r#"create container L:
     property items: List
-    action run:
+    action stored:
         store this as 5
         display "local " with this
+    end
+    action looped:
         for each this in items:
             display "item " with this
         end for
@@ -408,7 +410,8 @@ end
 create new L as l:
     items is [1, 2]
 end
-l.run()
+l.stored()
+l.looped()
 "#,
     );
     assert!(stdout.contains("local 5"), "{stdout}");

@@ -117,8 +117,10 @@ predefined, read-only name for the object the action was called on, used to
 call sibling actions (`this.other_action()`) and read properties
 (`this.name`); see [Calling Other Actions with
 `this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
-Everywhere else it is an ordinary identifier, so `store this as 5` at the top
-level stays valid.
+It only fills in where the name would otherwise be undefined: a program's own
+variable named `this` (top-level, or created in the action with `store this
+as ...` or `for each this in ...`) keeps its meaning, and everywhere outside
+instance actions `this` is an ordinary identifier.
 
 ```wfl
 // All perfectly valid — these words are not reserved:

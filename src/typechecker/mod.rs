@@ -6582,19 +6582,6 @@ impl TypeChecker {
                         // and inferring return expressions, mirroring the
                         // top-level `ActionDefinition` arm (issue #553).
                         self.analyzer.push_scope();
-                        // An instance action's `this` is an object of this
-                        // container, so `this.sibling(...)` is checked like any
-                        // other method call (issue #701). Bound before the
-                        // parameters, as the analyzer does.
-                        if !is_static {
-                            self.analyzer.define_or_replace_symbol(Symbol {
-                                name: "this".to_string(),
-                                kind: SymbolKind::Variable { mutable: false },
-                                symbol_type: Some(Type::ContainerInstance(_name.clone())),
-                                line: *_method_line,
-                                column: *_method_column,
-                            });
-                        }
                         for param in parameters {
                             let param_symbol = Symbol {
                                 name: param.name.clone(),
@@ -7897,6 +7884,15 @@ impl TypeChecker {
                         // where a concrete type is required at runtime.
                         Type::Unknown
                     }
+                } else if name == "this"
+                    && self.current_method_is_static == Some(false)
+                    && let Some(container) = &self.current_container
+                {
+                    // With no variable of that name in scope, `this` in an
+                    // instance action is the object the action was called on,
+                    // so `this.sibling(...)` is checked like any method call
+                    // (issue #701).
+                    Type::ContainerInstance(container.clone())
                 } else {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)

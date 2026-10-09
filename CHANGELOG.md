@@ -47,8 +47,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   document must be a table, and `nothing`-valued keys are omitted when writing
   (TOML has no null); `nothing` inside a list is an error rather than a silent
   drop.
+- **Container actions call sibling actions through `this`** (#701). Inside an
+  instance action, `this` means the object the action was called on, so
+  `this.emit("x")` calls another action of the same container exactly as
+  `m.emit("x")` does from outside, and `this.name` reads a property's current
+  value. The analyzer and type checker check `this` calls like any method call,
+  including inherited actions, and an action may call a sibling declared after
+  it. A bare sibling call (`call emit with "x"`) stays an error, and the message
+  now names the `this.emit(...)` form. `this` is not a reserved word: it fills
+  in only where the name was previously undefined, so a program's own variable
+  named `this` (top-level, or created in an action with `store this as ...` or
+  `for each this in ...`) keeps its meaning.
 
 ### Fixed
+- **Container actions run on their own object, with their own locals**
+  (#701). An action's scope was a child of its caller's scope, and the action
+  re-used any caller binding with the same name as `this` or a property. As a
+  result a call on another object made from inside an action (`b.bump()` inside
+  `a.poke(b)`) ran on the caller's object, an action read and then overwrote
+  its property with a caller's same-named local, parameter or loop variable, and
+  a called action's `store x as ...` overwrote the caller's own `x` (a recursive
+  `fib(10)` returned 5). Actions now see the scope where their container was
+  defined, as ordinary actions do, and nested calls on one object keep its
+  property changes in step, including when it is passed to another action.
+  **Compatibility:** only programs that hit these bugs change: they now get the
+  results the code describes. A global variable with the same name as a
+  property still takes precedence inside an action, as before.
 - **Optional TLS settings in the configuration wizard** can be skipped with
   Enter. Unset certificate/key paths are omitted from the generated file, so accepting
   every default now completes the wizard.

@@ -28,6 +28,11 @@ pub struct Environment {
     /// by this marker to keep those copies and the object in step (#701).
     /// Weak, because the frame's own `this` binding already holds the object.
     pub method_receiver: Option<Weak<RefCell<ContainerInstanceValue>>>,
+    /// Set on an action frame and on an action call scope: the scope the call
+    /// was made from. Name lookup never follows it — actions see the scope
+    /// they were defined in — so it exists only for finding a running action
+    /// of the same object further up the call chain (#701).
+    pub caller: Option<Weak<RefCell<Environment>>>,
 }
 
 impl Environment {
@@ -43,6 +48,7 @@ impl Environment {
             isolated: false,
             included_files: HashSet::new(),
             method_receiver: None,
+            caller: None,
         }))
     }
 
@@ -58,6 +64,7 @@ impl Environment {
             isolated: false,
             included_files: HashSet::new(),
             method_receiver: None,
+            caller: None,
         }))
     }
 
@@ -74,6 +81,7 @@ impl Environment {
             isolated: false,
             included_files: HashSet::new(),
             method_receiver: None,
+            caller: None,
         }))
     }
 
@@ -93,6 +101,7 @@ impl Environment {
             isolated: true,
             included_files: HashSet::new(),
             method_receiver: None,
+            caller: None,
         }))
     }
 

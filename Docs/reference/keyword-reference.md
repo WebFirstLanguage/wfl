@@ -238,7 +238,8 @@ Quick lookup for all WFL reserved keywords.
 | `trigger` | Fire event | ✗ |
 
 `this` is not a keyword (it is not counted above): inside an instance action it
-names the object the action was called on, as in `this.other_action()`. See
+names the object the action was called on, as in `this.other_action()`, unless
+the program has its own variable named `this` there. See
 [Calling Other Actions with `this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
 
 ---

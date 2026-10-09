@@ -7795,7 +7795,7 @@ impl Interpreter {
                         #[cfg(debug_assertions)]
                         exec_trace!("Executing bare action call: {}", name);
                         return self
-                            .call_function(&func, vec![], *var_line, *var_column)
+                            .call_function_from(&func, vec![], *var_line, *var_column, Some(&env))
                             .await
                             .map(|value| (value, ControlFlow::None));
                     } else if let Some(Value::Overloaded(overloaded)) = lookup {
@@ -7809,7 +7809,13 @@ impl Interpreter {
                             #[cfg(debug_assertions)]
                             exec_trace!("Executing bare overloaded action call: {}", name);
                             return self
-                                .call_function(func, vec![], *var_line, *var_column)
+                                .call_function_from(
+                                    func,
+                                    vec![],
+                                    *var_line,
+                                    *var_column,
+                                    Some(&env),
+                                )
                                 .await
                                 .map(|value| (value, ControlFlow::None));
                         }
@@ -14816,22 +14822,34 @@ impl Interpreter {
                             Self::flush_method_frame(frame, instance_rc);
                         }
 
-                        // Create a new environment for the method execution
-                        let method_env = Environment::new_child_env(&env);
-
-                        // Every call owns its receiver: `define` would refuse
-                        // when a calling action already bound `this`, and this
-                        // call would then run against the caller's object.
+                        // The frame's parent is the scope where the container
+                        // was defined, as for ordinary actions: an action must
+                        // not see or overwrite its caller's locals (#701:
+                        // recursion through `this` lost them). The caller's
+                        // scope is kept only as the frame's `caller` link.
+                        // Should the defining scope be gone, fall back to the
+                        // caller's scope, the historical parent.
+                        let definition_env = method_val.env.upgrade();
+                        let method_env =
+                            Environment::new_child_env(definition_env.as_ref().unwrap_or(&env));
                         {
                             let mut frame = method_env.borrow_mut();
                             frame.method_receiver = Some(Rc::downgrade(instance_rc));
-                            let _ = frame.define_direct("this", object_val.clone());
+                            frame.caller = Some(Rc::downgrade(&env));
                         }
+
+                        // `this` is bound like a property, so an existing
+                        // variable named `this` keeps its meaning (#701).
+                        Self::bind_method_property(
+                            &method_env,
+                            definition_env.as_ref(),
+                            "this",
+                            &object_val,
+                        );
 
                         // Add container properties and events as accessible variables
                         {
                             let instance = instance_rc.borrow();
-                            let definition_env = method_val.env.upgrade();
 
                             // Add properties
                             for (prop_name, prop_value) in &instance.properties {
@@ -14977,7 +14995,8 @@ impl Interpreter {
                         Value::Function(func) => {
                             if func.params.is_empty() {
                                 // Auto-call zero-argument user-defined functions
-                                self.call_function(func, vec![], *line, *column).await
+                                self.call_function_from(func, vec![], *line, *column, Some(&env))
+                                    .await
                             } else {
                                 // Return function object for functions with arguments
                                 Ok(value)
@@ -14990,7 +15009,8 @@ impl Interpreter {
                                 .find(|func| func.params.is_empty())
                             {
                                 // Auto-call the zero-argument overload
-                                self.call_function(func, vec![], *line, *column).await
+                                self.call_function_from(func, vec![], *line, *column, Some(&env))
+                                    .await
                             } else {
                                 // Return the overload set for calls with arguments
                                 Ok(value)
@@ -15112,11 +15132,13 @@ impl Interpreter {
 
                 let result = match function_val {
                     Value::Function(func) => {
-                        self.call_function(&func, arg_values, *line, *column).await
+                        self.call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await
                     }
                     Value::Overloaded(overloaded) => {
                         let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
-                        self.call_function(&func, arg_values, *line, *column).await
+                        self.call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await
                     }
                     Value::NativeFunction(native_name, native_fn) => {
                         if let Some(fut) = io_capture::route(native_name, &arg_values) {
@@ -15176,7 +15198,8 @@ impl Interpreter {
                             );
                         }
                         let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
-                        self.call_function(&func, arg_values, *line, *column).await
+                        self.call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await
                     }
                     Value::Function(func) => {
                         let mut arg_values = Vec::new();
@@ -15196,7 +15219,9 @@ impl Interpreter {
                         #[cfg(debug_assertions)]
                         exec_function_call!(&func_name, &arg_values);
 
-                        let result = self.call_function(&func, arg_values, *line, *column).await;
+                        let result = self
+                            .call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await;
 
                         #[cfg(debug_assertions)]
                         if let Ok(ref val) = result {
@@ -16168,30 +16193,35 @@ impl Interpreter {
         }
     }
 
-    /// The innermost frame on `env`'s scope chain that is running an action of
-    /// `instance` (issue #701). The object may be reached under any name —
-    /// `this`, a parameter, a global — so frames are matched by identity.
+    /// The innermost running action of `instance` on the call chain that
+    /// reaches `env` (issue #701). Scopes are walked outward; an action frame
+    /// or action call scope continues at the scope that called it, so actions
+    /// on other objects and ordinary actions in between are crossed. The
+    /// object may be reached under any name — `this`, a parameter, a global —
+    /// so frames are matched by identity.
     fn method_frame_for(
         env: &Rc<RefCell<Environment>>,
         instance: &Rc<RefCell<ContainerInstanceValue>>,
     ) -> Option<Rc<RefCell<Environment>>> {
         let mut scope = Some(Rc::clone(env));
         while let Some(current) = scope {
-            let (is_frame, parent) = {
+            let (is_frame, next) = {
                 let borrowed = current.borrow();
                 let is_frame = borrowed
                     .method_receiver
                     .as_ref()
                     .is_some_and(|receiver| std::ptr::eq(receiver.as_ptr(), Rc::as_ptr(instance)));
-                (
-                    is_frame,
-                    borrowed.parent.as_ref().and_then(std::rc::Weak::upgrade),
-                )
+                let next = borrowed
+                    .caller
+                    .as_ref()
+                    .or(borrowed.parent.as_ref())
+                    .and_then(std::rc::Weak::upgrade);
+                (is_frame, next)
             };
             if is_frame {
                 return Some(current);
             }
-            scope = parent;
+            scope = next;
         }
         None
     }
@@ -16228,15 +16258,16 @@ impl Interpreter {
         }
     }
 
-    /// Bind one of the receiver's properties in a new action frame.
+    /// Bind `this` or one of the receiver's properties in a new action frame.
     ///
     /// `define` refuses when an enclosing scope already has the name, and the
-    /// property then resolves to that outer binding. That stays the rule for a
-    /// binding visible where the container was defined (for example a
-    /// same-named global), which is also how the analyzer resolves the name.
-    /// A binding reachable only because the frame's parent is the caller's
-    /// scope — another action's working copy, or a caller's local or
-    /// parameter — must not stand in for the property, so the property is
+    /// name then resolves to that outer binding. That is the historical rule
+    /// for a binding visible where the container was defined (for example a
+    /// same-named global), and it keeps `this` additive: a program's own
+    /// variable named `this` keeps its meaning. Any other refusal comes from
+    /// the caller's scope, which is the frame's parent only in the fallback
+    /// case; such a binding (another action's working copy, or a caller's
+    /// local or parameter) must not stand in for the receiver, so the name is
     /// bound over it (#701: `b.bump()` called inside `a.poke(b)` used to run
     /// on `a`'s copies).
     fn bind_method_property(
@@ -16608,6 +16639,22 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
+        self.call_function_from(func, args, line, column, None)
+            .await
+    }
+
+    /// [`Self::call_function`] for a call made from user code, recording the
+    /// calling scope on the new call scope. Name lookup never follows that
+    /// link; it only lets an action called on an object find a running action
+    /// of the same object further up the call chain (#701).
+    async fn call_function_from(
+        &self,
+        func: &FunctionValue,
+        args: Vec<Value>,
+        line: usize,
+        column: usize,
+        caller: Option<&Rc<RefCell<Environment>>>,
+    ) -> Result<Value, RuntimeError> {
         #[cfg(feature = "dhat-ad-hoc")]
         dhat::ad_hoc_event(1);
 
@@ -16675,6 +16722,7 @@ impl Interpreter {
         };
 
         let call_env = Environment::new_child_env(&func_env);
+        call_env.borrow_mut().caller = caller.map(Rc::downgrade);
         exec_trace!("call_function - Created child environment for function call");
 
         for (_i, (param, arg)) in func.params.iter().zip(args.clone()).enumerate() {
