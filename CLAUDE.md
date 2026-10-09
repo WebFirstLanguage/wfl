@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
+Contribution authority, feature → `dev` PRs, exact-commit CI, independent review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
 

@@ -60,7 +60,7 @@ GitHub applies it to new pull requests. Do not copy an older local template.
 ### Repository contribution authority
 
 Follow [GOVERNANCE.md](../../GOVERNANCE.md) for feature → `dev` PRs,
-Yomi review, exact-commit Actions evidence, bot feedback and promotion
+independent review, exact-commit Actions evidence, bot feedback and promotion
 authority. Maintainers merge; the only standing exception is an eligible I1
 fix by a project-run agent under GOVERNANCE.md §3.9.
 

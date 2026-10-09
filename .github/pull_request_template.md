@@ -17,7 +17,7 @@ documentation-only N/A. Record missing/skipped checks as Not run with reason.
 - [ ] Current SHA, Actions run links and individual required results are recorded.
 - [ ] Red/Green evidence, or justified documentation-only N/A with doc/link checks.
 - [ ] Skipped, missing, pending and failed checks are explicit, never called passes.
-- [ ] Yomi reviewed this revision; material fixes have fresh CI and review.
+- [ ] Required independent reviews cover this revision; material fixes have fresh CI and review.
 - [ ] Triggered bot reviews finished; findings/discussions are fixed or dispositioned.
 - [ ] PR owner has a real monitor/event continuation while checks or reviews are pending.
 - [ ] No secrets/private data; environment injection and production boundaries observed.

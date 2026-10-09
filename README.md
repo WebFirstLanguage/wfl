@@ -164,4 +164,4 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 Read [GOVERNANCE.md](GOVERNANCE.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 Work on feature branches and open PRs into `dev`; current-revision CI and
-Yomi review are required.
+independent review are required.

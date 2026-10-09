@@ -21,7 +21,7 @@ code, documentation, tests, and examples.
 3. **Create branch:** `git checkout -b feature/my-feature origin/dev`
 4. **Make changes** (TDD — tests first)
 5. **Test thoroughly**
-6. **Submit PR into `dev`**; follow the current-revision CI, Yomi review and
+6. **Submit PR into `dev`**; follow the current-revision CI, independent review and
    authority gates in [GOVERNANCE.md](../../GOVERNANCE.md).
 
 Want trusted collaborator access? See
