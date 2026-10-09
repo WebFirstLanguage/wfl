@@ -91,6 +91,36 @@ display 42
 
 ---
 
+### write_stdout
+
+`call write_stdout with text` writes one text argument to stdout as UTF-8,
+without adding spaces or a newline. The empty string writes no bytes; embedded
+newlines and other text characters are preserved. The call returns nothing.
+
+```wfl
+call write_stdout with "abc"
+call write_stdout with "def"
+```
+
+This produces exactly `abcdef` with no trailing newline. Use this for tools
+whose output is compared byte for byte or passed through a pipeline. `display`
+and `print` continue to add a newline.
+
+Output is flushed before the call returns. With `execute file ... and read
+output as ...`, it goes to the same capture buffer as `display` and `print`,
+including any final text without a newline. Nested and concurrent captures
+retain their existing isolation.
+
+The argument must be text. Join values into text before calling when needed.
+Wrong argument counts and types raise an error. A stdout write or flush failure
+also raises an ordinary, catchable runtime error; some bytes may already have
+been written when an I/O failure occurs.
+
+Use the explicit call form shown above, or `write_stdout of text`. The name is
+not a reserved keyword. See the [executable example](../../TestPrograms/docs_examples/core/write_stdout.wfl).
+
+---
+
 ### typeof
 
 **Purpose:** Get the type name of a value as a string.

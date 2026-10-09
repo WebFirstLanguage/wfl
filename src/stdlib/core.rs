@@ -16,6 +16,25 @@ pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
+pub fn native_write_stdout(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("write_stdout", &args, 1)?;
+    let Value::Text(text) = &args[0] else {
+        return Err(RuntimeError::new(
+            "write_stdout expects text".to_string(),
+            0,
+            0,
+        ));
+    };
+    crate::interpreter::io_capture::emit_text(text).map_err(|error| {
+        RuntimeError::new(
+            format!("write_stdout could not write to stdout: {error}"),
+            0,
+            0,
+        )
+    })?;
+    Ok(Value::Null)
+}
+
 pub fn native_typeof(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("typeof", &args, 1)?;
 
@@ -66,6 +85,7 @@ pub fn native_current_executable(args: Vec<Value>) -> Result<Value, RuntimeError
 
 pub fn register_core(env: &mut Environment) {
     env.define_native("print", native_print);
+    env.define_native("write_stdout", native_write_stdout);
     env.define_native("current_executable", native_current_executable);
 
     env.define_native("typeof", native_typeof);

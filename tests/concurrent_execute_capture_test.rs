@@ -69,7 +69,7 @@ fn write_child(dir: &TempDir, name: &str, first: &str, second: &str, wait_ms: u3
     let path = dir.path().join(name);
     fs::write(
         &path,
-        format!("display \"{first}\"\nwait for {wait_ms} milliseconds\ndisplay \"{second}\"\n"),
+        format!("call write_stdout with \"prefix:\"\ndisplay \"{first}\"\nwait for {wait_ms} milliseconds\ndisplay \"{second}\"\n"),
     )
     .expect("write child wfl file");
     path.display().to_string().replace('\\', "/")
@@ -136,6 +136,9 @@ async fn test_concurrent_captures_do_not_cross_wire() {
     let a_body = a.await.expect("/a task panicked");
     let b_body = b.await.expect("/b task panicked");
 
+    assert_eq!(a_body, "prefix:ALPHA-1\nALPHA-2\n");
+    assert_eq!(b_body, "prefix:BRAVO-1\nBRAVO-2\n");
+
     assert!(
         a_body.contains("ALPHA-1") && a_body.contains("ALPHA-2"),
         "/a must capture its own child's full output, got: {a_body:?}"
@@ -177,6 +180,7 @@ async fn test_sibling_display_does_not_leak_into_capture() {
                     execute wfl file at "{child}" and read output as child_output
                     respond to req with child_output
                 otherwise:
+                    call write_stdout with "PARTIAL-SIBLING"
                     display "NOISE-FROM-SIBLING"
                     respond to req with "noise-done"
                 end check
@@ -208,6 +212,7 @@ async fn test_sibling_display_does_not_leak_into_capture() {
     assert_eq!(noise.text().await.unwrap(), "noise-done");
 
     let cap_body = cap.await.expect("/cap task panicked");
+    assert_eq!(cap_body, "prefix:CHILD-1\nCHILD-2\n");
     assert!(
         cap_body.contains("CHILD-1") && cap_body.contains("CHILD-2"),
         "/cap must capture its child's full output, got: {cap_body:?}"

@@ -1,6 +1,6 @@
 //! Output capture for nested `execute file` runs.
 //!
-//! `display` and `print` are plain fn pointers (`NativeFunction`) with no
+//! Native output functions are plain fn pointers (`NativeFunction`) with no
 //! access to interpreter state, so capture is routed through a thread-local
 //! stack instead of an `Interpreter` field. This is sound for serial
 //! execution because the interpreter — including nested child interpreters
@@ -17,6 +17,7 @@
 //! out-of-order completion cannot remove another capture's buffer.
 
 use std::cell::RefCell;
+use std::io::{self, Write};
 use std::rc::Rc;
 
 thread_local! {
@@ -38,7 +39,7 @@ impl Drop for CaptureGuard {
     }
 }
 
-/// Push a capture buffer; program output lines are appended to it until the
+/// Push a capture buffer; program output is appended to it until the
 /// returned guard is dropped. Buffers nest: only the innermost one receives
 /// output, giving correct semantics when a captured file itself captures.
 pub(crate) fn push_capture(buffer: Rc<RefCell<String>>) -> CaptureGuard {
@@ -58,6 +59,19 @@ pub(crate) fn swap_stack(other: &mut Vec<Rc<RefCell<String>>>) {
 /// `execute file` capture (the buffers are shared, the stack itself is not).
 pub(crate) fn snapshot_stack() -> Vec<Rc<RefCell<String>>> {
     CAPTURE_STACK.with(|stack| stack.borrow().clone())
+}
+
+/// Emit exact text to the current capture, or write and flush stdout.
+pub(crate) fn emit_text(text: &str) -> io::Result<()> {
+    let active_buffer = CAPTURE_STACK.with(|stack| stack.borrow().last().cloned());
+    if let Some(buffer) = active_buffer {
+        buffer.borrow_mut().push_str(text);
+        Ok(())
+    } else {
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(text.as_bytes())?;
+        stdout.flush()
+    }
 }
 
 /// Emit one line of program output: to the innermost active capture buffer on

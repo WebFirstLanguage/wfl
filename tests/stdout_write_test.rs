@@ -199,26 +199,45 @@ fn unterminated_output_is_flushed_before_the_program_finishes() {
 }
 
 #[test]
-fn a_closed_stdout_pipe_returns_a_runtime_error() {
+fn a_closed_stdout_pipe_raises_a_catchable_runtime_error() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("main.wfl");
     // Exceeds a pipe buffer, so the writer cannot finish before we close it.
     fs::write(
         &path,
-        format!("call write_stdout with \"{}\"\n", "x".repeat(1_000_000)),
+        format!("try:\n    call write_stdout with \"{}\"\nwhen error:\n    write error_message to \"caught.txt\"\nend try\n", "x".repeat(1_000_000)),
     )
     .unwrap();
     let mut child = Command::new(common::wfl_exe())
         .args(["--execution-timeout", "5"])
         .arg(path)
+        .current_dir(dir.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     drop(child.stdout.take());
     let output = child.wait_with_output().unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("could not write to stdout"), "{stderr}");
-    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let message = fs::read_to_string(dir.path().join("caught.txt")).unwrap();
+    assert!(message.contains("could not write to stdout"), "{message}");
+}
+
+#[tokio::test]
+async fn arity_errors_are_catchable_when_static_checks_are_bypassed() {
+    for invocation in [
+        "call write_stdout",
+        "call write_stdout with \"a\" and \"b\"",
+    ] {
+        let source = format!(
+            "store caught_message as \"\"\ntry:\n    {invocation}\nwhen error:\n    change caught_message to error_message\nend try\n"
+        );
+        let interpreter = common::run_wfl(&source).await.unwrap();
+        let message = common::get_text(&interpreter, "caught_message");
+        assert!(
+            message.contains("write_stdout expects 1 argument"),
+            "{message}"
+        );
+    }
 }

@@ -1,4 +1,10 @@
 {
+  "docs_examples/core/write_stdout.wfl": {
+    "doc_section": "Docs/05-standard-library/core-module.md#write_stdout",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",
