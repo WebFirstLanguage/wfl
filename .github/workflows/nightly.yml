@@ -96,7 +96,11 @@ jobs:
             fi
           fi
 
-      - name: Load version from build_meta.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compute nightly version from tags
         id: version
         shell: bash
         run: |
@@ -105,23 +109,16 @@ jobs:
             VERSION="${{ inputs.version_override }}"
             echo "Using version override: $VERSION"
           else
-            # Read version from .build_meta.json
-            YEAR=$(jq -r '.year' .build_meta.json)
-            MONTH=$(jq -r '.month' .build_meta.json)
-            BUILD=$(jq -r '.build' .build_meta.json)
-            VERSION="${YEAR}.${MONTH}.${BUILD}"
-            echo "Using version from build_meta.json: $VERSION"
+            VERSION="$(python scripts/bump_version.py --from-tags --print)"
+            echo "Using version from tags: $VERSION"
           fi
-          
+
           SHORT_SHA=$(git rev-parse --short HEAD)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
       # Registry state is independent of the GitHub release marker: the first
       # image and a previously interrupted publish must still be repairable.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Check the published Docker runtime version
         id: docker-plan
         if: github.ref == 'refs/heads/main'
@@ -176,6 +173,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ env.TARGET }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set version for this build
+        run: python scripts/bump_version.py --set-version "${{ needs.check-for-changes.outputs.version }}" --update-all --skip-git
 
       # ---------- Platform‑specific packaging helpers ----------
       - name: Install packaging tools
@@ -326,21 +329,6 @@ jobs:
           }
 
       # ---------- Packaging (Windows) ----------
-      - name: Update Version Information
-        run: |
-          Write-Host "Updating version information..."
-          # Check if we have a version override from the workflow input
-          if ("${{ inputs.version_override }}" -ne "") {
-            # Use the provided version without updating build_meta.json (just update wix.toml)
-            python scripts/bump_version.py --skip-bump --update-wix-only --skip-git
-          } else {
-            # Use the version from build_meta.json without bumping it
-            python scripts/bump_version.py --skip-bump --update-all --skip-git
-          }
-          
-          # Output the current version for debugging
-          python -c "import json; data = json.load(open('.build_meta.json')); print('Using version: {}.{}.{}'.format(data['year'], data['month'], data['build']))"
-
       - name: Package WFL
         run: |
           # Create default config file
@@ -444,8 +432,13 @@ jobs:
               exit 1
             }
 
-            $wflVersion = & $wflPath --version
+            $expected = "WebFirst Language (WFL) version ${{ needs.check-for-changes.outputs.version }}"
+            $wflVersion = (& $wflPath --version).Trim()
             Write-Host "WFL version: $wflVersion"
+            if ($wflVersion -ne $expected) {
+              Write-Host "::error::WFL --version was '$wflVersion', expected '$expected'"
+              exit 1
+            }
 
             $lspVersion = & $lspPath --version
             Write-Host "WFL-LSP version: $lspVersion"
@@ -523,6 +516,12 @@ jobs:
           # overwrite it with a partial target dir.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set version for this build
+        run: python scripts/bump_version.py --set-version "${{ needs.check-for-changes.outputs.version }}" --update-all --skip-git
+
       # Both binaries, matching the Windows MSI, which has always shipped wfl
       # and wfl-lsp together. The Linux tarball previously carried only wfl, so
       # editor support was Windows-only by accident of packaging.
@@ -555,9 +554,17 @@ jobs:
           done
 
       - name: Smoke test
+        env:
+          VERSION: ${{ needs.check-for-changes.outputs.version }}
         run: |
           BIN="$PWD/target/$TARGET/release/wfl"
-          "$BIN" --version
+          expected="WebFirst Language (WFL) version $VERSION"
+          actual="$("$BIN" --version)"
+          echo "$actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::wfl --version was '$actual', expected '$expected'"
+            exit 1
+          fi
           "$PWD/target/$TARGET/release/wfl-lsp" --version
           "$BIN" TestPrograms/basic_syntax_comprehensive.wfl
 
@@ -630,6 +637,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
+            -e VERSION="$VERSION" \
             -e TARBALL="wfl-${VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz" \
             -v "$PWD/dist:/dist:ro" \
             -v "$PWD/TestPrograms:/TestPrograms:ro" \
@@ -639,7 +647,13 @@ jobs:
               tar xzf "/dist/$TARBALL"
               cd wfl-*-linux-x86_64
               ls -la
-              ./wfl --version
+              expected="WebFirst Language (WFL) version $VERSION"
+              actual="$(./wfl --version)"
+              echo "$actual"
+              if [ "$actual" != "$expected" ]; then
+                echo "::error::packaged wfl --version was '$actual', expected '$expected'"
+                exit 1
+              fi
               ./wfl-lsp --version
               ./wfl /TestPrograms/basic_syntax_comprehensive.wfl
             '
@@ -651,16 +665,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Run the complete CI suite on this exact revision, including version-bump
-  # commits that intentionally skipped push CI. No Hub credentials are inherited.
+  # Run the complete CI suite on this exact revision. No Hub credentials
+  # are inherited. CI no longer writes version commits, so read is enough.
   docker-release-checks:
     needs: check-for-changes
     if: needs.check-for-changes.outputs.docker_should_build == 'true'
     uses: ./.github/workflows/ci.yml
-    # Maximum required by CI's version-bump job; that job is push-only and skips
-    # on nightly schedule/dispatch. Every test job retains contents: read.
     permissions:
-      contents: write
+      contents: read
 
   # Package the same static Linux binary for other projects' WFL test scripts.
   # The small x64 runner only packages and tests it; Rust compiled in build-linux.
@@ -858,9 +870,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Tag the published version
+        env:
+          VERSION: ${{ needs.check-for-changes.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          SHA=$(git rev-parse HEAD)
+          REFS=$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}" || true)
+
+          if [ -z "$REFS" ]; then
+            echo "Creating $TAG at $SHA."
+            git tag -a "$TAG" -m "Release $VERSION"
+            git push origin "refs/tags/$TAG"
+            exit 0
+          fi
+
+          TAGGED=$(printf '%s\n' "$REFS" | awk '$2 ~ /\^\{\}$/ { print $1 }' | head -n 1)
+          if [ -z "$TAGGED" ]; then
+            TAGGED=$(printf '%s\n' "$REFS" | awk 'NR == 1 { print $1 }')
+          fi
+
+          if [ "$TAGGED" = "$SHA" ]; then
+            echo "Tag $TAG already points at $SHA; reusing it."
+            exit 0
+          fi
+
+          echo "::error::Tag $TAG already exists at $TAGGED but this build is $SHA"
+          exit 1
+
       - name: Tag commit for nightly
         run: |
-          DATE=$(date +'%Y-%m-%d')
+          DATE=$(date -u +'%Y-%m-%d')
           TAG="nightly-${DATE}"
           SHA=$(git rev-parse HEAD)
 
@@ -907,7 +948,7 @@ jobs:
           VERSION:   ${{ needs.check-for-changes.outputs.version }}
           SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
         run: |
-          TAG="nightly-$(date +'%Y-%m-%d')"
+          TAG="nightly-$(date -u +'%Y-%m-%d')"
 
           # Collect all artifact files to upload with the release
           # GitHub's immutable releases require assets to be attached during creation
@@ -952,7 +993,7 @@ jobs:
           # Create release with assets attached in a single command
           # This works with immutable releases since assets are part of the creation
           gh release create "$TAG" \
-            --title "WFL Nightly Build $(date +'%Y-%m-%d')" \
+            --title "WFL Nightly Build $(date -u +'%Y-%m-%d')" \
             --notes "⚠️ Installers are **unsigned** test builds – do not use in production.
 
           Version: $VERSION
