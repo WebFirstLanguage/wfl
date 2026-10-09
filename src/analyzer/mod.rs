@@ -1132,8 +1132,12 @@ impl Analyzer {
                             false
                         };
 
-                    if name == "this" && self.current_instance_container().is_some() {
-                        // `this` resolves to the object here (#701).
+                    if !is_container_property
+                        && name == "this"
+                        && self.current_instance_container().is_some()
+                    {
+                        // `this` resolves to the object here (#701); a
+                        // property named `this` is assigned like any other.
                         self.errors.push(SemanticError::new(
                             THIS_CANNOT_CHANGE.to_string(),
                             *line,

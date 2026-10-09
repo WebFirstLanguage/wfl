@@ -57,7 +57,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   now names the `this.emit(...)` form. `this` is not a reserved word: it fills
   in only where the name was previously undefined, so a program's own variable
   named `this` (top-level, or created in an action with `store this as ...` or
-  `for each this in ...`) keeps its meaning.
+  `for each this in ...`) keeps its meaning, as does a property named `this`,
+  which an action now reads and changes like any other property (the runtime
+  used to bind the object over it).
 
 ### Fixed
 - **Container instance actions run on their own object, with their own

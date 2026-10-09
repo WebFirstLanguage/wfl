@@ -133,8 +133,8 @@ call sibling actions (`this.other_action()`) and read properties
 It only fills in where the name would otherwise be undefined. A program's own
 variable named `this` keeps its meaning: one that already exists where the
 container is defined (such as a top-level `this` above it), or one the action
-creates with `store this as ...` or `for each this in ...`. Outside instance
-actions `this` is an ordinary identifier.
+creates with `store this as ...` or `for each this in ...`. So does a property
+named `this`. Outside instance actions `this` is an ordinary identifier.
 
 ### Why Some Keywords Appear in Multiple Lists
 

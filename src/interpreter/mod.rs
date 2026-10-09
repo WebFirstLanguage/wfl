@@ -14848,8 +14848,11 @@ impl Interpreter {
 
                         // `this` is the object unless the program had its own
                         // variable named `this` where the container was
-                        // defined; that variable then keeps its meaning (#701).
-                        if method_val.binds_receiver_this {
+                        // defined, or the object has a property named `this`;
+                        // either keeps its meaning (#701).
+                        if method_val.binds_receiver_this
+                            && !instance_rc.borrow().properties.contains_key("this")
+                        {
                             let _ = method_env
                                 .borrow_mut()
                                 .define_direct("this", object_val.clone());

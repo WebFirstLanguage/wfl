@@ -225,12 +225,13 @@ What to know about `this`:
 - **`this` is fixed.** `change this to ...` is an error.
 - **Instance actions only.** A `static action` belongs to the container, not
   to one object, so using `this` in it is an error.
-- **Existing variables keep their meaning.** `this` is not a reserved word.
-  If a program has its own variable named `this` where the container is
-  defined (such as a top-level `this` above it), or an action creates one with
-  `store this as ...` or `for each this in ...`, that variable keeps its
-  meaning, and `this` there does not mean the object. Rename such a variable
-  to use `this` for the object.
+- **Existing names keep their meaning.** `this` is not a reserved word. If a
+  program has its own variable named `this` where the container is defined
+  (such as a top-level `this` above it, which also counts for containers in
+  files the program includes or loads afterwards), if an action creates one
+  with `store this as ...` or `for each this in ...`, or if the container has
+  a property named `this`, that name keeps its meaning, and `this` there does
+  not mean the object. Rename it to use `this` for the object.
 - **Concurrent handlers.** Under `main loop concurrently:`, each running
   action works on its own copy of its object's properties and writes the copy
   back when it finishes. Two handlers running actions on the same object at

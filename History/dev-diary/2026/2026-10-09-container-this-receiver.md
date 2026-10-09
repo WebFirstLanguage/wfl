@@ -48,12 +48,18 @@ An independent review of the first version returned REVISE. Its blocking finding
 
 A second independent review of the revised version found no blocking issues and confirmed the earlier findings fixed. It raised one new defect. A container declared inside an instance action was treated as if the enclosing action's `this` were a program variable, so its `this.note()` ran on the enclosing object. The same review also raised a related mismatch: the analyzer accepted a global `this` created after the container as meaning the object, but the runtime used the global. Deciding `this` at definition time, as described above, fixes both. It also asked for a complete compatibility note, which now lists the two cases above. Finally, it asked for the `parent` caveat in the user docs, for tests of every call form that records a `caller` link, and for the static-action message on `change this to ...`.
 
+Codex then reviewed the ready-for-review PR and raised two findings:
+
+- **A container may declare `property this` (P2).** Fixed. There the name was never undefined, so `this` keeps meaning the property. The analyzer now checks for a property before rejecting `change this to ...`. The runtime no longer binds the object over a property named `this`. Before #701 it did: reads returned the object, and the write-back stored the object into the property.
+- **`initialize` reached through the constructor path does not bind `this` (P1).** Not changed. That path runs only when an instantiation carries constructor arguments, and the parser never produces any: `parse_instantiation_body` always returns an empty list. When `initialize` is called as an ordinary action, `this` works.
+
 ## Evidence
 
 - The first red test-only ancestor is commit ccf2bda. It adds `tests/container_this_receiver_test.rs` and `TestPrograms/containers/sibling_actions.wfl`. On `dev` at b7fa839, 12 of its 13 Rust tests failed, and the program exited 3 with `Variable 'this' is not defined`. The 13th passed by design: it guards `this` as an ordinary name outside containers.
 - The broaden step added four regression tests: a caller's parameter, a caller's local, a same-named global, and a sibling error caught by its caller. Their old-runtime results were captured by rebuilding without the interpreter change.
 - The review red commit is ba5a3c7. On 688c5e7, four of its 24 tests failed, for these cases: recursion with locals, callee locals, `this` passed to an ordinary action, and existing variables named `this`. The TestProgram failed with `Expected 5 to equal 55`.
 - The second review's red commit is 83e30d6. On 869c666, three of its 29 tests failed: the nested container, the late global `this`, and the static-action message.
+- The Codex P2 red commit is aefb59e. On 71b1513, one of its 31 tests failed: the property named `this`.
 - The validated docs examples are `TestPrograms/docs_examples/containers/sibling_actions_01.wfl` and `bare_sibling_call_01.wfl`.
 
 ## Residual risk and known limits
