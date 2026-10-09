@@ -4,8 +4,7 @@ use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
 
-mod common;
-use common::wfl_release_exe;
+use crate::common::wfl_release_exe;
 
 /// Temp directory holding a `.wfl` program and optional `.wflcfg` so config walk-up works.
 struct TempWflEnv {

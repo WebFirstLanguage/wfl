@@ -12,8 +12,7 @@ use std::time::Duration;
 use wfl::interpreter::database::{self, DbPool};
 use wfl::interpreter::value::Value;
 
-mod common;
-use common::{expect_number, get_global, run_wfl};
+use crate::common::{expect_number, get_global, run_wfl};
 
 /// Shorter than the integration runner's 30-second program deadline. A pool
 /// that still uses sqlx's default 30-second acquire wait, or an unbounded

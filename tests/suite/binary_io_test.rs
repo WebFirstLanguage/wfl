@@ -2,8 +2,6 @@
 ///
 /// Tests the full pipeline: parse → analyze → typecheck → interpret
 /// for binary file operations.
-mod common;
-
 use std::path::PathBuf;
 
 fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
@@ -21,7 +19,7 @@ fn missing_release_binary_explains_how_to_build() {
         .join("release")
         .join("definitely-missing-wfl-for-issue-692");
     let panic = std::panic::catch_unwind(|| {
-        let _ = common::require_existing_release_binary(missing.clone());
+        let _ = crate::common::require_existing_release_binary(missing.clone());
     })
     .expect_err("a missing release binary must panic with an actionable message");
     let message = panic_message(panic);
@@ -41,7 +39,7 @@ fn run_wfl_in(dir: &std::path::Path, source: &str) -> (String, String, bool) {
     let script_path = dir.join("test.wfl");
     std::fs::write(&script_path, source).expect("failed to write script");
 
-    let output = std::process::Command::new(common::wfl_release_exe())
+    let output = std::process::Command::new(crate::common::wfl_release_exe())
         .arg("test.wfl")
         .current_dir(dir)
         .output()
@@ -166,7 +164,7 @@ close wh
     let script = dir.path().join("parse_test.wfl");
     std::fs::write(&script, source).expect("write script");
 
-    let output = std::process::Command::new(common::wfl_release_exe())
+    let output = std::process::Command::new(crate::common::wfl_release_exe())
         .arg("--parse")
         .arg(script.to_str().unwrap())
         .output()
