@@ -4,7 +4,6 @@ Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
 
-
 ## Summary
 
 **WFL was built with AI assistance. AI-assisted contributions are welcome.**
@@ -65,6 +64,10 @@ If an AI-generated contribution introduces bugs, license problems, or policy
 violations, the **human author** (and any reviewing Maintainer who merges it)
 bears responsibility the same as for hand-written work.
 
+For project-run agents acting under the standing I1 delegation in
+[the issue policy](Docs/contributing/issue-policy.md), Maintainers remain
+accountable for that automation and may revoke the delegation.
+
 ---
 
 ## 4. What is forbidden (discrimination)
@@ -117,7 +120,13 @@ security research assistance, and automation, subject to:
 - No pasting private vulnerability details into untrusted third-party tools
   when that would violate [SECURITY.md](SECURITY.md) handling  
 - No committing secrets  
-- Yomi review and the dev/CEO/Brad authority gates in [GOVERNANCE.md](GOVERNANCE.md) on merges and releases
+- Human sign-off on releases and on merges outside the I1 delegation in
+  [the issue policy](Docs/contributing/issue-policy.md)
+- Yomi review of the current revision, following
+  [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27)
+
+Project-run agents follow the ranked dispatch rules in
+[Docs/contributing/issue-policy.md](Docs/contributing/issue-policy.md).
 
 ---
 

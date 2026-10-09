@@ -11,6 +11,7 @@ code, documentation, tests, and examples.
 | [GOVERNANCE.md](../../GOVERNANCE.md) | Who decides; binding technical policies |
 | [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) | Community standards |
 | [AI_POLICY.md](../../AI_POLICY.md) | AI-assisted contributions are welcome |
+| [Issue policy](issue-policy.md) | Agent dispatch, merge, and closure rules by issue type |
 | [SECURITY.md](../../SECURITY.md) | Private security reporting |
 
 ## Getting Started

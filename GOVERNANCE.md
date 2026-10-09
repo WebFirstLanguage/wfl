@@ -9,6 +9,7 @@ repository so contributors have a single source of truth.
 |---|---|
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community behavior and enforcement |
 | [AI_POLICY.md](AI_POLICY.md) | AI-assisted work is welcome; anti-discrimination |
+| [Docs/contributing/issue-policy.md](Docs/contributing/issue-policy.md) | Ranked issue types and agent dispatch, merge, and closure rules |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute and apply for Contributor status |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting and supported versions |
 | [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Binding repository hygiene and layout policy (§3.8) |
@@ -21,11 +22,11 @@ repository so contributors have a single source of truth.
 
 ## Common contribution policy — version 1.0 (2026-09-27)
 
-This version records Brad's approved Logbie LLC governance and subsequent dev
-merge and CEO delegations of 2026-09-26. It governs contribution authority;
-the repository's technical, compatibility, testing and licensing rules remain
-binding. Report substantive conflicts on the owning issue instead of silently
-relaxing a rule.
+This version records Brad's approved Logbie LLC governance and subsequent CEO
+delegations of 2026-09-26, reconciled with the Maintainer merge rule and I1
+exception. It governs contribution authority; the repository's technical,
+compatibility, testing and licensing rules remain binding. Report substantive
+conflicts on the owning issue instead of silently relaxing a rule.
 
 ### Branches and review
 
@@ -33,9 +34,17 @@ relaxing a rule.
   open its PR into `dev`. Never push directly to `dev`, `main` or a release
   branch, or force-push shared branches. Promotion is `dev → main` by PR.
 - Yomi reviews the current revision against governance and testing policy.
-  The PR author, including an agent author, may merge their own PR into `dev`
-  only after applicable CI passes on that reviewed revision and findings are
-  addressed. This delegation needs no separate per-PR Brad approval.
+- Maintainers merge. The only standing exception is an eligible I1 fix by a
+  project-run agent under §3.9 and
+  [the issue policy](Docs/contributing/issue-policy.md). Authors, including
+  agent authors, do not merge their own pull requests. This needs no separate
+  per-PR Brad approval once the ruleset, reviews, and CI below are satisfied.
+- GitHub ruleset **LOG-16 reviewed changes** is enforced on `main` and `dev`
+  with no bypass. It requires one approving review from someone other than the
+  author (approvals are dismissed on a new push), all review threads resolved,
+  the branch up to date with its base, merge commits only, and the 12 required
+  status checks passing. The ruleset blocks a merge that lacks that independent
+  approval.
 - Let triggered bot reviews finish; inspect reviews, inline comments and
   discussions. Fix actionable findings or record a reasoned disposition and
   resolve required discussions. Recheck checks and reviews immediately before
@@ -131,7 +140,7 @@ and, over time, **Maintainers**.
 
 | Role | Who | Rights and duties |
 |---|---|---|
-| **Maintainer** | Brad (Logbie LLC); additional people may be appointed | Final authority on technical direction, merges to protected branches, releases, security response, governance changes, trademark/project identity, and Contributor appointments |
+| **Maintainer** | Brad (Logbie LLC); additional people may be appointed | Final authority on technical direction, merge policy and non-delegated merges to protected branches, releases, security response, governance changes, trademark/project identity, and Contributor appointments |
 | **Contributor** | People granted write access after application and approval | Open PRs from branches, review others’ work, triage issues as delegated, help enforce the Code of Conduct as delegated. Does **not** alone merge to `main` unless also a Maintainer or explicitly delegated for a path |
 | **Participant** | Anyone who opens issues, discussions, or PRs from a fork | Propose changes, report bugs, improve docs; must follow the Code of Conduct |
 
@@ -143,7 +152,7 @@ may care about.
 
 | Decision type | Who decides | Notes |
 |---|---|---|
-| Day-to-day dev PR merge | PR author under the common policy above | Current-revision CI, Yomi review and handled bot feedback required |
+| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Current-revision CI, Yomi review, handled bot feedback, and the LOG-16 ruleset |
 | Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules |
 | Security advisories and embargo | Maintainer(s) | Per [SECURITY.md](SECURITY.md) |
 | Appointing Contributors / Maintainers | Maintainer(s) | See [CONTRIBUTING.md](CONTRIBUTING.md) application process |
@@ -263,6 +272,16 @@ process. The machine-readable profile is `.repo-hygiene.toml`;
 Widening an allowlist to silence a violation without Maintainer approval is
 itself a policy violation.
 
+### 3.9 Agent issue handling
+
+[The issue policy](Docs/contributing/issue-policy.md) delegates dispatch,
+merge, and linked-issue closure for well-defined I1 bug fixes and routine
+corrections to project-run AI agents after required CI and review-bot gates
+pass. New features and unclear behavior need a Maintainer's dispatch decision
+and human merge approval. This delegation does not extend to releases,
+security response, or general issue triage. Human contributors may use AI under
+`AI_POLICY.md` regardless of issue type.
+
 ---
 
 ## 4. Contribution paths
@@ -291,11 +310,13 @@ is no automatic promotion timeline; appointments are explicit and public
 2. Fork (or use a branch if you have write access) and implement with TDD.  
 3. Update docs, tests, and Dev Diary as required by §3.  
 4. Open a PR with a clear summary, motivation, test notes, and compatibility
-   impact (template in the collaboration guide).  
-5. Address review feedback. AI-assisted work is welcome; the human author is
-   accountable (see [AI_POLICY.md](AI_POLICY.md)).  
-6. The authorized dev PR author merges only under the common policy above;
-   main/release actions follow its conditional CEO gate.
+   impact (canonical template: [`.github/pull_request_template.md`](.github/pull_request_template.md)).
+5. Address review feedback. AI-assisted work is welcome; accountability
+   follows [AI_POLICY.md](AI_POLICY.md).
+6. A Maintainer merges when checks and policies are satisfied, except that a
+   project-run agent may merge an eligible I1 fix under §3.9 after its required
+   CI, review, and evidence gates pass. Main/release actions follow the
+   common policy's conditional CEO gate.
 
 Maintainers may reject or request changes for any reason grounded in these
 policies, including style that violates WFL’s natural-language design goals,

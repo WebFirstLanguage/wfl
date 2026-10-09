@@ -16,9 +16,10 @@ Binding community and contribution policy lives at the **repo root** (not only u
 |---|---|
 | `GOVERNANCE.md` | Authority, roles (Maintainer / Contributor / Participant), decision rights, binding technical policies |
 | `CODE_OF_CONDUCT.md` | Community standards and enforcement |
-| `AI_POLICY.md` | **AI-assisted work is welcome** — WFL was built with AI; do not discriminate against AI use; human author remains accountable |
+| `AI_POLICY.md` | **AI-assisted work is welcome** — WFL was built with AI; do not discriminate against AI use; human authors and project-run automation remain accountable |
 | `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
 | `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
+| `Docs/contributing/issue-policy.md` | Ranked issue types and agent dispatch, merge, and closure rules |
 | `testing.md` | **Binding Logbie Testing Policy + WFL testing profile** — Red→Green TDD evidence, required test layers, risk classes, and merge/release gates (see **Testing Policy** below) |
 | `REPOSITORY_HYGIENE.md` | **Binding Repository Hygiene and Layout Policy** — canonical home for every class of content, tracked-vs-ephemeral rules, approved output roots, archive manifest, exceptions; profile in `.repo-hygiene.toml`, enforced by `scripts/check_repo_hygiene.py` in CI |
 
@@ -30,7 +31,8 @@ Binding community and contribution policy lives at the **repo root** (not only u
 - **Docs ship with the feature** — same change; validate examples; Dev Diary entry under `History/dev-diary/<year>/` for non-trivial work.
 - **Hygiene is enforced** — every file has one canonical home (`REPOSITORY_HYGIENE.md`); tests and tools write only under `target/` or temp dirs; never track dumps, logs, caches, local settings, or personal paths. The `repo-hygiene` CI job blocks violations — fix placement, don't widen allowlists.
 - **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
-- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own merges and releases unless those responsibilities are **explicitly delegated**. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
+- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own releases and non-delegated merges. The narrow I1 agent merge delegation is in `Docs/contributing/issue-policy.md`. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
+- **Classify issues before agent dispatch** — project-run agents may fix, merge, and close well-defined I1 bugs after required CI, review-bot, and testing gates pass. New features and unclear behavior need a Maintainer's dispatch decision. Follow `Docs/contributing/issue-policy.md` and escalate sensitive work.
 - Community tone: follow `CODE_OF_CONDUCT.md`; technical disagreement is fine; harassment and AI-shaming are not.
 
 When changing contribution workflow, community rules, or project authority, update the root governance suite **and** keep this section accurate.
