@@ -3,11 +3,13 @@
 Eleventh batch: the non-Group-A leftovers move into `tests/suite/`.
 
 Pinned `--test` names now use the suite filter form in the same change:
-`cargo test --test suite -- split_functionality::` and
-`cargo test --test suite -- database_test::`. Updated CI
-(`.github/workflows/ci.yml`), both integration scripts, `Docs/04-advanced-features/databases.md`,
-and the rustyline helper path in `CLAUDE.md`. Historical
-`History/` / `Engineering/evidence/` / `Archive/` records are left as-is.
+`cargo test --test suite --verbose -- split_functionality::` and
+`cargo test --test suite --verbose -- database_test::` (cargo `--verbose`
+before `--`; the YAML `run` value is quoted so `::` is not a mapping
+indicator). Updated CI (`.github/workflows/ci.yml`), both integration
+scripts, `Docs/04-advanced-features/databases.md`, and the rustyline
+helper path in `CLAUDE.md`. Historical `History/` /
+`Engineering/evidence/` / `Archive/` records are left as-is.
 
 `split_functionality` now drives `crate::common::wfl_exe()` (the cargo
 bin) so `cargo test --test suite` does not require a prior
