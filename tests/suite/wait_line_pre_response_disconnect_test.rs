@@ -15,7 +15,7 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-/// Upstream: send a valid chunked head, then WITHHOLD all body bytes (no line ever)
+/// Upstream: send a valid chunked head, then WITHHOLD all body bytes (no line ever
 /// arrives). Signal when the proxy drops the connection (peer close => read 0/Err).
 async fn spawn_head_then_no_lines_upstream() -> (u16, tokio::sync::oneshot::Receiver<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

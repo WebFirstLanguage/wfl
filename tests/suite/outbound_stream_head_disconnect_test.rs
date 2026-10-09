@@ -15,7 +15,7 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-/// Upstream: accept, read the request, then WITHHOLD the response head (send)
+/// Upstream: accept, read the request, then WITHHOLD the response head (send
 /// nothing). Signal when the proxy drops the connection (peer close => read 0/Err).
 async fn spawn_header_withholding_upstream() -> (u16, tokio::sync::oneshot::Receiver<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

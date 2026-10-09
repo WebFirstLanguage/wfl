@@ -15,7 +15,7 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-/// Upstream: send a chunked head + one body chunk, then STALL (send nothing)
+/// Upstream: send a chunked head + one body chunk, then STALL (send nothing
 /// more, so the proxy's next read blocks). Detect the proxy dropping the
 /// connection via a blocking read that returns 0 at peer close.
 async fn spawn_one_chunk_then_stall_upstream() -> (u16, tokio::sync::oneshot::Receiver<()>) {
