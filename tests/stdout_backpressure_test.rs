@@ -32,10 +32,21 @@ fn start(dir: &TempDir, source: &str, timeout: &str) -> Child {
         .unwrap()
 }
 
-async fn ready(port: u16) {
+async fn ready(child: &mut Child, port: u16) {
     bounded(
         async {
             loop {
+                if let Some(status) = child.try_wait().unwrap() {
+                    let mut stderr = String::new();
+                    child
+                        .stderr
+                        .take()
+                        .unwrap()
+                        .read_to_string(&mut stderr)
+                        .await
+                        .unwrap();
+                    panic!("server exited before readiness ({status}): {stderr}");
+                }
                 if tokio::net::TcpStream::connect(("127.0.0.1", port))
                     .await
                     .is_ok()
@@ -79,12 +90,16 @@ main loop concurrently:
         break
     otherwise:
         check if p is equal to "/slow":
-            {emitter}
-            call write_stdout with "done"
-            respond to req with "slow"
+            try:
+                {emitter}
+                call write_stdout with "done"
+                respond to req with "slow"
+            when error:
+                respond to req with error_message
+            end try
         otherwise:
             check if p is equal to "/queued":
-                create file at "queued.txt"
+                create file at "queued.txt" with "ready"
                 call write_stdout with "abandoned"
                 respond to req with "queued"
             otherwise:
@@ -120,7 +135,7 @@ async fn check_sibling_and_order(emitter: &str, newline: bool) {
     let dir = TempDir::new().unwrap();
     let port = common::free_tcp_port();
     let mut child = start(&dir, &server_source(port, emitter), "30");
-    ready(port).await;
+    ready(&mut child, port).await;
     let client = reqwest::Client::new();
     let slow_client = client.clone();
     let slow = tokio::spawn(async move { response(&slow_client, port, "/slow").await });
@@ -182,6 +197,42 @@ async fn stalled_display_yields_and_resumes_in_order() {
 }
 
 #[tokio::test]
+async fn reader_disconnect_reports_errors_to_the_handler_and_preserves_siblings() {
+    for emitter in [
+        "call write_stdout with flood",
+        "call print with flood",
+        "display flood",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let port = common::free_tcp_port();
+        let mut child = start(&dir, &server_source(port, emitter), "30");
+        ready(&mut child, port).await;
+        let client = reqwest::Client::new();
+        let slow_client = client.clone();
+        let slow = tokio::spawn(async move { response(&slow_client, port, "/slow").await });
+        let mut stdout = server_stdout(&mut child, port).await;
+        bounded(stdout.read_exact(&mut [0]), "handler never wrote stdout")
+            .await
+            .unwrap();
+        assert_eq!(response(&client, port, "/fast").await, "fast");
+        drop(stdout);
+        let error = slow.await.unwrap();
+        assert!(
+            error.contains("could not write to stdout"),
+            "{emitter}: {error}"
+        );
+        assert_eq!(response(&client, port, "/fast").await, "fast");
+        assert_eq!(response(&client, port, "/shutdown").await, "bye");
+        assert!(
+            bounded(child.wait(), "server did not stop")
+                .await
+                .unwrap()
+                .success()
+        );
+    }
+}
+
+#[tokio::test]
 async fn shutdown_cancels_queued_output_without_waiting_for_the_pipe() {
     let dir = TempDir::new().unwrap();
     let port = common::free_tcp_port();
@@ -190,7 +241,7 @@ async fn shutdown_cancels_queued_output_without_waiting_for_the_pipe() {
         &server_source(port, "call write_stdout with flood"),
         "30",
     );
-    ready(port).await;
+    ready(&mut child, port).await;
     let client = reqwest::Client::new();
     let slow_client = client.clone();
     let slow = tokio::spawn(async move { response(&slow_client, port, "/slow").await });
@@ -238,7 +289,7 @@ async fn execution_timeout_interrupts_stalled_stdout() {
     let mut child = start(
         &dir,
         &format!(
-            "call write_stdout with \"{}\"\ncreate file at \"late.txt\"\n",
+            "call write_stdout with \"{}\"\ncreate file at \"late.txt\" with \"late\"\n",
             "x".repeat(FLOOD_BYTES)
         ),
         "1",
