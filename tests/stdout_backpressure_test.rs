@@ -315,5 +315,8 @@ async fn execution_timeout_interrupts_stalled_stdout() {
         "execution continued after timeout"
     );
     let stderr = bounded(stderr_reader, "stderr stayed open").await.unwrap();
-    assert!(stderr.contains("Timeout"), "{stderr}");
+    assert!(
+        stderr.contains("Execution exceeded timeout (1s)"),
+        "{stderr}"
+    );
 }
