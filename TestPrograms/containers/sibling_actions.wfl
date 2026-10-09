@@ -152,6 +152,27 @@ end
 
 countdown.tick(3)
 
+// Recursion with locals: each call keeps its own `a` and `b`.
+create container Math:
+    property calls: Number
+
+    action fib needs n: Number: Number
+        change calls to calls + 1
+        check if n is less than 2:
+            return n
+        end check
+        store a as this.fib(n minus 1)
+        store b as this.fib(n minus 2)
+        return a plus b
+    end
+end
+
+create new Math as math:
+    calls is 0
+end
+
+store fib_ten as math.fib(10)
+
 describe "container actions calling sibling actions through this":
     test "the issue #701 reproduction appends through a sibling action":
         expect m.buf to equal "x"
@@ -180,5 +201,10 @@ describe "container actions calling sibling actions through this":
 
     test "recursive calls through this keep every level's writes":
         expect countdown.log to equal "321..."
+    end test
+
+    test "recursion through this keeps each call's locals":
+        expect fib_ten to equal 55
+        expect math.calls to equal 177
     end test
 end describe

@@ -342,20 +342,275 @@ display M.build()
 }
 
 #[test]
-fn this_cannot_be_reassigned_inside_an_action() {
-    for statement in [r#"change this to "other""#, "store this as 5"] {
+fn the_object_this_cannot_be_reassigned_inside_an_action() {
+    // `change this to ...` was already an error before #701 (`this` was
+    // undefined); it stays one, and now says why.
+    let source = r#"create container M:
+    property buf: Text
+    action step:
+        change this to "other"
+    end
+end
+create new M as m:
+    buf is ""
+end
+m.step()
+"#;
+    let errors = semantic_errors(source);
+    assert!(
+        errors
+            .iter()
+            .any(|message| message.contains("'this'") && message.contains("cannot be changed")),
+        "{errors:?}"
+    );
+    let (status, _, _) = run(source);
+    assert_eq!(
+        status,
+        Some(3),
+        "`change this to` must stay a semantic error"
+    );
+}
+
+#[test]
+fn existing_variables_named_this_keep_their_meaning_inside_actions() {
+    // GOVERNANCE.md 3.1: `this` is additive. Wherever a program already had
+    // its own variable named `this` in scope, that variable keeps its
+    // meaning; `this` means the object only where the name was undefined.
+    let stdout = run_ok(
+        r#"store this as 41
+create container G:
+    property v: Number
+    action run:
+        display "global this is " with this
+    end
+end
+create new G as g:
+    v is 1
+end
+g.run()
+display "outer this " with this
+"#,
+    );
+    assert!(stdout.contains("global this is 41"), "{stdout}");
+    assert!(stdout.contains("outer this 41"), "{stdout}");
+
+    let stdout = run_ok(
+        r#"create container L:
+    property items: List
+    action run:
+        store this as 5
+        display "local " with this
+        for each this in items:
+            display "item " with this
+        end for
+    end
+end
+create new L as l:
+    items is [1, 2]
+end
+l.run()
+"#,
+    );
+    assert!(stdout.contains("local 5"), "{stdout}");
+    assert!(stdout.contains("item 1"), "{stdout}");
+    assert!(stdout.contains("item 2"), "{stdout}");
+}
+
+#[test]
+fn recursion_through_this_keeps_each_calls_locals() {
+    // Review finding (#701): a callee's `store a as ...` used to land in the
+    // caller's `a`, so this printed "fib(10)=5".
+    let stdout = run_ok(
+        r#"create container Math:
+    property calls: Number
+    action fib needs n: Number: Number
+        change calls to calls + 1
+        check if n is less than 2:
+            return n
+        end check
+        store a as this.fib(n minus 1)
+        store b as this.fib(n minus 2)
+        return a plus b
+    end
+end
+create new Math as mm:
+    calls is 0
+end
+display "fib(10)=" with mm.fib(10)
+display "calls=" with mm.calls
+"#,
+    );
+    assert!(stdout.contains("fib(10)=55"), "{stdout}");
+    assert!(stdout.contains("calls=177"), "{stdout}");
+}
+
+#[test]
+fn a_called_action_cannot_overwrite_its_callers_locals() {
+    // Both a sibling caller and an ordinary action calling a method used to
+    // see `tmp=99`: the callee's local landed in the caller's `tmp`.
+    let stdout = run_ok(
+        r#"create container M:
+    property total: Number
+    action helper: Number
+        store tmp as 99
+        return tmp
+    end
+    action run:
+        store tmp as 1
+        store r as this.helper()
+        display "sibling: tmp=" with tmp with " r=" with r
+    end
+end
+create new M as m:
+    total is 0
+end
+m.run()
+define action called go with parameters o:
+    store tmp as 1
+    store r as o.helper()
+    display "action: tmp=" with tmp with " r=" with r
+end action
+call go with m
+"#,
+    );
+    assert!(stdout.contains("sibling: tmp=1 r=99"), "{stdout}");
+    assert!(stdout.contains("action: tmp=1 r=99"), "{stdout}");
+}
+
+#[test]
+fn passing_this_to_an_ordinary_action_keeps_the_object_coherent() {
+    // The helper reaches the same object through its parameter. It must see
+    // the caller's latest write, and its own write must survive the caller's
+    // later writes (it used to read "old" and the result was "az").
+    let stdout = run_ok(
+        r#"define action called show_it with parameters o:
+    display "helper sees buf=[" with o.buf with "]"
+    o.emit("H")
+end action
+create container M:
+    property buf: Text
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+    action step:
+        store buf as "a"
+        call show_it with this
+        store buf as buf with "z"
+    end
+end
+create new M as m:
+    buf is "old"
+end
+m.step()
+display "buf=[" with m.buf with "]"
+"#,
+    );
+    assert!(stdout.contains("helper sees buf=[a]"), "{stdout}");
+    assert!(stdout.contains("buf=[aHz]"), "{stdout}");
+}
+
+#[test]
+fn arguments_that_call_the_receiver_run_before_the_callee_starts() {
+    // `this.emit(this.next_char())`: the argument's write to `n` must not be
+    // lost when `emit` writes its result back.
+    let stdout = run_ok(
+        r#"create container M:
+    property buf: Text
+    property n: Number
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+    action next_char: Text
+        change n to n + 1
+        return "c" with n
+    end
+    action step:
+        store buf as buf with "a"
+        this.emit(this.next_char())
+        this.emit(this.next_char())
+        store buf as buf with "z"
+    end
+end
+create new M as m:
+    buf is ""
+    n is 0
+end
+m.step()
+display "buf=[" with m.buf with "] n=" with m.n
+"#,
+    );
+    assert!(stdout.contains("buf=[ac1c2z] n=2"), "{stdout}");
+}
+
+#[test]
+fn deep_and_cross_object_call_chains_keep_every_write() {
+    // Three levels on one object, then a chain that leaves the object and
+    // comes back to it through another object (`c.kickoff(d)` ->
+    // `d.relay(c)` -> `c.leaf()`).
+    let stdout = run_ok(
+        r#"create container Node:
+    property log: Text
+    action leaf:
+        change log to log with "L"
+    end
+    action middle:
+        change log to log with "m"
+        this.leaf()
+        change log to log with "M"
+    end
+    action top:
+        change log to log with "t"
+        this.middle()
+        change log to log with "T"
+    end
+    action relay needs caller_node: Node:
+        change log to log with "r"
+        caller_node.leaf()
+    end
+    action kickoff needs other: Node:
+        change log to log with "s"
+        other.relay(this)
+        change log to log with "S"
+    end
+end
+create new Node as a:
+    log is ""
+end
+create new Node as c:
+    log is ""
+end
+create new Node as d:
+    log is ""
+end
+a.top()
+display "deep=[" with a.log with "]"
+c.kickoff(d)
+display "chain c=[" with c.log with "] d=[" with d.log with "]"
+"#,
+    );
+    assert!(stdout.contains("deep=[tmLMT]"), "{stdout}");
+    assert!(stdout.contains("chain c=[sLS] d=[r]"), "{stdout}");
+}
+
+#[test]
+fn this_calls_are_type_checked_against_inherited_actions() {
+    // Arity and argument types through `this` are checked for an action the
+    // container inherits, not only for its own actions.
+    for (call, needle) in [
+        (
+            "this.twice(1, 2)",
+            "expects 1 arguments but 2 were provided",
+        ),
+        (r#"this.twice("a")"#, "Argument 1 of method 'twice'"),
+    ] {
         let source = format!(
-            "create container M:\n    property buf: Text\n    action step:\n        {statement}\n    end\nend\ncreate new M as m:\n    buf is \"\"\nend\nm.step()\n"
+            "create container P:\n    property v: Number\n    action twice needs x: Number: Number\n        return x times 2\n    end\nend\ncreate container C extends P:\n    action run: Number\n        return {call}\n    end\nend\ncreate new C as c:\n    v is 1\nend\ndisplay c.run()\n"
         );
-        let errors = semantic_errors(&source);
+        let diagnostics = type_errors(&source);
         assert!(
-            errors
-                .iter()
-                .any(|message| message.contains("'this'") && message.contains("cannot be changed")),
-            "`{statement}`: {errors:?}"
+            diagnostics.iter().any(|message| message.contains(needle)),
+            "`{call}` must draw '{needle}': {diagnostics:?}"
         );
-        let (status, _, _) = run(&source);
-        assert_eq!(status, Some(3), "`{statement}` must stay a semantic error");
     }
 }
 
