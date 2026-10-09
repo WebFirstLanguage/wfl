@@ -79,6 +79,9 @@ python scripts/validate_docs_examples.py --file path/to/example.wfl
 
 ### 4. Create PR
 
+Use the canonical template at
+[`.github/pull_request_template.md`](../../.github/pull_request_template.md).
+
 **PR should include:**
 - Clear description of changes
 - Tests for new features/fixes

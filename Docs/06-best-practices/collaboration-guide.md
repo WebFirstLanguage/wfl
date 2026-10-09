@@ -51,36 +51,18 @@ Working with others on WFL projects requires clear communication and consistent 
 
 ## Pull Requests
 
-### PR Description Template
+### PR description template
 
-```markdown
-## Summary
-Brief description of changes
+Use the single canonical template at
+[`.github/pull_request_template.md`](../../.github/pull_request_template.md).
+GitHub applies it to new pull requests. Do not copy an older local template.
 
-## Motivation
-Why this change is needed
+### Repository contribution authority
 
-## Changes
-- Added feature X
-- Fixed bug Y
-- Updated documentation Z
-
-## Testing
-- Created test_feature.wfl
-- All tests pass
-- Tested manually with...
-
-## Backward Compatibility
-- [x] No breaking changes
-- [ ] Breaking change (explain below)
-
-## Checklist
-- [x] Tests added
-- [x] Documentation updated
-- [x] cargo fmt run
-- [x] cargo clippy clean
-- [x] All TestPrograms pass
-```
+Follow [GOVERNANCE.md](../../GOVERNANCE.md) for feature → `dev` PRs,
+Yomi review, exact-commit Actions evidence, bot feedback and promotion
+authority. Maintainers merge; the only standing exception is an eligible I1
+fix by a project-run agent under GOVERNANCE.md §3.9.
 
 ### Before Submitting PR
 
@@ -270,9 +252,3 @@ You've completed the Best Practices section. You now know how to write quality W
 ---
 
 **Previous:** [← Project Organization](project-organization.md) | **Next:** [Guides →](../guides/)
-
-## Repository contribution authority
-
-Follow [GOVERNANCE.md](../../GOVERNANCE.md) for feature → `dev` PRs,
-Yomi review, exact-commit Actions evidence, bot feedback and promotion authority.
-Use the [canonical PR checklist](../../.github/pull_request_template.md).

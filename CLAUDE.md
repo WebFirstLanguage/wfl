@@ -4,7 +4,6 @@ Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
 
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Governance (do not dig — start here)

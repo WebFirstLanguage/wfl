@@ -4,7 +4,6 @@ Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
 
-
 ## ⚠️ Alpha Software Notice
 
 **WFL is currently in alpha stage and should not be used in production environments.** This alpha status means that security features are still being developed and hardened. Use WFL only for development, testing, and educational purposes.
