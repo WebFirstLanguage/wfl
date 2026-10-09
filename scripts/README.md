@@ -103,11 +103,18 @@ This script is automatically run monthly via GitHub Actions (`.github/workflows/
 - Before releases to ensure documentation is current
 
 ### `bump_version.py`
-Bumps the WFL version using calendar-based versioning (YY.MM.BUILD).
+Computes and writes WFL versions using calendar-based versioning (YY.M.BUILD).
+Nightly numbers come from published `vYY.M.N` tags for the current UTC month
+(`--from-tags`), with the committed `.build_meta.json` as a same-month floor.
+`--set-version` writes that version into every mirror without committing.
 
 **Usage:**
 ```bash
-python scripts/bump_version.py --update-all
+# Next version from tags (stdout only)
+python scripts/bump_version.py --from-tags --print
+
+# Write an exact version into all mirrors, do not commit
+python scripts/bump_version.py --set-version 26.10.1 --update-all --skip-git
 ```
 
 ### `sync-branch.ps1`
@@ -185,11 +192,16 @@ runs in CI as the **Release Script Tests** job.
 
 ### Version Release Workflow
 
-1. **Bump version**: `python scripts/bump_version.py --update-all`
-2. **Update security docs**: `.\scripts\update_security_doc.ps1`
+Nightly builds compute the next YY.M.BUILD from `v*` tags, write it into the
+tree at build time, and push the `vX.Y.Z` tag only after a successful
+publish. CI does not push version commits to `main` or `dev`.
+
+1. **Preview the next version**: `python scripts/bump_version.py --from-tags --print`
+2. **Update security docs** if needed: `.\scripts\update_security_doc.ps1`
 3. **Run all tests** (see above)
-4. **Commit and tag**: Follow conventional commits format
-5. **Push**: Changes and tags to remote
+4. **Commit** feature work with conventional commits; do not hand-bump
+   `.build_meta.json` unless setting a same-month floor
+5. **Push** the feature branch; nightly tags the published version
 
 ## Script Conventions
 
@@ -202,7 +214,7 @@ runs in CI as the **Release Script Tests** job.
 
 Several scripts are integrated with GitHub Actions:
 
-- **CI/CD** (`.github/workflows/ci.yml`): Runs tests and version bumping
+- **CI/CD** (`.github/workflows/ci.yml`): Runs tests; does not push version commits
 - **Auto-format** (`.github/workflows/auto-fmt.yml`): Format checking
 - **Security Doc Updates** (`.github/workflows/update-security-doc.yml`): Monthly SECURITY.md updates
 - **Nightly** (`.github/workflows/nightly.yml`): Nightly builds and tests

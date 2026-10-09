@@ -74,7 +74,7 @@ Layout is governed by `REPOSITORY_HYGIENE.md` (placement table + root allowlist 
 - `Engineering/`: Active designs (`designs/`), plans (`plans/`), evidence (`evidence/`), component records (`components/`).
 - `History/`: Chronological, non-normative history — Dev Diary at `History/dev-diary/<year>/`, `perf-lessons.md`.
 - `Archive/`: Retained inactive material, indexed by `Archive/manifest.json` (non-normative; checker verifies checksums).
-- `scripts/`: Maintained automation (`run_integration_tests.*`, `check_repo_hygiene.py`, `build_windows_installer.ps1`, `bump_version.py`, `metrics/`, `docs/`).
+- `scripts/`: Maintained automation (`run_integration_tests.*`, `check_repo_hygiene.py`, `build_windows_installer.ps1`, `bump_version.py`, `metrics/`, `docs/`). Nightly versions are numbered from `vYY.M.N` tags at publish time; CI does not push version commits to `main`.
 - `wix/`: Windows Installer (MSI) configuration.
 - `.cursor/rules/`, `.jules/`, `AGENTS.md`: thin adapters pointing back to this file (`CLAUDE.md`, the canonical shared agent instructions) and root policy — no policy content of their own.
 
