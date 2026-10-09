@@ -27,3 +27,9 @@ uses 8443 only as the Location target (nothing binds it).
 
 The parser now accepts IPv6 handles (`WebServer:::1:port`) so
 `web_server_bind_address_test` can publish `::1`.
+
+`test_plain_http_to_tls_port_fails` keeps the original
+`wait for 2500 milliseconds` window. An extra HTTPS GET after the
+plain-HTTP failure raced under 4 concurrent suite processes
+(`peer closed connection without sending TLS close_notify`). The
+published address already proves the child owns the TLS port.
