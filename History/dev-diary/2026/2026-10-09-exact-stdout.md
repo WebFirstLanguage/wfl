@@ -32,8 +32,15 @@ including concurrent handlers and cooperative timeouts. Captured writes use
 memory and do not access that pipe. This change preserves the existing stdout
 scheduling contract; unified async output needs ordering, cancellation and
 shutdown design across `display`, `print` and `write_stdout`. The limitation is
-documented, with policy applicability and final disposition left to Yomi and
-the maintainer; no resilience claim or testing exception is implied.
+documented for independent review and maintainer disposition; no resilience
+claim or testing exception is implied.
+The shared output scheduling risk is tracked in [#784](https://github.com/WebFirstLanguage/wfl/issues/784).
+
+Brad confirmed in the Codex chat that Yomi does not exist and explicitly
+requested removal of that named-review requirement. The governance suite,
+current contributor guides and canonical PR checklist now require independent
+review without naming Yomi. Required GitHub approval, current-revision CI,
+handled bot feedback and maintainer merge authority continue to apply.
 
 The initial local regression run found the missing builtin. Two capture fixtures
 were corrected to avoid the reserved word `captured`. Subsequent runtime

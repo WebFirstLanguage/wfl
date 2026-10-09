@@ -33,7 +33,6 @@ conflicts on the owning issue instead of silently relaxing a rule.
 - Start a short-lived feature, fix or documentation branch from current `dev`;
   open its PR into `dev`. Never push directly to `dev`, `main` or a release
   branch, or force-push shared branches. Promotion is `dev → main` by PR.
-- Yomi reviews the current revision against governance and testing policy.
 - Maintainers merge. The only standing exception is an eligible I1 fix by a
   project-run agent under §3.9 and
   [the issue policy](Docs/contributing/issue-policy.md). Authors, including
@@ -48,7 +47,7 @@ conflicts on the owning issue instead of silently relaxing a rule.
 - Let triggered bot reviews finish; inspect reviews, inline comments and
   discussions. Fix actionable findings or record a reasoned disposition and
   resolve required discussions. Recheck checks and reviews immediately before
-  merging. Material changes require fresh applicable CI and Yomi review.
+  merging. Material changes require fresh applicable CI and independent review.
 - The PR owner remains responsible while CI or bot review is pending. Use an
   actual scheduled monitor or event-driven continuation, not a promise to watch.
 - Do not bypass protections, use an administrator override, remove a check, or
@@ -80,7 +79,7 @@ missing, pending, flaky or failing. Record the SHA, required-check set and
 individual result links, then recheck immediately before acting. A different
 SHA or aggregate green is insufficient; a flaky rerun is not a waiver.
 Anything short of fully green stops for Brad's explicit authorization.
-Yomi's current-revision review and handled bot feedback remain required.
+Current-revision independent review and handled bot feedback remain required.
 
 Always Brad's decisions regardless of CI: spending money; deleting data,
 agents or repositories; anything touching secrets; VM configuration changes;
@@ -110,7 +109,7 @@ Policy text does not configure GitHub. Verify effective protections and actual
 required checks via the API. Report missing controls, identities and platform
 limits explicitly; never call a convention machine-enforced. In particular,
 a shared author identity cannot supply independent GitHub approval. Deferred
-identity enforcement does not authorize bypass or replace Yomi's review.
+identity enforcement does not authorize bypass or replace independent review.
 
 ## 1. Project identity
 
@@ -152,7 +151,7 @@ may care about.
 
 | Decision type | Who decides | Notes |
 |---|---|---|
-| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Current-revision CI, Yomi review, handled bot feedback, and the LOG-16 ruleset |
+| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Current-revision CI, independent review, handled bot feedback, and the LOG-16 ruleset |
 | Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules |
 | Security advisories and embargo | Maintainer(s) | Per [SECURITY.md](SECURITY.md) |
 | Appointing Contributors / Maintainers | Maintainer(s) | See [CONTRIBUTING.md](CONTRIBUTING.md) application process |

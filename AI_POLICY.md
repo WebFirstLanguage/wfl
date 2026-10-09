@@ -1,6 +1,6 @@
 # AI Policy — Inclusion, Not Discrimination
 
-Contribution authority, feature → `dev` PRs, exact-commit CI, Yomi review,
+Contribution authority, feature → `dev` PRs, exact-commit CI, independent review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
 
@@ -122,7 +122,7 @@ security research assistance, and automation, subject to:
 - No committing secrets  
 - Human sign-off on releases and on merges outside the I1 delegation in
   [the issue policy](Docs/contributing/issue-policy.md)
-- Yomi review of the current revision, following
+- Independent review of the current revision, following
   [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27)
 
 Project-run agents follow the ranked dispatch rules in
