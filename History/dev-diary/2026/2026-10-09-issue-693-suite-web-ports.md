@@ -24,3 +24,8 @@ probing tests now `listen on port 0` and read the published
 `WebServer::ip:port` line from the child (the `trusted_proxy_test`
 pattern) before connecting. `free_tcp_port` stays for standalone
 Group A binaries and documents that it is unsafe in the suite process.
+
+A later 4-process stress also hit a 1s setup timeout in
+`http_outbound_budget_test::legacy_post_body_read_observes_cooperative_cancellation`
+(request never reached the stalled peer under CPU contention). That
+wait is now 10s; the cancellation assertion is unchanged.
