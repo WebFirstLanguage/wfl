@@ -213,7 +213,10 @@ Connection: close\r\n\
     };
     let interpret = interpreter.interpret(&program);
     tokio::pin!(interpret);
-    tokio::time::timeout(Duration::from_secs(1), async {
+    // Connecting is not the assertion — cancellation after the peer stalls is.
+    // Shared-process suite load (and concurrent suite processes) can delay the
+    // first byte past one second without changing the cancellation contract.
+    tokio::time::timeout(Duration::from_secs(10), async {
         tokio::select! {
             result = response_attempted => {
                 assert_eq!(

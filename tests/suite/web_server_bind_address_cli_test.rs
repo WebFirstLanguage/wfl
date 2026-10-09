@@ -17,36 +17,60 @@
 //! address check (the interpreter-level behavior is covered portably in
 //! `web_server_bind_address_test.rs`).
 
-use std::io::Write;
-use std::process::{Child, Command};
+use std::io::{Read, Write};
+use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Write a `.wflcfg` with the given bind address plus a tiny server program
 /// into a fresh temp directory, then launch the compiled `wfl` binary on it.
-fn spawn_server(dir: &std::path::Path, bind_address: &str, port: u16) -> Child {
+/// The child listens on port 0 and publishes the bound address before any
+/// client connects.
+fn spawn_server(dir: &std::path::Path, bind_address: &str) -> Child {
     std::fs::write(
         dir.join(".wflcfg"),
         format!("web_server_bind_address = {bind_address}\n"),
     )
     .expect("write .wflcfg");
 
-    let program = format!(
-        "listen on port {port} as s\n\
+    let program = "listen on port 0 as s\n\
+         display \"BIND_CLI_READY \" with s\n\
          wait for request comes in on s as r with timeout 4000\n\
          respond to r with \"hi\"\n\
-         close server s\n"
-    );
+         close server s\n";
     let script = dir.join("server.wfl");
     std::fs::write(&script, program).expect("write server.wfl");
+    let log = std::fs::File::create(dir.join("process.log")).expect("create process log");
 
     Command::new(env!("CARGO_BIN_EXE_wfl"))
         .arg(&script)
         .current_dir(dir)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(Stdio::from(log.try_clone().expect("clone log")))
+        .stderr(Stdio::from(log))
         .spawn()
         .expect("spawn wfl binary")
+}
+
+fn wait_for_published_addr(dir: &std::path::Path, child: &mut Child) -> std::net::SocketAddr {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().expect("inspect server process") {
+            panic!(
+                "bind-address server exited before publishing its port ({status}): {}",
+                std::fs::read_to_string(dir.join("process.log")).unwrap_or_default()
+            );
+        }
+        let log = std::fs::read_to_string(dir.join("process.log")).unwrap_or_default();
+        if let Some(address) = crate::common::published_web_server_addr(&log, "BIND_CLI_READY ") {
+            assert_ne!(address.port(), 0, "server must report its assigned port");
+            return address;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "server did not publish BIND_CLI_READY: {log}"
+        );
+        sleep(Duration::from_millis(50));
+    }
 }
 
 /// Create a unique temp directory without pulling in extra dev-dependencies.
@@ -55,19 +79,6 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
-}
-
-/// Ask the OS for a currently-free TCP port instead of hardcoding one, so
-/// parallel test runs (or unrelated processes) can't collide on a fixed port
-/// and make these tests flaky. Binds an ephemeral port, reads it back, and
-/// releases it; the small reuse window before the WFL server binds is
-/// acceptable for a test.
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("bind ephemeral port")
-        .local_addr()
-        .expect("read local_addr")
-        .port()
 }
 
 /// Read the hex local-address of the listening (state 0A) socket bound to
@@ -119,9 +130,9 @@ fn wflcfg_bind_address_reaches_listening_socket() {
     // Loopback default: `.wflcfg` says 127.0.0.1 -> socket bound to 127.0.0.1.
     {
         let dir = temp_dir("loopback");
-        let port = free_port();
-        let child = spawn_server(&dir, "127.0.0.1", port);
-        let addr = wait_for_listen(port);
+        let mut child = spawn_server(&dir, "127.0.0.1");
+        let published = wait_for_published_addr(&dir, &mut child);
+        let addr = wait_for_listen(published.port());
         kill(child);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
@@ -136,9 +147,9 @@ fn wflcfg_bind_address_reaches_listening_socket() {
     // because the config never reached the interpreter.
     {
         let dir = temp_dir("allifaces");
-        let port = free_port();
-        let child = spawn_server(&dir, "0.0.0.0", port);
-        let addr = wait_for_listen(port);
+        let mut child = spawn_server(&dir, "0.0.0.0");
+        let published = wait_for_published_addr(&dir, &mut child);
+        let addr = wait_for_listen(published.port());
         kill(child);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
@@ -156,20 +167,25 @@ fn wflcfg_bind_address_reaches_listening_socket() {
 #[test]
 fn wflcfg_server_is_reachable() {
     let dir = temp_dir("reachable");
-    let port = free_port();
-    let child = spawn_server(&dir, "0.0.0.0", port);
-    let target: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let mut child = spawn_server(&dir, "0.0.0.0");
+    let published = wait_for_published_addr(&dir, &mut child);
+    let target = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, published.port()));
 
-    // Poll the connection: startup latency varies under a parallel test run.
+    // The child already owns `published`. Read the body so a colliding mock
+    // cannot satisfy readiness with a bare TCP accept.
     let mut ok = false;
     for _ in 0..40 {
         if let Ok(mut stream) =
             std::net::TcpStream::connect_timeout(&target, Duration::from_millis(300))
         {
-            // Send a request so the server's `wait for request` completes and it exits.
             let _ = stream.write_all(b"GET / HTTP/1.0\r\n\r\n");
-            ok = true;
-            break;
+            let mut buf = [0u8; 128];
+            if let Ok(n) = stream.read(&mut buf)
+                && std::str::from_utf8(&buf[..n]).is_ok_and(|body| body.contains("hi"))
+            {
+                ok = true;
+                break;
+            }
         }
         sleep(Duration::from_millis(100));
     }

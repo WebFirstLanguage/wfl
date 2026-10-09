@@ -2,8 +2,6 @@
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-mod common;
-
 struct Server {
     child: Child,
     directory: tempfile::TempDir,
@@ -73,7 +71,7 @@ end loop
         )
         .unwrap();
         let log = std::fs::File::create(directory.path().join("process.log")).unwrap();
-        let child = Command::new(common::wfl_exe())
+        let child = Command::new(crate::common::wfl_exe())
             .arg("server.wfl")
             .env(
                 "WFL_GLOBAL_CONFIG_PATH",

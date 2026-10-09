@@ -2540,7 +2540,7 @@ fn test_display_four_values_right_associative_nesting() {
     // the top level. This is what makes evaluation order (and therefore
     // stringification order for mutating expressions) match `with` exactly.
     // See the mutation-order regression in
-    // tests/display_multiple_values_stdout_test.rs for the runtime consequence.
+    // tests/suite/display_multiple_values_stdout_test.rs for the runtime consequence.
     fn as_str_literal(expr: &Expression) -> &str {
         match expr {
             Expression::Literal(Literal::String(s), ..) => s.as_ref(),

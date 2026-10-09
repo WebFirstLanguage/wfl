@@ -15,18 +15,33 @@ use wfl::parser::Parser;
 /// Ask the OS for a currently-free TCP port on loopback, then release it so the
 /// caller can bind it via WFL's `listen on port <N>`.
 ///
-/// WFL takes a *literal* port in `listen on port <N>`, so the port must be chosen
-/// before the program source is built — we cannot bind an ephemeral `:0` and read
-/// the assigned port back the way the mock upstreams do. Picking a free port from
-/// the OS (instead of a hardcoded constant) avoids collisions under parallel test
-/// runs and on busy runners. A small TOCTOU window remains between releasing the
-/// probe socket and WFL re-binding it, but it is far less flaky than a fixed port.
+/// Unsafe in a shared suite process: dropping the probe socket lets the kernel
+/// hand that port to another test's `bind(:0)` before WFL rebinds it. Suite
+/// tests that start a WFL server must `listen on port 0` and read the published
+/// handle instead (see [`published_web_server_addr`]). This helper remains for
+/// standalone Group A binaries that still interpolate a port into source.
 pub fn free_tcp_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("bind an ephemeral TCP port")
         .local_addr()
         .expect("read the ephemeral local address")
         .port()
+}
+
+/// Parse `PREFIXWebServer::ip:port` from a child's published readiness output.
+///
+/// Only complete newline-terminated lines are accepted so a partial write is
+/// not treated as a bound address. The child must own the port before it
+/// prints this line (`listen on port 0` then `display`).
+pub fn published_web_server_addr(log: &str, prefix: &str) -> Option<std::net::SocketAddr> {
+    let marker = format!("{prefix}WebServer::");
+    log.split_inclusive('\n')
+        .filter(|line| line.ends_with('\n'))
+        .find_map(|line| {
+            line.trim_end()
+                .strip_prefix(marker.as_str())
+                .and_then(|addr| addr.parse().ok())
+        })
 }
 
 // ---------------------------------------------------------------------------

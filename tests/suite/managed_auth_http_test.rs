@@ -21,13 +21,7 @@ impl AuthServer {
     }
 
     async fn start_with_files(body: &str, files: &[(&str, &str)]) -> Self {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .expect("reserve an ephemeral port")
-            .local_addr()
-            .expect("read ephemeral port")
-            .port();
-        let code = body.replace("PORT", &port.to_string());
-        let tokens = lex_wfl_with_positions(&code);
+        let tokens = lex_wfl_with_positions(body);
         Parser::new(&tokens)
             .parse()
             .unwrap_or_else(|errors| panic!("HTTP fixture must parse: {errors:?}"));
@@ -35,7 +29,7 @@ impl AuthServer {
         for (name, contents) in files {
             std::fs::write(dir.path().join(name), contents).expect("write delegated WFL fixture");
         }
-        std::fs::write(dir.path().join("server.wfl"), code).expect("write server fixture");
+        std::fs::write(dir.path().join("server.wfl"), body).expect("write server fixture");
         std::fs::write(
             dir.path().join(".wflcfg"),
             "web_server_bind_address = 127.0.0.1\ntimeout_seconds = 60\n",
@@ -53,22 +47,22 @@ impl AuthServer {
         let mut server = Self {
             child,
             dir,
-            base_url: format!("http://127.0.0.1:{port}"),
+            base_url: String::new(),
         };
         let deadline = Instant::now() + Duration::from_secs(20);
-        loop {
+        let address = loop {
             if let Some(status) = server.child.try_wait().expect("inspect server process") {
                 panic!(
                     "managed auth server exited before accepting HTTP ({status}): {}",
                     server.diagnostics()
                 );
             }
-            // A bare TCP readiness probe never enters the WFL request loop.
-            if tokio::net::TcpStream::connect(("127.0.0.1", port))
-                .await
-                .is_ok()
+            if let Some(address) =
+                crate::common::published_web_server_addr(&server.stdout_log(), "AUTH_READY ")
             {
-                return server;
+                assert_eq!(address.ip(), std::net::Ipv4Addr::LOCALHOST);
+                assert_ne!(address.port(), 0, "server must report its assigned port");
+                break address;
             }
             assert!(
                 Instant::now() < deadline,
@@ -76,7 +70,28 @@ impl AuthServer {
                 server.diagnostics()
             );
             tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        server.base_url = format!("http://{address}");
+        if body.contains("main loop") {
+            // The published address is owned by this child. Confirm we reached
+            // the auth app, not another suite test's `:0` mock.
+            let denial = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .expect("readiness client")
+                .get(format!("{}/protected", server.base_url))
+                .send()
+                .await
+                .expect("auth readiness GET /protected");
+            assert_eq!(denial.status(), reqwest::StatusCode::FORBIDDEN);
+            assert_eq!(denial.text().await.expect("denial body"), "denied");
         }
+        server
+    }
+
+    fn stdout_log(&self) -> String {
+        std::fs::read_to_string(self.dir.path().join("stdout.log")).expect("read captured stdout")
     }
 
     fn diagnostics(&self) -> String {
@@ -213,7 +228,8 @@ fn client() -> reqwest::Client {
 const AUTH_APPLICATION: &str = r#"
 store sessions as create_session_store of 3600 and 900 and 100
 store attempts as create_account_rate_limiter of 2 and 60 and 2
-listen on port PORT as auth_server
+listen on port 0 as auth_server
+display "AUTH_READY " with auth_server
 main loop concurrently:
     wait for request comes in on auth_server as req with timeout 20000
     store route_path as req["path"]
@@ -354,7 +370,8 @@ store cookie_value as session_cookie of session_record["id"]
 create map response_headers:
     "Set-Cookie" is cookie_value
 end map
-listen on port PORT as auth_server
+listen on port 0 as auth_server
+display "AUTH_READY " with auth_server
 wait for request comes in on auth_server as req with timeout 20000
 respond to req with session_record["csrf_token"] and headers response_headers
 close server auth_server
