@@ -5,6 +5,11 @@ use crate::interpreter::value::Value;
 use std::sync::Arc;
 
 pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    crate::interpreter::io_capture::emit_line(&format_print_args(&args));
+    Ok(Value::Null)
+}
+
+pub(crate) fn format_print_args(args: &[Value]) -> String {
     let mut line = String::new();
     for (i, arg) in args.iter().enumerate() {
         if i > 0 {
@@ -12,12 +17,11 @@ pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
         }
         line.push_str(&arg.to_string());
     }
-    crate::interpreter::io_capture::emit_line(&line);
-    Ok(Value::Null)
+    line
 }
 
-pub fn native_write_stdout(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("write_stdout", &args, 1)?;
+pub(crate) fn stdout_text(args: &[Value]) -> Result<&Arc<str>, RuntimeError> {
+    check_arg_count("write_stdout", args, 1)?;
     let Value::Text(text) = &args[0] else {
         return Err(RuntimeError::new(
             "write_stdout expects text".to_string(),
@@ -25,7 +29,11 @@ pub fn native_write_stdout(args: Vec<Value>) -> Result<Value, RuntimeError> {
             0,
         ));
     };
-    crate::interpreter::io_capture::emit_text(text).map_err(|error| {
+    Ok(text)
+}
+
+pub fn native_write_stdout(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    crate::interpreter::io_capture::emit_text(stdout_text(&args)?).map_err(|error| {
         RuntimeError::new(
             format!("write_stdout could not write to stdout: {error}"),
             0,

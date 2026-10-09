@@ -6995,15 +6995,7 @@ impl Interpreter {
     }
 
     fn native_display(args: Vec<Value>) -> Result<Value, RuntimeError> {
-        let mut line = String::new();
-        for (i, arg) in args.iter().enumerate() {
-            if i > 0 {
-                line.push(' ');
-            }
-            line.push_str(&arg.to_string());
-        }
-        io_capture::emit_line(&line);
-        Ok(Value::Null)
+        stdlib::core::native_print(args)
     }
 
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
@@ -7710,11 +7702,13 @@ impl Interpreter {
 
             Statement::DisplayStatement {
                 value,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
                 let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                io_capture::emit_line(&value.to_string());
+                let args = [value];
+                self.await_output(io_capture::route("display", &args).unwrap(), *line, *column)
+                    .await?;
                 Ok((Value::Null, ControlFlow::None))
             }
 
@@ -11540,22 +11534,22 @@ impl Interpreter {
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
                             };
-                            self.web_servers
-                                .borrow_mut()
-                                .insert(server_name.clone(), wfl_server);
-
                             let server_value = Value::Text(Arc::from(format!(
                                 "WebServer::{}:{}",
                                 addr.ip(),
                                 addr.port()
                             )));
 
-                            println!(
-                                "Redirect server is listening on port {} (redirecting to HTTPS port {})",
-                                addr.port(),
-                                target_port
-                            );
+                            self.await_output(
+                                io_capture::stdout_line(&format!(
+                                    "Redirect server is listening on port {} (redirecting to HTTPS port {})",
+                                    addr.port(), target_port
+                                )), *line, *column
+                            ).await?;
 
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
                             match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -11732,18 +11726,25 @@ impl Interpreter {
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
                             };
-                            self.web_servers
-                                .borrow_mut()
-                                .insert(server_name.clone(), wfl_server);
-
                             let server_value = Value::Text(Arc::from(format!(
                                 "WebServer::{}:{}",
                                 addr.ip(),
                                 addr.port()
                             )));
 
-                            println!("Secure server is listening on port {}", addr.port());
+                            self.await_output(
+                                io_capture::stdout_line(&format!(
+                                    "Secure server is listening on port {}",
+                                    addr.port()
+                                )),
+                                *line,
+                                *column,
+                            )
+                            .await?;
 
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
                             match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -11774,11 +11775,6 @@ impl Interpreter {
                                 server_handle: Some(server_handle),
                             };
 
-                            // Store the server in the interpreter
-                            self.web_servers
-                                .borrow_mut()
-                                .insert(server_name.clone(), wfl_server);
-
                             // Create a server value with the actual address
                             let server_value = Value::Text(Arc::from(format!(
                                 "WebServer::{}:{}",
@@ -11786,8 +11782,19 @@ impl Interpreter {
                                 addr.port()
                             )));
 
-                            println!("Server is listening on port {}", addr.port());
+                            self.await_output(
+                                io_capture::stdout_line(&format!(
+                                    "Server is listening on port {}",
+                                    addr.port()
+                                )),
+                                *line,
+                                *column,
+                            )
+                            .await?;
 
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
                             match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -13148,13 +13155,20 @@ impl Interpreter {
                             server_handle: Some(server_handle),
                             close_tx,
                         };
+                        self.await_output(
+                            io_capture::stdout_line(&format!(
+                                "WebSocket server is listening on port {}",
+                                addr.port()
+                            )),
+                            *line,
+                            *column,
+                        )
+                        .await?;
+
                         self.web_socket_servers
                             .borrow_mut()
                             .insert(key.clone(), wfl_ws);
-
                         let server_value = Value::Text(Arc::from(key));
-                        println!("WebSocket server is listening on port {}", addr.port());
-
                         match env.borrow_mut().define_direct(server_name, server_value) {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -14018,6 +14032,29 @@ impl Interpreter {
                 .map_err(|e| self.budget_error(e, line, column))?;
         }
         Ok(())
+    }
+
+    async fn await_output<T>(
+        &self,
+        future: impl Future<Output = Result<T, RuntimeError>>,
+        line: usize,
+        column: usize,
+    ) -> Result<T, RuntimeError> {
+        tokio::pin!(future);
+        loop {
+            self.check_wait_budget(line, column)?;
+            tokio::select! {
+                result = &mut future => {
+                    self.check_wait_budget(line, column)?;
+                    return result.map_err(|mut error| {
+                        error.line = line;
+                        error.column = column;
+                        error
+                    });
+                }
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        }
     }
 
     /// Drains and dispatches queued websocket events for up to `budget`, running
@@ -15055,10 +15092,9 @@ impl Interpreter {
                         self.call_function(&func, arg_values, *line, *column).await
                     }
                     Value::NativeFunction(native_name, native_fn) => {
-                        // CPU-heavy crypto builtins hop onto the blocking pool so
-                        // they don't monopolize the interpreter thread (Phase 0,
-                        // PR-0b). Everything else runs synchronously as before.
-                        if let Some(fut) =
+                        if let Some(fut) = io_capture::route(native_name, &arg_values) {
+                            self.await_output(fut, *line, *column).await
+                        } else if let Some(fut) =
                             crate::stdlib::crypto_async::route(native_name, &arg_values)
                         {
                             fut.await.map_err(|e| {
@@ -15153,9 +15189,10 @@ impl Interpreter {
 
                         // Preserve the native error's message and kind; only
                         // point the location at the call site (natives report
-                        // their position as 0,0). CPU-heavy crypto builtins are
-                        // routed onto the blocking pool (Phase 0, PR-0b).
-                        if let Some(fut) =
+                        // their position as 0,0).
+                        if let Some(fut) = io_capture::route(native_name, &arg_values) {
+                            self.await_output(fut, *line, *column).await
+                        } else if let Some(fut) =
                             crate::stdlib::crypto_async::route(native_name, &arg_values)
                         {
                             fut.await.map_err(|mut e| {

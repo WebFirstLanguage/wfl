@@ -233,7 +233,7 @@ async fn reader_disconnect_reports_errors_to_the_handler_and_preserves_siblings(
 }
 
 #[tokio::test]
-async fn shutdown_cancels_queued_output_without_waiting_for_the_pipe() {
+async fn shutdown_does_not_wait_for_active_or_pending_output() {
     let dir = TempDir::new().unwrap();
     let port = common::free_tcp_port();
     let mut child = start(
