@@ -6,8 +6,6 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
 
-mod common;
-
 /// Reaps the real CLI child even if a fixture assertion panics or times out.
 struct ChildGuard(Child);
 
@@ -48,7 +46,7 @@ fn run_wfl(directory: &Path, source: &str) -> Output {
     let stderr = NamedTempFile::new().expect("stderr capture");
     // Capture to files so a child cannot fill a pipe and deadlock the timeout.
     let mut child = ChildGuard(
-        Command::new(common::wfl_exe())
+        Command::new(crate::common::wfl_exe())
             .arg("main.wfl")
             .current_dir(directory)
             .env("WFL_GLOBAL_CONFIG_PATH", global_config.path())
