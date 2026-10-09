@@ -76,7 +76,7 @@ define action called handle with parameters req:
     display byte_count
 end action
 
-listen on port 8080 as web_server
+listen on port 0 as web_server
 wait for request comes in on web_server as req
 call handle with req
 "#;
@@ -189,7 +189,7 @@ define action called handle with parameters req:
     end check
 end action
 
-listen on port 8080 as web_server
+listen on port 0 as web_server
 wait for request comes in on web_server as req
 call handle with req
 "#;

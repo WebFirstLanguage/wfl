@@ -2,7 +2,6 @@
 // web server (issue #573). Verifies bytes survive end-to-end: file -> read
 // binary -> respond -> warp -> client, and client -> request body -> body_bytes.
 
-use std::time::Duration;
 use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -36,20 +35,22 @@ fn binary_fixture() -> Vec<u8> {
 /// WFL string literal on any platform.
 fn temp_path(tag: &str) -> String {
     let mut p = std::env::temp_dir();
-    p.push(format!("wfl_binary_test_{tag}.bin"));
+    p.push(format!("wfl_binary_test_{tag}_{}.bin", std::process::id()));
     p.to_string_lossy().replace('\\', "/")
 }
 
 #[tokio::test]
 async fn test_serve_binary_font_bytes_lossless() {
-    let port = 8112;
     let fixture = binary_fixture();
-    let path = temp_path(&format!("serve_{port}"));
+    let path = temp_path("serve_font");
     std::fs::write(&path, &fixture).expect("write fixture");
 
+    let ready_path = crate::common::unique_ready_path("bin_font");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "BIN_FONT_READY ", "test_server");
     let server_code = format!(
         r#"
-        listen on port {port} as test_server
+        listen on port 0 as test_server
+        {publish}
         wait for request comes in on test_server as req with timeout 10000
         open file at "{path}" for reading binary as f
         store payload as read binary from f
@@ -60,11 +61,12 @@ async fn test_serve_binary_font_bytes_lossless() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "BIN_FONT_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("http://127.0.0.1:{port}/font"))
+        .post(format!("http://{address}/font"))
         .header("Content-Length", "0")
         .body("")
         .send()
@@ -102,20 +104,23 @@ async fn test_serve_binary_font_bytes_lossless() {
 
     let _ = server_handle.join();
     let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_serve_binary_defaults_to_octet_stream() {
-    let port = 8113;
     let fixture = binary_fixture();
-    let path = temp_path(&format!("serve_{port}"));
+    let path = temp_path("serve_octet");
     std::fs::write(&path, &fixture).expect("write fixture");
 
     // No content_type clause -> binary content should default to
     // application/octet-stream (not text/plain).
+    let ready_path = crate::common::unique_ready_path("bin_octet");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "BIN_OCTET_READY ", "test_server");
     let server_code = format!(
         r#"
-        listen on port {port} as test_server
+        listen on port 0 as test_server
+        {publish}
         wait for request comes in on test_server as req with timeout 10000
         open file at "{path}" for reading binary as f
         store payload as read binary from f
@@ -126,11 +131,12 @@ async fn test_serve_binary_defaults_to_octet_stream() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "BIN_OCTET_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("http://127.0.0.1:{port}/asset"))
+        .post(format!("http://{address}/asset"))
         .header("Content-Length", "0")
         .body("")
         .send()
@@ -151,18 +157,21 @@ async fn test_serve_binary_defaults_to_octet_stream() {
 
     let _ = server_handle.join();
     let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_inbound_binary_body_roundtrip() {
-    let port = 8114;
     let fixture = binary_fixture();
 
     // Echo the raw request bytes straight back via body_bytes. If the inbound
     // path were still text-only, non-UTF-8 bytes would be mangled.
+    let ready_path = crate::common::unique_ready_path("bin_echo");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "BIN_ECHO_READY ", "test_server");
     let server_code = format!(
         r#"
-        listen on port {port} as test_server
+        listen on port 0 as test_server
+        {publish}
         wait for request comes in on test_server as req with timeout 10000
         respond to req with body_bytes and content_type "application/octet-stream"
         close server test_server
@@ -170,11 +179,12 @@ async fn test_inbound_binary_body_roundtrip() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "BIN_ECHO_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("http://127.0.0.1:{port}/upload"))
+        .post(format!("http://{address}/upload"))
         .body(fixture.clone())
         .send()
         .await
@@ -188,15 +198,18 @@ async fn test_inbound_binary_body_roundtrip() {
     );
 
     let _ = server_handle.join();
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 /// Text responses must be entirely unchanged by the bytes migration.
 #[tokio::test]
 async fn test_text_response_unchanged() {
-    let port = 8115;
+    let ready_path = crate::common::unique_ready_path("bin_text");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "BIN_TEXT_READY ", "test_server");
     let server_code = format!(
         r#"
-        listen on port {port} as test_server
+        listen on port 0 as test_server
+        {publish}
         wait for request comes in on test_server as req with timeout 10000
         respond to req with "Hello, 世界!"
         close server test_server
@@ -204,11 +217,12 @@ async fn test_text_response_unchanged() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "BIN_TEXT_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("http://127.0.0.1:{port}/text"))
+        .post(format!("http://{address}/text"))
         .header("Content-Length", "0")
         .body("")
         .send()
@@ -228,4 +242,5 @@ async fn test_text_response_unchanged() {
     assert_eq!(content_length, "14", "UTF-8 byte length preserved");
 
     let _ = server_handle.join();
+    let _ = std::fs::remove_file(&ready_path);
 }
