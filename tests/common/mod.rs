@@ -2,9 +2,11 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::net::TcpListener;
-use std::path::PathBuf;
+use std::net::{IpAddr, SocketAddr, TcpListener};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use wfl::interpreter::Interpreter;
@@ -32,16 +34,90 @@ pub fn free_tcp_port() -> u16 {
 ///
 /// Only complete newline-terminated lines are accepted so a partial write is
 /// not treated as a bound address. The child must own the port before it
-/// prints this line (`listen on port 0` then `display`).
-pub fn published_web_server_addr(log: &str, prefix: &str) -> Option<std::net::SocketAddr> {
+/// prints this line (`listen on port 0` then `display`). WFL formats the
+/// handle as `WebServer::` + `addr.ip()` + `:` + port, so a `::1` bind is
+/// `WebServer::::1:port` and a `::` bind is `WebServer:::::port`. After
+/// stripping the marker, split host/port on the last colon and parse the
+/// host as [`IpAddr`] (bare IPv6, no brackets).
+pub fn published_web_server_addr(log: &str, prefix: &str) -> Option<SocketAddr> {
     let marker = format!("{prefix}WebServer::");
     log.split_inclusive('\n')
         .filter(|line| line.ends_with('\n'))
         .find_map(|line| {
             line.trim_end()
                 .strip_prefix(marker.as_str())
-                .and_then(|addr| addr.parse().ok())
+                .and_then(|rest| {
+                    let (ip, port) = rest.rsplit_once(':')?;
+                    let port: u16 = port.parse().ok()?;
+                    let ip: IpAddr = ip.parse().ok()?;
+                    Some(SocketAddr::new(ip, port))
+                })
         })
+}
+
+static READY_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Unique temp path for an in-process server to publish its bound address.
+pub fn unique_ready_path(tag: &str) -> PathBuf {
+    let n = READY_SEQ.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("wfl_ready_{tag}_{}_{n}.txt", std::process::id()));
+    let _ = fs::remove_file(&path);
+    path
+}
+
+/// WFL snippet: write `PREFIX` plus the server handle, then a newline, to `ready_path`.
+///
+/// Call after `listen on port 0` so the child owns the socket before anything
+/// connects. Variable names are prefixed to avoid colliding with test programs.
+pub fn publish_ready_wfl(ready_path: &Path, prefix: &str, server_var: &str) -> String {
+    let ready = ready_path.display().to_string().replace('\\', "/");
+    format!(
+        "store suite_ready_line as \"{prefix}\" with {server_var} with \"\\n\"\n\
+         open file at \"{ready}\" for writing as suite_ready_file\n\
+         wait for write content suite_ready_line into suite_ready_file\n\
+         close file suite_ready_file\n"
+    )
+}
+
+/// Poll `ready_path` until a published `PREFIXWebServer::ip:port` line appears.
+pub async fn wait_for_published_web_server(ready_path: &Path, prefix: &str) -> SocketAddr {
+    try_wait_for_published_web_server(ready_path, prefix, Duration::from_secs(10))
+        .await
+        .unwrap_or_else(|| {
+            panic!(
+                "server did not publish {prefix} at {}",
+                ready_path.display()
+            )
+        })
+}
+
+/// Like [`wait_for_published_web_server`], but returns `None` on timeout.
+pub async fn try_wait_for_published_web_server(
+    ready_path: &Path,
+    prefix: &str,
+    timeout: Duration,
+) -> Option<SocketAddr> {
+    let deadline = Instant::now() + timeout;
+    let marker = format!("{prefix}WebServer::");
+    loop {
+        if let Ok(log) = fs::read_to_string(ready_path) {
+            if let Some(address) = published_web_server_addr(&log, prefix) {
+                assert_ne!(address.port(), 0, "server must report its assigned port");
+                return Some(address);
+            }
+            let published_unparsed = log
+                .split_inclusive('\n')
+                .any(|line| line.ends_with('\n') && line.trim_end().starts_with(marker.as_str()));
+            assert!(
+                !published_unparsed,
+                "published {prefix}WebServer line did not parse: {log}"
+            );
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 // ---------------------------------------------------------------------------

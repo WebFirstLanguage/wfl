@@ -12,7 +12,6 @@
 //
 // where `h` is a map of header name -> value.
 
-use std::time::Duration;
 use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -106,31 +105,22 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
     })
 }
 
-/// Poll the port until the server is accepting connections, so tests do not
-/// depend on a fixed sleep that can be too short under CI load.
-async fn wait_for_port(port: u16) {
-    for _ in 0..100 {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("Server on port {port} did not start accepting connections in time");
-}
-
 // End-to-end RFC 10008 flow: a WFL server receives a QUERY request, echoes the
 // method it saw as the body, and advertises `Accept-Query` via a custom header
 // map. A reqwest client sends the QUERY and verifies both.
 #[tokio::test]
 async fn test_query_response_sets_custom_headers() {
-    let port = 8123;
+    let ready_path = crate::common::unique_ready_path("respond_query");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "RESPOND_QUERY_READY ", "query_server");
     let server_code = format!(
         r#"
         create map query_headers:
             "Accept-Query" is "application/jsonpath"
             "Content-Location" is "/data/results/1"
         end map
-        listen on port {port} as query_server
+        listen on port 0 as query_server
+        {publish}
         wait for request comes in on query_server as req with timeout 10000
         store seen_method as req["method"]
         respond to req with seen_method and content_type "application/json" and headers query_headers
@@ -139,14 +129,14 @@ async fn test_query_response_sets_custom_headers() {
     );
 
     let server_handle = start_server_thread(server_code);
-
-    wait_for_port(port).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "RESPOND_QUERY_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
         .request(
             reqwest::Method::from_bytes(b"QUERY").unwrap(),
-            format!("http://127.0.0.1:{port}/data"),
+            format!("http://{address}/data"),
         )
         .header("Content-Type", "application/jsonpath")
         .body("$.items[*]")
@@ -201,6 +191,7 @@ async fn test_query_response_sets_custom_headers() {
     );
 
     let _ = server_handle.join();
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 // A `Content-Type` (or other pipeline-computed header) in the custom headers map
@@ -208,7 +199,8 @@ async fn test_query_response_sets_custom_headers() {
 // response pipeline — the response must carry exactly one Content-Type.
 #[tokio::test]
 async fn test_content_type_in_headers_map_is_dropped() {
-    let port = 8124;
+    let ready_path = crate::common::unique_ready_path("respond_ct");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "RESPOND_CT_READY ", "ct_server");
     let server_code = format!(
         r#"
         create map sneaky_headers:
@@ -216,7 +208,8 @@ async fn test_content_type_in_headers_map_is_dropped() {
             "Content-Length" is "999"
             "X-Ok" is "yes"
         end map
-        listen on port {port} as ct_server
+        listen on port 0 as ct_server
+        {publish}
         wait for request comes in on ct_server as req with timeout 10000
         respond to req with "hello" and content_type "text/plain" and headers sneaky_headers
         close server ct_server
@@ -224,11 +217,12 @@ async fn test_content_type_in_headers_map_is_dropped() {
     );
 
     let server_handle = start_server_thread(server_code);
-    wait_for_port(port).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "RESPOND_CT_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://127.0.0.1:{port}/"))
+        .get(format!("http://{address}/"))
         .header("Content-Length", "0")
         .send()
         .await
@@ -268,4 +262,5 @@ async fn test_content_type_in_headers_map_is_dropped() {
     );
 
     let _ = server_handle.join();
+    let _ = std::fs::remove_file(&ready_path);
 }

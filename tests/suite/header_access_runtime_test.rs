@@ -4,7 +4,6 @@
 // entry. Previously the lookup was exact-match and returned nothing for
 // every canonically-spelled header name.
 
-use std::time::Duration;
 use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -24,10 +23,13 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
 
 #[tokio::test]
 async fn test_header_access_is_case_insensitive() {
-    let port = 8121;
+    let ready_path = crate::common::unique_ready_path("header_case");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "HEADER_CASE_READY ", "test_server");
     let server_code = format!(
         r#"
-        listen on port {port} as test_server
+        listen on port 0 as test_server
+        {publish}
         wait for request comes in on test_server as req with timeout 10000
         store agent as header "User-Agent" of req
         store agent_text as "Agent: " with agent
@@ -37,11 +39,12 @@ async fn test_header_access_is_case_insensitive() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "HEADER_CASE_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://127.0.0.1:{port}/"))
+        .get(format!("http://{address}/"))
         .header("User-Agent", "wfl-header-test")
         .send()
         .await
@@ -54,14 +57,18 @@ async fn test_header_access_is_case_insensitive() {
     );
 
     let _ = server_handle.join();
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_missing_header_is_nothing() {
-    let port = 8122;
+    let ready_path = crate::common::unique_ready_path("header_missing");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "HEADER_MISSING_READY ", "test_server");
     let server_code = format!(
         r#"
-        listen on port {port} as test_server
+        listen on port 0 as test_server
+        {publish}
         wait for request comes in on test_server as req with timeout 10000
         store custom as header "X-Custom-Header" of req
         check if custom is nothing:
@@ -74,11 +81,12 @@ async fn test_missing_header_is_nothing() {
     );
 
     let server_handle = start_server_thread(server_code);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "HEADER_MISSING_READY ").await;
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://127.0.0.1:{port}/"))
+        .get(format!("http://{address}/"))
         .send()
         .await
         .expect("Failed to send request");
@@ -87,4 +95,5 @@ async fn test_missing_header_is_nothing() {
     assert_eq!(body, "missing", "absent header should compare as nothing");
 
     let _ = server_handle.join();
+    let _ = std::fs::remove_file(&ready_path);
 }

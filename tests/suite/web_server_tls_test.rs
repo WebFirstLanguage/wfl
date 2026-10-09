@@ -1,12 +1,12 @@
 // Integration tests for HTTPS/TLS web server support:
-//   listen on port N secured with certificate "..." and key "..." as server
-//   listen on port N secured as server           (paths from config)
-//   listen on port N redirecting to port M as server
+//   listen on port 0 secured with certificate "..." and key "..." as server
+//   listen on port 0 secured as server           (paths from config)
+//   listen on port 0 redirecting to port M as server
 //
 // Self-signed certificates are generated per test with rcgen (localhost +
 // 127.0.0.1 SANs); reqwest clients accept them via
-// danger_accept_invalid_certs. Ports 8210-8224 (the bind-address tests use
-// 8200-8203); the ephemeral-address test uses port 0.
+// danger_accept_invalid_certs. Servers publish the OS-assigned port after
+// listen; redirect Location uses a non-bound target port (8443).
 
 use reqwest::tls::Version as TlsVersion;
 use std::net::{IpAddr, Ipv4Addr};
@@ -80,13 +80,16 @@ fn insecure_client() -> reqwest::Client {
 
 #[tokio::test]
 async fn test_https_server_serves_requests() {
-    let port = 8210;
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let ready_path = crate::common::unique_ready_path("tls_hello");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "TLS_HELLO_READY ", "secure_server");
 
     let server_code = format!(
         r#"
-        listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        listen on port 0 secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        {publish}
         wait for request comes in on secure_server as req with timeout 5000
         respond to req with "Hello over HTTPS"
         close server secure_server
@@ -94,10 +97,11 @@ async fn test_https_server_serves_requests() {
     );
 
     let server_handle = start_server_with_config(server_code, WflConfig::default());
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_HELLO_READY ").await;
 
     let response = insecure_client()
-        .get(format!("https://127.0.0.1:{port}/"))
+        .get(format!("https://{address}/"))
         .timeout(Duration::from_secs(3))
         .send()
         .await;
@@ -107,27 +111,32 @@ async fn test_https_server_serves_requests() {
     assert_eq!(response.text().await.unwrap(), "Hello over HTTPS");
 
     assert_server_program_completed(server_handle);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_plain_http_to_tls_port_fails() {
-    let port = 8211;
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let ready_path = crate::common::unique_ready_path("tls_plain");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "TLS_PLAIN_READY ", "secure_server");
 
     let server_code = format!(
         r#"
-        listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        listen on port 0 secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        {publish}
         wait for 2500 milliseconds
         close server secure_server
     "#
     );
 
     let server_handle = start_server_with_config(server_code, WflConfig::default());
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_PLAIN_READY ").await;
 
     let response = insecure_client()
-        .get(format!("http://127.0.0.1:{port}/"))
+        .get(format!("http://{address}/"))
         .timeout(Duration::from_secs(2))
         .send()
         .await;
@@ -138,29 +147,35 @@ async fn test_plain_http_to_tls_port_fails() {
     );
 
     assert_server_program_completed(server_handle);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_redirect_server_returns_301_with_location() {
-    let http_port = 8212;
-    let https_port = 8213;
-
     // The redirect is answered natively by the server, so the program never
     // sees a request; a bounded delay keeps the server alive for the client
-    // without manufacturing a runtime timeout error.
+    // without manufacturing a runtime timeout error. The HTTPS target port is
+    // only interpolated into Location — nothing binds it.
+    const HTTPS_TARGET: u16 = 8443;
+    let ready_path = crate::common::unique_ready_path("tls_redirect");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "TLS_REDIRECT_READY ", "redirect_server");
+
     let server_code = format!(
         r#"
-        listen on port {http_port} redirecting to port {https_port} as redirect_server
+        listen on port 0 redirecting to port {HTTPS_TARGET} as redirect_server
+        {publish}
         wait for 2500 milliseconds
         close server redirect_server
     "#
     );
 
     let server_handle = start_server_with_config(server_code, WflConfig::default());
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_REDIRECT_READY ").await;
 
     let response = insecure_client()
-        .get(format!("http://127.0.0.1:{http_port}/some/path?x=1&y=2"))
+        .get(format!("http://{address}/some/path?x=1&y=2"))
         .timeout(Duration::from_secs(2))
         .send()
         .await
@@ -175,22 +190,26 @@ async fn test_redirect_server_returns_301_with_location() {
         .unwrap();
     assert_eq!(
         location,
-        format!("https://127.0.0.1:{https_port}/some/path?x=1&y=2"),
+        format!("https://127.0.0.1:{HTTPS_TARGET}/some/path?x=1&y=2"),
         "Location should preserve host, path and query, swapping scheme and port"
     );
 
     assert_server_program_completed(server_handle);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_bare_secured_uses_config_paths() {
-    let port = 8214;
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let ready_path = crate::common::unique_ready_path("tls_config");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "TLS_CONFIG_READY ", "secure_server");
 
     let server_code = format!(
         r#"
-        listen on port {port} secured as secure_server
+        listen on port 0 secured as secure_server
+        {publish}
         wait for request comes in on secure_server as req with timeout 5000
         respond to req with "Config-driven TLS"
         close server secure_server
@@ -203,10 +222,11 @@ async fn test_bare_secured_uses_config_paths() {
         ..Default::default()
     };
     let server_handle = start_server_with_config(server_code, config);
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_CONFIG_READY ").await;
 
     let response = insecure_client()
-        .get(format!("https://127.0.0.1:{port}/"))
+        .get(format!("https://{address}/"))
         .timeout(Duration::from_secs(3))
         .send()
         .await
@@ -214,11 +234,12 @@ async fn test_bare_secured_uses_config_paths() {
     assert_eq!(response.text().await.unwrap(), "Config-driven TLS");
 
     assert_server_program_completed(server_handle);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_missing_certificate_file_is_actionable_error() {
-    let code = r#"listen on port 8217 secured with certificate "/nonexistent/cert.pem" and key "/nonexistent/key.pem" as secure_server"#;
+    let code = r#"listen on port 0 secured with certificate "/nonexistent/cert.pem" and key "/nonexistent/key.pem" as secure_server"#;
     let tokens = lex_wfl_with_positions(code);
     let mut parser = Parser::new(&tokens);
     let ast = parser.parse().expect("Failed to parse");
@@ -236,7 +257,7 @@ async fn test_missing_certificate_file_is_actionable_error() {
 
 #[tokio::test]
 async fn test_bare_secured_without_config_is_actionable_error() {
-    let code = r#"listen on port 8218 secured as secure_server"#;
+    let code = r#"listen on port 0 secured as secure_server"#;
     let tokens = lex_wfl_with_positions(code);
     let mut parser = Parser::new(&tokens);
     let ast = parser.parse().expect("Failed to parse");
@@ -255,7 +276,7 @@ async fn test_bare_secured_without_config_is_actionable_error() {
 
 #[tokio::test]
 async fn test_out_of_range_redirect_target_port_is_error() {
-    let code = r#"listen on port 8219 redirecting to port 0 as bad_redirect"#;
+    let code = r#"listen on port 0 redirecting to port 0 as bad_redirect"#;
     let tokens = lex_wfl_with_positions(code);
     let mut parser = Parser::new(&tokens);
     let ast = parser.parse().expect("Failed to parse");
@@ -273,15 +294,21 @@ async fn test_out_of_range_redirect_target_port_is_error() {
 
 #[tokio::test]
 async fn test_dual_http_and_https_servers() {
-    let http_port = 8215;
-    let https_port = 8216;
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let ready_path = crate::common::unique_ready_path("tls_dual");
+    let ready = ready_path.display().to_string().replace('\\', "/");
 
     let server_code = format!(
         r#"
-        listen on port {http_port} as http_server
-        listen on port {https_port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        listen on port 0 as http_server
+        listen on port 0 secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        store http_line as "TLS_HTTP_READY " with http_server with "\n"
+        store https_line as "TLS_HTTPS_READY " with secure_server with "\n"
+        store both as http_line with https_line
+        open file at "{ready}" for writing as suite_ready_file
+        wait for write content both into suite_ready_file
+        close file suite_ready_file
         wait for request comes in on http_server as req with timeout 5000
         respond to req with "HTTP OK"
         wait for request comes in on secure_server as req2 with timeout 5000
@@ -292,13 +319,16 @@ async fn test_dual_http_and_https_servers() {
     );
 
     let server_handle = start_server_with_config(server_code, WflConfig::default());
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let http_address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_HTTP_READY ").await;
+    let https_address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_HTTPS_READY ").await;
 
     let client = insecure_client();
 
     // The program serves one request per server, HTTP first.
     let http_response = client
-        .get(format!("http://127.0.0.1:{http_port}/"))
+        .get(format!("http://{http_address}/"))
         .timeout(Duration::from_secs(3))
         .send()
         .await
@@ -306,7 +336,7 @@ async fn test_dual_http_and_https_servers() {
     assert_eq!(http_response.text().await.unwrap(), "HTTP OK");
 
     let https_response = client
-        .get(format!("https://127.0.0.1:{https_port}/"))
+        .get(format!("https://{https_address}/"))
         .timeout(Duration::from_secs(3))
         .send()
         .await
@@ -314,13 +344,18 @@ async fn test_dual_http_and_https_servers() {
     assert_eq!(https_response.text().await.unwrap(), "HTTPS OK");
 
     assert_server_program_completed(server_handle);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
 async fn test_tls_listener_reports_occupied_port_without_panicking() {
-    let port = 8220;
-    let occupied = std::net::TcpListener::bind(("127.0.0.1", port))
-        .expect("Failed to reserve the TLS test port");
+    // Hold the listener for the whole attempt — this is not free_tcp_port.
+    let occupied =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("Failed to reserve the TLS test port");
+    let port = occupied
+        .local_addr()
+        .expect("read occupied TLS test port")
+        .port();
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
     let code = format!(
@@ -345,12 +380,15 @@ async fn test_tls_listener_reports_occupied_port_without_panicking() {
 
 #[tokio::test]
 async fn test_stalled_tls_handshake_does_not_block_protocol_matrix_or_peer_ip() {
-    let port = 8221;
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let ready_path = crate::common::unique_ready_path("tls_stall");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "TLS_STALL_READY ", "secure_server");
     let server_code = format!(
         r#"
-        listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        listen on port 0 secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        {publish}
         wait for request comes in on secure_server as req1 with timeout 5000
         respond to req1 with client_ip of req1
         wait for request comes in on secure_server as req2 with timeout 5000
@@ -364,7 +402,9 @@ async fn test_stalled_tls_handshake_does_not_block_protocol_matrix_or_peer_ip() 
     );
 
     let server_handle = start_server_with_config(server_code, WflConfig::default());
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let address =
+        crate::common::wait_for_published_web_server(&ready_path, "TLS_STALL_READY ").await;
+    let port = address.port();
 
     // Leave one TCP client connected without sending a TLS ClientHello. A
     // serial handshake in the accept loop would prevent every valid request
@@ -444,6 +484,7 @@ async fn test_stalled_tls_handshake_does_not_block_protocol_matrix_or_peer_ip() 
 
     drop(stalled_client);
     assert_server_program_completed(server_handle);
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
@@ -454,7 +495,7 @@ async fn test_tls_configuration_rejects_malformed_and_mismatched_keys() {
         .expect("Failed to replace the test key");
 
     let malformed_code = format!(
-        r#"listen on port 8222 secured with certificate "{cert_path}" and key "{malformed_key_path}" as secure_server"#
+        r#"listen on port 0 secured with certificate "{cert_path}" and key "{malformed_key_path}" as secure_server"#
     );
     let tokens = lex_wfl_with_positions(&malformed_code);
     let mut parser = Parser::new(&tokens);
@@ -475,7 +516,7 @@ async fn test_tls_configuration_rejects_malformed_and_mismatched_keys() {
     let (cert_path, _) = write_self_signed_cert(cert_dir.path());
     let (_, unrelated_key_path) = write_self_signed_cert(key_dir.path());
     let mismatch_code = format!(
-        r#"listen on port 8223 secured with certificate "{cert_path}" and key "{unrelated_key_path}" as secure_server"#
+        r#"listen on port 0 secured with certificate "{cert_path}" and key "{unrelated_key_path}" as secure_server"#
     );
     let tokens = lex_wfl_with_positions(&mismatch_code);
     let mut parser = Parser::new(&tokens);
@@ -496,12 +537,15 @@ async fn test_tls_configuration_rejects_malformed_and_mismatched_keys() {
 
 #[tokio::test]
 async fn test_close_server_stops_tls_listener() {
-    let port = 8224;
     let temp_dir = tempfile::tempdir().unwrap();
     let (cert_path, key_path) = write_self_signed_cert(temp_dir.path());
+    let ready_path = crate::common::unique_ready_path("tls_close");
+    let publish =
+        crate::common::publish_ready_wfl(&ready_path, "TLS_CLOSE_READY ", "secure_server");
     let server_code = format!(
         r#"
-        listen on port {port} secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        listen on port 0 secured with certificate "{cert_path}" and key "{key_path}" as secure_server
+        {publish}
         wait for 1500 milliseconds
         close server secure_server
     "#
@@ -529,6 +573,9 @@ async fn test_close_server_stops_tls_listener() {
     let connector = tokio_rustls::TlsConnector::from(Arc::new(client_config));
 
     let exercise_lifecycle = async {
+        let address =
+            crate::common::wait_for_published_web_server(&ready_path, "TLS_CLOSE_READY ").await;
+        let port = address.port();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         let tcp = loop {
             match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
@@ -576,6 +623,7 @@ async fn test_close_server_stops_tls_listener() {
 
     let (interpret_result, ()) = tokio::join!(interpreter.interpret(&ast), exercise_lifecycle);
     interpret_result.expect("TLS close program returned runtime errors");
+    let _ = std::fs::remove_file(&ready_path);
 }
 
 #[tokio::test]
@@ -604,12 +652,11 @@ async fn test_tls_port_zero_reports_actual_bound_address() {
     let Value::Text(server_text) = server_value else {
         panic!("TLS server variable was not text: {server_value:?}");
     };
-    let actual_port = server_text
-        .rsplit_once(':')
-        .and_then(|(_, port)| port.parse::<u16>().ok())
-        .expect("TLS server value did not contain a numeric bound port");
+    let address = crate::common::published_web_server_addr(&format!("{server_text}\n"), "")
+        .expect("TLS server value did not contain a bound address");
     assert_ne!(
-        actual_port, 0,
+        address.port(),
+        0,
         "A port-zero TLS listener must report the actual ephemeral port"
     );
 
