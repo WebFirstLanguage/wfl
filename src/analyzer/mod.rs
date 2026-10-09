@@ -1140,11 +1140,15 @@ impl Analyzer {
                             *column,
                         ));
                     } else if !is_container_property {
-                        self.report_undefined_name(
-                            format!("Variable '{name}' is not defined"),
-                            *line,
-                            *column,
-                        );
+                        let undefined = format!("Variable '{name}' is not defined");
+                        // Explain `this` in a static action or outside any
+                        // container; other names keep the plain message.
+                        let message = if name == "this" {
+                            self.undefined_name_message(name, undefined)
+                        } else {
+                            undefined
+                        };
+                        self.report_undefined_name(message, *line, *column);
                     }
                 }
 

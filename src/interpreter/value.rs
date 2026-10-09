@@ -168,6 +168,11 @@ pub struct ContainerMethodValue {
     pub is_static: bool,
     pub is_public: bool,
     pub env: Weak<RefCell<Environment>>,
+    /// True when the program had no variable of its own named `this` visible
+    /// where the container was defined, so `this` in the action means the
+    /// object it was called on. Decided there, as the analyzer decides it
+    /// (issue #701).
+    pub binds_receiver_this: bool,
     pub line: usize,
     pub column: usize,
 }

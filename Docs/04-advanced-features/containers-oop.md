@@ -203,14 +203,20 @@ What to know about `this`:
   `this.other()` are visible to `other`, and the changes `other` makes are
   visible when it returns. This also holds when the object reaches another
   action under a different name, for example `call helper with this`.
-- **Each call keeps its own local variables.** A called action cannot see or
-  change the caller's local variables, so recursion through `this` works.
+- **Each call keeps its own local variables.** An action called on an object
+  cannot see or change the caller's local variables, so recursion through
+  `this` works. (Static actions do not have this guarantee yet: a static
+  action still runs inside its caller's scope.)
 - **Order does not matter.** An action can call a sibling declared later in
   the container. In the example, `greet` calls `message`, which comes after it.
 - **Inheritance works.** `this.action()` also finds actions inherited from a
   parent container. When a parent's action calls `this.action()` on an object
   of a child container, the child's override runs (see
-  [Overriding Actions](#overriding-actions)).
+  [Overriding Actions](#overriding-actions)). One known limitation: a parent's
+  action reached with `parent action_name` cannot yet use the object's
+  properties or `this`. To share work between a parent's action and a child's
+  override, put it in a separate parent action (for example
+  `base_summary`) and call that with `this.base_summary()` from both.
 - **Reading properties.** `this.name` reads the property's current value,
   including changes the action has just made.
 - **Other objects.** An action can call actions on other objects it is given,
@@ -220,11 +226,11 @@ What to know about `this`:
 - **Instance actions only.** A `static action` belongs to the container, not
   to one object, so using `this` in it is an error.
 - **Existing variables keep their meaning.** `this` is not a reserved word.
-  If a program already has its own variable named `this` where an action runs
-  (a top-level variable, or one the action creates with `store this as ...` or
-  `for each this in ...`), that variable keeps its meaning, and `this` there
-  does not mean the object. Rename such a variable to use `this` for the
-  object.
+  If a program has its own variable named `this` where the container is
+  defined (such as a top-level `this` above it), or an action creates one with
+  `store this as ...` or `for each this in ...`, that variable keeps its
+  meaning, and `this` there does not mean the object. Rename such a variable
+  to use `this` for the object.
 - **Concurrent handlers.** Under `main loop concurrently:`, each running
   action works on its own copy of its object's properties and writes the copy
   back when it finishes. Two handlers running actions on the same object at

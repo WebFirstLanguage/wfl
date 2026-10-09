@@ -60,19 +60,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `for each this in ...`) keeps its meaning.
 
 ### Fixed
-- **Container actions run on their own object, with their own locals**
-  (#701). An action's scope was a child of its caller's scope, and the action
-  re-used any caller binding with the same name as `this` or a property. As a
-  result a call on another object made from inside an action (`b.bump()` inside
-  `a.poke(b)`) ran on the caller's object, an action read and then overwrote
-  its property with a caller's same-named local, parameter or loop variable, and
-  a called action's `store x as ...` overwrote the caller's own `x` (a recursive
-  `fib(10)` returned 5). Actions now see the scope where their container was
-  defined, as ordinary actions do, and nested calls on one object keep its
-  property changes in step, including when it is passed to another action.
-  **Compatibility:** only programs that hit these bugs change: they now get the
-  results the code describes. A global variable with the same name as a
-  property still takes precedence inside an action, as before.
+- **Container instance actions run on their own object, with their own
+  locals** (#701). An instance action's scope was a child of its caller's
+  scope, and the action re-used any caller binding with the same name as
+  `this` or a property. As a result a call on another object made from inside
+  an action (`b.bump()` inside `a.poke(b)`) ran on the caller's object, an
+  action read and then overwrote its property with a caller's same-named local,
+  parameter or loop variable, and a called action's `store x as ...` overwrote
+  the caller's own `x` (a recursive `fib(10)` returned 5). Instance actions now
+  see the scope where their container was defined, as ordinary actions do, and
+  nested calls on one object keep its property changes in step, including when
+  it is passed to another action. **Compatibility:** besides fixing those three
+  results, this removes the rest of the caller-scope leak, which changes two
+  more cases. An instance action can no longer read a caller's local variable;
+  this was only possible where the analyzer merely warns about an undefined
+  name (inside `try`, or in a file that uses `include from`), and the read now
+  raises an undefined-variable error, as in an ordinary action. An instance
+  action called from a `describe`/`test` block now reads and changes the
+  program's globals directly, as ordinary actions do, instead of through the
+  test block's isolated copy. A global variable with the same name as a
+  property still takes precedence inside an action, as before. Static actions
+  are unchanged and still run in their caller's scope.
 - **Optional TLS settings in the configuration wizard** can be skipped with
   Enter. Unset certificate/key paths are omitted from the generated file, so accepting
   every default now completes the wizard.

@@ -10555,6 +10555,12 @@ impl Interpreter {
                     container_properties.insert(prop.name.clone(), value_prop);
                 }
 
+                // Decide here what `this` means in the container's actions,
+                // where the analyzer decides it (#701): the object, unless the
+                // program has its own variable named `this` in scope. An
+                // enclosing action's own `this` is not such a variable.
+                let binds_receiver_this = !Self::program_binding_visible(&env, "this");
+
                 for method in methods {
                     if let Statement::ActionDefinition {
                         name,
@@ -10574,6 +10580,7 @@ impl Interpreter {
                             is_static: false,
                             is_public: true,
                             env: Rc::downgrade(&env),
+                            binds_receiver_this,
                             line: *line,
                             column: *column,
                         };
@@ -10618,6 +10625,7 @@ impl Interpreter {
                                 is_static: true,
                                 is_public: true,
                                 env: Rc::downgrade(&env),
+                                binds_receiver_this,
                                 line: *line,
                                 column: *column,
                             },
@@ -14838,14 +14846,14 @@ impl Interpreter {
                             frame.caller = Some(Rc::downgrade(&env));
                         }
 
-                        // `this` is bound like a property, so an existing
-                        // variable named `this` keeps its meaning (#701).
-                        Self::bind_method_property(
-                            &method_env,
-                            definition_env.as_ref(),
-                            "this",
-                            &object_val,
-                        );
+                        // `this` is the object unless the program had its own
+                        // variable named `this` where the container was
+                        // defined; that variable then keeps its meaning (#701).
+                        if method_val.binds_receiver_this {
+                            let _ = method_env
+                                .borrow_mut()
+                                .define_direct("this", object_val.clone());
+                        }
 
                         // Add container properties and events as accessible variables
                         {
@@ -16226,6 +16234,28 @@ impl Interpreter {
         None
     }
 
+    /// Whether the nearest binding of `name` visible from `env` belongs to the
+    /// program, rather than being an action frame's own `this` or property
+    /// binding (a frame is the scope that records a receiver).
+    fn program_binding_visible(env: &Rc<RefCell<Environment>>, name: &str) -> bool {
+        let mut scope = Some(Rc::clone(env));
+        while let Some(current) = scope {
+            let (found, is_frame, parent) = {
+                let borrowed = current.borrow();
+                (
+                    borrowed.values.contains_key(name),
+                    borrowed.method_receiver.is_some(),
+                    borrowed.parent.as_ref().and_then(std::rc::Weak::upgrade),
+                )
+            };
+            if found {
+                return !is_frame;
+            }
+            scope = parent;
+        }
+        false
+    }
+
     /// Copy an action frame's working property values into its object, for
     /// the properties the frame holds. Done before a nested call on the same
     /// object so the callee starts from the caller's latest writes (#701).
@@ -16258,18 +16288,16 @@ impl Interpreter {
         }
     }
 
-    /// Bind `this` or one of the receiver's properties in a new action frame.
+    /// Bind one of the receiver's properties in a new action frame.
     ///
     /// `define` refuses when an enclosing scope already has the name, and the
     /// name then resolves to that outer binding. That is the historical rule
     /// for a binding visible where the container was defined (for example a
-    /// same-named global), and it keeps `this` additive: a program's own
-    /// variable named `this` keeps its meaning. Any other refusal comes from
-    /// the caller's scope, which is the frame's parent only in the fallback
-    /// case; such a binding (another action's working copy, or a caller's
-    /// local or parameter) must not stand in for the receiver, so the name is
-    /// bound over it (#701: `b.bump()` called inside `a.poke(b)` used to run
-    /// on `a`'s copies).
+    /// same-named global). Any other refusal comes from the caller's scope,
+    /// which is the frame's parent only in the fallback case; such a binding
+    /// (another action's working copy, or a caller's local or parameter) must
+    /// not stand in for the property, so the property is bound over it (#701:
+    /// `b.bump()` called inside `a.poke(b)` used to run on `a`'s copies).
     fn bind_method_property(
         method_env: &Rc<RefCell<Environment>>,
         definition_env: Option<&Rc<RefCell<Environment>>>,
