@@ -18,8 +18,6 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
@@ -33,17 +31,6 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
             }
         });
     })
-}
-
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready in time");
 }
 
 async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
@@ -60,12 +47,14 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
 
 #[tokio::test]
 async fn test_sibling_handler_cannot_write_flush_or_close_anothers_stream() {
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("stream_own");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "OWN_READY ", "srv");
     let code = format!(
         r#"
         store shared_handle as ""
 
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -108,7 +97,9 @@ async fn test_sibling_handler_cannot_write_flush_or_close_anothers_stream() {
     "#
     );
     let server = start_server_thread(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "OWN_READY ")
+        .await
+        .port();
 
     // Open the streaming response, then intrude while its handler is parked.
     let stream_url = format!("http://127.0.0.1:{port}/stream");
