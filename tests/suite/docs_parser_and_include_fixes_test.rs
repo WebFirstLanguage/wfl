@@ -14,8 +14,7 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
-mod common;
-use common::wfl_release_exe;
+use crate::common::wfl_release_exe;
 
 /// Run a single WFL program (written to a temp file) and return combined
 /// stdout + stderr.

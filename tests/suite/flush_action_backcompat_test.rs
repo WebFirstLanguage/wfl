@@ -11,8 +11,7 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
 
-mod common;
-use common::run_src;
+use crate::common::run_src;
 
 #[test]
 fn flush_calls_a_matching_zero_arg_action_instead_of_flushing_a_stream() {

@@ -11,8 +11,7 @@
 use std::process::Command;
 use tempfile::TempDir;
 
-mod common;
-use common::wfl_exe;
+use crate::common::wfl_exe;
 
 /// Run `wfl <flag>` in an empty temp dir, returning (stdout, stderr, exit code).
 fn run_flag(flag: &str) -> (String, String, Option<i32>) {

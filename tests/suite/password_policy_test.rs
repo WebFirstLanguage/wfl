@@ -1,8 +1,6 @@
 //! Password maintenance contracts through registered natives, async routing,
 //! and interpreted WFL. This suite was run red before adding the implementation.
 
-mod common;
-
 use argon2::password_hash::PasswordHash;
 use std::sync::Arc;
 use wfl::interpreter::Interpreter;
@@ -88,13 +86,13 @@ fn policy_revalidated_after_mutation_and_never_leaks_password_in_errors() {
 #[tokio::test]
 async fn policy_hash_is_salted_argon2id_with_exact_costs_and_roundtrips() {
     let args = [text("maintain-me"), policy(19456.0, 2.0, 1.0)];
-    let first = common::expect_text_result(
+    let first = crate::common::expect_text_result(
         route("hash_password_with_policy", &args)
             .expect("configured hashing must route off thread")
             .await
             .map_err(|error| error.to_string()),
     );
-    let second = common::expect_text_result(
+    let second = crate::common::expect_text_result(
         call("hash_password_with_policy", args.to_vec()).map_err(|error| error.to_string()),
     );
     assert_ne!(first, second);
@@ -242,8 +240,8 @@ async fn policy_hash_leaves_interpreter_thread_available_and_validates_input() {
 
 #[tokio::test]
 async fn password_policy_is_available_in_wfl_and_default_hashing_stays_compatible() {
-    assert!(common::expect_bool_result(
-        common::run_wfl_code(
+    assert!(crate::common::expect_bool_result(
+        crate::common::run_wfl_code(
             r#"
         store policy as password_hash_policy of 19456 and 2 and 1
         store stored as hash_password_with_policy of "account password" and policy
@@ -255,7 +253,7 @@ async fn password_policy_is_available_in_wfl_and_default_hashing_stays_compatibl
         .await
     ));
     let original = call("hash_password", vec![text("compatible")]).unwrap();
-    let original = common::expect_text(&original);
+    let original = crate::common::expect_text(&original);
     assert!(matches!(
         needs_rehash(&original, policy(19456.0, 2.0, 1.0)),
         Ok(Value::Bool(false))
