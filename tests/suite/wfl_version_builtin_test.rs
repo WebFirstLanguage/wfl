@@ -7,8 +7,7 @@
 //! the bare semver text of `wfl::version::VERSION` (mirroring how `newline` and
 //! `tab` are exposed).
 
-mod common;
-use common::run_src;
+use crate::common::run_src;
 
 /// `wfl_version` resolves to the running interpreter's semver text and matches
 /// the compiled-in constant exactly.

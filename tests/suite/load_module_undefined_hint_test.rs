@@ -17,8 +17,7 @@
 use std::fs;
 use tempfile::TempDir;
 
-mod common;
-use common::run_file_status;
+use crate::common::run_file_status;
 
 /// Write a `lib_mod.wfl` exposing a one-arg `mod_double` action next to a
 /// `main_mod.wfl` whose body is `main_body`, then run `main_mod.wfl`.

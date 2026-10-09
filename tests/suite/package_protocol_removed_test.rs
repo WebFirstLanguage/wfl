@@ -20,8 +20,7 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
-mod common;
-use common::wfl_exe;
+use crate::common::wfl_exe;
 
 /// Run `wfl <args...>` with `dir` as the working directory.
 /// Returns (stdout, stderr, exit code).

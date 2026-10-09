@@ -1,8 +1,6 @@
 //! A WFL CLI can report an intentional failure without a runtime-error workaround.
 
-mod common;
-
-use common::wfl_exe;
+use crate::common::wfl_exe;
 use std::{fs, process::Command};
 use tempfile::TempDir;
 

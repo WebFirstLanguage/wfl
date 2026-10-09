@@ -13,8 +13,7 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
-mod common;
-use common::wfl_exe;
+use crate::common::wfl_exe;
 
 const SAMPLE: &str = "store greeting as \"Hello\"\ndisplay greeting\n";
 

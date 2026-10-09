@@ -6,8 +6,7 @@
 //! came out shortest. These drive the real `wfl` binary so a silently-wrong
 //! answer with exit 0 cannot hide.
 
-mod common;
-use common::run_src;
+use crate::common::run_src;
 
 #[test]
 fn find_returns_the_full_digit_run() {

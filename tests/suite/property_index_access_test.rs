@@ -12,8 +12,7 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::parser::ast::{Expression, Literal, Statement};
 
-mod common;
-use common::run_src;
+use crate::common::run_src;
 
 fn parse(src: &str) -> wfl::parser::ast::Program {
     let tokens = lex_wfl_with_positions(src);

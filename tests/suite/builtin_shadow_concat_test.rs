@@ -1,6 +1,4 @@
 //! Builtin registration must not change `with` on an existing value binding.
-mod common;
-
 use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
@@ -38,7 +36,7 @@ fn assert_concatenation(expression: &Expression) {
 }
 
 fn assert_output(source: &str, expected: &str) {
-    let (output, status) = common::run_src(source);
+    let (output, status) = crate::common::run_src(source);
     assert_eq!(status, Some(0), "{output}");
     assert_eq!(output.trim(), expected, "{source}");
 }
@@ -169,7 +167,7 @@ display substring with "abc"
 
 #[tokio::test]
 async fn existing_shorthand_is_unaffected_by_unexecuted_assignments() {
-    let interpreter = common::run_wfl(
+    let interpreter = crate::common::run_wfl(
         r#"store touppercase as tolowercase
 check if no:
     change touppercase to "prefix"
@@ -179,7 +177,7 @@ store result as touppercase with "ABC"
     )
     .await
     .expect("the unexecuted branch cannot change the call");
-    assert_eq!(common::get_text(&interpreter, "result"), "abc");
+    assert_eq!(crate::common::get_text(&interpreter, "result"), "abc");
 }
 
 #[tokio::test]
@@ -193,7 +191,10 @@ async fn externally_injected_binding_keeps_concatenation() {
         .interpret(&parse("store result as session_cookie with \"value\"\n"))
         .await
         .expect("injected value binding must concatenate");
-    assert_eq!(common::get_text(&interpreter, "result"), "prefixvalue");
+    assert_eq!(
+        crate::common::get_text(&interpreter, "result"),
+        "prefixvalue"
+    );
 }
 
 #[tokio::test]
@@ -225,7 +226,7 @@ fn included_binding_keeps_concatenation() {
         "include from \"bindings.wfl\"\ndisplay session_cookie with \"value\"\n",
     )
     .unwrap();
-    let output = std::process::Command::new(common::wfl_exe())
+    let output = std::process::Command::new(crate::common::wfl_exe())
         .current_dir(dir.path())
         .arg(main)
         .output()

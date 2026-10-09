@@ -1,6 +1,4 @@
 //! New default native names must remain available to existing user declarations.
-mod common;
-
 use std::rc::Rc;
 use wfl::interpreter::Interpreter;
 use wfl::interpreter::environment::Environment;
@@ -32,7 +30,7 @@ fn global_constants_named_after_new_builtins_execute_in_the_real_binary() {
     for name in NEW_BUILTINS {
         let source =
             format!("store new constant {name} as \"prefix\"\ndisplay {name} with \"value\"\n");
-        let (output, status) = common::run_src(&source);
+        let (output, status) = crate::common::run_src(&source);
         if status != Some(0) || output.trim() != "prefixvalue" {
             failures.push(format!("{name}: status={status:?}, output={output}"));
         }
@@ -47,14 +45,14 @@ async fn action_local_constants_shadow_only_the_inherited_default_native() {
         let source = format!(
             "define action called local_label:\n    store new constant {name} as \"prefix\"\n    return {name} with \"value\"\nend action\nstore result as call local_label\n"
         );
-        match common::run_wfl(&source).await {
+        match crate::common::run_wfl(&source).await {
             Ok(interpreter) => {
                 assert_eq!(
-                    common::get_global(&interpreter, "result"),
+                    crate::common::get_global(&interpreter, "result"),
                     text("prefixvalue")
                 );
                 assert!(matches!(
-                    common::get_global(&interpreter, name),
+                    crate::common::get_global(&interpreter, name),
                     Value::NativeFunction(native_name, _) if native_name == *name
                 ));
             }
@@ -172,7 +170,7 @@ fn user_actions_named_after_new_builtins_execute_in_the_real_binary() {
         let source = format!(
             "define action called {name} with parameters value:\n    return \"user:\" with value\nend action\ndisplay call {name} with \"value\"\n"
         );
-        let (output, status) = common::run_src(&source);
+        let (output, status) = crate::common::run_src(&source);
         if status != Some(0) || output.trim() != "user:value" {
             failures.push(format!("{name}: status={status:?}, output={output}"));
         }
@@ -187,7 +185,7 @@ fn user_overloads_named_after_new_builtins_support_of_and_explicit_calls() {
         let source = format!(
             "define action called {name} with parameters value:\n    return \"one:\" with value\nend action\ndefine action called {name} with parameters left_value and right_value:\n    return \"two:\" with left_value with right_value\nend action\ndisplay {name} of \"value\"\ndisplay call {name} with \"value\" and \"extra\"\n"
         );
-        let (output, status) = common::run_src(&source);
+        let (output, status) = crate::common::run_src(&source);
         if status != Some(0) || output.trim() != "one:value\ntwo:valueextra" {
             failures.push(format!("{name}: status={status:?}, output={output}"));
         }
@@ -202,7 +200,7 @@ fn user_action_aliases_named_after_new_builtins_support_both_call_forms() {
         let source = format!(
             "define action called user_action with parameters value:\n    return \"user:\" with value\nend action\nstore {name} as user_action\ndisplay {name} of \"value\"\ndisplay call {name} with \"value\"\n"
         );
-        let (output, status) = common::run_src(&source);
+        let (output, status) = crate::common::run_src(&source);
         if status != Some(0) || output.trim() != "user:value\nuser:value" {
             failures.push(format!("{name}: status={status:?}, output={output}"));
         }
@@ -239,14 +237,14 @@ fn self_aliased_new_natives_execute_with_their_original_contracts() {
         let source = format!(
             "{declaration} session_cookie as session_cookie\ndisplay session_cookie of \"{token}\"\ndisplay call session_cookie with \"{token}\"\n"
         );
-        let (output, status) = common::run_src(&source);
+        let (output, status) = crate::common::run_src(&source);
         let cookie =
             format!("__Host-wfl_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict");
         assert_eq!(status, Some(0), "{source}: {output}");
         assert_eq!(output.trim(), format!("{cookie}\n{cookie}"));
     }
     let source = "store create_session_store as create_session_store\nstore session_create as session_create\nstore session_lookup as session_lookup\nstore sessions as create_session_store of 3600 and 900 and 10\nstore issued as call session_create with sessions and \"account\"\ndisplay session_lookup of sessions and issued[\"id\"]\n";
-    let (output, status) = common::run_src(source);
+    let (output, status) = crate::common::run_src(source);
     assert_eq!(status, Some(0), "{output}");
     assert_eq!(output.trim(), "account");
 }
@@ -271,7 +269,7 @@ fn scalar_self_assignment_cannot_invent_a_native_alias() {
 #[test]
 fn local_user_action_named_after_a_new_builtin_uses_its_own_contract() {
     let source = "define action called local_runner:\n    define action called session_create with parameters label:\n        return \"local:\" with label\n    end action\n    return (session_create of \"first\") with (call session_create with \"second\")\nend action\ndisplay call local_runner\n";
-    let (output, status) = common::run_src(source);
+    let (output, status) = crate::common::run_src(source);
     assert_eq!(status, Some(0), "{output}");
     assert_eq!(output.trim(), "local:firstlocal:second");
 }
@@ -283,14 +281,14 @@ async fn action_local_user_actions_shadow_inherited_defaults_and_keep_overloads(
         let source = format!(
             "define action called local_label:\n    define action called {name}:\n        return \"zero\"\n    end action\n    define action called {name} with parameters value:\n        return \"one:\" with value\n    end action\n    return (call {name}) with (call {name} with \"value\")\nend action\nstore result as call local_label\n"
         );
-        match common::run_wfl(&source).await {
+        match crate::common::run_wfl(&source).await {
             Ok(interpreter) => {
                 assert_eq!(
-                    common::get_global(&interpreter, "result"),
+                    crate::common::get_global(&interpreter, "result"),
                     text("zeroone:value")
                 );
                 assert!(matches!(
-                    common::get_global(&interpreter, name),
+                    crate::common::get_global(&interpreter, name),
                     Value::NativeFunction(_, _)
                 ));
             }
@@ -302,10 +300,10 @@ async fn action_local_user_actions_shadow_inherited_defaults_and_keep_overloads(
 
 async fn sample_action() -> Rc<FunctionValue> {
     let interpreter =
-        common::run_wfl("define action called sample:\n    return \"user\"\nend action\n")
+        crate::common::run_wfl("define action called sample:\n    return \"user\"\nend action\n")
             .await
             .unwrap();
-    let Value::Function(action) = common::get_global(&interpreter, "sample") else {
+    let Value::Function(action) = crate::common::get_global(&interpreter, "sample") else {
         panic!("sample action must be callable")
     };
     action

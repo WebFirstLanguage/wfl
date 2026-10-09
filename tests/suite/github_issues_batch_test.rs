@@ -22,8 +22,7 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
-mod common;
-use common::{run_src, wfl_exe};
+use crate::common::{run_src, wfl_exe};
 
 // ---------------------------------------------------------------------------
 // #583 — a quoted "[]" string stays Text

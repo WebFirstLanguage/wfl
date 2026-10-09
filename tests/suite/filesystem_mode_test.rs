@@ -14,8 +14,7 @@
 #[cfg(unix)]
 use wfl::interpreter::value::Value;
 
-mod common;
-use common::{expect_text, get_global, run_wfl};
+use crate::common::{expect_text, get_global, run_wfl};
 
 /// Create a temp file with some content and return its WFL-safe path string.
 fn temp_file(name: &str) -> (tempfile::TempDir, String) {
