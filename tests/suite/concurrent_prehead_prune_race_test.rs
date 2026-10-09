@@ -23,8 +23,6 @@ use wfl::config::WflConfig;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 /// Upstream: accept ONE connection, read the request, then WITHHOLD the response
 /// head. Signal when the proxy drops the connection (peer close => read 0/Err).
 async fn spawn_header_withholding_upstream() -> (u16, tokio::sync::oneshot::Receiver<()>) {
@@ -51,25 +49,16 @@ async fn spawn_header_withholding_upstream() -> (u16, tokio::sync::oneshot::Rece
     (port, rx)
 }
 
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready");
-}
-
 #[tokio::test]
 async fn test_sibling_prune_does_not_strand_a_pre_head_disconnect() {
     let (upstream_port, mut upstream_closed) = spawn_header_withholding_upstream().await;
-    let proxy_port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("prehead");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "PREHEAD_READY ", "srv");
 
     let code = format!(
         r#"
-        listen on port {proxy_port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 30000
             store p as req["path"]
@@ -106,7 +95,9 @@ async fn test_sibling_prune_does_not_strand_a_pre_head_disconnect() {
             let _ = interp.interpret(&ast).await;
         });
     });
-    wait_for_server(proxy_port).await;
+    let proxy_port = crate::common::wait_for_published_web_server(&ready_path, "PREHEAD_READY ")
+        .await
+        .port();
 
     // Continuous pruning traffic: every `/kick` runs `wait for request`, which prunes
     // all closed pending entries. Keep it dense so a prune lands in A's poll gap.
