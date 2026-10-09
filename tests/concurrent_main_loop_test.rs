@@ -1,3 +1,5 @@
+//! Stays a separate integration binary (#693): the concurrent-vs-serial proof
+//! uses a 300ms interleaving bound that flakes under shared-suite contention.
 // Tests for `main loop concurrently:` (concurrent request handlers).
 //
 // Key properties:

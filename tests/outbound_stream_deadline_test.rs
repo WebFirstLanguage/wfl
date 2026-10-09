@@ -1,3 +1,6 @@
+//! Stays a separate integration binary (#693): proves the 1s absolute stream
+//! deadline with a 500ms–4s elapsed window versus the 10s run timeout.
+//!
 //! Real-socket regression for P1: `outbound_stream_max_seconds` must bound an
 //! ACTIVE body read, not be overridden by the broader run/budget duration.
 //!

@@ -1,3 +1,7 @@
+//! Stays a separate integration binary (#693): backpressure and early-chunk
+//! proofs use a 1500ms–9s write-timeout window and a <1500ms early-flush
+//! bound that suite load would miss or inflate.
+//!
 //! Real-socket regressions (maintainer re-review, P1):
 //!
 //! 1. A backpressured response-stream `write` must be BOUNDED: once the 64-slot
