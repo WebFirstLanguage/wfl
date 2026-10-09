@@ -17,8 +17,6 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 fn start_server_thread(code: String, source_file: Option<PathBuf>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
@@ -35,17 +33,6 @@ fn start_server_thread(code: String, source_file: Option<PathBuf>) -> std::threa
             }
         });
     })
-}
-
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready in time");
 }
 
 async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
@@ -77,10 +64,12 @@ async fn test_concurrent_includes_of_same_module_do_not_false_cycle() {
     .expect("write module");
     let module_path = wfl_path(&module);
 
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("mod_cycle");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "MOD_CYCLE_READY ", "srv");
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -96,7 +85,9 @@ async fn test_concurrent_includes_of_same_module_do_not_false_cycle() {
     "#
     );
     let server = start_server_thread(code, None);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "MOD_CYCLE_READY ")
+        .await
+        .port();
 
     // Overlap two loads of the same module.
     let a_url = format!("http://127.0.0.1:{port}/a");
@@ -150,10 +141,12 @@ async fn test_relative_include_resolves_against_own_handler_context() {
     )
     .expect("write sibling module");
 
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("mod_rel");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "MOD_REL_READY ", "srv");
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -174,7 +167,9 @@ async fn test_relative_include_resolves_against_own_handler_context() {
     "#
     );
     let server = start_server_thread(code, Some(main_file));
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "MOD_REL_READY ")
+        .await
+        .port();
 
     let a_url = format!("http://127.0.0.1:{port}/a");
     let a = tokio::spawn(async move { reqwest::Client::new().get(&a_url).send().await.unwrap() });

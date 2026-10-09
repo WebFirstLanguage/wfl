@@ -15,13 +15,10 @@
 // its own. 9 < 10 passes standalone, but 3 + 9 = 12 must exceed the limit.
 
 use std::sync::Arc;
-use std::time::Duration;
 use wfl::Interpreter;
 use wfl::config::WflConfig;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-
-mod common;
 
 fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
     // Generous native stack: WFL call levels are stack-hungry in debug builds,
@@ -49,17 +46,6 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
         .expect("spawn server thread")
 }
 
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready in time");
-}
-
 async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
     let _ = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/shutdown"))
@@ -74,7 +60,8 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
 
 #[tokio::test]
 async fn test_handler_recursion_budget_includes_enclosing_action_frames() {
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("recursion");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "RECURSE_READY ", "srv");
     let code = format!(
         r#"
         define action called recurse with parameters n:
@@ -112,12 +99,15 @@ async fn test_handler_recursion_budget_includes_enclosing_action_frames() {
             store level_b_result as call level_b
         end action
 
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         store run_result as call level_a
     "#
     );
     let server = start_server_thread(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "RECURSE_READY ")
+        .await
+        .port();
 
     let resp = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/deep"))

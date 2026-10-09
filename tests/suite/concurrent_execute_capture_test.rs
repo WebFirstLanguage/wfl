@@ -21,8 +21,6 @@ use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
-mod common;
-
 fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
@@ -36,17 +34,6 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
             }
         });
     })
-}
-
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("server on {addr} did not become ready in time");
 }
 
 async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
@@ -81,10 +68,12 @@ async fn test_concurrent_captures_do_not_cross_wire() {
     let child_a = write_child(&dir, "child_a.wfl", "ALPHA-1", "ALPHA-2", 250);
     let child_b = write_child(&dir, "child_b.wfl", "BRAVO-1", "BRAVO-2", 250);
 
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("cap_cross");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "CAP_CROSS_READY ", "srv");
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -105,7 +94,9 @@ async fn test_concurrent_captures_do_not_cross_wire() {
     "#
     );
     let server = start_server_thread(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "CAP_CROSS_READY ")
+        .await
+        .port();
 
     // Start /a first so its capture window is open, then fire /b so both
     // children are parked in their mid-file waits at the same time.
@@ -161,10 +152,12 @@ async fn test_sibling_display_does_not_leak_into_capture() {
     let dir = TempDir::new().expect("tempdir");
     let child = write_child(&dir, "child.wfl", "CHILD-1", "CHILD-2", 600);
 
-    let port = common::free_tcp_port();
+    let ready_path = crate::common::unique_ready_path("cap_noise");
+    let publish = crate::common::publish_ready_wfl(&ready_path, "CAP_NOISE_READY ", "srv");
     let code = format!(
         r#"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        {publish}
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -185,7 +178,9 @@ async fn test_sibling_display_does_not_leak_into_capture() {
     "#
     );
     let server = start_server_thread(code);
-    wait_for_server(port).await;
+    let port = crate::common::wait_for_published_web_server(&ready_path, "CAP_NOISE_READY ")
+        .await
+        .port();
 
     // Open the capture window, then have a sibling display while it is open.
     let cap_url = format!("http://127.0.0.1:{port}/cap");
