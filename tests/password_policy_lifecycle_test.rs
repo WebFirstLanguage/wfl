@@ -1,6 +1,7 @@
-//! Configured hashing admission, cancellation and recovery use the real Tokio
-//! blocking pool. Kept in a separate integration executable to isolate the
-//! process-wide limits from other password tests.
+//! Stays a separate integration binary (#693): configured hashing admission
+//! pins a process-wide Tokio blocking pool (`max_blocking_threads(1)`).
+//! Folding this into the shared suite would starve every other password test
+//! in the same process.
 
 use std::sync::Arc;
 use std::task::Poll;

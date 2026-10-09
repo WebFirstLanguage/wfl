@@ -1,3 +1,6 @@
+//! Stays a separate integration binary (#693): the reaper/read race proof
+//! asserts a 700ms–3s elapsed window around a 1s hard cap.
+//!
 //! Real-socket regression (issue #642 P1): the absolute-lifetime reaper and an
 //! active body read must share one atomic lifecycle.
 //!
