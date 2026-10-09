@@ -83,7 +83,7 @@ store flood as "{flood}"
 listen on port {port} as srv
 main loop concurrently:
     wait for request comes in on srv as req with timeout 20000
-    store p as req["path"]
+    store p as path of req
     check if p is equal to "/shutdown":
         respond to req with "bye"
         close server srv
