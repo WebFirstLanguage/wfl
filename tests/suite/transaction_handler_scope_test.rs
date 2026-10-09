@@ -73,15 +73,34 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
         .expect("spawn server thread")
 }
 
-async fn wait_for_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
+async fn wait_for_published_addr(ready_path: &Path) -> std::net::SocketAddr {
     for _ in 0..300 {
-        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+        if let Ok(log) = std::fs::read_to_string(ready_path)
+            && let Some(address) = crate::common::published_web_server_addr(&log, "TX_SCOPE_READY ")
+        {
+            assert_ne!(address.port(), 0, "server must report its assigned port");
+            return address;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!(
+        "server did not publish TX_SCOPE_READY at {}",
+        ready_path.display()
+    );
+}
+
+async fn wait_for_health(port: u16) {
+    let url = format!("http://127.0.0.1:{port}/health");
+    for _ in 0..300 {
+        if let Ok(response) = reqwest::Client::new().get(&url).send().await
+            && response.status().is_success()
+            && response.text().await.ok().as_deref() == Some("tx-scope-ready")
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    panic!("server on {addr} did not become ready in time");
+    panic!("server on {url} did not answer /health with tx-scope-ready");
 }
 
 async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
@@ -111,13 +130,22 @@ async fn shutdown(port: u16, server: std::thread::JoinHandle<()>) {
 async fn an_unrelated_handler_is_not_enrolled_in_another_handlers_transaction() {
     let db = TempDb::new("not_enrolled");
     let url = &db.url;
-    let port = crate::common::free_tcp_port();
+    let ready_path = std::env::temp_dir().join(format!(
+        "wfl_tx_scope_not_enrolled_{}_ready.txt",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&ready_path);
+    let ready = ready_path.display().to_string().replace('\\', "/");
 
     let code = format!(
         r#"
         open database at "{url}" as db
         store made as execute db with "CREATE TABLE writes (tag TEXT)"
-        listen on port {port} as srv
+        listen on port 0 as srv
+        store ready as "TX_SCOPE_READY " with srv with "\n"
+        open file at "{ready}" for writing as rf
+        wait for write content ready into rf
+        close file rf
         main loop concurrently:
             wait for request comes in on srv as req with timeout 20000
             store p as req["path"]
@@ -125,6 +153,8 @@ async fn an_unrelated_handler_is_not_enrolled_in_another_handlers_transaction() 
                 respond to req with "bye"
                 close server srv
                 break
+            otherwise check if p is equal to "/health":
+                respond to req with "tx-scope-ready"
             otherwise:
                 check if p is equal to "/tx":
                     try:
@@ -147,7 +177,10 @@ async fn an_unrelated_handler_is_not_enrolled_in_another_handlers_transaction() 
     );
 
     let server = start_server_thread(code);
-    wait_for_server(port).await;
+    let address = wait_for_published_addr(&ready_path).await;
+    let port = address.port();
+    wait_for_health(port).await;
+    let _ = std::fs::remove_file(&ready_path);
 
     // Start the transactional request and let it get inside its block.
     let tx_url = format!("http://127.0.0.1:{port}/tx");

@@ -17,3 +17,10 @@ and Group A names such as `stream_handle_type_test`).
 
 Also updates the stale path comment in `src/parser/tests.rs` that still
 pointed at `tests/display_multiple_values_stdout_test.rs` after #770.
+
+Hibiki reproduced a probe-then-rebind race (`free_tcp_port` / local
+`:0` probes) against `http_request_runtime_test`'s mock. The four
+probing tests now `listen on port 0` and read the published
+`WebServer::ip:port` line from the child (the `trusted_proxy_test`
+pattern) before connecting. `free_tcp_port` stays for standalone
+Group A binaries and documents that it is unsafe in the suite process.

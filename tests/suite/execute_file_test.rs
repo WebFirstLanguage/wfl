@@ -594,17 +594,22 @@ async fn test_web_server_serves_executed_wfl_page() {
     )
     .expect("Failed to write page file");
 
-    let port = crate::common::free_tcp_port();
+    let ready_path = temp_dir.path().join("ready.txt");
+    let ready = ready_path.display().to_string().replace('\\', "/");
     let server_file = temp_dir.path().join("server.wfl");
     let server_code = format!(
         concat!(
-            "listen on port {} as test_server\n",
+            "listen on port 0 as test_server\n",
+            "store ready as \"EXECUTE_FILE_READY \" with test_server with \"\\n\"\n",
+            "open file at \"{ready}\" for writing as rf\n",
+            "wait for write content ready into rf\n",
+            "close file rf\n",
             "wait for request comes in on test_server as incoming_request with timeout 10000\n",
             "execute wfl file at \"dynamic_page.wfl\" with incoming_request and read output as page_output\n",
             "respond to incoming_request with page_output and content_type \"text/html\"\n",
             "close server test_server\n",
         ),
-        port
+        ready = ready
     );
     fs::write(&server_file, &server_code).expect("Failed to write server file");
 
@@ -623,18 +628,23 @@ async fn test_web_server_serves_executed_wfl_page() {
         });
     });
 
-    // Wait for the server to accept connections. Probe with a raw TCP connect:
-    // an HTTP probe would consume the server's single `wait for request`.
+    // The child owns the port before writing EXECUTE_FILE_READY. An HTTP
+    // probe would consume this server's single `wait for request`.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
-            Ok(_) => break,
-            Err(_) if std::time::Instant::now() < deadline => {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-            Err(e) => panic!("Server did not start listening within 10s: {e}"),
+    let port = loop {
+        if let Ok(log) = fs::read_to_string(&ready_path)
+            && let Some(address) =
+                crate::common::published_web_server_addr(&log, "EXECUTE_FILE_READY ")
+        {
+            assert_ne!(address.port(), 0, "server must report its assigned port");
+            break address.port();
         }
-    }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "server did not publish EXECUTE_FILE_READY"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
 
     let response = reqwest::get(format!("http://127.0.0.1:{port}/welcome"))
         .await
