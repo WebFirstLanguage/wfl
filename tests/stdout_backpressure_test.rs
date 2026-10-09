@@ -7,7 +7,7 @@ use std::process::Stdio;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::io::AsyncReadExt;
-use tokio::process::{Child, Command};
+use tokio::process::{Child, ChildStdout, Command};
 
 const FLOOD_BYTES: usize = 1_000_000;
 
@@ -48,6 +48,20 @@ async fn ready(port: u16) {
         "server did not become ready",
     )
     .await;
+}
+
+async fn server_stdout(child: &mut Child, port: u16) -> ChildStdout {
+    let mut stdout = child.stdout.take().unwrap();
+    let banner = format!("Server is listening on port {port}\n");
+    let mut actual = vec![0; banner.len()];
+    bounded(
+        stdout.read_exact(&mut actual),
+        "server banner was not written",
+    )
+    .await
+    .unwrap();
+    assert_eq!(actual, banner.as_bytes());
+    stdout
 }
 
 fn server_source(port: u16, emitter: &str) -> String {
@@ -110,7 +124,7 @@ async fn check_sibling_and_order(emitter: &str, newline: bool) {
     let client = reqwest::Client::new();
     let slow_client = client.clone();
     let slow = tokio::spawn(async move { response(&slow_client, port, "/slow").await });
-    let mut stdout = child.stdout.take().unwrap();
+    let mut stdout = server_stdout(&mut child, port).await;
     let mut first = [0];
     // The first byte proves the handler entered its write. Stop draining while
     // the remaining payload exceeds pipe capacity; no timing guess is needed.
@@ -180,7 +194,7 @@ async fn shutdown_cancels_queued_output_without_waiting_for_the_pipe() {
     let client = reqwest::Client::new();
     let slow_client = client.clone();
     let slow = tokio::spawn(async move { response(&slow_client, port, "/slow").await });
-    let mut stdout = child.stdout.take().unwrap();
+    let mut stdout = server_stdout(&mut child, port).await;
     bounded(stdout.read_exact(&mut [0]), "handler never wrote stdout")
         .await
         .unwrap();
