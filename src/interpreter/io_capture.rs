@@ -68,6 +68,7 @@ pub(crate) fn emit_text(text: &str) -> io::Result<()> {
         buffer.borrow_mut().push_str(text);
         Ok(())
     } else {
+        // ponytail: stdout is synchronous; use a shared async sink if backpressure must yield.
         let mut stdout = io::stdout().lock();
         stdout.write_all(text.as_bytes())?;
         stdout.flush()

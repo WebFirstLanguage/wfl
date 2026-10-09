@@ -26,6 +26,15 @@ The closed-pipe regression catches the I/O failure, writes the error to a
 temporary marker file and exits successfully; an interpreter test checks
 catchable arity errors when static checking is bypassed.
 
+Review identified the existing synchronous stdout backpressure limitation:
+an open pipe whose consumer stops reading can block the interpreter thread,
+including concurrent handlers and cooperative timeouts. Captured writes use
+memory and do not access that pipe. This change preserves the existing stdout
+scheduling contract; unified async output needs ordering, cancellation and
+shutdown design across `display`, `print` and `write_stdout`. The limitation is
+documented, with policy applicability and final disposition left to Yomi and
+the maintainer; no resilience claim or testing exception is implied.
+
 The initial local regression run found the missing builtin. Two capture fixtures
 were corrected to avoid the reserved word `captured`. Subsequent runtime
 verification uses the repository's approved GitHub Actions environments, per

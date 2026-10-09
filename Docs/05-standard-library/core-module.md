@@ -111,6 +111,10 @@ output as ...`, it goes to the same capture buffer as `display` and `print`,
 including any final text without a newline. Nested and concurrent captures
 retain their existing isolation.
 
+Uncaptured stdout output is synchronous, like `display` and `print`. A pipe
+consumer that stops reading can delay the call and concurrent handlers.
+Cooperative execution timeouts cannot interrupt a blocked stdout write.
+
 The argument must be text. Join values into text before calling when needed.
 Wrong argument counts and types raise an error. A stdout write or flush failure
 also raises an ordinary, catchable runtime error; some bytes may already have
