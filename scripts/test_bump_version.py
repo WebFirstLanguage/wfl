@@ -268,6 +268,43 @@ class TestSetVersion(unittest.TestCase):
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         self.assertEqual(head, self.seed)
 
+    def test_lock_sync_messages_encode_on_cp1252(self):
+        """Nightly Windows (run 38027033412) died printing U+2713 on cp1252."""
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            bump_version.update_cargo_lock("26.10.1")
+            bump_version.update_fuzz_cargo_lock("26.10.1")
+        buf.getvalue().encode("cp1252")
+
+    def test_set_version_survives_pythonioencoding_cp1252(self):
+        """The Windows nightly console is cp1252; --set-version must not crash."""
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "cp1252"
+        env["PYTHONUTF8"] = "0"
+        env.pop("PYTHONLEGACYWINDOWSSTDIO", None)
+        script = Path(bump_version.__file__).resolve()
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-X",
+                "utf8=0",
+                str(script),
+                "--set-version",
+                "26.10.1",
+                "--update-all",
+                "--skip-git",
+            ],
+            cwd=self.temp_dir,
+            env=env,
+            capture_output=True,
+        )
+        stderr = result.stderr.decode("cp1252", errors="replace")
+        self.assertEqual(result.returncode, 0, stderr)
+        self.assertNotIn("UnicodeEncodeError", stderr)
+        stdout = result.stdout.decode("cp1252")
+        self.assertIn("Cargo.lock synchronized: 26.10.1", stdout)
+        self.assertIn("fuzz/Cargo.lock synchronized: 26.10.1", stdout)
+
     def test_from_tags_print_does_not_write_files(self):
         before = Path(".build_meta.json").read_text(encoding="utf-8")
         with patch.object(

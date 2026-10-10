@@ -1,6 +1,11 @@
 """Guards for tag-based nightly versioning and no protected-branch version pushes."""
 
+import os
 import re
+import stat
+import subprocess
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -13,6 +18,41 @@ def job(text, name):
     if not match:
         raise AssertionError(f"Required workflow job {name!r} is missing")
     return match.group(1)
+
+
+def extract_named_run_script(workflow, step_name):
+    """Return the `run: |` body of the first step whose name contains step_name."""
+    lines = workflow.splitlines()
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("- name:") and step_name in stripped:
+            i += 1
+            while i < len(lines):
+                candidate = lines[i].lstrip()
+                if candidate.startswith("- name:") or candidate.startswith("- uses:"):
+                    break
+                if candidate.startswith("run: |"):
+                    run_indent = len(lines[i]) - len(lines[i].lstrip())
+                    i += 1
+                    body = []
+                    while i < len(lines):
+                        if lines[i].strip() == "":
+                            body.append("")
+                            i += 1
+                            continue
+                        indent = len(lines[i]) - len(lines[i].lstrip())
+                        if indent <= run_indent:
+                            break
+                        body.append(lines[i])
+                        i += 1
+                    if not body:
+                        raise AssertionError(f"Empty run script for {step_name!r}")
+                    return textwrap.dedent("\n".join(body) + "\n")
+                i += 1
+            raise AssertionError(f"No run: | script for step {step_name!r}")
+        i += 1
+    raise AssertionError(f"Step {step_name!r} not found")
 
 
 def required_check_names(ci_text, config_lint_text):
@@ -135,6 +175,83 @@ class VersioningWorkflowTests(unittest.TestCase):
         self.assertNotIn("GH_PAT", combined)
         self.assertNotIn("PERSONAL_ACCESS_TOKEN", combined)
         self.assertNotIn("secrets.VERSION", combined)
+
+    def test_nightly_python_steps_set_pythonioencoding_utf8(self):
+        """Windows nightly died because Python inherited the cp1252 console."""
+        self.assertTrue(
+            "PYTHONIOENCODING: utf-8" in self.nightly,
+            "nightly.yml must set PYTHONIOENCODING=utf-8 so Windows cp1252 consoles cannot crash Python prints",
+        )
+        for step_name in (
+            "Set version for this build",
+            "Compute nightly version from tags",
+        ):
+            script = extract_named_run_script(self.nightly, step_name)
+            self.assertIn("python", script)
+        windows = job(self.nightly, "build")
+        linux = job(self.nightly, "build-linux")
+        for body in (windows, linux):
+            set_version_at = body.index("Set version for this build")
+            compile_at = body.index("cargo build --release --locked")
+            self.assertLess(set_version_at, compile_at)
+            window = body[set_version_at:compile_at]
+            self.assertIn("PYTHONIOENCODING", window)
+
+    def test_debian_portability_gate_does_not_expand_actual_in_outer_shell(self):
+        """PR #782 nested `'$actual'` inside `sh -euc '...'`.
+
+        The inner single quotes closed the outer ones, so `set -u` expanded
+        an unbound $actual before docker started (run 38027033412, line 2).
+        """
+        script = extract_named_run_script(
+            self.nightly, "Prove portability on Debian 12"
+        )
+        self.assertIn("debian:12-slim", script)
+        self.assertIn("actual=", script)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            stub = tmp_path / "docker"
+            args_file = tmp_path / "docker-args"
+            stdin_file = tmp_path / "docker-stdin"
+            stub.write_text(
+                "#!/bin/bash\n"
+                "printf '%s\\0' \"$@\" > \"$DOCKER_ARGS_FILE\"\n"
+                "timeout 1 cat > \"$DOCKER_STDIN_FILE\" || true\n"
+                "echo DOCKER_CALLED\n",
+                encoding="utf-8",
+            )
+            stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+            (tmp_path / "gate.sh").write_text(script, encoding="utf-8")
+            env = os.environ.copy()
+            env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
+            env["VERSION"] = "26.10.1"
+            env["SHORT_SHA"] = "deadbeef"
+            env["DOCKER_ARGS_FILE"] = str(args_file)
+            env["DOCKER_STDIN_FILE"] = str(stdin_file)
+            result = subprocess.run(
+                ["bash", "-euo", "pipefail", str(tmp_path / "gate.sh")],
+                cwd=tmp_path,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"outer bash died before docker ran:\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}",
+            )
+            self.assertIn("DOCKER_CALLED", result.stdout)
+            delivered = ""
+            if args_file.exists():
+                delivered += args_file.read_text(encoding="utf-8", errors="replace")
+            if stdin_file.exists():
+                delivered += stdin_file.read_text(encoding="utf-8", errors="replace")
+            self.assertIn("actual=", delivered)
+            self.assertIn("$actual", delivered)
+            self.assertIn("$expected", delivered)
+            self.assertIn("$VERSION", delivered)
+            self.assertIn("./wfl --version", delivered)
 
 
 if __name__ == "__main__":
