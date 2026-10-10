@@ -1,0 +1,12 @@
+// CI-SKIP: intentional error example — a bare sibling call must fail semantic analysis (asserted by validate_docs_examples.py)
+create container Greeter:
+    property greetings: Number
+
+    action count_greeting:
+        change greetings to greetings + 1
+    end
+
+    action greet:
+        call count_greeting
+    end
+end

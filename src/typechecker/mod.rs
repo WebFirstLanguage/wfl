@@ -7884,6 +7884,15 @@ impl TypeChecker {
                         // where a concrete type is required at runtime.
                         Type::Unknown
                     }
+                } else if name == "this"
+                    && self.current_method_is_static == Some(false)
+                    && let Some(container) = &self.current_container
+                {
+                    // With no variable of that name in scope, `this` in an
+                    // instance action is the object the action was called on,
+                    // so `this.sibling(...)` is checked like any method call
+                    // (issue #701).
+                    Type::ContainerInstance(container.clone())
                 } else {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)

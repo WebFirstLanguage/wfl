@@ -1,4 +1,4 @@
-use super::value::Value;
+use super::value::{ContainerInstanceValue, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,6 +22,17 @@ pub struct Environment {
     /// what makes diamond includes work: two files that both include the
     /// same shared file reach it once, not twice.
     pub included_files: HashSet<PathBuf>,
+    /// Set only on the frame a container action runs in: the object the
+    /// action was called on. That frame holds the action's working copies of
+    /// the object's properties, and a nested call on the same object finds it
+    /// by this marker to keep those copies and the object in step (#701).
+    /// Weak, because the frame's own `this` binding already holds the object.
+    pub method_receiver: Option<Weak<RefCell<ContainerInstanceValue>>>,
+    /// Set on an action frame and on an action call scope: the scope the call
+    /// was made from. Name lookup never follows it — actions see the scope
+    /// they were defined in — so it exists only for finding a running action
+    /// of the same object further up the call chain (#701).
+    pub caller: Option<Weak<RefCell<Environment>>>,
 }
 
 impl Environment {
@@ -36,6 +47,8 @@ impl Environment {
             parent: None,
             isolated: false,
             included_files: HashSet::new(),
+            method_receiver: None,
+            caller: None,
         }))
     }
 
@@ -50,6 +63,8 @@ impl Environment {
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
             included_files: HashSet::new(),
+            method_receiver: None,
+            caller: None,
         }))
     }
 
@@ -65,6 +80,8 @@ impl Environment {
             parent: Some(Rc::downgrade(parent)),
             isolated: false,
             included_files: HashSet::new(),
+            method_receiver: None,
+            caller: None,
         }))
     }
 
@@ -83,6 +100,8 @@ impl Environment {
             parent: Some(Rc::downgrade(parent)),
             isolated: true,
             included_files: HashSet::new(),
+            method_receiver: None,
+            caller: None,
         }))
     }
 

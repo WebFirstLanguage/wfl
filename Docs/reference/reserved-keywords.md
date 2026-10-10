@@ -125,6 +125,17 @@ store transaction as "TX-1094"
 with `in` was always a parse error before, so nothing that used to be valid
 changed meaning.
 
+`this` is not a keyword either. Inside a container's instance action it is a
+predefined, read-only name for the object the action was called on, used to
+call sibling actions (`this.other_action()`) and read properties
+(`this.name`); see [Calling Other Actions with
+`this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
+It only fills in where the name would otherwise be undefined. A program's own
+variable named `this` keeps its meaning: one that already exists where the
+container is defined (such as a top-level `this` above it), or one the action
+creates with `store this as ...` or `for each this in ...`. So does a property
+named `this`. Outside instance actions `this` is an ordinary identifier.
+
 ### Why Some Keywords Appear in Multiple Lists
 
 You might notice keywords like `push`, `zero`, and `than` appear in both the structural and contextual keyword lists in the compiler source code. This isn't a bug—it's by design:
