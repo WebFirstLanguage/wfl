@@ -10744,25 +10744,6 @@ impl Interpreter {
 
                     // Check if the container has an "initialize" method
                     if let Some(init_method) = container_def.methods.get("initialize") {
-                        // Create a function value from the initialize method
-                        let init_function = FunctionValue {
-                            name: Some("initialize".to_string()),
-                            params: init_method.params.clone(),
-                            param_types: vec![None; init_method.params.len()],
-                            body: init_method.body.clone(),
-                            env: init_method.env.clone(),
-                            line: init_method.line,
-                            column: init_method.column,
-                            enforce_param_types: std::cell::Cell::new(false),
-                            static_method_context: None,
-                        };
-
-                        // Create a new environment for the constructor execution
-                        let init_env = Environment::new_child_env(&env);
-
-                        // Add 'this' to the environment (the instance being constructed)
-                        let _ = init_env.borrow_mut().define("this", instance_value.clone());
-
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
@@ -10770,9 +10751,23 @@ impl Interpreter {
                             arg_values.push(arg_val);
                         }
 
-                        // Call the initialize method
-                        self.call_function(&init_function, arg_values, *line, *column)
-                            .await?;
+                        // Run `initialize` on the new object exactly as
+                        // `obj.initialize(...)` would: with its receiver,
+                        // `this` and properties, and with property changes
+                        // written back (#701; this path used to run it with
+                        // none of them).
+                        let Value::ContainerInstance(instance_rc) = &instance_value else {
+                            unreachable!("a container instantiation yields an instance");
+                        };
+                        self.invoke_instance_action(
+                            instance_rc,
+                            init_method,
+                            arg_values,
+                            &env,
+                            *line,
+                            *column,
+                        )
+                        .await?;
                     } else if !arguments.is_empty() {
                         return Err(RuntimeError::new(
                             format!(
@@ -14747,15 +14742,7 @@ impl Interpreter {
                     self.call_function(&function, argument_values, line, column)
                         .await
                 } else if let Value::ContainerInstance(instance_rc) = &object_val_clone {
-                    // Clone instance_rc for later property write-back
-                    let instance_rc_for_writeback = instance_rc.clone();
-
-                    let (container_type, property_names) = {
-                        let instance = instance_rc.borrow();
-                        let container_type = instance.container_type.clone();
-                        let prop_names: Vec<String> = instance.properties.keys().cloned().collect();
-                        (container_type, prop_names)
-                    };
+                    let container_type = instance_rc.borrow().container_type.clone();
 
                     // Look up the container definition
                     let container_def = match env.borrow().get(&container_type) {
@@ -14796,23 +14783,11 @@ impl Interpreter {
                     }
 
                     if let Some(method_val) = found_method {
-                        // Create a function value from the method
-                        let function = FunctionValue {
-                            name: Some(method_val.name.clone()),
-                            params: method_val.params.clone(),
-                            param_types: vec![None; method_val.params.len()],
-                            body: method_val.body.clone(),
-                            env: method_val.env.clone(),
-                            line: method_val.line,
-                            column: method_val.column,
-                            enforce_param_types: std::cell::Cell::new(false),
-                            static_method_context: None,
-                        };
-
                         // Evaluate the arguments first, in the caller's scope:
                         // an argument may itself call an action on this object
                         // (`this.emit(this.next_char())`), and the frame built
-                        // below must start from the state that call leaves.
+                        // for the call must start from the state that call
+                        // leaves (issue #701).
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
                             let arg_val = self
@@ -14821,107 +14796,15 @@ impl Interpreter {
                             arg_values.push(arg_val);
                         }
 
-                        // A caller already running an action of this same
-                        // object holds its properties as working copies. Push
-                        // them into the object before this call copies it, and
-                        // pull the results back afterwards (issue #701).
-                        let caller_frame = Self::method_frame_for(&env, instance_rc);
-                        if let Some(frame) = &caller_frame {
-                            Self::flush_method_frame(frame, instance_rc);
-                        }
-
-                        // The frame's parent is the scope where the container
-                        // was defined, as for ordinary actions: an action must
-                        // not see or overwrite its caller's locals (#701:
-                        // recursion through `this` lost them). The caller's
-                        // scope is kept only as the frame's `caller` link.
-                        // Should the defining scope be gone, fall back to the
-                        // caller's scope, the historical parent.
-                        let definition_env = method_val.env.upgrade();
-                        let method_env =
-                            Environment::new_child_env(definition_env.as_ref().unwrap_or(&env));
-                        {
-                            let mut frame = method_env.borrow_mut();
-                            frame.method_receiver = Some(Rc::downgrade(instance_rc));
-                            frame.caller = Some(Rc::downgrade(&env));
-                        }
-
-                        // `this` is the object unless the program had its own
-                        // variable named `this` where the container was
-                        // defined, or the object has a property named `this`;
-                        // either keeps its meaning (#701).
-                        if method_val.binds_receiver_this
-                            && !instance_rc.borrow().properties.contains_key("this")
-                        {
-                            let _ = method_env
-                                .borrow_mut()
-                                .define_direct("this", object_val.clone());
-                        }
-
-                        // Add container properties and events as accessible variables
-                        {
-                            let instance = instance_rc.borrow();
-
-                            // Add properties
-                            for (prop_name, prop_value) in &instance.properties {
-                                Self::bind_method_property(
-                                    &method_env,
-                                    definition_env.as_ref(),
-                                    prop_name,
-                                    prop_value,
-                                );
-                            }
-
-                            // Add events from the container definition
-                            if let Some(Value::ContainerDefinition(container_def_rc)) =
-                                env.borrow().get(&instance.container_type)
-                            {
-                                let container_def = container_def_rc.clone();
-                                for (event_name, event_value) in &container_def.events {
-                                    let _ = method_env.borrow_mut().define(
-                                        event_name,
-                                        Value::ContainerEvent(Rc::new(event_value.clone())),
-                                    );
-                                }
-                            }
-                        } // Drop instance borrow here
-
-                        // Create a modified function with the method environment
-                        let method_function = FunctionValue {
-                            name: function.name.clone(),
-                            params: function.params.clone(),
-                            param_types: function.param_types.clone(),
-                            body: function.body.clone(),
-                            env: Rc::downgrade(&method_env),
-                            line: function.line,
-                            column: function.column,
-                            enforce_param_types: function.enforce_param_types.clone(),
-                            static_method_context: None,
-                        };
-
-                        // Call the function with the method environment
-                        let result = self
-                            .call_function(&method_function, arg_values, line, column)
-                            .await;
-
-                        // WRITE BACK MODIFIED PROPERTIES TO CONTAINER
-                        // This fixes the property mutation issue where properties modified
-                        // in container actions weren't persisting
-                        for prop_name in property_names {
-                            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
-                                instance_rc_for_writeback
-                                    .borrow_mut()
-                                    .properties
-                                    .insert(prop_name, updated_value);
-                            }
-                        }
-
-                        // The caller's frame picks up what this call wrote back.
-                        if let Some(frame) = &caller_frame {
-                            Self::refresh_method_frame(frame, instance_rc);
-                        }
-
-                        result
+                        self.invoke_instance_action(
+                            instance_rc,
+                            &method_val,
+                            arg_values,
+                            &env,
+                            line,
+                            column,
+                        )
+                        .await
                     } else {
                         Err(RuntimeError::new(
                             format!("Method '{method}' not found in container '{container_type}'"),
@@ -16235,6 +16118,116 @@ impl Interpreter {
             scope = next;
         }
         None
+    }
+
+    /// Run one of `instance`'s actions on it (issue #701). Builds the action's
+    /// frame (its receiver, `this` and working copies of the properties),
+    /// keeps a calling frame of the same object in step around the call, and
+    /// writes the properties back afterwards. `env` is the calling scope.
+    /// Shared by `obj.action(...)` and by the constructor path that runs
+    /// `initialize`, so both see the object the same way.
+    async fn invoke_instance_action(
+        &self,
+        instance_rc: &Rc<RefCell<ContainerInstanceValue>>,
+        method_val: &ContainerMethodValue,
+        arg_values: Vec<Value>,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        let object_val = Value::ContainerInstance(Rc::clone(instance_rc));
+
+        // A caller already running an action of this same object holds its
+        // properties as working copies. Push them into the object before this
+        // call copies it, and pull the results back afterwards.
+        let caller_frame = Self::method_frame_for(env, instance_rc);
+        if let Some(frame) = &caller_frame {
+            Self::flush_method_frame(frame, instance_rc);
+        }
+        let property_names: Vec<String> = instance_rc.borrow().properties.keys().cloned().collect();
+
+        // The frame's parent is the scope where the container was defined, as
+        // for ordinary actions: an action must not see or overwrite its
+        // caller's locals (recursion through `this` lost them). The caller's
+        // scope is kept only as the frame's `caller` link. Should the defining
+        // scope be gone, fall back to the caller's scope, the historical
+        // parent.
+        let definition_env = method_val.env.upgrade();
+        let method_env = Environment::new_child_env(definition_env.as_ref().unwrap_or(env));
+        {
+            let mut frame = method_env.borrow_mut();
+            frame.method_receiver = Some(Rc::downgrade(instance_rc));
+            frame.caller = Some(Rc::downgrade(env));
+        }
+
+        // `this` is the object unless the program had its own variable named
+        // `this` where the container was defined, or the object has a
+        // property named `this`; either keeps its meaning.
+        if method_val.binds_receiver_this && !instance_rc.borrow().properties.contains_key("this") {
+            let _ = method_env
+                .borrow_mut()
+                .define_direct("this", object_val.clone());
+        }
+
+        // Add container properties and events as accessible variables
+        {
+            let instance = instance_rc.borrow();
+
+            for (prop_name, prop_value) in &instance.properties {
+                Self::bind_method_property(
+                    &method_env,
+                    definition_env.as_ref(),
+                    prop_name,
+                    prop_value,
+                );
+            }
+
+            if let Some(Value::ContainerDefinition(container_def_rc)) =
+                env.borrow().get(&instance.container_type)
+            {
+                let container_def = container_def_rc.clone();
+                for (event_name, event_value) in &container_def.events {
+                    let _ = method_env.borrow_mut().define(
+                        event_name,
+                        Value::ContainerEvent(Rc::new(event_value.clone())),
+                    );
+                }
+            }
+        } // Drop instance borrow here
+
+        let method_function = FunctionValue {
+            name: Some(method_val.name.clone()),
+            params: method_val.params.clone(),
+            param_types: vec![None; method_val.params.len()],
+            body: method_val.body.clone(),
+            env: Rc::downgrade(&method_env),
+            line: method_val.line,
+            column: method_val.column,
+            enforce_param_types: std::cell::Cell::new(false),
+            static_method_context: None,
+        };
+
+        let result = self
+            .call_function(&method_function, arg_values, line, column)
+            .await;
+
+        // Write the frame's property values back to the object, so changes
+        // made inside the action persist.
+        for prop_name in property_names {
+            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
+                instance_rc
+                    .borrow_mut()
+                    .properties
+                    .insert(prop_name, updated_value);
+            }
+        }
+
+        // The caller's frame picks up what this call wrote back.
+        if let Some(frame) = &caller_frame {
+            Self::refresh_method_frame(frame, instance_rc);
+        }
+
+        result
     }
 
     /// Whether the nearest binding of `name` visible from `env` belongs to the

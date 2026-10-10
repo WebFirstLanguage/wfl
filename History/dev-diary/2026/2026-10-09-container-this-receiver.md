@@ -51,7 +51,7 @@ A second independent review of the revised version found no blocking issues and 
 Codex then reviewed the ready-for-review PR and raised two findings:
 
 - **A container may declare `property this` (P2).** Fixed. There the name was never undefined, so `this` keeps meaning the property. The analyzer now checks for a property before rejecting `change this to ...`. The runtime no longer binds the object over a property named `this`. Before #701 it did: reads returned the object, and the write-back stored the object into the property.
-- **`initialize` reached through the constructor path does not bind `this` (P1).** Not changed. That path runs only when an instantiation carries constructor arguments, and the parser never produces any: `parse_instantiation_body` always returns an empty list. When `initialize` is called as an ordinary action, `this` works.
+- **`initialize` reached through the constructor path does not bind `this` (P1).** Fixed after a human review requested it. That path runs only for an instantiation with constructor arguments. The parser never produces any (`parse_instantiation_body` always returns an empty list), so no program can reach it today. But the analyzer accepts `this` in `initialize`, and the path ran the action with no object at all: no receiver, no `this`, no properties. Both `obj.action(...)` and the constructor path now go through one shared `invoke_instance_action`, so `initialize` sees its object exactly as an ordinary call does. A test builds the instantiation with constructor arguments directly in the AST.
 
 ## Evidence
 
@@ -60,6 +60,7 @@ Codex then reviewed the ready-for-review PR and raised two findings:
 - The review red commit is ba5a3c7. On 688c5e7, four of its 24 tests failed, for these cases: recursion with locals, callee locals, `this` passed to an ordinary action, and existing variables named `this`. The TestProgram failed with `Expected 5 to equal 55`.
 - The second review's red commit is 83e30d6. On 869c666, three of its 29 tests failed: the nested container, the late global `this`, and the static-action message.
 - The Codex P2 red commit is aefb59e. On 71b1513, one of its 31 tests failed: the property named `this`.
+- The constructor-path red commit is 31d98cf. On 48bb2ef, its test failed with `Undefined variable 'v'`: `initialize` ran without the object's properties.
 - The validated docs examples are `TestPrograms/docs_examples/containers/sibling_actions_01.wfl` and `bare_sibling_call_01.wfl`.
 
 ## Residual risk and known limits
