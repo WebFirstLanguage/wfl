@@ -20,6 +20,9 @@ env:
   SIGNING_SKIP: true
   CACHE_ON_FAILURE: false
   CARGO_INCREMENTAL: 0
+  # Windows runners default Python stdout to cp1252; bump_version.py (and
+  # any other Python step) must not inherit that console encoding.
+  PYTHONIOENCODING: utf-8
 
 # Default to least-privilege; the release job opts into contents: write.
 permissions:
@@ -178,6 +181,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Set version for this build
+        env:
+          PYTHONIOENCODING: utf-8
         run: python scripts/bump_version.py --set-version "${{ needs.check-for-changes.outputs.version }}" --update-all --skip-git
 
       # ---------- Platform‑specific packaging helpers ----------
@@ -520,6 +525,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Set version for this build
+        env:
+          PYTHONIOENCODING: utf-8
         run: python scripts/bump_version.py --set-version "${{ needs.check-for-changes.outputs.version }}" --update-all --skip-git
 
       # Both binaries, matching the Windows MSI, which has always shipped wfl
@@ -636,27 +643,31 @@ jobs:
           SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
         run: |
           set -euo pipefail
-          docker run --rm \
+          # Quoted heredoc so inner `'$actual'` cannot leak into this `set -u`
+          # shell (nightly 38027033412 died with `actual: unbound variable`
+          # before docker started). `-i` is required so the script reaches
+          # `sh` on container stdin.
+          docker run --rm -i \
             -e VERSION="$VERSION" \
             -e TARBALL="wfl-${VERSION}-linux-x86_64-${SHORT_SHA}.tar.gz" \
             -v "$PWD/dist:/dist:ro" \
             -v "$PWD/TestPrograms:/TestPrograms:ro" \
-            debian:12-slim sh -euc '
-              cat /etc/debian_version
-              cd /tmp
-              tar xzf "/dist/$TARBALL"
-              cd wfl-*-linux-x86_64
-              ls -la
-              expected="WebFirst Language (WFL) version $VERSION"
-              actual="$(./wfl --version)"
-              echo "$actual"
-              if [ "$actual" != "$expected" ]; then
-                echo "::error::packaged wfl --version was '$actual', expected '$expected'"
-                exit 1
-              fi
-              ./wfl-lsp --version
-              ./wfl /TestPrograms/basic_syntax_comprehensive.wfl
-            '
+            debian:12-slim sh -eu <<'INNER'
+          cat /etc/debian_version
+          cd /tmp
+          tar xzf "/dist/$TARBALL"
+          cd wfl-*-linux-x86_64
+          ls -la
+          expected="WebFirst Language (WFL) version $VERSION"
+          actual="$(./wfl --version)"
+          echo "$actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::packaged wfl --version was '$actual', expected '$expected'"
+            exit 1
+          fi
+          ./wfl-lsp --version
+          ./wfl /TestPrograms/basic_syntax_comprehensive.wfl
+          INNER
 
       - uses: actions/upload-artifact@v4
         with:
