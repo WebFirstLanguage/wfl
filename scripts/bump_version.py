@@ -21,6 +21,24 @@ VERSION_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
+def configure_stdio(encoding="utf-8"):
+    """Force UTF-8 stdio so a cp1252 Windows console cannot crash prints.
+
+    PYTHONIOENCODING=utf-8 in nightly.yml is the other half of this; ASCII
+    status lines below are the third. Any one of the three is enough.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding=encoding, errors="strict")
+        except (OSError, ValueError):
+            pass
+
+
 def parse_args(argv=None):
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Update WFL version numbers across the project.")
@@ -375,7 +393,7 @@ def update_cargo_lock(expected_version):
         print(f"  expected: {expected_version}")
         print(f"  Cargo.lock version: {actual_version}")
         sys.exit(1)
-    print(f"✓ Cargo.lock synchronized: {expected_version}")
+    print(f"OK Cargo.lock synchronized: {expected_version}")
 
 
 def update_fuzz_cargo_lock(expected_version):
@@ -396,7 +414,7 @@ def update_fuzz_cargo_lock(expected_version):
         print(f"  expected: {expected_version}")
         print(f"  fuzz/Cargo.lock: {fuzz_version}")
         sys.exit(1)
-    print(f"✓ fuzz/Cargo.lock synchronized: {expected_version}")
+    print(f"OK fuzz/Cargo.lock synchronized: {expected_version}")
 
 def update_wix_toml(version):
     """Update version in wix.toml."""
@@ -556,6 +574,7 @@ def main_with_args(argv=None):
 
 
 def main():
+    configure_stdio()
     return main_with_args()
 
 

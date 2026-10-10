@@ -182,20 +182,17 @@ class VersioningWorkflowTests(unittest.TestCase):
             "PYTHONIOENCODING: utf-8" in self.nightly,
             "nightly.yml must set PYTHONIOENCODING=utf-8 so Windows cp1252 consoles cannot crash Python prints",
         )
-        for step_name in (
-            "Set version for this build",
-            "Compute nightly version from tags",
-        ):
-            script = extract_named_run_script(self.nightly, step_name)
-            self.assertIn("python", script)
         windows = job(self.nightly, "build")
         linux = job(self.nightly, "build-linux")
+        check = job(self.nightly, "check-for-changes")
+        self.assertIn("bump_version.py --from-tags --print", check)
         for body in (windows, linux):
             set_version_at = body.index("Set version for this build")
             compile_at = body.index("cargo build --release --locked")
             self.assertLess(set_version_at, compile_at)
             window = body[set_version_at:compile_at]
             self.assertIn("PYTHONIOENCODING", window)
+            self.assertIn("bump_version.py --set-version", window)
 
     def test_debian_portability_gate_does_not_expand_actual_in_outer_shell(self):
         """PR #782 nested `'$actual'` inside `sh -euc '...'`.
