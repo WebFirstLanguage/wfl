@@ -993,3 +993,66 @@ display "buf=[" with m.buf with "]"
     );
     assert!(stdout.contains("buf=[a1bZc]"), "{stdout}");
 }
+
+/// Human review of #701: `initialize` reached through the constructor path
+/// (an instantiation that carries constructor arguments) must run with its
+/// object, like any other action. The parser does not produce constructor
+/// arguments today, so the test adds them to the parsed AST directly.
+#[tokio::test]
+async fn initialize_called_with_constructor_arguments_binds_this() {
+    use wfl::interpreter::Interpreter;
+    use wfl::interpreter::value::Value;
+    use wfl::parser::ast::{Argument, Expression, Literal, Statement};
+
+    let source = r#"create container K:
+    property v: Number
+    action configure:
+        change v to v times 2
+    end
+    action initialize needs initial: Number:
+        change v to initial
+        this.configure()
+    end
+end
+create new K as k:
+    v is 1
+end
+"#;
+    // The static layers already accept `this` in `initialize`.
+    assert_eq!(semantic_errors(source), Vec::<String>::new());
+    assert_eq!(type_errors(source), Vec::<String>::new());
+
+    let mut program = parse(source);
+    let mut instantiations = 0;
+    for statement in &mut program.statements {
+        if let Statement::ContainerInstantiation {
+            arguments,
+            line,
+            column,
+            ..
+        } = statement
+        {
+            arguments.push(Argument {
+                name: None,
+                value: Expression::Literal(Literal::Integer(3), *line, *column),
+            });
+            instantiations += 1;
+        }
+    }
+    assert_eq!(instantiations, 1, "the program creates exactly one object");
+
+    let mut interpreter = Interpreter::new();
+    interpreter
+        .interpret(&program)
+        .await
+        .unwrap_or_else(|errors| panic!("constructor path failed: {errors:?}"));
+
+    let Some(Value::ContainerInstance(k)) = interpreter.global_env().borrow().get("k") else {
+        panic!("`k` should be an object");
+    };
+    assert_eq!(
+        k.borrow().properties.get("v"),
+        Some(&Value::Number(6.0)),
+        "initialize must set v to 3 and this.configure() must double it"
+    );
+}
