@@ -40,11 +40,19 @@ fn run(source: &str) -> (Option<i32>, String, String) {
 }
 
 fn type_errors(source: &str) -> Vec<String> {
-    let program = Parser::new(&lex_wfl_with_positions(source)).parse().unwrap();
+    let program = Parser::new(&lex_wfl_with_positions(source))
+        .parse()
+        .unwrap();
     TypeChecker::new()
         .check_types(&program)
         .err()
-        .map(|error| error.into_diagnostics().into_iter().map(|d| d.message).collect())
+        .map(|error| {
+            error
+                .into_diagnostics()
+                .into_iter()
+                .map(|d| d.message)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -189,18 +197,32 @@ display child.value
 #[test]
 fn missing_initialize_names_container_and_action() {
     let errors = type_errors("create container K:\nend\ncreate new K with 3 as k:\nend\n");
-    assert!(errors.iter().any(|e| e.contains("K") && e.contains("initialize")), "{errors:?}");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("K") && e.contains("initialize")),
+        "{errors:?}"
+    );
 }
 
 #[test]
 fn wrong_constructor_count_and_type_name_container_and_action() {
-    let definition = "create container K:\n    action initialize needs amount: Number:\n    end\nend\n";
+    let definition =
+        "create container K:\n    action initialize needs amount: Number:\n    end\nend\n";
     for (creation, needle) in [
-        ("create new K with 3 and 4 as k:\nend\n", "expects 1 arguments"),
+        (
+            "create new K with 3 and 4 as k:\nend\n",
+            "expects 1 arguments",
+        ),
         ("create new K with \"bad\" as k:\nend\n", "expects Number"),
     ] {
         let errors = type_errors(&format!("{definition}{creation}"));
-        assert!(errors.iter().any(|e| e.contains("K") && e.contains("initialize") && e.contains(needle)), "{errors:?}");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("K") && e.contains("initialize") && e.contains(needle)),
+            "{errors:?}"
+        );
     }
 }
 
@@ -208,5 +230,8 @@ fn wrong_constructor_count_and_type_name_container_and_action() {
 fn unresolved_parent_does_not_claim_initialize_is_missing() {
     let source = "create container Child extends IncludedParent:\nend\ncreate new Child with 3 as child:\nend\n";
     let errors = type_errors(source);
-    assert!(!errors.iter().any(|e| e.contains("no direct initialize")), "{errors:?}");
+    assert!(
+        !errors.iter().any(|e| e.contains("no direct initialize")),
+        "{errors:?}"
+    );
 }

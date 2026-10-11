@@ -67,7 +67,7 @@ Quick lookup for all WFL reserved keywords.
 | `list` | List type | ✓ |
 | `map` | Map type | ✓ |
 | `needs` | Action parameters (alias) | ✓ |
-| `new` | Instantiate container | ✓ |
+| `new` | Instantiate container (`create new K [with value and ...] as k: ... end`) | ✓ |
 | `property` | Container field | ✗ |
 | `store` | Create variable | ✗ |
 
@@ -125,7 +125,7 @@ Quick lookup for all WFL reserved keywords.
 | `or` | Logical OR | ✗ |
 | `same` | Equality (alias) | ✗ |
 | `than` | Comparison | ✗ |
-| `with` | Parameter separator/concatenation | ✗ |
+| `with` | Action/constructor arguments or concatenation | ✗ |
 
 ---
 

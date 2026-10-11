@@ -109,6 +109,10 @@ TLS pairs can also use the existing `for` keyword to select a DNS name:
 pairs begin with `and certificate`; this adds no reserved words. See
 [multiple-domain HTTPS](../04-advanced-features/web-servers.md#multiple-domains-on-one-https-port).
 
+`initialize` is an ordinary container action name, not a reserved keyword.
+`create new K with value and another as k: ... end` passes positional values
+to it after the property block runs. This syntax adds no keywords.
+
 `raise_error` is an ordinary standard-library function called with `call
 raise_error with message` or `raise_error of message`; it is not a keyword.
 
