@@ -162,7 +162,9 @@ create new K with "a" with "b" and "c" as k:
 end
 display k.buf
 "#;
-    let program = Parser::new(&lex_wfl_with_positions(source)).parse().unwrap();
+    let program = Parser::new(&lex_wfl_with_positions(source))
+        .parse()
+        .unwrap();
     let Statement::ContainerInstantiation { arguments, .. } = &program.statements[1] else {
         panic!("expected instantiation")
     };
@@ -254,7 +256,9 @@ fn unresolved_parent_does_not_claim_initialize_is_missing() {
     let source = "create container Child extends IncludedParent:\nend\ncreate new Child with 3 as child:\nend\n";
     let errors = type_errors(source);
     assert!(
-        !errors.iter().any(|e| e.contains("has no initialize method")),
+        !errors
+            .iter()
+            .any(|e| e.contains("has no initialize method")),
         "{errors:?}"
     );
 }

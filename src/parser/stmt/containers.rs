@@ -415,7 +415,10 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
             .is_some_and(|token| token.token == Token::KeywordWith)
         {
             self.bump_sync(); // Consume 'with'
-            let arguments = self.parse_argument_list_stopping_at_clause()?;
+            self.constructor_arguments = true;
+            let parsed = self.parse_argument_list_stopping_at_clause();
+            self.constructor_arguments = false;
+            let arguments = parsed?;
             if arguments.iter().any(|argument| argument.name.is_some()) {
                 let token = self.cursor.peek().unwrap_or(start_token);
                 return Err(ParseError::from_token(
