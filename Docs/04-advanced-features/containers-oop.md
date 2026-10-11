@@ -77,6 +77,8 @@ display counter.value  // 5
 The property block runs before `initialize`, so the action above starts with
 `value` equal to 2. Separate multiple arguments with `and`, in the same order
 as the action's parameters: `create new Pair with 3 and "left" as pair:`.
+If an argument is itself a call using `and`, group it so the boundary is clear:
+`create new Pair with (abs of -3) and "left" as pair:`.
 The `as <name>:` property block and closing `end` are required, even when the
 block is empty. `create new Counter as counter: ... end` remains valid and does
 not call `initialize` automatically. An inherited `initialize` works; a child
