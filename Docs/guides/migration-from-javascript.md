@@ -190,6 +190,11 @@ end
 alice.greet()
 ```
 
+Inside an action, read a property by its name (`name`), as the example does.
+To call another action of the same object, write `this.other_action()`, just
+as you would in JavaScript; see
+[Calling Other Actions with `this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
+
 ## Async/Await
 
 **JavaScript:**
