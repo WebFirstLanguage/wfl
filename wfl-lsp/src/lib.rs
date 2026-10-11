@@ -937,6 +937,59 @@ impl LanguageServer for WflLanguageServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower_lsp::LspService;
+
+    const CONTAINER_DEFS: &str = "create container Parent:\n    action initialize needs first: Number and second: Text:\n    end\nend\ncreate container Child extends Parent:\nend\n";
+
+    fn server() -> LspService<WflLanguageServer> {
+        LspService::new(WflLanguageServer::new).0
+    }
+
+    fn at_line_end(source: &str) -> Position {
+        let line = source.lines().last().unwrap();
+        Position::new(source.lines().count() as u32 - 1, line.encode_utf16().count() as u32)
+    }
+
+    #[test]
+    fn constructor_completion_inserts_valid_source_form() {
+        let service = server();
+        let items = service.inner().collect_completion_items("create ", Position::new(0, 7));
+        let constructor = items.iter().find(|item| item.label == "create new").expect("constructor completion");
+        assert!(constructor.insert_text.as_deref().unwrap().contains(" with "));
+        assert!(constructor.insert_text.as_deref().unwrap().contains(" as "));
+    }
+
+    #[test]
+    fn hover_on_instantiated_type_shows_inherited_initialize() {
+        let service = server();
+        let source = format!("{CONTAINER_DEFS}create new Child with 3 and \"x\" as child:\nend\n");
+        let hover = service.inner().get_hover_info(&source, Position::new(6, 12)).expect("constructor hover");
+        assert!(hover.contains("initialize"), "{hover}");
+        assert!(hover.contains("first: Number"), "{hover}");
+        assert!(hover.contains("second: Text"), "{hover}");
+    }
+
+    #[test]
+    fn signature_help_survives_unfinished_clause_and_tracks_arguments() {
+        let service = server();
+        for (line, active) in [
+            ("create new Child with ", 0),
+            ("create new Child with 3 and ", 1),
+            ("create new Child with \"a and b\" and ", 1),
+        ] {
+            let source = format!("{CONTAINER_DEFS}{line}");
+            let help = service.inner().get_constructor_signature_help(&source, at_line_end(&source)).expect("signature help");
+            assert_eq!(help.active_parameter, Some(active), "{line}");
+            assert!(help.signatures[0].label.contains("initialize(first: Number, second: Text)"));
+        }
+    }
+
+    #[test]
+    fn signature_help_is_absent_outside_constructor_arguments() {
+        let service = server();
+        let source = format!("{CONTAINER_DEFS}display \"and as\"");
+        assert!(service.inner().get_constructor_signature_help(&source, at_line_end(&source)).is_none());
+    }
 
     #[test]
     fn test_byte_offset_for_utf16_col_ascii() {
