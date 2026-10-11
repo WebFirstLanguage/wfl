@@ -1148,6 +1148,7 @@ mod tests {
             ("create new Child with ", 0),
             ("create new Child with 3 and ", 1),
             ("create new Child with \"a and b\" and ", 1),
+            ("create new Child with \"a\" with \"b\" and ", 1),
         ] {
             let source = format!("{CONTAINER_DEFS}{line}");
             let help = service
@@ -1161,6 +1162,18 @@ mod tests {
                     .contains("initialize(first: Number, second: Text)")
             );
         }
+    }
+
+    #[test]
+    fn constructor_help_works_inside_an_open_action() {
+        let service = server();
+        let unfinished = format!("{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and ");
+        let help = service.inner().get_constructor_signature_help(&unfinished, at_line_end(&unfinished)).expect("nested signature help");
+        assert_eq!(help.active_parameter, Some(1));
+
+        let complete = format!("{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and \"x\" as child:\n    end\nend action\n");
+        let hover = service.inner().get_hover_info(&complete, Position::new(7, 16)).expect("nested constructor hover");
+        assert!(hover.contains("initialize(first: Number, second: Text)"), "{hover}");
     }
 
     #[test]
