@@ -41,8 +41,15 @@ fn run(source: &str) -> (Option<i32>, String, String) {
 #[test]
 fn parser_keeps_arguments_and_property_body() {
     let source = "create new K with 3 and 4 as k:\n    value is 0\nend\n";
-    let program = Parser::new(&lex_wfl_with_positions(source)).parse().unwrap();
-    let Statement::ContainerInstantiation { arguments, property_initializers, .. } = &program.statements[0] else {
+    let program = Parser::new(&lex_wfl_with_positions(source))
+        .parse()
+        .unwrap();
+    let Statement::ContainerInstantiation {
+        arguments,
+        property_initializers,
+        ..
+    } = &program.statements[0]
+    else {
         panic!("expected instantiation")
     };
     assert_eq!(arguments.len(), 2);
@@ -60,7 +67,9 @@ fn constructor_runs_after_property_body_with_this() {
 #[test]
 fn text_argument_containing_and_as_stays_one_argument() {
     let source = "create new K with \"a and b as c\" as k:\nend\n";
-    let program = Parser::new(&lex_wfl_with_positions(source)).parse().unwrap();
+    let program = Parser::new(&lex_wfl_with_positions(source))
+        .parse()
+        .unwrap();
     let Statement::ContainerInstantiation { arguments, .. } = &program.statements[0] else {
         panic!("expected instantiation")
     };
@@ -70,7 +79,8 @@ fn text_argument_containing_and_as_stays_one_argument() {
 #[test]
 fn existing_form_has_no_arguments() {
     let program = Parser::new(&lex_wfl_with_positions("create new K as k:\nend\n"))
-        .parse().unwrap();
+        .parse()
+        .unwrap();
     let Statement::ContainerInstantiation { arguments, .. } = &program.statements[0] else {
         panic!("expected instantiation")
     };
@@ -79,9 +89,28 @@ fn existing_form_has_no_arguments() {
 
 #[test]
 fn named_constructor_arguments_are_rejected() {
-    let error = Parser::new(&lex_wfl_with_positions("create new K with amount: 3 as k:\nend\n"))
-        .parse().unwrap_err();
+    let error = Parser::new(&lex_wfl_with_positions(
+        "create new K with amount: 3 as k:\nend\n",
+    ))
+    .parse()
+    .unwrap_err();
     assert!(format!("{error:?}").contains("positional"), "{error:?}");
+}
+
+#[test]
+fn misplaced_constructor_arguments_are_rejected_with_guidance() {
+    let error = Parser::new(&lex_wfl_with_positions("create new K as k with 3:\nend\n"))
+        .parse()
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("before 'as'"), "{error:?}");
+}
+
+#[test]
+fn parenthesized_constructor_arguments_are_rejected() {
+    let error = Parser::new(&lex_wfl_with_positions("create new K(3) as k:\nend\n"))
+        .parse()
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("'as'"), "{error:?}");
 }
 
 #[test]
