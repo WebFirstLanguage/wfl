@@ -4,6 +4,7 @@ use std::{fs, process::Command};
 use tempfile::TempDir;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::{Parser, ast::Statement};
+use wfl::typechecker::TypeChecker;
 
 const CONSTRUCTOR: &str = r#"create container K:
     property value: Number
@@ -36,6 +37,15 @@ fn run(source: &str) -> (Option<i32>, String, String) {
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
+}
+
+fn type_errors(source: &str) -> Vec<String> {
+    let program = Parser::new(&lex_wfl_with_positions(source)).parse().unwrap();
+    TypeChecker::new()
+        .check_types(&program)
+        .err()
+        .map(|error| error.into_diagnostics().into_iter().map(|d| d.message).collect())
+        .unwrap_or_default()
 }
 
 #[test]
@@ -129,4 +139,74 @@ display k.buf
     let (status, out, err) = run(source);
     assert_eq!(status, Some(0), "{out}\n{err}");
     assert!(out.contains("ab"), "{out}\n{err}");
+}
+
+#[test]
+fn inherited_initialize_is_checked_and_runs() {
+    let source = r#"create container Parent:
+    property value: Number
+    action initialize needs amount: Number:
+        change value to amount
+    end
+end
+create container Child extends Parent:
+end
+create new Child with 7 as child:
+    value is 0
+end
+display child.value
+"#;
+    assert!(type_errors(source).is_empty(), "{:?}", type_errors(source));
+    let (status, out, err) = run(source);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(out.contains('7'), "{out}\n{err}");
+}
+
+#[test]
+fn child_override_wins_over_parent_signature_and_dispatch() {
+    let source = r#"create container Parent:
+    property value: Number
+    action initialize needs label: Text:
+        change value to 99
+    end
+end
+create container Child extends Parent:
+    action initialize needs amount: Number:
+        change value to amount times 2
+    end
+end
+create new Child with 4 as child:
+    value is 0
+end
+display child.value
+"#;
+    assert!(type_errors(source).is_empty(), "{:?}", type_errors(source));
+    let (status, out, err) = run(source);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(out.contains('8'), "{out}\n{err}");
+}
+
+#[test]
+fn missing_initialize_names_container_and_action() {
+    let errors = type_errors("create container K:\nend\ncreate new K with 3 as k:\nend\n");
+    assert!(errors.iter().any(|e| e.contains("K") && e.contains("initialize")), "{errors:?}");
+}
+
+#[test]
+fn wrong_constructor_count_and_type_name_container_and_action() {
+    let definition = "create container K:\n    action initialize needs amount: Number:\n    end\nend\n";
+    for (creation, needle) in [
+        ("create new K with 3 and 4 as k:\nend\n", "expects 1 arguments"),
+        ("create new K with \"bad\" as k:\nend\n", "expects Number"),
+    ] {
+        let errors = type_errors(&format!("{definition}{creation}"));
+        assert!(errors.iter().any(|e| e.contains("K") && e.contains("initialize") && e.contains(needle)), "{errors:?}");
+    }
+}
+
+#[test]
+fn unresolved_parent_does_not_claim_initialize_is_missing() {
+    let source = "create container Child extends IncludedParent:\nend\ncreate new Child with 3 as child:\nend\n";
+    let errors = type_errors(source);
+    assert!(!errors.iter().any(|e| e.contains("no direct initialize")), "{errors:?}");
 }
