@@ -10742,8 +10742,12 @@ impl Interpreter {
                         }
                     };
 
-                    // Check if the container has an "initialize" method
-                    if let Some(init_method) = container_def.methods.get("initialize") {
+                    // Find `initialize` the way `obj.initialize(...)` does:
+                    // on the container itself, else through its `extends`
+                    // chain, so a child's override wins over its parent's.
+                    if let Some(init_method) =
+                        Self::resolve_instance_method(&env, container_def, "initialize")
+                    {
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
@@ -10761,7 +10765,7 @@ impl Interpreter {
                         };
                         self.invoke_instance_action(
                             instance_rc,
-                            init_method,
+                            &init_method,
                             arg_values,
                             &env,
                             *line,
@@ -14757,30 +14761,7 @@ impl Interpreter {
                     };
 
                     // Look up the method (with inheritance support)
-                    let mut found_method = container_def.methods.get(method).cloned();
-                    let mut current_container_name = container_type.clone();
-
-                    // If method not found, check parent containers
-                    while found_method.is_none() {
-                        if let Some(Value::ContainerDefinition(def)) =
-                            env.borrow().get(&current_container_name)
-                        {
-                            if let Some(parent_name) = &def.extends {
-                                current_container_name = parent_name.clone();
-                                if let Some(Value::ContainerDefinition(parent_def)) =
-                                    env.borrow().get(parent_name)
-                                {
-                                    found_method = parent_def.methods.get(method).cloned();
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
+                    let found_method = Self::resolve_instance_method(&env, container_def, method);
 
                     if let Some(method_val) = found_method {
                         // Evaluate the arguments first, in the caller's scope:
@@ -16472,6 +16453,26 @@ impl Interpreter {
             let value = definition.static_properties.borrow().get(member).cloned();
             if value.is_some() {
                 return value;
+            }
+            let parent_name = definition.extends.as_ref()?.clone();
+            definition = match env.borrow().get(&parent_name) {
+                Some(Value::ContainerDefinition(parent)) => parent,
+                _ => return None,
+            };
+        }
+    }
+
+    /// Find instance action `member` on `definition`, else on the nearest
+    /// container up its `extends` chain that declares it. A child's action
+    /// therefore overrides its parent's.
+    fn resolve_instance_method(
+        env: &Rc<RefCell<Environment>>,
+        mut definition: Rc<ContainerDefinitionValue>,
+        member: &str,
+    ) -> Option<ContainerMethodValue> {
+        loop {
+            if let Some(method) = definition.methods.get(member).cloned() {
+                return Some(method);
             }
             let parent_name = definition.extends.as_ref()?.clone();
             definition = match env.borrow().get(&parent_name) {
