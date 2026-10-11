@@ -150,6 +150,29 @@ display k.buf
 }
 
 #[test]
+fn concatenation_does_not_swallow_the_next_constructor_argument() {
+    let source = r#"create container K:
+    property buf: text
+    action initialize needs first: text, second: text:
+        change buf to first with second
+    end
+end
+create new K with "a" with "b" and "c" as k:
+    buf is ""
+end
+display k.buf
+"#;
+    let program = Parser::new(&lex_wfl_with_positions(source)).parse().unwrap();
+    let Statement::ContainerInstantiation { arguments, .. } = &program.statements[1] else {
+        panic!("expected instantiation")
+    };
+    assert_eq!(arguments.len(), 2);
+    let (status, out, err) = run(source);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(out.contains("abc"), "{out}\n{err}");
+}
+
+#[test]
 fn inherited_initialize_is_checked_and_runs() {
     let source = r#"create container Parent:
     property value: Number
@@ -231,7 +254,7 @@ fn unresolved_parent_does_not_claim_initialize_is_missing() {
     let source = "create container Child extends IncludedParent:\nend\ncreate new Child with 3 as child:\nend\n";
     let errors = type_errors(source);
     assert!(
-        !errors.iter().any(|e| e.contains("no direct initialize")),
+        !errors.iter().any(|e| e.contains("has no initialize method")),
         "{errors:?}"
     );
 }
