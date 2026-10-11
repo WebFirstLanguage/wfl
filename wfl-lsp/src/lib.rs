@@ -474,14 +474,20 @@ impl WflLanguageServer {
     ) -> Option<MethodInfo> {
         // A constructor header can be incomplete while the user is typing.
         // Definitions on earlier lines are complete and can be analyzed normally.
-        let definitions = document_text
+        let mut definitions = document_text
             .lines()
             .take(line as usize)
             .collect::<Vec<_>>()
             .join("\n");
-        let program = Parser::new(&lex_wfl_with_positions(&definitions))
-            .parse()
-            .ok()?;
+        let program = loop {
+            if let Ok(program) = Parser::new(&lex_wfl_with_positions(&definitions)).parse() {
+                break program;
+            }
+            // The current constructor may be inside an unfinished action or
+            // conditional. Peel that incomplete suffix back to the nearest
+            // complete prefix so earlier container definitions stay usable.
+            definitions.truncate(definitions.rfind('\n')?);
+        };
         let mut analyzer = Analyzer::new();
         let _ = analyzer.analyze(&program);
         let mut current = Some(container_name.to_string());
@@ -1167,13 +1173,25 @@ mod tests {
     #[test]
     fn constructor_help_works_inside_an_open_action() {
         let service = server();
-        let unfinished = format!("{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and ");
-        let help = service.inner().get_constructor_signature_help(&unfinished, at_line_end(&unfinished)).expect("nested signature help");
+        let unfinished =
+            format!("{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and ");
+        let help = service
+            .inner()
+            .get_constructor_signature_help(&unfinished, at_line_end(&unfinished))
+            .expect("nested signature help");
         assert_eq!(help.active_parameter, Some(1));
 
-        let complete = format!("{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and \"x\" as child:\n    end\nend action\n");
-        let hover = service.inner().get_hover_info(&complete, Position::new(7, 16)).expect("nested constructor hover");
-        assert!(hover.contains("initialize(first: Number, second: Text)"), "{hover}");
+        let complete = format!(
+            "{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and \"x\" as child:\n    end\nend action\n"
+        );
+        let hover = service
+            .inner()
+            .get_hover_info(&complete, Position::new(7, 16))
+            .expect("nested constructor hover");
+        assert!(
+            hover.contains("initialize(first: Number, second: Text)"),
+            "{hover}"
+        );
     }
 
     #[test]
