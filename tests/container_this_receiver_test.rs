@@ -998,26 +998,15 @@ display "buf=[" with m.buf with "]"
 /// (an instantiation that carries constructor arguments) must run with its
 /// object, like any other action. The parser does not produce constructor
 /// arguments today, so the test adds them to the parsed AST directly.
-#[tokio::test]
-async fn initialize_called_with_constructor_arguments_binds_this() {
+/// Build the program, add `argument` as a constructor argument to its one
+/// `create new ... as k` statement, run it with the real interpreter, and
+/// return `k.v`. The parser cannot produce constructor arguments yet, so the
+/// tests insert them into the AST directly.
+async fn constructor_path_v(source: &str, argument: i64) -> wfl::interpreter::value::Value {
     use wfl::interpreter::Interpreter;
     use wfl::interpreter::value::Value;
     use wfl::parser::ast::{Argument, Expression, Literal, Statement};
 
-    let source = r#"create container K:
-    property v: Number
-    action configure:
-        change v to v times 2
-    end
-    action initialize needs initial: Number:
-        change v to initial
-        this.configure()
-    end
-end
-create new K as k:
-    v is 1
-end
-"#;
     // The static layers already accept `this` in `initialize`.
     assert_eq!(semantic_errors(source), Vec::<String>::new());
     assert_eq!(type_errors(source), Vec::<String>::new());
@@ -1034,7 +1023,7 @@ end
         {
             arguments.push(Argument {
                 name: None,
-                value: Expression::Literal(Literal::Integer(3), *line, *column),
+                value: Expression::Literal(Literal::Integer(argument), *line, *column),
             });
             instantiations += 1;
         }
@@ -1050,9 +1039,89 @@ end
     let Some(Value::ContainerInstance(k)) = interpreter.global_env().borrow().get("k") else {
         panic!("`k` should be an object");
     };
+    let v = k.borrow().properties.get("v").cloned();
+    v.expect("`k` should have a property `v`")
+}
+
+#[tokio::test]
+async fn initialize_called_with_constructor_arguments_binds_this() {
+    let source = r#"create container K:
+    property v: Number
+    action configure:
+        change v to v times 2
+    end
+    action initialize needs initial: Number:
+        change v to initial
+        this.configure()
+    end
+end
+create new K as k:
+    v is 1
+end
+"#;
     assert_eq!(
-        k.borrow().properties.get("v"),
-        Some(&Value::Number(6.0)),
+        constructor_path_v(source, 3).await,
+        wfl::interpreter::value::Value::Number(6.0),
         "initialize must set v to 3 and this.configure() must double it"
+    );
+}
+
+#[tokio::test]
+async fn constructor_arguments_reach_an_inherited_initialize() {
+    // `initialize` is declared only on the parent. `c.initialize(3)` finds it
+    // through `extends`, so the constructor path must find it too.
+    let source = r#"create container P:
+    property v: Number
+    action configure:
+        change v to v times 2
+    end
+    action initialize needs initial: Number:
+        change v to initial
+        this.configure()
+    end
+end
+create container C extends P:
+    property tag: Text
+end
+create new C as k:
+    v is 1
+end
+"#;
+    assert_eq!(
+        constructor_path_v(source, 3).await,
+        wfl::interpreter::value::Value::Number(6.0),
+        "the parent's initialize must set v to 3 and this.configure() must double it"
+    );
+}
+
+#[tokio::test]
+async fn constructor_arguments_reach_the_subclass_initialize_override() {
+    // Both containers declare `initialize`. The child's override must win,
+    // as it does for `k.initialize(3)`: (3 + 100) * 2 = 206. The parent's
+    // version would give 6.
+    let source = r#"create container P:
+    property v: Number
+    action configure:
+        change v to v times 2
+    end
+    action initialize needs initial: Number:
+        change v to initial
+        this.configure()
+    end
+end
+create container C extends P:
+    action initialize needs initial: Number:
+        change v to initial plus 100
+        this.configure()
+    end
+end
+create new C as k:
+    v is 1
+end
+"#;
+    assert_eq!(
+        constructor_path_v(source, 3).await,
+        wfl::interpreter::value::Value::Number(206.0),
+        "the child's initialize must run, not the parent's"
     );
 }
