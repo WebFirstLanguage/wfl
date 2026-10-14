@@ -1126,6 +1126,11 @@ impl Analyzer {
             Statement::ExpressionStatement { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
+            Statement::ContainerInstantiation { arguments, .. } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+            }
             Statement::WriteFileStatement { content, file, .. } => {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);

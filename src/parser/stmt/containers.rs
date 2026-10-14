@@ -416,7 +416,7 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         {
             self.bump_sync(); // Consume 'with'
             self.constructor_arguments = true;
-            let parsed = self.parse_argument_list_stopping_at_clause();
+            let parsed = self.parse_argument_list();
             self.constructor_arguments = false;
             let arguments = parsed?;
             if arguments.iter().any(|argument| argument.name.is_some()) {

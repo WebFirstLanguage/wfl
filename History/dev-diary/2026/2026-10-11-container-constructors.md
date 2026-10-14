@@ -22,3 +22,10 @@ The executable example is `TestPrograms/containers/constructor_arguments.wfl`.
 It asserts that `initialize(3)` can call `this.configure()` and leaves the
 property value at 6. Focused Rust tests cover parsing, runtime, inherited and
 overridden signatures, diagnostics, and LSP behavior.
+
+Review follow-up (October 14): constructor arguments now use the ordinary
+argument boundary, so variables named `headers` or `content_type` and text
+concatenation ending in `with headers` parse correctly. Constructor hover is
+limited to the type token's source span, and the unused-variable check counts
+references inside constructor arguments. Each regression has a test-only red
+commit before its fix.

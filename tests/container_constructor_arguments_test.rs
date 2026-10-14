@@ -107,7 +107,10 @@ fn constructor_arguments_accept_streaming_clause_names() {
         let Statement::ContainerInstantiation { arguments, .. } = &program.statements[0] else {
             panic!("expected instantiation")
         };
-        assert_eq!(arguments.len(), if source.contains(" and ") { 2 } else { 1 });
+        assert_eq!(
+            arguments.len(),
+            if source.contains(" and ") { 2 } else { 1 }
+        );
     }
 }
 

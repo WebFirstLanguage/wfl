@@ -574,7 +574,7 @@ impl WflLanguageServer {
 
     fn get_constructor_hover(&self, document_text: &str, position: Position) -> Option<String> {
         let line = document_text.lines().nth(position.line as usize)?;
-        let word = self.get_word_at_position(document_text, position)?;
+        let byte_pos = byte_offset_for_utf16_col(line, position.character);
         let tokens = lex_wfl_with_positions(line);
         let [create, new, container, ..] = tokens.as_slice() else {
             return None;
@@ -585,7 +585,7 @@ impl WflLanguageServer {
         let Token::Identifier(container_name) = &container.token else {
             return None;
         };
-        if word != *container_name {
+        if !(container.byte_start..container.byte_end).contains(&byte_pos) {
             return None;
         }
         let method = self.constructor_method(document_text, position.line, container_name)?;
