@@ -95,6 +95,23 @@ fn text_argument_containing_and_as_stays_one_argument() {
 }
 
 #[test]
+fn constructor_arguments_accept_streaming_clause_names() {
+    for source in [
+        "create new K with 1 and headers as k:\nend\n",
+        "create new K with 1 and content_type as k:\nend\n",
+        "create new K with \"a\" with headers as k:\nend\n",
+    ] {
+        let program = Parser::new(&lex_wfl_with_positions(source))
+            .parse()
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+        let Statement::ContainerInstantiation { arguments, .. } = &program.statements[0] else {
+            panic!("expected instantiation")
+        };
+        assert_eq!(arguments.len(), if source.contains(" and ") { 2 } else { 1 });
+    }
+}
+
+#[test]
 fn existing_form_has_no_arguments() {
     let program = Parser::new(&lex_wfl_with_positions("create new K as k:\nend\n"))
         .parse()

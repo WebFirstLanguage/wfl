@@ -1148,6 +1148,20 @@ mod tests {
     }
 
     #[test]
+    fn constructor_hover_only_matches_type_token() {
+        let service = server();
+        let source = format!("{CONTAINER_DEFS}create new Child with \"Child\" as child:\nend\n");
+        let type_hover = service
+            .inner()
+            .get_constructor_hover(&source, Position::new(6, 12));
+        assert!(type_hover.unwrap().contains("initialize"));
+        let argument_hover = service
+            .inner()
+            .get_constructor_hover(&source, Position::new(6, 25));
+        assert!(argument_hover.is_none(), "{argument_hover:?}");
+    }
+
+    #[test]
     fn signature_help_survives_unfinished_clause_and_tracks_arguments() {
         let service = server();
         for (line, active) in [

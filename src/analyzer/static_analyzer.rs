@@ -2314,6 +2314,16 @@ mod tests {
     }
 
     #[test]
+    fn constructor_argument_variables_are_used() {
+        let input = "store headers as 1\nstore suffix as \"h\"\nstore dead as 0\ncreate new K with headers and \"a\" with suffix as k:\nend\n";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+        let diagnostics = Analyzer::new().check_unused_variables(&program, 0);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("dead"));
+    }
+
+    #[test]
     fn test_tls_operands_are_used_but_unreferenced_variables_remain_unused() {
         let input = r#"
 store default_cert as "default.pem"
