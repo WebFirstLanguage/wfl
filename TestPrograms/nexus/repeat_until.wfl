@@ -1,0 +1,27 @@
+// Converted from the remaining unique probe in `experiments/nexus/nexus.wfl`
+// (issue #668): `repeat until` runs the body first, then stops when the
+// condition becomes true. The 1-through-5 sum alone cannot tell body-first
+// from a prechecked loop, so an already-true condition pins that the body
+// still runs exactly once.
+store count3 as 1
+store sum_repeat as 0
+repeat until count3 is greater than 5:
+    change sum_repeat to sum_repeat plus count3
+    change count3 to count3 plus 1
+end repeat
+
+store entered as 0
+store already_done as 10
+repeat until already_done is greater than 5:
+    change entered to entered plus 1
+end repeat
+
+describe "repeat until":
+    test "body-first loop sums 1 through 5":
+        expect sum_repeat to equal 15
+    end test
+
+    test "already-true condition still runs the body once":
+        expect entered to equal 1
+    end test
+end describe

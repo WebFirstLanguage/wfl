@@ -2747,7 +2747,7 @@ impl TypeChecker {
             // Core functions
             "typeof" | "type_of" => Type::Text,
             "isnothing" | "is_nothing" => Type::Boolean,
-            "raise_error" => Type::Nothing,
+            "raise_error" | "print_error" => Type::Nothing,
             "print" | "write_stdout" | "sleep" | "foreach" => Type::Nothing, // Void functions
 
             // Math functions
@@ -8297,6 +8297,23 @@ impl TypeChecker {
                             *line,
                             *column,
                         );
+                    }
+
+                    // `path of req` is a request-object property read, not a
+                    // call. After `wait for request` the analyzer's leftover
+                    // scope binds `path` as Text, so inferring the callee as
+                    // a function warns `Cannot call Text`. Callable names
+                    // already returned above; a non-function request field
+                    // keeps the field's type (issue #647).
+                    if arguments.len() == 1
+                        && let Some(property_type) = Analyzer::request_object_property_type(callee)
+                        && !self.analyzer.get_symbol(callee).is_some_and(|symbol| {
+                            matches!(symbol.kind, SymbolKind::Function { .. })
+                        })
+                        && !self.is_callable_without_symbol(callee)
+                    {
+                        self.infer_expression_type(&arguments[0].value);
+                        return property_type;
                     }
                 }
 

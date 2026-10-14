@@ -46,7 +46,7 @@ the handle (cancelling the upstream) on EOF/error/close/teardown.
 Shipped as designed below. Surface: `start streaming response to <req> [with
 status <e>] [and content type <e>] [and headers <e>] as <out>`, `write
 line|chunk <value> to <out>`, `flush <out>`, `close <out>`. See
-`tests/http_server_streaming_test.rs` and the web-servers guide's "Streaming a
+`tests/suite/http_server_streaming_test.rs` and the web-servers guide's "Streaming a
 response" section. The original design (kept for reference):
 
 ## Item 3 — Streamed server responses (design)

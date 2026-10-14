@@ -1,0 +1,33 @@
+// Converted from the remaining unique probe in
+// `experiments/syntax/pattern_kitchen_sink.wfl` (issue #669):
+// `exactly 3 digits` then `3 to 4 digits` then `exactly 3 digits` (plural
+// class names after a numeric range). Matching is unanchored, so a longer
+// digit run can still contain a match.
+
+create pattern id_number:
+    exactly 3 digits
+    then "-"
+    then 3 to 4 digits
+    then "-"
+    then exactly 3 digits
+end pattern
+
+describe "plural digit ranges from the kitchen sink":
+
+    test "three then three then three digits match":
+        expect "123-456-789" matches id_number to be yes
+    end test
+
+    test "three then four then three digits match":
+        expect "123-4567-890" matches id_number to be yes
+    end test
+
+    test "groups that are too short do not match":
+        expect "12-34-56" matches id_number to be no
+    end test
+
+    test "the kitchen-sink id still matches as a substring":
+        expect "1234-567-8901" matches id_number to be yes
+    end test
+
+end describe

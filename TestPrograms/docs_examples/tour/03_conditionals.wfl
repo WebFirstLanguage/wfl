@@ -1,12 +1,10 @@
-// 03 - Conditionals use nested blocks (otherwise: check if ...).
+// 03 - Conditionals: flat otherwise check if chains share one end check.
 store score as 82
 
 check if score is greater than or equal to 90:
     display "Grade: A"
+otherwise check if score is greater than or equal to 80:
+    display "Grade: B"
 otherwise:
-    check if score is greater than or equal to 80:
-        display "Grade: B"
-    otherwise:
-        display "Grade: C or below"
-    end check
+    display "Grade: C or below"
 end check

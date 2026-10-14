@@ -1,3 +1,6 @@
+//! Stays a separate integration binary (#693): the no-read absolute-cap proof
+//! asserts a 700ms–3s elapsed window around a 1s lifetime.
+//!
 //! Real-socket regression (maintainer re-review, P1): `outbound_stream_max_seconds`
 //! must be a TRUE absolute lifetime enforced in real time — even when the handler
 //! NEVER reads the opened stream.

@@ -8,7 +8,7 @@
 use super::PatternError;
 use super::instruction::{Instruction, Program};
 use crate::exec::budget::{BudgetExceeded, ExecutionBudget, PatternMeter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Translate a per-match meter breach into the pattern VM's error type.
@@ -18,6 +18,29 @@ use std::sync::Arc;
 /// `main loop`) — the wall-clock deadline. A deadline breach is mapped to the
 /// timeout variant (so it surfaces as the historic `[Timeout]` error), not the
 /// step-limit error.
+fn matching_end_pc(
+    program: &Program,
+    begin_pc: usize,
+    is_begin: impl Fn(&Instruction) -> bool,
+    is_end: impl Fn(&Instruction) -> bool,
+) -> Option<usize> {
+    let mut end_pc = begin_pc + 1;
+    let mut depth = 1;
+    while depth > 0 && end_pc < program.instructions.len() {
+        let inst = &program.instructions[end_pc];
+        if is_begin(inst) {
+            depth += 1;
+        } else if is_end(inst) {
+            depth -= 1;
+        }
+        if depth == 0 {
+            return Some(end_pc);
+        }
+        end_pc += 1;
+    }
+    None
+}
+
 fn budget_to_pattern_error(exceeded: BudgetExceeded) -> PatternError {
     match exceeded {
         BudgetExceeded::PatternStates { .. } => PatternError::StateLimitExceeded,
@@ -127,6 +150,26 @@ impl MatchResult {
     }
 }
 
+fn match_result_from_state(
+    start_pos: usize,
+    final_state: &VMState,
+    chars: &[char],
+    capture_names: &[String],
+) -> MatchResult {
+    let mut captures: HashMap<String, String> = HashMap::new();
+    for (i, name) in capture_names.iter().enumerate() {
+        if let Some((start, end)) = final_state.captures[i] {
+            let captured_text: String = if start <= end && end <= chars.len() {
+                chars[start..end].iter().collect()
+            } else {
+                String::new()
+            };
+            captures.insert(name.clone(), captured_text);
+        }
+    }
+    MatchResult::from_chars(start_pos, final_state.pos, chars, captures)
+}
+
 /// Virtual machine state for pattern execution
 #[derive(Debug, Clone)]
 struct VMState {
@@ -134,6 +177,17 @@ struct VMState {
     pos: usize,                            // Current position in input text
     captures: Vec<Option<(usize, usize)>>, // Capture group start/end positions
     saves: Vec<usize>,                     // Saved positions for backtracking
+    /// Last input position at which *this thread* executed each `Split`.
+    /// Re-entering the same `Split` at the same `pos` is a zero-width
+    /// quantifier iteration; take the exit branch instead of looping.
+    /// Per-thread (cloned on `Split`) so another thread at the same
+    /// `(pc, pos)` is not pruned — that cross-thread `(pc, pos)` visited
+    /// set is not priority-safe in this VM.
+    split_pos: Vec<(usize, usize)>,
+    /// How far this thread has matched inside a multi-char `Literal`.
+    /// Literals advance one character per lockstep position so the
+    /// thread list order stays the priority order.
+    lit_offset: usize,
 }
 
 impl VMState {
@@ -143,8 +197,30 @@ impl VMState {
             pos: 0,
             captures: vec![None; num_captures],
             saves: vec![0; num_saves],
+            split_pos: Vec::new(),
+            lit_offset: 0,
         }
     }
+}
+
+struct PikeAdd<'a> {
+    program: &'a Program,
+    chars: &'a [char],
+    seed: VMState,
+    pos: usize,
+    clist: &'a mut Vec<VMState>,
+    seen: &'a mut HashSet<(usize, usize)>,
+}
+
+fn pike_dedup_here(inst: &Instruction) -> bool {
+    matches!(
+        inst,
+        Instruction::Split(_, _, _)
+            | Instruction::Char(_)
+            | Instruction::CharClass(_)
+            | Instruction::Literal(_)
+            | Instruction::Match
+    )
 }
 
 /// Pattern matching virtual machine.
@@ -279,7 +355,9 @@ impl PatternVM {
         self.meter.charge_step().map_err(budget_to_pattern_error)?;
         let chars: Vec<char> = text.chars().collect();
         // Try matching at each character position in the text.
+        // Charge each start so a quadratic start-scan cannot run unmetered.
         for start_pos in 0..=chars.len() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if self.execute_at_position(program, &chars, start_pos)? {
                 return Ok(true);
             }
@@ -300,7 +378,9 @@ impl PatternVM {
         self.meter.charge_step().map_err(budget_to_pattern_error)?;
         let chars: Vec<char> = text.chars().collect();
         // Try matching at each character position in the text.
+        // Charge each start so a quadratic start-scan cannot run unmetered.
         for start_pos in 0..=chars.len() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if let Some(result) =
                 self.find_at_position(program, &chars, start_pos, capture_names)?
             {
@@ -326,6 +406,7 @@ impl PatternVM {
         let mut pos = 0;
 
         while pos <= chars.len() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
             if let Some(result) = self.find_at_position(program, &chars, pos, capture_names)? {
                 pos = if result.end > result.start {
                     result.end // Move past this match
@@ -396,7 +477,32 @@ impl PatternVM {
         Ok(false)
     }
 
-    /// Find a match starting at a specific position
+    /// Find a match starting at a specific position.
+    ///
+    /// Quantifier extent is Pike-style greedy, not first-to-`Match`. `Split`'s
+    /// first branch is higher priority (the loop-back for `one or more` /
+    /// `zero or more` / `at least N`, and the first arm of `or`).
+    ///
+    /// Backreference-free programs use a lockstep Pike VM: all threads at
+    /// one input position are advanced before the next, and `addthread`
+    /// follows epsilon (`Jump`/`Split`/captures/anchors) in list order
+    /// with a per-position `pc` set. First arrival at a `pc` is then the
+    /// highest-priority thread, so dedup is safe. Dedup keys
+    /// `(pc, lit_offset)` and runs only at `Split` and at
+    /// thread-producing instructions, so a mid-literal thread is not
+    /// dropped by a fresh arrival at the same `pc`, and an empty
+    /// iteration can still reach its loop `Split` through `Jump`s.
+    /// A start that dies on the first character is `O(program)`. A
+    /// start that consumes a long prefix before failing is
+    /// `O(consumed × program)` — the same class as `main`, because
+    /// each start restarts Pike. Empty quantifier iterations take
+    /// that thread's `Split` exit (left-first) instead of dropping
+    /// the thread.
+    ///
+    /// Programs that contain a `Backreference` keep the no-dedup sweep:
+    /// a thread's future depends on its captures, so `(pc, pos)` alone is
+    /// not a sound key. That path is bounded by the per-match meter and
+    /// the per-thread empty-iteration cutoff in `step`.
     fn find_at_position(
         &mut self,
         program: &Program,
@@ -404,66 +510,389 @@ impl PatternVM {
         start_pos: usize,
         capture_names: &[String],
     ) -> Result<Option<MatchResult>, PatternError> {
+        let best = if program.contains_backreference() {
+            self.find_at_position_backtracking(program, chars, start_pos)?
+        } else {
+            self.find_at_position_pike(program, chars, start_pos)?
+        };
+        Ok(best.map(|final_state| {
+            match_result_from_state(start_pos, &final_state, chars, capture_names)
+        }))
+    }
+
+    fn find_at_position_backtracking(
+        &mut self,
+        program: &Program,
+        chars: &[char],
+        start_pos: usize,
+    ) -> Result<Option<VMState>, PatternError> {
         let initial_state = VMState::new(program.num_captures, program.num_saves);
         let mut states = vec![VMState {
             pos: start_pos,
             ..initial_state
         }];
-        // See `execute_at_position`: one reservation counts all live states
-        // across current + next + nested frontiers, grown/shrunk per generation.
         let mut res = self
             .meter
             .reserve_states(states.len())
             .map_err(budget_to_pattern_error)?;
+
+        let mut best: Option<VMState> = None;
 
         while !states.is_empty() {
             let consumed = states.len();
             let mut next_states = Vec::new();
 
             for state in states {
-                // Transitions are charged inside `step()` (per instruction).
                 match self.step(program, chars, state)? {
                     StepResult::Continue(new_states) => {
-                        // Fail fast on exponential state fan-out.
                         res.grow(new_states.len())
                             .map_err(budget_to_pattern_error)?;
                         next_states.extend(new_states);
                     }
                     StepResult::Match(final_state) => {
-                        // Found a match, construct result with captures
-                        let mut captures: HashMap<String, String> = HashMap::new();
-
-                        // Extract captures from the final state, reusing the
-                        // already-collected character slice (no re-collect).
-                        for (i, name) in capture_names.iter().enumerate() {
-                            if let Some((start, end)) = final_state.captures[i] {
-                                let captured_text: String = if start <= end && end <= chars.len() {
-                                    chars[start..end].iter().collect()
-                                } else {
-                                    String::new()
-                                };
-                                captures.insert(name.clone(), captured_text);
-                            }
-                        }
-
-                        return Ok(Some(MatchResult::from_chars(
-                            start_pos,
-                            final_state.pos,
-                            chars,
-                            captures,
-                        )));
+                        best = Some(final_state);
+                        break;
                     }
-                    StepResult::Fail => {
-                        // This execution path failed, try others
-                    }
+                    StepResult::Fail => {}
                 }
             }
 
-            res.release(consumed); // the previous generation is now consumed
+            res.release(consumed);
             states = next_states;
         }
 
-        Ok(None)
+        Ok(best)
+    }
+
+    /// Lockstep Pike NFA: one input position at a time. Thread-list order
+    /// is priority. `Literal` advances one character per step (`lit_offset`)
+    /// so nothing jumps ahead. Dedup is `(pc, lit_offset)` at `Split` and
+    /// thread-producing instructions only. Empty quantifier iterations
+    /// take the `Split` exit on that thread. Idle positions are not
+    /// visited: the loop stops when no thread remains.
+    fn find_at_position_pike(
+        &mut self,
+        program: &Program,
+        chars: &[char],
+        start_pos: usize,
+    ) -> Result<Option<VMState>, PatternError> {
+        if start_pos > chars.len() {
+            return Ok(None);
+        }
+        let mut clist = Vec::new();
+        let mut nlist = Vec::new();
+        let mut seen = HashSet::new();
+        // Pike live threads are bounded by `(pc, lit_offset)` dedup and the
+        // compile-instruction cap. Do not count them against
+        // `max_pattern_states` — that knob is for the backtracking sweep.
+
+        let mut seed = VMState::new(program.num_captures, program.num_saves);
+        seed.pos = start_pos;
+        self.pike_addthread(PikeAdd {
+            program,
+            chars,
+            seed,
+            pos: start_pos,
+            clist: &mut clist,
+            seen: &mut seen,
+        })?;
+
+        let mut best: Option<VMState> = None;
+        for pos in start_pos..=chars.len() {
+            if clist.is_empty() {
+                break;
+            }
+            seen.clear();
+            nlist.clear();
+            for thread in clist.drain(..) {
+                self.meter.charge_step().map_err(budget_to_pattern_error)?;
+                let Some(inst) = program.get(thread.pc) else {
+                    continue;
+                };
+                match inst {
+                    Instruction::Char(expected) => {
+                        if pos < chars.len() && chars[pos] == *expected {
+                            let mut next = thread;
+                            next.pc += 1;
+                            next.pos = pos + 1;
+                            next.lit_offset = 0;
+                            self.pike_addthread(PikeAdd {
+                                program,
+                                chars,
+                                seed: next,
+                                pos: pos + 1,
+                                clist: &mut nlist,
+                                seen: &mut seen,
+                            })?;
+                        }
+                    }
+                    Instruction::CharClass(class) => {
+                        if pos < chars.len() && class.matches(chars[pos]) {
+                            let mut next = thread;
+                            next.pc += 1;
+                            next.pos = pos + 1;
+                            next.lit_offset = 0;
+                            self.pike_addthread(PikeAdd {
+                                program,
+                                chars,
+                                seed: next,
+                                pos: pos + 1,
+                                clist: &mut nlist,
+                                seen: &mut seen,
+                            })?;
+                        }
+                    }
+                    Instruction::Literal(literal) => {
+                        if let Some(expected) = literal.chars().nth(thread.lit_offset)
+                            && pos < chars.len()
+                            && chars[pos] == expected
+                        {
+                            let mut next = thread;
+                            next.lit_offset += 1;
+                            next.pos = pos + 1;
+                            if next.lit_offset >= literal.chars().count() {
+                                next.pc += 1;
+                                next.lit_offset = 0;
+                            }
+                            self.pike_addthread(PikeAdd {
+                                program,
+                                chars,
+                                seed: next,
+                                pos: pos + 1,
+                                clist: &mut nlist,
+                                seen: &mut seen,
+                            })?;
+                        }
+                    }
+                    Instruction::Match => {
+                        best = Some(thread);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            std::mem::swap(&mut clist, &mut nlist);
+        }
+
+        Ok(best)
+    }
+
+    fn pike_addthread(&mut self, args: PikeAdd<'_>) -> Result<(), PatternError> {
+        let PikeAdd {
+            program,
+            chars,
+            seed,
+            pos,
+            clist,
+            seen,
+        } = args;
+        let mut stack = vec![seed];
+        while let Some(mut state) = stack.pop() {
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
+            if state.pc >= program.instructions.len() {
+                continue;
+            }
+            // Empty quantifier iteration: this thread already entered this
+            // Split at this pos. Take the exit *before* the per-position
+            // visited set would drop the thread and let a lower-priority
+            // arm win.
+            if let Some(Instruction::Split(_, second, _)) = program.get(state.pc)
+                && state
+                    .split_pos
+                    .iter()
+                    .any(|&(pc, at)| pc == state.pc && at == pos)
+            {
+                state.pc = *second;
+                stack.push(state);
+                continue;
+            }
+            // Dedup only at Split and at thread-producing instructions,
+            // keyed by (pc, lit_offset). Jump/capture/anchor pcs stay
+            // open so an empty loop-back can reach its Split.
+            if let Some(inst) = program.get(state.pc)
+                && pike_dedup_here(inst)
+                && !seen.insert((state.pc, state.lit_offset))
+            {
+                continue;
+            }
+            state.pos = pos;
+            match program.get(state.pc) {
+                None => {}
+                Some(Instruction::Jump(target)) => {
+                    state.pc = *target;
+                    stack.push(state);
+                }
+                Some(Instruction::Split(first, second, track_empty)) => {
+                    if *track_empty {
+                        if let Some((_, last_pos)) =
+                            state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
+                        {
+                            *last_pos = pos;
+                        } else {
+                            state.split_pos.push((state.pc, pos));
+                        }
+                    }
+                    let mut later = state.clone();
+                    later.pc = *second;
+                    state.pc = *first;
+                    stack.push(later);
+                    stack.push(state);
+                }
+                Some(Instruction::StartCapture(idx)) => {
+                    if *idx < state.captures.len() {
+                        state.captures[*idx] = Some((pos, pos));
+                    }
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::EndCapture(idx)) => {
+                    if *idx < state.captures.len()
+                        && let Some((start, _)) = state.captures[*idx]
+                    {
+                        state.captures[*idx] = Some((start, pos));
+                    }
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::StartAnchor) => {
+                    if pos == 0 {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(Instruction::EndAnchor) => {
+                    if pos == chars.len() {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(Instruction::Save(slot)) => {
+                    if *slot < state.saves.len() {
+                        state.saves[*slot] = pos;
+                    }
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::Restore(slot)) => {
+                    // Unreachable in compiled programs: the compiler
+                    // never emits `Save` or `Restore`. Kept so a
+                    // hand-built program cannot jump `pos` off this
+                    // lockstep schedule.
+                    if *slot < state.saves.len() {
+                        let restored = state.saves[*slot];
+                        state.pc += 1;
+                        if restored == pos {
+                            stack.push(state);
+                        }
+                    }
+                }
+                Some(Instruction::Fail) => {}
+                Some(Instruction::BeginLookahead) => {
+                    if let Some(end_pc) = matching_end_pc(
+                        program,
+                        state.pc,
+                        |i| matches!(i, Instruction::BeginLookahead),
+                        |i| matches!(i, Instruction::EndLookahead),
+                    ) {
+                        let matched = self
+                            .lookaround_subprogram_matches(program, chars, pos, state.pc, end_pc)?;
+                        if matched {
+                            state.pc = end_pc + 1;
+                            stack.push(state);
+                        }
+                    }
+                }
+                Some(Instruction::BeginNegativeLookahead) => {
+                    if let Some(end_pc) = matching_end_pc(
+                        program,
+                        state.pc,
+                        |i| matches!(i, Instruction::BeginNegativeLookahead),
+                        |i| matches!(i, Instruction::EndNegativeLookahead),
+                    ) {
+                        let matched = self
+                            .lookaround_subprogram_matches(program, chars, pos, state.pc, end_pc)?;
+                        if !matched {
+                            state.pc = end_pc + 1;
+                            stack.push(state);
+                        }
+                    }
+                }
+                Some(Instruction::EndLookahead | Instruction::EndNegativeLookahead) => {
+                    state.pc += 1;
+                    stack.push(state);
+                }
+                Some(Instruction::CheckLookbehind(inner)) => {
+                    if self.lookbehind_holds(inner, chars, pos)? {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(Instruction::CheckNegativeLookbehind(inner)) => {
+                    if !self.lookbehind_holds(inner, chars, pos)? {
+                        state.pc += 1;
+                        stack.push(state);
+                    }
+                }
+                Some(
+                    Instruction::Char(_)
+                    | Instruction::CharClass(_)
+                    | Instruction::Literal(_)
+                    | Instruction::Match
+                    | Instruction::Backreference(_),
+                ) => {
+                    clist.push(state);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn lookaround_subprogram_matches(
+        &mut self,
+        program: &Program,
+        chars: &[char],
+        pos: usize,
+        begin_pc: usize,
+        end_pc: usize,
+    ) -> Result<bool, PatternError> {
+        let mut sub = Program::new();
+        for i in (begin_pc + 1)..end_pc {
+            sub.push(program.instructions[i].clone());
+        }
+        sub.push(Instruction::Match);
+        let mut nested = PatternVM::with_meter(Arc::clone(&self.meter));
+        #[cfg(test)]
+        {
+            nested.debug = self.debug;
+        }
+        nested.execute_at_position(&sub, chars, pos)
+    }
+
+    fn lookbehind_holds(
+        &mut self,
+        lookbehind_program: &Program,
+        chars: &[char],
+        pos: usize,
+    ) -> Result<bool, PatternError> {
+        if pos == 0 {
+            return Ok(false);
+        }
+        let max_lookback = pos.min(1000);
+        for start_offset in 1..=max_lookback {
+            let start_pos = pos - start_offset;
+            let mut lookbehind_vm = PatternVM::with_meter(Arc::clone(&self.meter));
+            let text_slice: String = chars[start_pos..pos].iter().collect();
+            if lookbehind_vm.run_execute(lookbehind_program, &text_slice)? {
+                let matches = lookbehind_vm.run_find_all(lookbehind_program, &text_slice, &[])?;
+                if let Some(first_match) = matches.first()
+                    && first_match.start == 0
+                    && first_match.end == start_offset
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 
     /// Execute one step of the virtual machine.
@@ -542,7 +971,23 @@ impl PatternVM {
                     state.pc = *target;
                 }
 
-                Instruction::Split(first, second) => {
+                Instruction::Split(first, second, _) => {
+                    // Same thread, same Split, same pos: the previous
+                    // iteration matched empty. Take the exit (second) branch
+                    // only — do not loop forever, and do not prune any
+                    // other thread that later arrives at this (pc, pos).
+                    if let Some((_, last_pos)) =
+                        state.split_pos.iter_mut().find(|(pc, _)| *pc == state.pc)
+                    {
+                        if *last_pos == state.pos {
+                            state.pc = *second;
+                            continue;
+                        }
+                        *last_pos = state.pos;
+                    } else {
+                        state.split_pos.push((state.pc, state.pos));
+                    }
+
                     // Create two execution paths
                     let mut state1 = state.clone();
                     let mut state2 = state;
@@ -638,6 +1083,8 @@ impl PatternVM {
                 }
 
                 Instruction::Restore(slot) => {
+                    // Unreachable in compiled programs: the compiler
+                    // never emits `Save` or `Restore`.
                     if *slot < state.saves.len() {
                         state.pos = state.saves[*slot];
                     }
@@ -1015,7 +1462,7 @@ mod tests {
     fn test_split_alternative() {
         // Pattern: 'a' | 'b'
         let mut program = Program::new();
-        program.push(Instruction::Split(1, 3)); // Try 'a' at 1, or 'b' at 3
+        program.push(Instruction::Split(1, 3, false)); // Try 'a' at 1, or 'b' at 3
         program.push(Instruction::Char('a')); // 1
         program.push(Instruction::Jump(4)); // 2: Jump to Match
         program.push(Instruction::Char('b')); // 3
@@ -1176,6 +1623,951 @@ mod unicode_lookbehind_tests {
         assert!(
             matches(&pattern, "cafe!"),
             "absent forbidden window → the negative assertion matches"
+        );
+    }
+}
+
+#[cfg(test)]
+mod quantifier_extent_tests {
+    //! #709: unbounded quantifiers must take the longest run (greedy), matching
+    //! the documented `one or more letter` word-extraction example and the
+    //! already-longest bounded `N to M` form.
+    use crate::exec::budget::{BudgetLimits, ExecutionBudget};
+    use crate::parser::ast::{CharClass, PatternExpression, Quantifier};
+    use crate::pattern::{CompiledPattern, PatternError};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    fn digit_quantified(quantifier: Quantifier) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Digit)),
+            quantifier,
+        }
+    }
+
+    fn letter_quantified(quantifier: Quantifier) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+            quantifier,
+        }
+    }
+
+    fn find_text(pattern: &PatternExpression, text: &str) -> String {
+        CompiledPattern::compile(pattern)
+            .expect("pattern compiles")
+            .find(text)
+            .expect("pattern matches")
+            .matched_text
+    }
+
+    fn find_all_texts(pattern: &PatternExpression, text: &str) -> Vec<String> {
+        CompiledPattern::compile(pattern)
+            .expect("pattern compiles")
+            .find_all(text)
+            .into_iter()
+            .map(|m| m.matched_text)
+            .collect()
+    }
+
+    #[test]
+    fn one_or_more_digit_matches_the_full_run() {
+        // Issue table: first-to-Match currently returns "1" on this input.
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::OneOrMore), "a12345b"),
+            "12345"
+        );
+    }
+
+    #[test]
+    fn zero_or_more_digit_matches_the_full_run_not_empty() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::ZeroOrMore), "12345"),
+            "12345"
+        );
+    }
+
+    #[test]
+    fn at_least_n_digit_keeps_consuming_past_the_minimum() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::AtLeast(2)), "a12345b"),
+            "12345"
+        );
+    }
+
+    #[test]
+    fn bounded_between_still_takes_the_longest_allowed_run() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::Between(2, 4)), "a12345b"),
+            "1234"
+        );
+    }
+
+    #[test]
+    fn exactly_n_keeps_its_fixed_extent() {
+        assert_eq!(
+            find_text(&digit_quantified(Quantifier::Exactly(3)), "a12345b"),
+            "123"
+        );
+    }
+
+    #[test]
+    fn find_all_one_or_more_letter_extracts_words() {
+        // Docs/05-standard-library/pattern-module.md presents this as word
+        // extraction. Current BFS accept-first returns 16 single letters.
+        assert_eq!(
+            find_all_texts(
+                &letter_quantified(Quantifier::OneOrMore),
+                "The quick brown fox"
+            ),
+            vec!["The", "quick", "brown", "fox"]
+        );
+    }
+
+    #[test]
+    fn capture_one_or_more_digit_keeps_the_full_run() {
+        let pattern = PatternExpression::Capture {
+            name: "number".to_string(),
+            pattern: Box::new(digit_quantified(Quantifier::OneOrMore)),
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let found = compiled.find("abc12345").expect("digits are present");
+        assert_eq!(found.matched_text, "12345");
+        assert_eq!(
+            found.captures.get("number").map(String::as_str),
+            Some("12345")
+        );
+    }
+
+    #[test]
+    fn left_first_alternation_is_not_rewritten_to_longest() {
+        // Pike-style greedy must not turn ordered alternation into POSIX
+        // leftmost-longest. `"1" or "12"` on "12" stays the first alternative.
+        let pattern = PatternExpression::Alternative(vec![
+            PatternExpression::Literal("1".to_string()),
+            PatternExpression::Literal("12".to_string()),
+        ]);
+        assert_eq!(find_text(&pattern, "12"), "1");
+    }
+
+    fn find_under_default(
+        pattern: &PatternExpression,
+        text: &str,
+    ) -> Result<Option<crate::pattern::MatchResult>, crate::pattern::PatternError> {
+        let compiled = CompiledPattern::compile(pattern).expect("pattern compiles");
+        compiled.find_with_budget(text, &ExecutionBudget::current_or_default())
+    }
+
+    fn budget_with_pattern_steps(max_pattern_steps: usize) -> Arc<ExecutionBudget> {
+        let mut limits = BudgetLimits::unlimited();
+        limits.max_pattern_steps = max_pattern_steps;
+        limits.max_duration = None;
+        Arc::new(ExecutionBudget::new(limits))
+    }
+
+    fn one_or_more_any() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Any)),
+            quantifier: Quantifier::OneOrMore,
+        }
+    }
+
+    fn one_or_more_whitespace() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::CharacterClass(CharClass::Whitespace)),
+            quantifier: Quantifier::OneOrMore,
+        }
+    }
+
+    fn alt_expensive_then_letter(inner: PatternExpression) -> PatternExpression {
+        PatternExpression::Alternative(vec![
+            PatternExpression::Sequence(vec![inner, PatternExpression::Literal("!".to_string())]),
+            PatternExpression::CharacterClass(CharClass::Letter),
+        ])
+    }
+
+    #[test]
+    fn greedy_unbounded_quantifier_stays_under_a_linear_step_ceiling() {
+        // Failing higher-priority arm (`… then "!"`) must not explode the
+        // frontier: default 5_000_000 / 10_000 ceilings have to return `a`.
+        let text = "a".repeat(64);
+        let pattern = alt_expensive_then_letter(PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::CharacterClass(CharClass::Letter),
+                PatternExpression::CharacterClass(CharClass::Letter),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        });
+        let found = find_under_default(&pattern, &text)
+            .expect("default budget must cover this backreference-free match");
+        let found = found.expect("the letter alternative matches");
+        assert_eq!(found.matched_text, "a");
+    }
+
+    #[test]
+    fn nested_one_or_more_then_bang_or_letter_stays_under_default_budget() {
+        let text = "a".repeat(64);
+        let pattern = alt_expensive_then_letter(PatternExpression::Quantified {
+            pattern: Box::new(letter_quantified(Quantifier::OneOrMore)),
+            quantifier: Quantifier::OneOrMore,
+        });
+        let found = find_under_default(&pattern, &text)
+            .expect("default budget must cover nested one-or-more then bang");
+        assert_eq!(found.expect("letter alternative matches").matched_text, "a");
+    }
+
+    #[test]
+    fn two_letter_runs_then_bang_or_letter_stays_under_default_budget() {
+        let text = "a".repeat(4_000);
+        let pattern = alt_expensive_then_letter(PatternExpression::Sequence(vec![
+            letter_quantified(Quantifier::OneOrMore),
+            letter_quantified(Quantifier::OneOrMore),
+        ]));
+        let found = find_under_default(&pattern, &text)
+            .expect("default budget must cover the quadratic then-bang arm");
+        assert_eq!(found.expect("letter alternative matches").matched_text, "a");
+    }
+
+    #[test]
+    fn oversized_non_match_under_default_budget_returns_none() {
+        let text = "a".repeat(4_000);
+        let found = find_under_default(&digit_quantified(Quantifier::OneOrMore), &text)
+            .expect("oversized non-match must not exhaust the meter");
+        assert!(found.is_none(), "digits do not match a letter run");
+    }
+
+    #[test]
+    fn nested_one_or_more_with_a_shorter_inner_alt_stays_greedy() {
+        // `one or more (one or more letter or letter letter)` on `bb`.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::OneOrMore),
+                PatternExpression::Sequence(vec![
+                    PatternExpression::CharacterClass(CharClass::Letter),
+                    PatternExpression::CharacterClass(CharClass::Letter),
+                ]),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        };
+        assert_eq!(find_text(&pattern, "bb"), "bb");
+    }
+
+    #[test]
+    fn at_least_n_with_an_inner_alternation_stays_greedy() {
+        // `at least 2 (one or more letter or "ab")` on `bab`.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::OneOrMore),
+                PatternExpression::Literal("ab".to_string()),
+            ])),
+            quantifier: Quantifier::AtLeast(2),
+        };
+        assert_eq!(find_text(&pattern, "bab"), "bab");
+    }
+
+    #[test]
+    fn nested_alternation_under_one_or_more_stays_greedy() {
+        // `one or more (("1" or "a1") or "11")` on `11`.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Alternative(vec![
+                    PatternExpression::Literal("1".to_string()),
+                    PatternExpression::Literal("a1".to_string()),
+                ]),
+                PatternExpression::Literal("11".to_string()),
+            ])),
+            quantifier: Quantifier::OneOrMore,
+        };
+        assert_eq!(find_text(&pattern, "11"), "11");
+    }
+
+    #[test]
+    fn backreference_find_agrees_with_matches() {
+        // `("b" or capture {letter} as c) then optional "-" then same as captured "c"`
+        // on `bb`. Deduping by `(pc, pos)` drops the thread that set `c`.
+        let pattern = PatternExpression::Sequence(vec![
+            PatternExpression::Alternative(vec![
+                PatternExpression::Literal("b".to_string()),
+                PatternExpression::Capture {
+                    name: "c".to_string(),
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                },
+            ]),
+            PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("-".to_string())),
+                quantifier: Quantifier::Optional,
+            },
+            PatternExpression::Backreference("c".to_string()),
+        ]);
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        assert!(
+            compiled.matches("bb"),
+            "execute (no visited set) already matches"
+        );
+        let found = compiled
+            .find("bb")
+            .expect("find must keep the capture-setting thread");
+        assert_eq!(found.matched_text, "bb");
+        assert_eq!(found.captures.get("c").map(String::as_str), Some("b"));
+    }
+
+    #[test]
+    fn zero_or_more_empty_literal_finds_empty_without_blowing_the_meter() {
+        // `zero or more ""` — the loop body is nullable, so the greedy
+        // continuation returns to the same Split at the same pos. find must
+        // record the empty match, not spin until the step ceiling.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Literal(String::new())),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let found = compiled
+            .find_with_budget("abc", &ExecutionBudget::current_or_default())
+            .expect("must not hit the step/state ceiling");
+        let found = found.expect("empty literal-star matches at the start");
+        assert_eq!(found.matched_text, "");
+        assert_eq!(found.start, 0);
+        assert_eq!(found.end, 0);
+    }
+
+    #[test]
+    fn zero_or_more_optional_a_on_b_is_empty() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::Optional,
+            }),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let found = find_under_default(&pattern, "b").expect("must not hit the meter");
+        assert_eq!(found.expect("nullable star matches").matched_text, "");
+    }
+
+    #[test]
+    fn zero_or_more_optional_a_on_aab_is_aa() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::Optional,
+            }),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let found = find_under_default(&pattern, "aab").expect("must not hit the meter");
+        assert_eq!(found.expect("nullable star is greedy").matched_text, "aa");
+    }
+
+    #[test]
+    fn one_or_more_of_zero_or_more_digit_terminates() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(digit_quantified(Quantifier::ZeroOrMore)),
+            quantifier: Quantifier::OneOrMore,
+        };
+        let found = find_under_default(&pattern, "x12").expect("must not hit the meter");
+        assert!(found.is_some(), "nullable plus still matches");
+    }
+
+    #[test]
+    fn zero_or_more_letter_or_optional_digit_on_ab1() {
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::CharacterClass(CharClass::Letter),
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Digit)),
+                    quantifier: Quantifier::Optional,
+                },
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let found = find_under_default(&pattern, "ab1-").expect("must not hit the meter");
+        assert_eq!(found.expect("greedy run").matched_text, "ab1");
+    }
+
+    #[test]
+    fn x_then_zero_or_more_of_zero_or_more_letter() {
+        let pattern = PatternExpression::Sequence(vec![
+            PatternExpression::Literal("x".to_string()),
+            PatternExpression::Quantified {
+                pattern: Box::new(letter_quantified(Quantifier::ZeroOrMore)),
+                quantifier: Quantifier::ZeroOrMore,
+            },
+        ]);
+        let found = find_under_default(&pattern, "xab").expect("must not hit the meter");
+        assert_eq!(found.expect("greedy run").matched_text, "xab");
+    }
+
+    #[test]
+    fn zero_or_more_optional_literal_stays_greedy_without_blowing_the_meter() {
+        // `zero or more optional "a"` on `aaa` must consume the run, then stop
+        // when an iteration matches empty.
+        let pattern = PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                quantifier: Quantifier::Optional,
+            }),
+            quantifier: Quantifier::ZeroOrMore,
+        };
+        let compiled = CompiledPattern::compile(&pattern).expect("pattern compiles");
+        let found = compiled
+            .find_with_budget("aaa", &ExecutionBudget::current_or_default())
+            .expect("must not hit the step/state ceiling");
+        let found = found.expect("optional-star matches");
+        assert_eq!(found.matched_text, "aaa");
+    }
+
+    fn with_inert_backref(inner: PatternExpression) -> PatternExpression {
+        PatternExpression::Sequence(vec![
+            PatternExpression::Capture {
+                name: "e".to_string(),
+                pattern: Box::new(PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::Literal("x".to_string())),
+                    quantifier: Quantifier::Optional,
+                }),
+            },
+            inner,
+            PatternExpression::Backreference("e".to_string()),
+        ])
+    }
+
+    fn optional_dash_or_digit_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::Literal("-".to_string())),
+                    quantifier: Quantifier::Optional,
+                },
+                PatternExpression::CharacterClass(CharClass::Digit),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn whitespace_star_or_letter_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Whitespace)),
+                    quantifier: Quantifier::ZeroOrMore,
+                },
+                PatternExpression::CharacterClass(CharClass::Letter),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn letter_plus_then_ing() -> PatternExpression {
+        PatternExpression::Sequence(vec![
+            letter_quantified(Quantifier::OneOrMore),
+            PatternExpression::Literal("ing".to_string()),
+        ])
+    }
+
+    fn optional_letter_then_ab() -> PatternExpression {
+        PatternExpression::Sequence(vec![
+            PatternExpression::Quantified {
+                pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                quantifier: Quantifier::Optional,
+            },
+            PatternExpression::Literal("ab".to_string()),
+        ])
+    }
+
+    fn letter_star_or_digit_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::ZeroOrMore),
+                PatternExpression::CharacterClass(CharClass::Digit),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn optional_letter_or_digit_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::CharacterClass(CharClass::Letter)),
+                    quantifier: Quantifier::Optional,
+                },
+                PatternExpression::CharacterClass(CharClass::Digit),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn at_most_two_letter_or_dash_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::AtMost(2)),
+                PatternExpression::Literal("-".to_string()),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn between_zero_and_two_letter_or_dash_star() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Alternative(vec![
+                letter_quantified(Quantifier::Between(0, 2)),
+                PatternExpression::Literal("-".to_string()),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn empty_or_any_then_a_star_then_a_or_empty() -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(PatternExpression::Sequence(vec![
+                PatternExpression::Alternative(vec![
+                    PatternExpression::Literal(String::new()),
+                    PatternExpression::CharacterClass(CharClass::Any),
+                ]),
+                PatternExpression::Quantified {
+                    pattern: Box::new(PatternExpression::Literal("a".to_string())),
+                    quantifier: Quantifier::ZeroOrMore,
+                },
+                PatternExpression::Alternative(vec![
+                    PatternExpression::Literal("a".to_string()),
+                    PatternExpression::Literal(String::new()),
+                ]),
+            ])),
+            quantifier: Quantifier::ZeroOrMore,
+        }
+    }
+
+    fn assert_plain_agrees_with_backref(
+        pattern: PatternExpression,
+        text: &str,
+        expected: Option<&str>,
+    ) {
+        let pike = find_under_default(&pattern, text).expect("pike must not hit the meter");
+        let back = find_under_default(&with_inert_backref(pattern), text)
+            .expect("backref path must not hit the meter");
+        assert_eq!(
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            expected,
+            "Pike extent"
+        );
+        assert_eq!(
+            back.as_ref().map(|m| m.matched_text.as_str()),
+            expected,
+            "inert backreference must not change the extent"
+        );
+    }
+
+    #[test]
+    fn empty_or_arm_in_star_is_left_first_without_and_with_backref() {
+        let plain = optional_dash_or_digit_star();
+        let with_backref = with_inert_backref(optional_dash_or_digit_star());
+        let pike = find_under_default(&plain, "12").expect("pike must not hit the meter");
+        let back =
+            find_under_default(&with_backref, "12").expect("backref path must not hit the meter");
+        assert_eq!(
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            Some(""),
+            "left-first empty optional-dash must win over digit"
+        );
+        assert_eq!(
+            back.as_ref().map(|m| m.matched_text.as_str()),
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            "inert backreference must not change the extent"
+        );
+    }
+
+    #[test]
+    fn empty_whitespace_or_letter_star_agrees_with_backref_path() {
+        let plain = whitespace_star_or_letter_star();
+        let with_backref = with_inert_backref(whitespace_star_or_letter_star());
+        let pike = find_under_default(&plain, "ab").expect("pike must not hit the meter");
+        let back =
+            find_under_default(&with_backref, "ab").expect("backref path must not hit the meter");
+        assert_eq!(
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            Some(""),
+            "left-first empty whitespace-star must win over letter"
+        );
+        assert_eq!(
+            back.as_ref().map(|m| m.matched_text.as_str()),
+            pike.as_ref().map(|m| m.matched_text.as_str()),
+            "inert backreference must not change the extent"
+        );
+    }
+
+    #[test]
+    fn one_or_more_letter_then_ing_on_sing_agrees_with_backref() {
+        assert_plain_agrees_with_backref(letter_plus_then_ing(), "sing", Some("sing"));
+    }
+
+    #[test]
+    fn one_or_more_letter_then_ing_on_the_king_agrees_with_backref() {
+        assert_plain_agrees_with_backref(
+            letter_plus_then_ing(),
+            "the king is running",
+            Some("king"),
+        );
+    }
+
+    #[test]
+    fn find_all_letter_plus_ing_finds_each_word() {
+        assert_eq!(
+            find_all_texts(&letter_plus_then_ing(), "sing ring bring"),
+            vec!["sing", "ring", "bring"]
+        );
+    }
+
+    #[test]
+    fn optional_letter_then_ab_on_ab_agrees_with_backref() {
+        assert_plain_agrees_with_backref(optional_letter_then_ab(), "ab", Some("ab"));
+    }
+
+    #[test]
+    fn letter_star_or_digit_star_on_ab1_agrees_with_backref() {
+        assert_plain_agrees_with_backref(letter_star_or_digit_star(), "ab1", Some("ab"));
+    }
+
+    #[test]
+    fn optional_letter_or_digit_star_on_a1_agrees_with_backref() {
+        assert_plain_agrees_with_backref(optional_letter_or_digit_star(), "a1", Some("a"));
+    }
+
+    #[test]
+    fn zero_or_more_at_most_two_letter_or_dash_on_a_dash_b_agrees_with_backref() {
+        // `at most 2` emits optional Splits that no Jump targets. Empty
+        // re-entry through the second optional must take that Split's exit
+        // (left-first) so the "-" arm does not extend the star past `a`.
+        assert_plain_agrees_with_backref(at_most_two_letter_or_dash_star(), "a-b", Some("a"));
+    }
+
+    #[test]
+    fn zero_or_more_between_zero_and_two_letter_or_dash_on_a_dash_b_agrees_with_backref() {
+        assert_plain_agrees_with_backref(
+            between_zero_and_two_letter_or_dash_star(),
+            "a-b",
+            Some("a"),
+        );
+    }
+
+    #[test]
+    fn empty_or_inside_star_after_nested_quantifier_agrees_with_backref() {
+        // An `or` inside a loop can be re-entered empty after a nested
+        // quantifier exits. That `or` still needs split_pos so the second
+        // arm is taken instead of dropping the thread.
+        assert_plain_agrees_with_backref(
+            empty_or_any_then_a_star_then_a_or_empty(),
+            "ab",
+            Some("a"),
+        );
+    }
+
+    #[test]
+    fn find_missing_z_in_one_mib_under_default_budget_returns_none() {
+        let text = "a".repeat(1024 * 1024);
+        let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
+            .expect("1 MiB miss must stay under the default step ceiling");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn find_missing_literal_in_a_long_haystack_stays_under_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
+            .expect("must not hit the meter");
+        assert!(found.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "find of a missing literal must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn find_needle_at_end_of_a_long_haystack_stays_under_a_second() {
+        let text = format!("{}needle", "a".repeat(50_000));
+        let started = Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("needle".to_string()), &text)
+            .expect("must not hit the meter");
+        assert_eq!(found.expect("needle is at the end").matched_text, "needle");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "find of a trailing literal must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn find_all_words_on_a_long_haystack_stays_under_a_second() {
+        let text = "ab ".repeat(10_000);
+        let started = Instant::now();
+        let words = find_all_texts(&letter_quantified(Quantifier::OneOrMore), &text);
+        assert_eq!(words.len(), 10_000);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "find all words must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn find_all_whitespace_on_a_long_haystack_stays_under_a_second() {
+        let text = "ab ".repeat(10_000);
+        let started = Instant::now();
+        let spaces = find_all_texts(&one_or_more_whitespace(), &text);
+        assert_eq!(spaces.len(), 10_000);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "find all whitespace must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn one_or_more_any_on_a_long_haystack_stays_under_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&one_or_more_any(), &text).expect("must not hit the meter");
+        assert_eq!(
+            found.expect("any-plus matches the run").matched_text.len(),
+            50_000
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "one or more any must stay linear, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn missing_literal_find_stays_under_a_linear_step_ceiling() {
+        let n = 8_000;
+        let text = "a".repeat(n);
+        let compiled = CompiledPattern::compile(&PatternExpression::Literal("z".to_string()))
+            .expect("pattern compiles");
+        let found = compiled
+            .find_with_budget(&text, &budget_with_pattern_steps(n * 32))
+            .expect("charged start-scan must stay O(len × program), not O(len²)");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn start_scan_work_is_charged_against_the_meter() {
+        let n = 2_000;
+        let text = "a".repeat(n);
+        let compiled = CompiledPattern::compile(&PatternExpression::Literal("z".to_string()))
+            .expect("pattern compiles");
+        let err = compiled
+            .find_with_budget(&text, &budget_with_pattern_steps(n / 4))
+            .expect_err("each start position must consume budget");
+        assert!(
+            matches!(err, PatternError::StepLimitExceeded),
+            "expected step limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn one_or_more_any_stays_under_a_linear_step_ceiling() {
+        let n = 8_000;
+        let text = "a".repeat(n);
+        let compiled = CompiledPattern::compile(&one_or_more_any()).expect("pattern compiles");
+        let found = compiled
+            .find_with_budget(&text, &budget_with_pattern_steps(n * 32))
+            .expect("greedy any-plus must stay O(len × program)");
+        assert_eq!(found.expect("matches").matched_text.len(), n);
+    }
+
+    #[test]
+    fn find_all_whitespace_stays_under_a_linear_step_ceiling() {
+        let text = "ab ".repeat(4_000);
+        let compiled =
+            CompiledPattern::compile(&one_or_more_whitespace()).expect("pattern compiles");
+        let spaces = compiled
+            .find_all_with_budget(&text, &budget_with_pattern_steps(text.len() * 32))
+            .expect("find all whitespace must stay linear in the haystack");
+        assert_eq!(spaces.len(), 4_000);
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn assert_release_linear(elapsed: Duration, label: &str) {
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "{label} must stay linear in release, took {elapsed:?}"
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_find_missing_z_in_50k_as_stays_under_half_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("z".to_string()), &text)
+            .expect("must not hit the meter");
+        assert!(found.is_none());
+        assert_release_linear(started.elapsed(), "find \"z\" in 50k a's");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_find_needle_at_end_of_50k_stays_under_half_a_second() {
+        let text = format!("{}needle", "a".repeat(50_000));
+        let started = Instant::now();
+        let found = find_under_default(&PatternExpression::Literal("needle".to_string()), &text)
+            .expect("must not hit the meter");
+        assert_eq!(found.expect("needle is at the end").matched_text, "needle");
+        assert_release_linear(started.elapsed(), "find trailing needle");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_find_all_whitespace_on_30k_stays_under_half_a_second() {
+        let text = "ab ".repeat(10_000);
+        let started = Instant::now();
+        let compiled =
+            CompiledPattern::compile(&one_or_more_whitespace()).expect("pattern compiles");
+        let spaces = compiled
+            .find_all_with_budget(&text, &ExecutionBudget::current_or_default())
+            .expect("must not hit the meter");
+        assert_eq!(spaces.len(), 10_000);
+        assert_release_linear(started.elapsed(), "find all one or more whitespace on 30k");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_one_or_more_any_on_50k_stays_under_half_a_second() {
+        let text = "a".repeat(50_000);
+        let started = Instant::now();
+        let found = find_under_default(&one_or_more_any(), &text).expect("must not hit the meter");
+        assert_eq!(found.expect("matches").matched_text.len(), 50_000);
+        assert_release_linear(started.elapsed(), "one or more any on 50k");
+    }
+
+    fn literal_alternation(n: usize) -> PatternExpression {
+        PatternExpression::Alternative(
+            (0..n)
+                .map(|i| PatternExpression::Literal(format!("w{i}x")))
+                .collect(),
+        )
+    }
+
+    fn anchored_literal_alternation(n: usize) -> PatternExpression {
+        PatternExpression::Alternative(
+            (0..n)
+                .map(|i| {
+                    PatternExpression::Sequence(vec![
+                        PatternExpression::Anchor(crate::parser::ast::Anchor::StartOfText),
+                        PatternExpression::Literal(format!("q{i}")),
+                    ])
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn thousand_arm_literal_alternation_stays_under_default_budget() {
+        let pattern = literal_alternation(1_000);
+        let text = "a".repeat(1_000);
+        let found = find_under_default(&pattern, &text)
+            .expect("1_000-arm miss over 1_000 chars must stay inside the default meter");
+        assert!(found.is_none());
+    }
+
+    fn one_or_more_literal_alternation(n: usize) -> PatternExpression {
+        PatternExpression::Quantified {
+            pattern: Box::new(literal_alternation(n)),
+            quantifier: Quantifier::OneOrMore,
+        }
+    }
+
+    #[test]
+    fn thousand_arm_one_or_more_list_stays_under_default_budget() {
+        let pattern = one_or_more_literal_alternation(1_000);
+        let text = "b".repeat(1_000);
+        let found = find_under_default(&pattern, &text)
+            .expect("one or more of a 1_000-arm list miss must stay inside the default meter");
+        assert!(found.is_none());
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_thousand_arm_literal_alternation_stays_under_a_second() {
+        let pattern = literal_alternation(1_000);
+        let text = "a".repeat(1_000);
+        let started = Instant::now();
+        let found = find_under_default(&pattern, &text).expect("must not hit the meter");
+        assert!(found.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "1_000-arm alt over 1_000 chars must stay comparable to main, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_thousand_arm_one_or_more_list_stays_under_a_second() {
+        let pattern = one_or_more_literal_alternation(1_000);
+        let text = "b".repeat(1_000);
+        let started = Instant::now();
+        let found = find_under_default(&pattern, &text).expect("must not hit the meter");
+        assert!(found.is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "one or more of a 1_000-arm list over 1_000 chars must stay comparable to main, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn anchored_thousand_arm_alternation_hits_the_step_ceiling() {
+        let pattern = anchored_literal_alternation(1_000);
+        let text = "a".repeat(10_000);
+        let err = find_under_default(&pattern, &text)
+            .expect_err("anchored 1_000-arm seed walk must be metered");
+        assert!(
+            matches!(err, PatternError::StepLimitExceeded),
+            "expected step limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn over_10k_instruction_alternation_still_matches_on_a_short_input() {
+        let pattern = literal_alternation(3_500);
+        let found = find_under_default(&pattern, "hello w42x")
+            .expect("a 3_500-arm list must not reserve program.len() states");
+        assert_eq!(found.expect("w42x is in the list").matched_text, "w42x");
+    }
+
+    #[test]
+    fn fifteen_thousand_arm_list_finds_w5x_under_default_budget() {
+        let pattern = literal_alternation(15_000);
+        let found = find_under_default(&pattern, "zz w5x zz")
+            .expect("a 15_000-arm list must not charge one state per word");
+        assert_eq!(found.expect("w5x is in the list").matched_text, "w5x");
+    }
+
+    #[test]
+    fn fifteen_thousand_arm_one_or_more_list_finds_w5x_under_default_budget() {
+        let pattern = one_or_more_literal_alternation(15_000);
+        let found = find_under_default(&pattern, "zz w5x zz")
+            .expect("one or more of a 15_000-arm list must not charge one state per word");
+        assert_eq!(found.expect("w5x is in the list").matched_text, "w5x");
+    }
+
+    #[test]
+    fn six_thousand_arm_list_with_a_shared_first_char_finds_w5x() {
+        let pattern = literal_alternation(6_000);
+        let found = find_under_default(&pattern, "zz w5x zz")
+            .expect("overlapping frontiers of a 6_000-arm list must not exceed max_pattern_states");
+        assert_eq!(found.expect("w5x is in the list").matched_text, "w5x");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_ten_thousand_arm_one_or_more_list_compiles_under_50ms() {
+        let pattern = one_or_more_literal_alternation(10_000);
+        let started = Instant::now();
+        CompiledPattern::compile(&pattern).expect("10_000-arm one or more compiles");
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "nullable scan must run once per or, took {:?}",
+            started.elapsed()
         );
     }
 }

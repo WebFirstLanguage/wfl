@@ -1,0 +1,16 @@
+// Converted from the remaining unique probe in `experiments/nexus/nexus.wfl`
+// (issue #668): `break` leaves a `repeat forever` loop after a finite number
+// of trips. The gated TestPrograms/nexus/ set did not previously assert this.
+store k as 0
+repeat forever:
+    change k to k plus 1
+    check if k is equal to 5:
+        break
+    end check
+end repeat
+
+describe "forever loop with break":
+    test "break stops the forever loop at 5":
+        expect k to equal 5
+    end test
+end describe

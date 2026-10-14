@@ -62,8 +62,7 @@ class DockerWorkflowPolicyTests(unittest.TestCase):
         self.assertLess(publish.index('test "$RELEASE_CHECKS_RESULT" = success'), publish.index("docker build --platform linux/amd64"))
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_call:", ci)
-        bump = job(ci, "bump-version")
-        self.assertIn("github.event_name == 'push'", bump)
+        self.assertNotRegex(ci, r"^  bump-version:", re.M)
 
     def test_pull_requests_exercise_real_container_without_hub_credentials(self):
         validation = (ROOT / ".github/workflows/docker-image.yml").read_text(encoding="utf-8")

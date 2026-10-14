@@ -256,6 +256,7 @@ const LEGACY_BUILTIN_FUNCTIONS: &[&str] = &[
 const EXPLICIT_CALL_BUILTIN_FUNCTIONS: &[&str] = &[
     "write_stdout",
     "raise_error",
+    "print_error",
     "current_executable",
     "password_hash_policy",
     "hash_password_with_policy",
@@ -281,6 +282,7 @@ const IMPLEMENTED_BUILTIN_FUNCTIONS: &[&str] = &[
     // Core
     "write_stdout",
     "raise_error",
+    "print_error",
     "current_executable",
     "print",
     "typeof",
@@ -533,7 +535,7 @@ pub fn get_function_arity(name: &str) -> usize {
         "print" => 1,
         "typeof" | "type_of" => 1,
         "isnothing" | "is_nothing" => 1,
-        "raise_error" | "write_stdout" => 1,
+        "raise_error" | "write_stdout" | "print_error" => 1,
 
         // === MATH FUNCTIONS ===
         // Single argument functions

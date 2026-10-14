@@ -2,9 +2,11 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::net::TcpListener;
-use std::path::PathBuf;
+use std::net::{IpAddr, SocketAddr, TcpListener};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use wfl::interpreter::Interpreter;
@@ -15,18 +17,107 @@ use wfl::parser::Parser;
 /// Ask the OS for a currently-free TCP port on loopback, then release it so the
 /// caller can bind it via WFL's `listen on port <N>`.
 ///
-/// WFL takes a *literal* port in `listen on port <N>`, so the port must be chosen
-/// before the program source is built — we cannot bind an ephemeral `:0` and read
-/// the assigned port back the way the mock upstreams do. Picking a free port from
-/// the OS (instead of a hardcoded constant) avoids collisions under parallel test
-/// runs and on busy runners. A small TOCTOU window remains between releasing the
-/// probe socket and WFL re-binding it, but it is far less flaky than a fixed port.
+/// Unsafe in a shared suite process: dropping the probe socket lets the kernel
+/// hand that port to another test's `bind(:0)` before WFL rebinds it. Suite
+/// tests that start a WFL server must `listen on port 0` and read the published
+/// handle instead (see [`published_web_server_addr`]). This helper remains for
+/// standalone Group A binaries that still interpolate a port into source.
 pub fn free_tcp_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("bind an ephemeral TCP port")
         .local_addr()
         .expect("read the ephemeral local address")
         .port()
+}
+
+/// Parse `PREFIXWebServer::ip:port` from a child's published readiness output.
+///
+/// Only complete newline-terminated lines are accepted so a partial write is
+/// not treated as a bound address. The child must own the port before it
+/// prints this line (`listen on port 0` then `display`). WFL formats the
+/// handle as `WebServer::` + `addr.ip()` + `:` + port, so a `::1` bind is
+/// `WebServer::::1:port` and a `::` bind is `WebServer:::::port`. After
+/// stripping the marker, split host/port on the last colon and parse the
+/// host as [`IpAddr`] (bare IPv6, no brackets).
+pub fn published_web_server_addr(log: &str, prefix: &str) -> Option<SocketAddr> {
+    let marker = format!("{prefix}WebServer::");
+    log.split_inclusive('\n')
+        .filter(|line| line.ends_with('\n'))
+        .find_map(|line| {
+            line.trim_end()
+                .strip_prefix(marker.as_str())
+                .and_then(|rest| {
+                    let (ip, port) = rest.rsplit_once(':')?;
+                    let port: u16 = port.parse().ok()?;
+                    let ip: IpAddr = ip.parse().ok()?;
+                    Some(SocketAddr::new(ip, port))
+                })
+        })
+}
+
+static READY_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Unique temp path for an in-process server to publish its bound address.
+pub fn unique_ready_path(tag: &str) -> PathBuf {
+    let n = READY_SEQ.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("wfl_ready_{tag}_{}_{n}.txt", std::process::id()));
+    let _ = fs::remove_file(&path);
+    path
+}
+
+/// WFL snippet: write `PREFIX` plus the server handle, then a newline, to `ready_path`.
+///
+/// Call after `listen on port 0` so the child owns the socket before anything
+/// connects. Variable names are prefixed to avoid colliding with test programs.
+pub fn publish_ready_wfl(ready_path: &Path, prefix: &str, server_var: &str) -> String {
+    let ready = ready_path.display().to_string().replace('\\', "/");
+    format!(
+        "store suite_ready_line as \"{prefix}\" with {server_var} with \"\\n\"\n\
+         open file at \"{ready}\" for writing as suite_ready_file\n\
+         wait for write content suite_ready_line into suite_ready_file\n\
+         close file suite_ready_file\n"
+    )
+}
+
+/// Poll `ready_path` until a published `PREFIXWebServer::ip:port` line appears.
+pub async fn wait_for_published_web_server(ready_path: &Path, prefix: &str) -> SocketAddr {
+    try_wait_for_published_web_server(ready_path, prefix, Duration::from_secs(10))
+        .await
+        .unwrap_or_else(|| {
+            panic!(
+                "server did not publish {prefix} at {}",
+                ready_path.display()
+            )
+        })
+}
+
+/// Like [`wait_for_published_web_server`], but returns `None` on timeout.
+pub async fn try_wait_for_published_web_server(
+    ready_path: &Path,
+    prefix: &str,
+    timeout: Duration,
+) -> Option<SocketAddr> {
+    let deadline = Instant::now() + timeout;
+    let marker = format!("{prefix}WebServer::");
+    loop {
+        if let Ok(log) = fs::read_to_string(ready_path) {
+            if let Some(address) = published_web_server_addr(&log, prefix) {
+                assert_ne!(address.port(), 0, "server must report its assigned port");
+                return Some(address);
+            }
+            let published_unparsed = log
+                .split_inclusive('\n')
+                .any(|line| line.ends_with('\n') && line.trim_end().starts_with(marker.as_str()));
+            assert!(
+                !published_unparsed,
+                "published {prefix}WebServer line did not parse: {log}"
+            );
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +257,18 @@ pub fn wfl_exe() -> &'static str {
     env!("CARGO_BIN_EXE_wfl")
 }
 
+/// Panic with an actionable message when a separately-built release binary is missing.
+pub fn require_existing_release_binary(path: PathBuf) -> PathBuf {
+    assert!(
+        path.exists(),
+        "release binary not found at {}\n\
+         This test runs the separately-built release binary; `cargo test` does not build it.\n\
+         Run `cargo build --release` first.",
+        path.display()
+    );
+    path
+}
+
 /// Path to the separately-built `target/release/wfl` binary. This is a
 /// *different* binary from [`wfl_exe`] (which may point at a debug build) —
 /// callers that need the release binary specifically (e.g. because a sibling
@@ -183,18 +286,12 @@ pub fn wfl_release_exe() -> PathBuf {
     } else {
         "wfl"
     };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("release")
-        .join(name);
-    assert!(
-        path.exists(),
-        "release binary not found at {}\n\
-         This test runs the separately-built release binary; `cargo test` does not build it.\n\
-         Run `cargo build --release` first.",
-        path.display()
-    );
-    path
+    require_existing_release_binary(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("release")
+            .join(name),
+    )
 }
 
 /// Run inline WFL source (via [`wfl_exe`]) in a fresh temp dir, returning

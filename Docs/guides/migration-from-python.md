@@ -81,16 +81,14 @@ else:
 store age as 20
 check if age is greater than or equal to 18:
     display "Adult"
+otherwise check if age is greater than or equal to 13:
+    display "Teen"
 otherwise:
-    check if age is greater than or equal to 13:
-        display "Teen"
-    otherwise:
-        display "Child"
-    end check
+    display "Child"
 end check
 ```
 
-**Note:** Nested blocks instead of `elif`.
+**Note:** `otherwise check if` is the `elif` equivalent and shares one `end check`. Nesting `check if` under `otherwise:` is still valid when an arm has its own independent decision.
 
 ## Loops
 

@@ -46,6 +46,9 @@ pub mod compiler;
 pub mod instruction;
 pub mod vm;
 
+#[cfg(test)]
+mod differential_tests;
+
 use crate::exec::budget::ExecutionBudget;
 
 pub use compiler::PatternCompiler;

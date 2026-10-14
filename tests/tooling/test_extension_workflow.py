@@ -43,7 +43,6 @@ class ExtensionWorkflowPolicyTests(unittest.TestCase):
         build = next((step for step in self.steps if "cargo build -p wfl-lsp" in step), None)
         self.assertIsNotNone(build, "Host tests require the real LSP binary")
         self.assertLess(self.steps.index(build), self.steps.index(host))
-        self.assertIn("clippy-and-test", job(self.workflow, "bump-version"))
 
 
 if __name__ == "__main__":

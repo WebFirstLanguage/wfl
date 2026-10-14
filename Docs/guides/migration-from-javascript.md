@@ -80,16 +80,14 @@ if (age >= 18) {
 store age as 20
 check if age is greater than or equal to 18:
     display "Adult"
+otherwise check if age is greater than or equal to 13:
+    display "Teen"
 otherwise:
-    check if age is greater than or equal to 13:
-        display "Teen"
-    otherwise:
-        display "Child"
-    end check
+    display "Child"
 end check
 ```
 
-**Note:** WFL uses nested blocks, not `else if`.
+**Note:** `otherwise check if` is the `else if` equivalent and shares one `end check`. Nesting `check if` under `otherwise:` is still valid when an arm has its own independent decision.
 
 ## Loops
 

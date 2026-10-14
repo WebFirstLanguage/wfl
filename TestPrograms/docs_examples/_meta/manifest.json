@@ -5,6 +5,14 @@
     "validate_layers": [1, 2, 3, 4, 5],
     "expected_exit_code": 0
   },
+  "docs_examples/error_examples/print_error_exit.wfl": {
+    "doc_section": "Docs/03-language-basics/error-handling.md#reporting-cli-failures",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 1,
+    "tags": ["errors", "cli", "stderr"],
+    "doc_purpose": "Show an intentional CLI diagnostic with a nonzero exit status"
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",
@@ -269,6 +277,25 @@
     ],
     "doc_purpose": "Demonstrates conditional statements"
   },
+  "docs_examples/basic_syntax/control_flow_flat_otherwise.wfl": {
+    "doc_section": "Docs/03-language-basics/control-flow.md#chained-conditionals-else-if",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "conditionals",
+      "control-flow",
+      "otherwise-check-if"
+    ],
+    "doc_purpose": "Demonstrates a flat otherwise check if chain"
+  },
   "docs_examples/basic_syntax/loops_01.wfl": {
     "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
     "type": "executable",
@@ -358,7 +385,7 @@
       "tour",
       "control-flow"
     ],
-    "doc_purpose": "Docs README tour: nested conditionals"
+    "doc_purpose": "Docs README tour: flat otherwise check if chains"
   },
   "docs_examples/tour/04_loops.wfl": {
     "doc_section": "TestPrograms/docs_examples/tour/README.md",

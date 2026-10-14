@@ -1,3 +1,5 @@
+//! Stays a separate integration binary (#693): the lock-order proof requires
+//! `elapsed < 1000ms` against a 2s timeout-expression sleep.
 // Red→Green regression for issue #642: `wait for request ... with timeout`
 // must evaluate the timeout expression BEFORE locking the shared request
 // receiver.

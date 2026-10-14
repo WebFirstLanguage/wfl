@@ -1,0 +1,40 @@
+// Converted from the remaining unique probe in
+// `experiments/syntax/pattern_kitchen_sink.wfl` (issue #669):
+// `one or more of (any letter or digit or "._-")`, the optional `matches
+// pattern` keyword, and `2 to 6 letters`.
+//
+// `"._-"` is a three-character literal alternative, not a character class:
+// `".@x.com"` does not match, while `"._-@x.com"` does.
+
+create pattern emailme:
+    one or more of (any letter or digit or "._-")
+    then "@"
+    then one or more of (any letter or digit or "-")
+    then "."
+    then 2 to 6 letters
+end pattern
+
+describe "parenthesized any-letter charset from the kitchen sink":
+
+    test "kitchen-sink email matches via matches pattern":
+        expect "ke5crz@hamplex.com" matches pattern emailme to be yes
+    end test
+
+    test "matches without the pattern keyword agrees":
+        expect "ke5crz@hamplex.com" matches emailme to be yes
+    end test
+
+    test "text without an at-sign does not match":
+        expect "not-an-email" matches pattern emailme to be no
+    end test
+
+    test "the punctuation alternative is the three-character literal":
+        expect "._-@x.com" matches pattern emailme to be yes
+        expect ".@x.com" matches pattern emailme to be no
+    end test
+
+    test "a single-character hyphen alternative matches in the domain":
+        expect "a@b-c.com" matches pattern emailme to be yes
+    end test
+
+end describe

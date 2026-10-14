@@ -838,7 +838,7 @@ fn test_fix_pattern_lookaround_preserves_following_indentation() {
 /// Else-if checks share their owner's terminator even without a colon. A colon
 /// directly after otherwise instead introduces an ordinary else body, which
 /// can also contain a separately closed block on the same physical line.
-fn otherwise_chain_layout_sources() -> [&'static str; 19] {
+fn otherwise_chain_layout_sources() -> [&'static str; 20] {
     [
         "check if no:\n    display \"first\"\notherwise check if yes\n    display \"second\"\nend check\ndisplay \"done\"\n",
         "check if no\n    display \"first\"\notherwise check if no\n    display \"second\"\notherwise check if yes\n    display \"third\"\notherwise\n    display \"fallback\"\nend check\ndisplay \"done\"\n",
@@ -859,7 +859,45 @@ fn otherwise_chain_layout_sources() -> [&'static str; 19] {
         "define action called greet:\n    display \"hello\"\nend action\ndisplay \"done\"\n",
         "create container Utility:\n    static action greet:\n        display \"hello\"\n    end\nend\ndisplay \"done\"\n",
         "if no then\n    display \"first\"\notherwise check if yes:\n        display \"nested\"\n    end check\nend if\ndisplay \"done\"\n",
+        "store x as 1\ncheck if x is equal to 1:\n    display \"a\"\notherwise check if x is equal to 2:\n    display \"b\"\nend check\n",
     ]
+}
+
+/// Issue #706: a flat `otherwise check if …:` chain is one owning check, not a
+/// new nesting level. Comparison conditions must not change that ownership.
+fn issue_706_flat_otherwise_sources() -> [&'static str; 2] {
+    [
+        "store x as 1\ncheck if x is equal to 1:\n    display \"a\"\notherwise check if x is equal to 2:\n    display \"b\"\nend check\n",
+        "store x as 3\ncheck if x is equal to 1:\n    display \"one\"\notherwise check if x is equal to 2:\n    display \"two\"\notherwise check if x is equal to 3:\n    display \"three\"\notherwise check if x is equal to 4:\n    display \"four\"\notherwise:\n    display \"other\"\nend check\ndisplay \"after\"\n",
+    ]
+}
+
+#[test]
+fn test_lint_flat_otherwise_check_if_comparison_has_no_indent_warnings() {
+    let diagnostics: Vec<_> = issue_706_flat_otherwise_sources()
+        .iter()
+        .flat_map(|source| lint_source(&Linter::new(), source))
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert!(
+        diagnostics.is_empty(),
+        "conforming flat otherwise check if must not warn: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn test_lint_still_flags_misindented_flat_otherwise_check_if_body() {
+    let source = "store x as 1\ncheck if x is equal to 1:\n    display \"a\"\notherwise check if x is equal to 2:\ndisplay \"b\"\nend check\n";
+    let diagnostics: Vec<_> = lint_source(&Linter::new(), source)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code == "LINT-INDENT")
+        .collect();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0].line, 5);
+    assert_eq!(
+        diagnostics[0].message,
+        "Line should be indented with 4 spaces, found 0"
+    );
 }
 
 /// Chains without colons retain a single owning check body; ordinary else
