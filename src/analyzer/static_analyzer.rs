@@ -1318,9 +1318,16 @@ impl Analyzer {
             Statement::ExpressionStatement { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
-            Statement::ContainerInstantiation { arguments, .. } => {
+            Statement::ContainerInstantiation {
+                arguments,
+                property_initializers,
+                ..
+            } => {
                 for argument in arguments {
                     self.mark_used_in_expression(&argument.value, usages);
+                }
+                for initializer in property_initializers {
+                    self.mark_used_in_expression(&initializer.value, usages);
                 }
             }
             Statement::WriteFileStatement { content, file, .. } => {
@@ -1866,18 +1873,6 @@ impl Analyzer {
                     } else {
                         self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
-                }
-            }
-            Statement::ContainerInstantiation {
-                arguments,
-                property_initializers,
-                ..
-            } => {
-                for argument in arguments {
-                    self.mark_used_in_expression(&argument.value, usages);
-                }
-                for initializer in property_initializers {
-                    self.mark_used_in_expression(&initializer.value, usages);
                 }
             }
             Statement::EventTrigger { arguments, .. }
