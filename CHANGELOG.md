@@ -67,6 +67,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   which an action now reads and changes like any other property (the runtime
   used to bind the object over it).
 
+### Changed
+- **Nightly versions are numbered from `vYY.M.N` tags at publish time.** The
+  next build for the current UTC month is max N + 1, or 1 if none exist, and
+  the committed `.build_meta.json` is a same-month floor only. It is no longer
+  bumped automatically by a post-merge push to `main` (the LOG-16 ruleset
+  requires pull requests and status checks on `main`, so that push could not
+  succeed). A successful nightly writes the version into the tree at build
+  time and pushes the `vX.Y.Z` tag at the built commit; a same-commit rerun
+  reuses that tag instead of burning a new number.
+
 ### Fixed
 - **Container instance actions run on their own object, with their own
   locals** (#701). An instance action's scope was a child of its caller's
@@ -89,6 +99,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   test block's isolated copy. A global variable with the same name as a
   property still takes precedence inside an action, as before. Static actions
   are unchanged and still run in their caller's scope.
+- **Unbounded pattern quantifiers are greedy** (#709). `one or more`,
+  `zero or more`, and `at least N` previously matched the shortest run because
+  the pattern VM returned on the first state that reached `Match` in a
+  breadth-first sweep. `find`, `find all`, `split ... on pattern`,
+  `replace ... in ...`, and `capture` all reported that short extent and exited
+  0. They now take the longest run, consistent with bounded `N to M` and with
+  the documented word-extraction example (`one or more letter` over
+  `"The quick brown fox"` is four words, not sixteen letters). Ordered
+  `or` alternatives stay left-first. **Compatibility:** programs that silently
+  adapted to the undocumented shortest-match extents will observe different
+  (documented) text; validation-style patterns with trailing context already
+  forced the longer expansion and are unchanged. Empty re-entry through
+  `at most N` / `N to M` optional splits (no `Jump` back) still takes that
+  split's exit, so `zero or more ((at most 2 letter) or "-")` on `"a-b"` is
+  `"a"`. An `or` inside a quantifier body is tracked so empty re-entry
+  takes the next arm (`zero or more (("" or any character) then zero or
+  more "a" then ("a" or ""))` on `"ab"` is `"a"`). An `or` inside a
+  quantifier is tracked only when some arm can match empty, so
+  `one or more` of a large list stays linear. The nullable scan runs
+  once per `or`. Pike threads are not counted against
+  `max_pattern_states`, so a 15_000-word list still matches. Top-level
+  list-pattern `or` chains stay untracked; a failed start now charges
+  a few meter steps (about 3 for `find "z"`), so the default ceiling
+  covers about 2 MiB of dead starts rather than `main`'s ~4.9 MiB. 1 MiB
+  remains inside the budget.
 - **Optional TLS settings in the configuration wizard** can be skipped with
   Enter. Unset certificate/key paths are omitted from the generated file, so accepting
   every default now completes the wizard.

@@ -80,7 +80,7 @@ Layout is governed by `REPOSITORY_HYGIENE.md` (placement table + root allowlist 
 - `Engineering/`: Active designs (`designs/`), plans (`plans/`), evidence (`evidence/`), component records (`components/`).
 - `History/`: Chronological, non-normative history — Dev Diary at `History/dev-diary/<year>/`, `perf-lessons.md`.
 - `Archive/`: Retained inactive material, indexed by `Archive/manifest.json` (non-normative; checker verifies checksums).
-- `scripts/`: Maintained automation (`run_integration_tests.*`, `check_repo_hygiene.py`, `build_windows_installer.ps1`, `bump_version.py`, `metrics/`, `docs/`).
+- `scripts/`: Maintained automation (`run_integration_tests.*`, `check_repo_hygiene.py`, `build_windows_installer.ps1`, `bump_version.py`, `metrics/`, `docs/`). Nightly versions are numbered from `vYY.M.N` tags at publish time; CI does not push version commits to `main`.
 - `wix/`: Windows Installer (MSI) configuration.
 - `.cursor/rules/`, `.jules/`, `AGENTS.md`: thin adapters pointing back to this file (`CLAUDE.md`, the canonical shared agent instructions) and root policy — no policy content of their own.
 
@@ -220,7 +220,7 @@ agent MUST follow:
   prompt output depends on `TERM` and the platform. Tests that assert rustyline
   prompts with piped input must explicitly select line-oriented mode using
   `.env("TERM", "dumb")` on the child `Command`; see the helper in
-  `tests/config_command_test.rs`. Keep the setting local to that child, retain
+  `tests/suite/config_command_test.rs`. Keep the setting local to that child, retain
   prompt/value/exit-status assertions, and verify Linux and Windows results.
   Tests of terminal editing or TTY behavior need a real pseudo-terminal instead.
 - **Separate Cargo lockfiles**: The root workspace and `fuzz/` resolve
@@ -272,7 +272,7 @@ agent MUST follow:
   - Run validation: `python scripts/validate_docs_examples.py`
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
-  - Conditionals use NESTED blocks: `otherwise: check if`, NOT `otherwise check if`
+  - Conditionals: flat `otherwise check if` chains share one `end check`; nested `otherwise:` / `check if` needs an `end check` per nested check
   - Reserved keywords: **181 keywords total** (54 structural, 29 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
     - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.

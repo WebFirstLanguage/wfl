@@ -1,6 +1,7 @@
-//! Configured hashing admission, cancellation and recovery use the real Tokio
-//! blocking pool. Kept in a separate integration executable to isolate the
-//! process-wide limits from other password tests.
+//! Stays a separate integration binary (#693): the test saturates the
+//! process-wide configured-hashing admission (`POLICY_HASH_ADMISSION`, 16
+//! slots in `src/stdlib/crypto_async.rs`) to prove `busy` and recovery. Other
+//! suite tests that hash with a policy would see spurious `busy` or hold slots.
 
 use std::sync::Arc;
 use std::task::Poll;

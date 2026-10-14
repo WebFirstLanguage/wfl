@@ -194,7 +194,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `not` | Logical NOT | `check if not x:` |
 | `on` | Event handler | `on click:` |
 | `or` | Logical OR | `check if x is 5 or y is 10:` |
-| `otherwise` | Else clause | `otherwise:` |
+| `otherwise` | Else / else-if clause | `otherwise:` / `otherwise check if` |
 | `private` | Private visibility | `private property age` |
 | `property` | Container property | `property name: Text` |
 | `public` | Public visibility | `public property name` |
@@ -290,7 +290,7 @@ All other reserved keywords that don't fall into structural or contextual-only c
 ### Pattern Matching (26)
 `ahead`, `behind`, `between`, `capture`, `captured`, `category`, `character`, `digit`, `exactly`, `find`, `greedy`, `lazy`, `letter`, `matches`, `more`, `of`, `one`, `optional`, `replace`, `script`, `split`, `start`, `unicode`, `whitespace`
 
-**Note:** Some pattern keywords like `any`, `zero`, `pattern`, `text` are counted in other categories (structural or contextual).
+**Note:** Some pattern keywords like `any`, `zero`, `pattern`, `text` are counted in other categories (structural or contextual). `greedy` and `lazy` are reserved (they cannot be variable names) but are not accepted in pattern syntax; `greedy match` / `lazy match` is a parse error. Default quantifiers are greedy.
 
 ### Web & Network (17)
 `accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `port`, `register`, `request`, `respond`, `response`, `server`, `signal`, `status`, `stop`, `timeout`
@@ -648,7 +648,7 @@ Complete reference table of all 181 keywords.
 | `from` | Structural | Control Flow | ❌ | `count from 1` |
 | `give` | Contextual | Operations | ✅ | `give back` |
 | `greater` | Other | Comparison | ❌ | `greater than` |
-| `greedy` | Other | Pattern | ❌ | `greedy match` |
+| `greedy` | Other | Pattern | ❌ | Reserved; not accepted in pattern syntax. Default quantifiers (`one or more`, `zero or more`, `at least N`) are greedy. |
 | `handler` | Other | Web/Network | ❌ | `request handler` |
 | `header` | Other | Web/Network | ❌ | `HTTP header` |
 | `if` | Structural | Control Flow | ❌ | `check if` |
@@ -658,7 +658,7 @@ Complete reference table of all 181 keywords.
 | `into` | Other | Process | ❌ | `output into` |
 | `is` | Other | Comparison | ❌ | `x is 5` |
 | `kill` | Other | Process | ❌ | `kill process` |
-| `lazy` | Other | Pattern | ❌ | `lazy match` |
+| `lazy` | Other | Pattern | ❌ | Reserved; not accepted in pattern syntax. There is no lazy quantifier spelling. |
 | `least` | Contextual | Comparison | ✅ | `at least 5` |
 | `less` | Other | Comparison | ❌ | `less than` |
 | `letter` | Other | Pattern | ❌ | `letter class` |
@@ -688,7 +688,7 @@ Complete reference table of all 181 keywords.
 | `open` | Other | File I/O | ❌ | `open file` |
 | `optional` | Other | Pattern | ❌ | `optional match` |
 | `or` | Structural | Comparison | ❌ | `x or y` |
-| `otherwise` | Structural | Control Flow | ❌ | `otherwise:` |
+| `otherwise` | Structural | Control Flow | ❌ | `otherwise:` / `otherwise check if` |
 | `output` | Other | Process | ❌ | `process output` |
 | `parent` | Contextual | OOP | ✅ | `parent reference` |
 | `pattern` | Contextual | Pattern | ✅ | `define pattern` |

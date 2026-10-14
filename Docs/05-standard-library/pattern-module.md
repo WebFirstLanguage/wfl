@@ -139,6 +139,7 @@ end pattern
 store text as "The quick brown fox"
 store word_matches as pattern_find_all of text and word
 
+// `one or more` is greedy, so each match is a whole word, not a letter.
 display "Found " with length of word_matches with " words:"
 for each match in word_matches:
     display "  - " with match.matched_text

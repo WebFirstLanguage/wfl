@@ -1,0 +1,23 @@
+// Converted from the remaining unique probe in `experiments/nexus/nexus.wfl`
+// (issue #668): `exit loop` inside a nested loop leaves *every* enclosing
+// loop — unlike `break`, which only leaves the inner one (see
+// nested_loop_control.wfl).
+store exit_outer_counter as 0
+store outer_j as 1
+repeat while outer_j is less than or equal to 3:
+    store inner_j as 1
+    repeat while inner_j is less than or equal to 3:
+        check if inner_j is equal to 2:
+            exit loop
+        end check
+        change inner_j to inner_j plus 1
+    end repeat
+    change exit_outer_counter to exit_outer_counter plus 1
+    change outer_j to outer_j plus 1
+end repeat
+
+describe "nested loop exit":
+    test "exit loop terminates every enclosing loop":
+        expect exit_outer_counter to equal 0
+    end test
+end describe

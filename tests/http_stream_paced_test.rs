@@ -1,3 +1,6 @@
+//! Stays a separate integration binary (#693): parked-read wakeups assert a
+//! minimum wall-clock park (`parked_ms >= MIN_PARKED_MS`) that suite load
+//! would collapse.
 // Regression tests for outbound response streaming against a *paced* upstream:
 // one that trickles chunks onto a kept-alive connection over time, the way a
 // real model endpoint streams SSE/NDJSON. The existing http_stream_test.rs

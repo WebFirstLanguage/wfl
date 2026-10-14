@@ -1,0 +1,16 @@
+// Example from: Docs/03-language-basics/control-flow.md
+// Demonstrates a flat otherwise check if chain
+
+store score as 85
+
+check if score is greater than or equal to 90:
+    display "Grade: A"
+otherwise check if score is greater than or equal to 80:
+    display "Grade: B"
+otherwise check if score is greater than or equal to 70:
+    display "Grade: C"
+otherwise check if score is greater than or equal to 60:
+    display "Grade: D"
+otherwise:
+    display "Grade: F"
+end check

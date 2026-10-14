@@ -2,7 +2,7 @@
 // Demonstrates that WFL handles binary content losslessly at the language
 // level and can pick content types for static assets. Self-terminating
 // (no web server): the end-to-end serving path is covered by the Rust
-// integration test tests/web_server_binary_test.rs.
+// integration test tests/suite/web_server_binary_test.rs.
 
 display "=== Binary file + MIME test ==="
 

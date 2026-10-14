@@ -1,4 +1,4 @@
-// CI-SKIP: RFC 10008 QUERY server demo — requires an HTTP client to drive it (covered end-to-end by tests/respond_headers_test.rs)
+// CI-SKIP: RFC 10008 QUERY server demo — requires an HTTP client to drive it (covered end-to-end by tests/suite/respond_headers_test.rs)
 //
 // Demonstrates RFC 10008 (The HTTP QUERY Method) support in WFL.
 //
