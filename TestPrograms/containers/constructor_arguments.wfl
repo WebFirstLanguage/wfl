@@ -1,0 +1,21 @@
+// Issue #786: body values are available before initialize runs.
+create container K:
+    property value: Number
+    action initialize needs amount: Number:
+        change value to value plus amount
+        this.configure()
+    end
+    action configure:
+        change value to value times 2
+    end
+end
+
+create new K with 3 as k:
+    value is 0
+end
+
+describe "constructor arguments":
+    test "initialize sees body properties and this":
+        expect k.value to equal 6
+    end test
+end describe

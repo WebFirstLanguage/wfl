@@ -1126,6 +1126,11 @@ impl Analyzer {
             Statement::ExpressionStatement { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
+            Statement::ContainerInstantiation { arguments, .. } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+            }
             Statement::WriteFileStatement { content, file, .. } => {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);
@@ -2311,6 +2316,16 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unused"));
         assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+    }
+
+    #[test]
+    fn constructor_argument_variables_are_used() {
+        let input = "store headers as 1\nstore suffix as \"h\"\nstore dead as 0\ncreate new K with headers and \"a\" with suffix as k:\nend\n";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+        let diagnostics = Analyzer::new().check_unused_variables(&program, 0);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("dead"));
     }
 
     #[test]

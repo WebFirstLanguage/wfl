@@ -55,6 +55,38 @@ create new <ContainerType> as <variable>:
 end
 ```
 
+### Passing Arguments to `initialize`
+
+Define an instance action named `initialize`, then put positional arguments
+between the container type and `as`:
+
+```wfl
+create container Counter:
+    property value: Number
+    action initialize needs amount: Number:
+        change value to value plus amount
+    end
+end
+
+create new Counter with 3 as counter:
+    value is 2
+end
+display counter.value  // 5
+```
+
+The property block runs before `initialize`, so the action above starts with
+`value` equal to 2. Separate multiple arguments with `and`, in the same order
+as the action's parameters: `create new Pair with 3 and "left" as pair:`.
+If an argument is itself a call using `and`, group it so the boundary is clear:
+`create new Pair with (abs of -3) and "left" as pair:`.
+The `as <name>:` property block and closing `end` are required, even when the
+block is empty. `create new Counter as counter: ... end` remains valid and does
+not call `initialize` automatically. An inherited `initialize` works; a child
+action of the same name takes precedence. An absent action, wrong argument
+count, or incompatible type is reported with the container and `initialize`
+named in the diagnostic. Named arguments and container action overloads are
+not supported. `initialize` is an ordinary action name, not a keyword.
+
 ### Calling Actions
 
 ```wfl

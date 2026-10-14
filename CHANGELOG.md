@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **Container constructor arguments** (#786): `create new K with 3 as k: ... end`
+  passes positional values to `initialize` after the property block runs.
+  Inherited actions and child overrides follow normal method dispatch. The
+  type checker reports missing actions, count mismatches, and type mismatches;
+  the LSP offers a creation snippet, constructor hover, and signature help.
+  The existing argument-free form still does not invoke `initialize`.
 - **`wfl init`** creates a simple `.wflcfg`, an `AGENTS.md` pointer, and a
   `CLAUDE.md` application guide in the current directory. The guide covers WFL
   syntax, CLI validation, LSP and MCP setup, Docker testing, and documentation

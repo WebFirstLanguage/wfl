@@ -731,19 +731,17 @@ fn opened_block(tokens: &[TokenWithPosition], has_colon: bool) -> Option<Block> 
         Token::KeywordDefine if second == Some(&Token::KeywordAction) => Some(Block::SuffixedEnd),
         Token::KeywordStatic if second == Some(&Token::KeywordAction) => Some(Block::BareEnd),
         Token::KeywordCreate if second == Some(&Token::KeywordNew) => {
-            // Container initialization requires `new Type as name:`. The
-            // supported legacy `new constant name as value` form is a variable
-            // declaration, even when its value contains named-argument colons.
-            let mut header = tokens.iter().skip(2).map(|token| &token.token);
-            matches!(
-                (header.next(), header.next(), header.next(), header.next()),
-                (
-                    Some(Token::Identifier(_)),
-                    Some(Token::KeywordAs),
-                    Some(Token::Identifier(_)),
-                    Some(Token::Colon)
+            // Constructor arguments may sit between the type and `as name:`.
+            // Keep `create new constant` as a declaration, not a block.
+            (matches!(
+                tokens.get(2).map(|token| &token.token),
+                Some(Token::Identifier(_))
+            ) && tokens[3..].windows(3).any(|window| {
+                matches!(
+                    (&window[0].token, &window[1].token, &window[2].token),
+                    (Token::KeywordAs, Token::Identifier(_), Token::Colon)
                 )
-            )
+            }))
             .then_some(Block::BareEnd)
         }
         Token::KeywordCreate if second == Some(&Token::KeywordInterface) => {

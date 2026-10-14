@@ -6707,11 +6707,27 @@ impl TypeChecker {
                     .collect();
 
                 if valid_container && !arguments.is_empty() {
-                    let initialize_parameters = self
-                        .analyzer
-                        .get_container(container_type)
-                        .and_then(|container| container.methods.get("initialize"))
-                        .map(|method| method.parameters.clone());
+                    let mut current = Some(container_type.as_str());
+                    let mut visited = HashSet::new();
+                    let mut unresolved_chain = false;
+                    let mut initialize_parameters = None;
+                    while let Some(name) = current {
+                        if !visited.insert(name) {
+                            // The inheritance checker reports the cycle.
+                            unresolved_chain = true;
+                            break;
+                        }
+                        let Some(container) = self.analyzer.get_container(name) else {
+                            // An included parent may not be visible at this stage.
+                            unresolved_chain = true;
+                            break;
+                        };
+                        if let Some(method) = container.methods.get("initialize") {
+                            initialize_parameters = Some(method.parameters.clone());
+                            break;
+                        }
+                        current = container.extends.as_deref();
+                    }
 
                     if let Some(parameters) = initialize_parameters {
                         if parameters.len() != argument_types.len() {
@@ -6753,10 +6769,10 @@ impl TypeChecker {
                                 );
                             }
                         }
-                    } else {
+                    } else if !unresolved_chain {
                         self.type_error(
                             format!(
-                                "Container '{container_type}' has no direct initialize method for constructor arguments"
+                                "Container '{container_type}' has no initialize method for constructor arguments"
                             ),
                             None,
                             None,
