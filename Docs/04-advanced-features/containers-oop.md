@@ -86,6 +86,9 @@ action of the same name takes precedence. An absent action, wrong argument
 count, or incompatible type is reported with the container and `initialize`
 named in the diagnostic. Named arguments and container action overloads are
 not supported. `initialize` is an ordinary action name, not a keyword.
+If evaluating an argument or running `initialize` raises, the instance name
+is not bound. A surrounding `try` can recover and create the object again
+under the same name.
 
 ### Calling Actions
 

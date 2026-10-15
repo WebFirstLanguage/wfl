@@ -78,6 +78,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   reuses that tag instead of burning a new number.
 
 ### Fixed
+- **Container construction binds the instance name only after success**
+  (#789 review, #786). `create new K with … as k:` evaluated constructor
+  arguments and ran `initialize` after the name was already in the
+  environment. A throwing argument or `initialize` left a half-built object
+  bound, so a surrounding `try` could see it and recreating `k` failed with
+  "already been defined". The name is published only when construction
+  finishes. The property body still runs before `initialize`, and the no-arg
+  form still does not call it.
 - **Container instance actions run on their own object, with their own
   locals** (#701). An instance action's scope was a child of its caller's
   scope, and the action re-used any caller binding with the same name as

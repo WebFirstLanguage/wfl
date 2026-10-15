@@ -1,0 +1,45 @@
+// Failed construction must not leave the instance name bound, so a
+// surrounding try can create the object again under the same name.
+create container K:
+    property value: Number
+    action initialize needs amount: Number:
+        check if amount is 0:
+            call raise_error with "initialize failed: amount is 0. Use a nonzero amount."
+        end check
+        change value to amount
+    end
+end
+
+store after_initialize as 0
+store after_argument as 0
+
+try:
+    create new K with 0 as k:
+        value is 0
+    end
+when error:
+    create new K with 3 as k:
+        value is 0
+    end
+    change after_initialize to k.value
+end try
+
+try:
+    create new K with 1 divided by 0 as recovered:
+        value is 0
+    end
+when error:
+    create new K with 4 as recovered:
+        value is 0
+    end
+    change after_argument to recovered.value
+end try
+
+describe "constructor error recovery":
+    test "initialize error allows recreate under the same name":
+        expect after_initialize to equal 3
+    end test
+    test "argument error allows recreate under the same name":
+        expect after_argument to equal 4
+    end test
+end describe

@@ -10719,16 +10719,10 @@ impl Interpreter {
 
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
 
-                // Store the instance in the environment
-                match env
-                    .borrow_mut()
-                    .define_direct(instance_name, instance_value.clone())
-                {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
-
-                // Call constructor method if arguments are provided
+                // Call constructor method if arguments are provided. Bind the
+                // instance name only after this succeeds so a throwing
+                // argument or `initialize` leaves the environment unchanged
+                // (#789 review; #786 made constructor arguments reachable).
                 if !arguments.is_empty() {
                     // Look up the container definition to find the initialize method
                     let container_def = match env.borrow().get(container_type) {
@@ -10759,7 +10753,8 @@ impl Interpreter {
                         // `obj.initialize(...)` would: with its receiver,
                         // `this` and properties, and with property changes
                         // written back (#701; this path used to run it with
-                        // none of them).
+                        // none of them). The name is still unbound; the
+                        // action uses `this`, not the instance identifier.
                         let Value::ContainerInstance(instance_rc) = &instance_value else {
                             unreachable!("a container instantiation yields an instance");
                         };
@@ -10781,6 +10776,14 @@ impl Interpreter {
                             *column,
                         ));
                     }
+                }
+
+                match env
+                    .borrow_mut()
+                    .define_direct(instance_name, instance_value.clone())
+                {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 Ok((instance_value, ControlFlow::None))

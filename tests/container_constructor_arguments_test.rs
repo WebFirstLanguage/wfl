@@ -2,8 +2,12 @@
 
 use std::{fs, process::Command};
 use tempfile::TempDir;
+use wfl::interpreter::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::{Parser, ast::Statement};
+use wfl::parser::{
+    Parser,
+    ast::{Program, Statement},
+};
 use wfl::typechecker::TypeChecker;
 
 const CONSTRUCTOR: &str = r#"create container K:
@@ -54,6 +58,57 @@ fn type_errors(source: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn parse(source: &str) -> Program {
+    Parser::new(&lex_wfl_with_positions(source))
+        .parse()
+        .unwrap_or_else(|error| panic!("parse failed: {error:?}"))
+}
+
+fn container_with_rejecting_initialize() -> &'static str {
+    r#"create container K:
+    property value: Number
+    action initialize needs amount: Number:
+        check if amount is 0:
+            call raise_error with "initialize failed: amount is 0. Use a nonzero amount."
+        end check
+        change value to amount
+    end
+end
+"#
+}
+
+fn recover_after_failed_create(failed_create: &str, successful_create: &str) -> String {
+    format!(
+        r#"{container}
+store after_catch as "unset"
+store rebound as "no"
+store rebound_value as 0
+try:
+    {failed_create}
+    change after_catch to "unexpected_success"
+when error:
+    store seen as "missing"
+    try:
+        display k.value
+        change seen to "bound"
+    when error:
+        change seen to "unbound"
+    end try
+    change after_catch to seen
+    {successful_create}
+    change rebound to "yes"
+    change rebound_value to k.value
+end try
+display "after_catch=" with after_catch
+display "rebound=" with rebound
+display "rebound_value=" with rebound_value
+"#,
+        container = container_with_rejecting_initialize(),
+        failed_create = failed_create,
+        successful_create = successful_create,
+    )
 }
 
 #[test]
@@ -280,5 +335,162 @@ fn unresolved_parent_does_not_claim_initialize_is_missing() {
             .iter()
             .any(|e| e.contains("has no initialize method")),
         "{errors:?}"
+    );
+}
+
+#[test]
+fn initialize_error_inside_try_leaves_name_unbound_and_allows_recreate() {
+    let source = recover_after_failed_create(
+        "create new K with 0 as k:\n        value is 0\n    end",
+        "create new K with 3 as k:\n        value is 0\n    end",
+    );
+    let (status, out, err) = run(&source);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(
+        out.contains("after_catch=unbound"),
+        "failed initialize must not leave k bound for the catch handler\n{out}\n{err}"
+    );
+    assert!(
+        out.contains("rebound=yes"),
+        "re-creating k after a failed initialize must succeed\n{out}\n{err}"
+    );
+    assert!(
+        out.contains("rebound_value=3"),
+        "the recovered instance must be the successful construction\n{out}\n{err}"
+    );
+    assert!(
+        !err.contains("already been defined"),
+        "the catch handler must not see a stale k binding\n{out}\n{err}"
+    );
+}
+
+#[test]
+fn argument_error_inside_try_leaves_name_unbound_and_allows_recreate() {
+    let source = recover_after_failed_create(
+        "create new K with 1 divided by 0 as k:\n        value is 0\n    end",
+        "create new K with 3 as k:\n        value is 0\n    end",
+    );
+    let (status, out, err) = run(&source);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(
+        out.contains("after_catch=unbound"),
+        "a throwing constructor argument must not leave k bound for the catch handler\n{out}\n{err}"
+    );
+    assert!(
+        out.contains("rebound=yes"),
+        "re-creating k after a throwing constructor argument must succeed\n{out}\n{err}"
+    );
+    assert!(
+        out.contains("rebound_value=3"),
+        "the recovered instance must be the successful construction\n{out}\n{err}"
+    );
+    assert!(
+        !err.contains("already been defined"),
+        "the catch handler must not see a stale k binding\n{out}\n{err}"
+    );
+}
+
+#[test]
+fn successful_construction_still_binds_and_runs_initialize() {
+    let (status, out, err) = run(CONSTRUCTOR);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(out.contains('6'), "{out}\n{err}");
+}
+
+#[test]
+fn no_arg_form_does_not_call_initialize() {
+    let source = format!(
+        r#"{container}
+create new K as k:
+    value is 4
+end
+display k.value
+"#,
+        container = container_with_rejecting_initialize()
+    );
+    let (status, out, err) = run(&source);
+    assert_eq!(status, Some(0), "{out}\n{err}");
+    assert!(out.contains('4'), "{out}\n{err}");
+}
+
+#[tokio::test]
+async fn failed_initialize_leaves_the_environment_unchanged() {
+    let failed = format!(
+        r#"{container}
+create new K with 0 as k:
+    value is 0
+end
+"#,
+        container = container_with_rejecting_initialize()
+    );
+    let mut interpreter = Interpreter::new();
+    let errors = interpreter
+        .interpret(&parse(&failed))
+        .await
+        .expect_err("initialize must raise when amount is 0");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("amount is 0")),
+        "{errors:?}"
+    );
+    assert!(
+        interpreter.global_env().borrow().get("k").is_none(),
+        "a failed initialize must not bind k"
+    );
+
+    let recovered = interpreter
+        .interpret(&parse("create new K with 3 as k:\n    value is 0\nend\n"))
+        .await
+        .unwrap_or_else(|errors| panic!("re-create after failed initialize: {errors:?}"));
+    let Some(wfl::interpreter::value::Value::ContainerInstance(k)) =
+        interpreter.global_env().borrow().get("k")
+    else {
+        panic!("re-create must bind k; last value was {recovered:?}");
+    };
+    assert_eq!(
+        k.borrow().properties.get("value"),
+        Some(&wfl::interpreter::value::Value::Number(3.0))
+    );
+}
+
+#[tokio::test]
+async fn failed_constructor_argument_leaves_the_environment_unchanged() {
+    let failed = format!(
+        r#"{container}
+create new K with 1 divided by 0 as k:
+    value is 0
+end
+"#,
+        container = container_with_rejecting_initialize()
+    );
+    let mut interpreter = Interpreter::new();
+    let errors = interpreter
+        .interpret(&parse(&failed))
+        .await
+        .expect_err("argument evaluation must raise");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.to_lowercase().contains("zero")),
+        "{errors:?}"
+    );
+    assert!(
+        interpreter.global_env().borrow().get("k").is_none(),
+        "a throwing constructor argument must not bind k"
+    );
+
+    interpreter
+        .interpret(&parse("create new K with 3 as k:\n    value is 0\nend\n"))
+        .await
+        .unwrap_or_else(|errors| panic!("re-create after throwing argument: {errors:?}"));
+    let Some(wfl::interpreter::value::Value::ContainerInstance(k)) =
+        interpreter.global_env().borrow().get("k")
+    else {
+        panic!("re-create must bind k");
+    };
+    assert_eq!(
+        k.borrow().properties.get("value"),
+        Some(&wfl::interpreter::value::Value::Number(3.0))
     );
 }
