@@ -1,0 +1,210 @@
+// Asserted coverage for issue #701: a container action calls another action
+// of the same container through `this` ("the object this action was called
+// on"), exactly like code outside the container calls it through the
+// object's name. Documented in Docs/04-advanced-features/containers-oop.md
+// ("Calling Other Actions with this").
+
+// The issue's reproduction, written with the `this` receiver.
+create container Minifier:
+    property buf: Text
+
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+
+    action step:
+        this.emit("x")
+    end
+end
+
+create new Minifier as m:
+    buf is ""
+end
+
+m.step()
+
+// Writes made before, during, and after a sibling call all survive, and the
+// caller sees the callee's write both bare and through `this`.
+create container Builder:
+    property buf: Text
+
+    action emit needs ch: Text:
+        store buf as buf with ch
+    end
+
+    action build: Text
+        store buf as buf with "a"
+        this.emit("b")
+        store seen as buf
+        store buf as buf with "c"
+        return seen with "|" with this.buf
+    end
+end
+
+create new Builder as builder:
+    buf is ""
+end
+
+store build_result as builder.build()
+
+// Return values, and an action that calls siblings declared after it.
+create container Calc:
+    property v: Number
+
+    action report: Text
+        return "double=" with this.doubled() with " triple=" with this.tripled()
+    end
+
+    action doubled: Number
+        return v times 2
+    end
+
+    action tripled: Number
+        return v times 3
+    end
+end
+
+create new Calc as calc:
+    v is 21
+end
+
+// Inherited actions, and overrides reached from the parent's own action.
+create container Animal:
+    property name: Text
+
+    action sound: Text
+        return "..."
+    end
+
+    action introduce: Text
+        return name with " says " with this.sound()
+    end
+end
+
+create container Dog extends Animal:
+    action sound: Text
+        return "Woof"
+    end
+
+    action greet: Text
+        return "Hi! " with this.introduce()
+    end
+end
+
+create new Dog as rex:
+    name is "Rex"
+end
+
+create new Animal as thing:
+    name is "Thing"
+end
+
+// A call on another object, made from inside an action, runs on that object.
+create container Counter:
+    property n: Number
+    property label: Text
+    property last_seen: Text
+
+    action inc:
+        change n to n + 1
+    end
+
+    action bump:
+        this.inc()
+        change last_seen to label
+    end
+
+    action poke needs other: Counter:
+        other.bump()
+    end
+end
+
+create new Counter as alpha:
+    n is 0
+    label is "alpha"
+    last_seen is ""
+end
+
+create new Counter as beta:
+    n is 100
+    label is "beta"
+    last_seen is ""
+end
+
+alpha.poke(beta)
+
+// Recursion through `this`: every level keeps its own writes.
+create container Countdown:
+    property log: Text
+
+    action tick needs k: Number:
+        check if k is greater than 0:
+            change log to log with k
+            this.tick(k minus 1)
+            change log to log with "."
+        end check
+    end
+end
+
+create new Countdown as countdown:
+    log is ""
+end
+
+countdown.tick(3)
+
+// Recursion with locals: each call keeps its own `a` and `b`.
+create container Math:
+    property calls: Number
+
+    action fib needs n: Number: Number
+        change calls to calls + 1
+        check if n is less than 2:
+            return n
+        end check
+        store a as this.fib(n minus 1)
+        store b as this.fib(n minus 2)
+        return a plus b
+    end
+end
+
+create new Math as math:
+    calls is 0
+end
+
+store fib_ten as math.fib(10)
+
+describe "container actions calling sibling actions through this":
+    test "the issue #701 reproduction appends through a sibling action":
+        expect m.buf to equal "x"
+    end test
+
+    test "caller and callee property writes stay coherent":
+        expect build_result to equal "ab|abc"
+        expect builder.buf to equal "abc"
+    end test
+
+    test "sibling actions return values and may be declared later":
+        expect calc.report() to equal "double=42 triple=63"
+    end test
+
+    test "this dispatches to inherited actions and to overrides":
+        expect rex.greet() to equal "Hi! Rex says Woof"
+        expect thing.introduce() to equal "Thing says ..."
+    end test
+
+    test "a nested call on another object changes only that object":
+        expect alpha.n to equal 0
+        expect beta.n to equal 101
+        expect alpha.last_seen to equal ""
+        expect beta.last_seen to equal "beta"
+    end test
+
+    test "recursive calls through this keep every level's writes":
+        expect countdown.log to equal "321..."
+    end test
+
+    test "recursion through this keeps each call's locals":
+        expect fib_ten to equal 55
+        expect math.calls to equal 177
+    end test
+end describe

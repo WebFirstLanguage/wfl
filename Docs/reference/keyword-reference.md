@@ -67,7 +67,7 @@ Quick lookup for all WFL reserved keywords.
 | `list` | List type | ✓ |
 | `map` | Map type | ✓ |
 | `needs` | Action parameters (alias) | ✓ |
-| `new` | Instantiate container | ✓ |
+| `new` | Instantiate container (`create new K [with value and ...] as k: ... end`) | ✓ |
 | `property` | Container field | ✗ |
 | `store` | Create variable | ✗ |
 
@@ -125,7 +125,7 @@ Quick lookup for all WFL reserved keywords.
 | `or` | Logical OR | ✗ |
 | `same` | Equality (alias) | ✗ |
 | `than` | Comparison | ✗ |
-| `with` | Parameter separator/concatenation | ✗ |
+| `with` | Action/constructor arguments or concatenation | ✗ |
 
 ---
 
@@ -236,6 +236,11 @@ Quick lookup for all WFL reserved keywords.
 | `requires` | Interface requirement | ✗ |
 | `static` | Static member | ✗ |
 | `trigger` | Fire event | ✗ |
+
+`this` is not a keyword (it is not counted above): inside an instance action it
+names the object the action was called on, as in `this.other_action()`, unless
+the program has its own variable named `this` there. See
+[Calling Other Actions with `this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
 
 ---
 

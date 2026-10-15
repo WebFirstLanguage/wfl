@@ -1,0 +1,2 @@
+call write_stdout with "abc"
+call write_stdout with "def"

@@ -1,8 +1,11 @@
 use dashmap::DashMap;
+use std::collections::HashSet;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
+use wfl::analyzer::{Analyzer, MethodInfo};
 use wfl::lexer::lex_wfl_with_positions;
+use wfl::lexer::token::Token;
 use wfl::parser::{Parser, ast::Program};
 
 pub mod core;
@@ -77,6 +80,10 @@ impl WflLanguageServer {
         let keywords = [
             ("store", "store ${1:variable_name} as ${2:value}"),
             ("create", "create ${1:variable_name} as ${2:value}"),
+            (
+                "create new",
+                "create new ${1:Container} with ${2:value} as ${3:instance}:\n\t${4:properties}\nend",
+            ),
             ("display", "display ${1:expression}"),
             (
                 "check if",
@@ -433,6 +440,9 @@ impl WflLanguageServer {
     }
 
     fn get_hover_info(&self, document_text: &str, position: Position) -> Option<String> {
+        if let Some(info) = self.get_constructor_hover(document_text, position) {
+            return Some(info);
+        }
         // Try to find symbol information at the given position
         let tokens = lex_wfl_with_positions(document_text);
         let mut parser = Parser::new(&tokens);
@@ -454,6 +464,143 @@ impl WflLanguageServer {
                 self.get_keyword_or_stdlib_hover(document_text, position)
             }
         }
+    }
+
+    fn constructor_method(
+        &self,
+        document_text: &str,
+        line: u32,
+        container_name: &str,
+    ) -> Option<MethodInfo> {
+        // A constructor header can be incomplete while the user is typing.
+        // Definitions on earlier lines are complete and can be analyzed normally.
+        let mut definitions = document_text
+            .lines()
+            .take(line as usize)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let program = loop {
+            if let Ok(program) = Parser::new(&lex_wfl_with_positions(&definitions)).parse() {
+                break program;
+            }
+            // The current constructor may be inside an unfinished action or
+            // conditional. Peel that incomplete suffix back to the nearest
+            // complete prefix so earlier container definitions stay usable.
+            definitions.truncate(definitions.rfind('\n')?);
+        };
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+        let mut current = Some(container_name.to_string());
+        let mut visited = HashSet::new();
+        while let Some(name) = current {
+            if !visited.insert(name.clone()) {
+                return None;
+            }
+            let container = analyzer.get_container(&name)?;
+            if let Some(method) = container.methods.get("initialize") {
+                return Some(method.clone());
+            }
+            current = container.extends.clone();
+        }
+        None
+    }
+
+    fn get_constructor_signature_help(
+        &self,
+        document_text: &str,
+        position: Position,
+    ) -> Option<SignatureHelp> {
+        let line = document_text.lines().nth(position.line as usize)?;
+        let prefix = &line[..byte_offset_for_utf16_col(line, position.character)];
+        let tokens = lex_wfl_with_positions(prefix);
+        let tokens: Vec<_> = tokens
+            .iter()
+            .filter(|token| token.token != Token::Eol)
+            .collect();
+        let [create, new, container, with, rest @ ..] = tokens.as_slice() else {
+            return None;
+        };
+        if create.token != Token::KeywordCreate
+            || new.token != Token::KeywordNew
+            || with.token != Token::KeywordWith
+        {
+            return None;
+        }
+        let Token::Identifier(container_name) = &container.token else {
+            return None;
+        };
+
+        let mut depth = 0usize;
+        let mut active_parameter = 0u32;
+        for token in rest {
+            match token.token {
+                Token::KeywordAs if depth == 0 => return None,
+                Token::LeftParen | Token::LeftBracket => depth += 1,
+                Token::RightParen | Token::RightBracket => depth = depth.saturating_sub(1),
+                Token::KeywordAnd if depth == 0 => active_parameter += 1,
+                _ => {}
+            }
+        }
+
+        let method = self.constructor_method(document_text, position.line, container_name)?;
+        let parameters: Vec<String> = method
+            .parameters
+            .iter()
+            .map(|parameter| match &parameter.param_type {
+                Some(kind) => format!("{}: {kind}", parameter.name),
+                None => parameter.name.clone(),
+            })
+            .collect();
+        let label = format!("initialize({})", parameters.join(", "));
+        Some(SignatureHelp {
+            signatures: vec![SignatureInformation {
+                label,
+                documentation: None,
+                parameters: Some(
+                    parameters
+                        .into_iter()
+                        .map(|label| ParameterInformation {
+                            label: ParameterLabel::Simple(label),
+                            documentation: None,
+                        })
+                        .collect(),
+                ),
+                active_parameter: None,
+            }],
+            active_signature: Some(0),
+            active_parameter: Some(active_parameter),
+        })
+    }
+
+    fn get_constructor_hover(&self, document_text: &str, position: Position) -> Option<String> {
+        let line = document_text.lines().nth(position.line as usize)?;
+        let byte_pos = byte_offset_for_utf16_col(line, position.character);
+        let tokens = lex_wfl_with_positions(line);
+        let [create, new, container, ..] = tokens.as_slice() else {
+            return None;
+        };
+        if create.token != Token::KeywordCreate || new.token != Token::KeywordNew {
+            return None;
+        }
+        let Token::Identifier(container_name) = &container.token else {
+            return None;
+        };
+        if !(container.byte_start..container.byte_end).contains(&byte_pos) {
+            return None;
+        }
+        let method = self.constructor_method(document_text, position.line, container_name)?;
+        let parameters = method
+            .parameters
+            .iter()
+            .map(|parameter| match &parameter.param_type {
+                Some(kind) => format!("{}: {kind}", parameter.name),
+                None => parameter.name.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(format!(
+            "Container `{container_name}`\n\n`initialize({parameters})`"
+        ))
     }
 
     fn find_symbol_at_position(
@@ -856,6 +1003,11 @@ impl LanguageServer for WflLanguageServer {
                     ..CompletionOptions::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec![" ".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -932,11 +1084,152 @@ impl LanguageServer for WflLanguageServer {
             Ok(None)
         }
     }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        Ok(self
+            .document_map
+            .get(&uri.to_string())
+            .and_then(|document| self.get_constructor_signature_help(&document, position)))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower_lsp::LspService;
+
+    const CONTAINER_DEFS: &str = "create container Parent:\n    action initialize needs first: Number, second: Text:\n    end\nend\ncreate container Child extends Parent:\nend\n";
+
+    fn server() -> LspService<WflLanguageServer> {
+        LspService::new(WflLanguageServer::new).0
+    }
+
+    fn at_line_end(source: &str) -> Position {
+        let line = source.lines().last().unwrap();
+        Position::new(
+            source.lines().count() as u32 - 1,
+            line.encode_utf16().count() as u32,
+        )
+    }
+
+    #[test]
+    fn constructor_completion_inserts_valid_source_form() {
+        let service = server();
+        let items = service
+            .inner()
+            .collect_completion_items("create ", Position::new(0, 7));
+        let constructor = items
+            .iter()
+            .find(|item| item.label == "create new")
+            .expect("constructor completion");
+        assert!(
+            constructor
+                .insert_text
+                .as_deref()
+                .unwrap()
+                .contains(" with ")
+        );
+        assert!(constructor.insert_text.as_deref().unwrap().contains(" as "));
+    }
+
+    #[test]
+    fn hover_on_instantiated_type_shows_inherited_initialize() {
+        let service = server();
+        let source = format!("{CONTAINER_DEFS}create new Child with 3 and \"x\" as child:\nend\n");
+        let hover = service
+            .inner()
+            .get_hover_info(&source, Position::new(6, 12))
+            .expect("constructor hover");
+        assert!(hover.contains("initialize"), "{hover}");
+        assert!(hover.contains("first: Number"), "{hover}");
+        assert!(hover.contains("second: Text"), "{hover}");
+    }
+
+    #[test]
+    fn constructor_hover_only_matches_type_token() {
+        let service = server();
+        let source = format!("{CONTAINER_DEFS}create new Child with \"Child\" as child:\nend\n");
+        let type_hover = service
+            .inner()
+            .get_constructor_hover(&source, Position::new(6, 12));
+        assert!(type_hover.unwrap().contains("initialize"));
+        let argument_hover = service
+            .inner()
+            .get_constructor_hover(&source, Position::new(6, 25));
+        assert!(argument_hover.is_none(), "{argument_hover:?}");
+    }
+
+    #[test]
+    fn signature_help_survives_unfinished_clause_and_tracks_arguments() {
+        let service = server();
+        for (line, active) in [
+            ("create new Child with ", 0),
+            ("create new Child with 3 and ", 1),
+            ("create new Child with \"a and b\" and ", 1),
+            ("create new Child with \"a\" with \"b\" and ", 1),
+        ] {
+            let source = format!("{CONTAINER_DEFS}{line}");
+            let help = service
+                .inner()
+                .get_constructor_signature_help(&source, at_line_end(&source))
+                .expect("signature help");
+            assert_eq!(help.active_parameter, Some(active), "{line}");
+            assert!(
+                help.signatures[0]
+                    .label
+                    .contains("initialize(first: Number, second: Text)")
+            );
+        }
+    }
+
+    #[test]
+    fn constructor_help_works_inside_an_open_action() {
+        let service = server();
+        let unfinished =
+            format!("{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and ");
+        let help = service
+            .inner()
+            .get_constructor_signature_help(&unfinished, at_line_end(&unfinished))
+            .expect("nested signature help");
+        assert_eq!(help.active_parameter, Some(1));
+
+        let complete = format!(
+            "{CONTAINER_DEFS}define action called make:\n    create new Child with 3 and \"x\" as child:\n    end\nend action\n"
+        );
+        let hover = service
+            .inner()
+            .get_hover_info(&complete, Position::new(7, 16))
+            .expect("nested constructor hover");
+        assert!(
+            hover.contains("initialize(first: Number, second: Text)"),
+            "{hover}"
+        );
+    }
+
+    #[test]
+    fn signature_help_is_absent_outside_constructor_arguments() {
+        let service = server();
+        let source = format!("{CONTAINER_DEFS}display \"and as\"");
+        assert!(
+            service
+                .inner()
+                .get_constructor_signature_help(&source, at_line_end(&source))
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn server_advertises_signature_help() {
+        let service = server();
+        let result = service
+            .inner()
+            .initialize(InitializeParams::default())
+            .await
+            .unwrap();
+        assert!(result.capabilities.signature_help_provider.is_some());
+    }
 
     #[test]
     fn test_byte_offset_for_utf16_col_ascii() {

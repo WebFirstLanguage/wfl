@@ -172,21 +172,34 @@ alice.greet();
 **WFL:**
 ```wfl
 create container Person:
-    property name: Text
+    property name: text
     property age: Number
+
+    action initialize needs person_name: text, person_age: Number:
+        change name to person_name
+        change age to person_age
+    end
 
     action greet:
         display "Hi, I'm " with name
     end
 end
 
-create new Person as alice:
-    name is "Alice"
-    age is 28
+create new Person with "Alice" and 28 as alice:
+    name is ""
+    age is 0
 end
 
 alice.greet()
 ```
+
+Inside an action, read a property by its name (`name`), as the example does.
+`initialize` receives constructor arguments in order. The property block after
+`as alice:` runs first; here it seeds properties before `change` updates them.
+The colon and `end` are required even if a block is empty.
+To call another action of the same object, write `this.other_action()`, just
+as you would in JavaScript; see
+[Calling Other Actions with `this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
 
 ## Async/Await
 
@@ -255,7 +268,7 @@ end try
 ## What WFL Doesn't Have
 
 ❌ **Promises** - Use `wait for` instead
-❌ **Classes with constructors** - Use containers with properties
+❌ **Constructor overloads** - Containers have one `initialize` action
 ❌ **Arrow functions** - Use regular actions
 ❌ **Template literals** - Use `with` for concatenation
 ❌ **Destructuring** - Access properties individually

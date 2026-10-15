@@ -6995,15 +6995,7 @@ impl Interpreter {
     }
 
     fn native_display(args: Vec<Value>) -> Result<Value, RuntimeError> {
-        let mut line = String::new();
-        for (i, arg) in args.iter().enumerate() {
-            if i > 0 {
-                line.push(' ');
-            }
-            line.push_str(&arg.to_string());
-        }
-        io_capture::emit_line(&line);
-        Ok(Value::Null)
+        stdlib::core::native_print(args)
     }
 
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
@@ -7710,11 +7702,13 @@ impl Interpreter {
 
             Statement::DisplayStatement {
                 value,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
                 let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                io_capture::emit_line(&value.to_string());
+                let args = [value];
+                self.await_output(io_capture::route("display", &args).unwrap(), *line, *column)
+                    .await?;
                 Ok((Value::Null, ControlFlow::None))
             }
 
@@ -7801,7 +7795,7 @@ impl Interpreter {
                         #[cfg(debug_assertions)]
                         exec_trace!("Executing bare action call: {}", name);
                         return self
-                            .call_function(&func, vec![], *var_line, *var_column)
+                            .call_function_from(&func, vec![], *var_line, *var_column, Some(&env))
                             .await
                             .map(|value| (value, ControlFlow::None));
                     } else if let Some(Value::Overloaded(overloaded)) = lookup {
@@ -7815,7 +7809,13 @@ impl Interpreter {
                             #[cfg(debug_assertions)]
                             exec_trace!("Executing bare overloaded action call: {}", name);
                             return self
-                                .call_function(func, vec![], *var_line, *var_column)
+                                .call_function_from(
+                                    func,
+                                    vec![],
+                                    *var_line,
+                                    *var_column,
+                                    Some(&env),
+                                )
                                 .await
                                 .map(|value| (value, ControlFlow::None));
                         }
@@ -10555,6 +10555,12 @@ impl Interpreter {
                     container_properties.insert(prop.name.clone(), value_prop);
                 }
 
+                // Decide here what `this` means in the container's actions,
+                // where the analyzer decides it (#701): the object, unless the
+                // program has its own variable named `this` in scope. An
+                // enclosing action's own `this` is not such a variable.
+                let binds_receiver_this = !Self::program_binding_visible(&env, "this");
+
                 for method in methods {
                     if let Statement::ActionDefinition {
                         name,
@@ -10574,6 +10580,7 @@ impl Interpreter {
                             is_static: false,
                             is_public: true,
                             env: Rc::downgrade(&env),
+                            binds_receiver_this,
                             line: *line,
                             column: *column,
                         };
@@ -10618,6 +10625,7 @@ impl Interpreter {
                                 is_static: true,
                                 is_public: true,
                                 env: Rc::downgrade(&env),
+                                binds_receiver_this,
                                 line: *line,
                                 column: *column,
                             },
@@ -10711,16 +10719,10 @@ impl Interpreter {
 
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
 
-                // Store the instance in the environment
-                match env
-                    .borrow_mut()
-                    .define_direct(instance_name, instance_value.clone())
-                {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
-
-                // Call constructor method if arguments are provided
+                // Call constructor method if arguments are provided. Bind the
+                // instance name only after this succeeds so a throwing
+                // argument or `initialize` leaves the environment unchanged
+                // (#789 review; #786 made constructor arguments reachable).
                 if !arguments.is_empty() {
                     // Look up the container definition to find the initialize method
                     let container_def = match env.borrow().get(container_type) {
@@ -10734,27 +10736,12 @@ impl Interpreter {
                         }
                     };
 
-                    // Check if the container has an "initialize" method
-                    if let Some(init_method) = container_def.methods.get("initialize") {
-                        // Create a function value from the initialize method
-                        let init_function = FunctionValue {
-                            name: Some("initialize".to_string()),
-                            params: init_method.params.clone(),
-                            param_types: vec![None; init_method.params.len()],
-                            body: init_method.body.clone(),
-                            env: init_method.env.clone(),
-                            line: init_method.line,
-                            column: init_method.column,
-                            enforce_param_types: std::cell::Cell::new(false),
-                            static_method_context: None,
-                        };
-
-                        // Create a new environment for the constructor execution
-                        let init_env = Environment::new_child_env(&env);
-
-                        // Add 'this' to the environment (the instance being constructed)
-                        let _ = init_env.borrow_mut().define("this", instance_value.clone());
-
+                    // Find `initialize` the way `obj.initialize(...)` does:
+                    // on the container itself, else through its `extends`
+                    // chain, so a child's override wins over its parent's.
+                    if let Some(init_method) =
+                        Self::resolve_instance_method(&env, container_def, "initialize")
+                    {
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
@@ -10762,9 +10749,24 @@ impl Interpreter {
                             arg_values.push(arg_val);
                         }
 
-                        // Call the initialize method
-                        self.call_function(&init_function, arg_values, *line, *column)
-                            .await?;
+                        // Run `initialize` on the new object exactly as
+                        // `obj.initialize(...)` would: with its receiver,
+                        // `this` and properties, and with property changes
+                        // written back (#701; this path used to run it with
+                        // none of them). The name is still unbound; the
+                        // action uses `this`, not the instance identifier.
+                        let Value::ContainerInstance(instance_rc) = &instance_value else {
+                            unreachable!("a container instantiation yields an instance");
+                        };
+                        self.invoke_instance_action(
+                            instance_rc,
+                            &init_method,
+                            arg_values,
+                            &env,
+                            *line,
+                            *column,
+                        )
+                        .await?;
                     } else if !arguments.is_empty() {
                         return Err(RuntimeError::new(
                             format!(
@@ -10774,6 +10776,14 @@ impl Interpreter {
                             *column,
                         ));
                     }
+                }
+
+                match env
+                    .borrow_mut()
+                    .define_direct(instance_name, instance_value.clone())
+                {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 Ok((instance_value, ControlFlow::None))
@@ -11540,22 +11550,22 @@ impl Interpreter {
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
                             };
-                            self.web_servers
-                                .borrow_mut()
-                                .insert(server_name.clone(), wfl_server);
-
                             let server_value = Value::Text(Arc::from(format!(
                                 "WebServer::{}:{}",
                                 addr.ip(),
                                 addr.port()
                             )));
 
-                            println!(
-                                "Redirect server is listening on port {} (redirecting to HTTPS port {})",
-                                addr.port(),
-                                target_port
-                            );
+                            self.await_output(
+                                io_capture::stdout_line(&format!(
+                                    "Redirect server is listening on port {} (redirecting to HTTPS port {})",
+                                    addr.port(), target_port
+                                )), *line, *column
+                            ).await?;
 
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
                             match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -11732,18 +11742,25 @@ impl Interpreter {
                                 request_sender: request_sender.clone(),
                                 server_handle: Some(server_handle),
                             };
-                            self.web_servers
-                                .borrow_mut()
-                                .insert(server_name.clone(), wfl_server);
-
                             let server_value = Value::Text(Arc::from(format!(
                                 "WebServer::{}:{}",
                                 addr.ip(),
                                 addr.port()
                             )));
 
-                            println!("Secure server is listening on port {}", addr.port());
+                            self.await_output(
+                                io_capture::stdout_line(&format!(
+                                    "Secure server is listening on port {}",
+                                    addr.port()
+                                )),
+                                *line,
+                                *column,
+                            )
+                            .await?;
 
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
                             match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -11774,11 +11791,6 @@ impl Interpreter {
                                 server_handle: Some(server_handle),
                             };
 
-                            // Store the server in the interpreter
-                            self.web_servers
-                                .borrow_mut()
-                                .insert(server_name.clone(), wfl_server);
-
                             // Create a server value with the actual address
                             let server_value = Value::Text(Arc::from(format!(
                                 "WebServer::{}:{}",
@@ -11786,8 +11798,19 @@ impl Interpreter {
                                 addr.port()
                             )));
 
-                            println!("Server is listening on port {}", addr.port());
+                            self.await_output(
+                                io_capture::stdout_line(&format!(
+                                    "Server is listening on port {}",
+                                    addr.port()
+                                )),
+                                *line,
+                                *column,
+                            )
+                            .await?;
 
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
                             match env.borrow_mut().define_direct(server_name, server_value) {
                                 Ok(_) => Ok((Value::Null, ControlFlow::None)),
                                 Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -13148,13 +13171,20 @@ impl Interpreter {
                             server_handle: Some(server_handle),
                             close_tx,
                         };
+                        self.await_output(
+                            io_capture::stdout_line(&format!(
+                                "WebSocket server is listening on port {}",
+                                addr.port()
+                            )),
+                            *line,
+                            *column,
+                        )
+                        .await?;
+
                         self.web_socket_servers
                             .borrow_mut()
                             .insert(key.clone(), wfl_ws);
-
                         let server_value = Value::Text(Arc::from(key));
-                        println!("WebSocket server is listening on port {}", addr.port());
-
                         match env.borrow_mut().define_direct(server_name, server_value) {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
@@ -14020,6 +14050,29 @@ impl Interpreter {
         Ok(())
     }
 
+    async fn await_output<T>(
+        &self,
+        future: impl Future<Output = Result<T, RuntimeError>>,
+        line: usize,
+        column: usize,
+    ) -> Result<T, RuntimeError> {
+        tokio::pin!(future);
+        loop {
+            self.check_wait_budget(line, column)?;
+            tokio::select! {
+                result = &mut future => {
+                    self.check_wait_budget(line, column)?;
+                    return result.map_err(|mut error| {
+                        error.line = line;
+                        error.column = column;
+                        error
+                    });
+                }
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        }
+    }
+
     /// Drains and dispatches queued websocket events for up to `budget`, running
     /// the matching handler block for each. With no websocket servers active it
     /// is a plain sleep, preserving `wait for <duration>` semantics.
@@ -14696,15 +14749,7 @@ impl Interpreter {
                     self.call_function(&function, argument_values, line, column)
                         .await
                 } else if let Value::ContainerInstance(instance_rc) = &object_val_clone {
-                    // Clone instance_rc for later property write-back
-                    let instance_rc_for_writeback = instance_rc.clone();
-
-                    let (container_type, property_names) = {
-                        let instance = instance_rc.borrow();
-                        let container_type = instance.container_type.clone();
-                        let prop_names: Vec<String> = instance.properties.keys().cloned().collect();
-                        (container_type, prop_names)
-                    };
+                    let container_type = instance_rc.borrow().container_type.clone();
 
                     // Look up the container definition
                     let container_def = match env.borrow().get(&container_type) {
@@ -14719,77 +14764,14 @@ impl Interpreter {
                     };
 
                     // Look up the method (with inheritance support)
-                    let mut found_method = container_def.methods.get(method).cloned();
-                    let mut current_container_name = container_type.clone();
-
-                    // If method not found, check parent containers
-                    while found_method.is_none() {
-                        if let Some(Value::ContainerDefinition(def)) =
-                            env.borrow().get(&current_container_name)
-                        {
-                            if let Some(parent_name) = &def.extends {
-                                current_container_name = parent_name.clone();
-                                if let Some(Value::ContainerDefinition(parent_def)) =
-                                    env.borrow().get(parent_name)
-                                {
-                                    found_method = parent_def.methods.get(method).cloned();
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
+                    let found_method = Self::resolve_instance_method(&env, container_def, method);
 
                     if let Some(method_val) = found_method {
-                        // Create a function value from the method
-                        let function = FunctionValue {
-                            name: Some(method_val.name.clone()),
-                            params: method_val.params.clone(),
-                            param_types: vec![None; method_val.params.len()],
-                            body: method_val.body.clone(),
-                            env: method_val.env.clone(),
-                            line: method_val.line,
-                            column: method_val.column,
-                            enforce_param_types: std::cell::Cell::new(false),
-                            static_method_context: None,
-                        };
-
-                        // Create a new environment for the method execution
-                        let method_env = Environment::new_child_env(&env);
-
-                        // Add 'this' to the environment
-                        let _ = method_env.borrow_mut().define("this", object_val.clone());
-
-                        // Add container properties and events as accessible variables
-                        {
-                            let instance = instance_rc.borrow();
-
-                            // Add properties
-                            for (prop_name, prop_value) in &instance.properties {
-                                let _ = method_env
-                                    .borrow_mut()
-                                    .define(prop_name, prop_value.clone());
-                            }
-
-                            // Add events from the container definition
-                            if let Some(Value::ContainerDefinition(container_def_rc)) =
-                                env.borrow().get(&instance.container_type)
-                            {
-                                let container_def = container_def_rc.clone();
-                                for (event_name, event_value) in &container_def.events {
-                                    let _ = method_env.borrow_mut().define(
-                                        event_name,
-                                        Value::ContainerEvent(Rc::new(event_value.clone())),
-                                    );
-                                }
-                            }
-                        } // Drop instance borrow here
-
-                        // Evaluate the arguments
+                        // Evaluate the arguments first, in the caller's scope:
+                        // an argument may itself call an action on this object
+                        // (`this.emit(this.next_char())`), and the frame built
+                        // for the call must start from the state that call
+                        // leaves (issue #701).
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
                             let arg_val = self
@@ -14798,37 +14780,15 @@ impl Interpreter {
                             arg_values.push(arg_val);
                         }
 
-                        // Create a modified function with the method environment
-                        let method_function = FunctionValue {
-                            name: function.name.clone(),
-                            params: function.params.clone(),
-                            param_types: function.param_types.clone(),
-                            body: function.body.clone(),
-                            env: Rc::downgrade(&method_env),
-                            line: function.line,
-                            column: function.column,
-                            enforce_param_types: function.enforce_param_types.clone(),
-                            static_method_context: None,
-                        };
-
-                        // Call the function with the method environment
-                        let result = self
-                            .call_function(&method_function, arg_values, line, column)
-                            .await;
-
-                        // WRITE BACK MODIFIED PROPERTIES TO CONTAINER
-                        // This fixes the property mutation issue where properties modified
-                        // in container actions weren't persisting
-                        for prop_name in property_names {
-                            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
-                                instance_rc_for_writeback
-                                    .borrow_mut()
-                                    .properties
-                                    .insert(prop_name, updated_value);
-                            }
-                        }
-
-                        result
+                        self.invoke_instance_action(
+                            instance_rc,
+                            &method_val,
+                            arg_values,
+                            &env,
+                            line,
+                            column,
+                        )
+                        .await
                     } else {
                         Err(RuntimeError::new(
                             format!("Method '{method}' not found in container '{container_type}'"),
@@ -14913,7 +14873,8 @@ impl Interpreter {
                         Value::Function(func) => {
                             if func.params.is_empty() {
                                 // Auto-call zero-argument user-defined functions
-                                self.call_function(func, vec![], *line, *column).await
+                                self.call_function_from(func, vec![], *line, *column, Some(&env))
+                                    .await
                             } else {
                                 // Return function object for functions with arguments
                                 Ok(value)
@@ -14926,7 +14887,8 @@ impl Interpreter {
                                 .find(|func| func.params.is_empty())
                             {
                                 // Auto-call the zero-argument overload
-                                self.call_function(func, vec![], *line, *column).await
+                                self.call_function_from(func, vec![], *line, *column, Some(&env))
+                                    .await
                             } else {
                                 // Return the overload set for calls with arguments
                                 Ok(value)
@@ -15048,17 +15010,18 @@ impl Interpreter {
 
                 let result = match function_val {
                     Value::Function(func) => {
-                        self.call_function(&func, arg_values, *line, *column).await
+                        self.call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await
                     }
                     Value::Overloaded(overloaded) => {
                         let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
-                        self.call_function(&func, arg_values, *line, *column).await
+                        self.call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await
                     }
                     Value::NativeFunction(native_name, native_fn) => {
-                        // CPU-heavy crypto builtins hop onto the blocking pool so
-                        // they don't monopolize the interpreter thread (Phase 0,
-                        // PR-0b). Everything else runs synchronously as before.
-                        if let Some(fut) =
+                        if let Some(fut) = io_capture::route(native_name, &arg_values) {
+                            self.await_output(fut, *line, *column).await
+                        } else if let Some(fut) =
                             crate::stdlib::crypto_async::route(native_name, &arg_values)
                         {
                             fut.await.map_err(|e| {
@@ -15113,7 +15076,8 @@ impl Interpreter {
                             );
                         }
                         let func = Self::select_overload(&overloaded, &arg_values, *line, *column)?;
-                        self.call_function(&func, arg_values, *line, *column).await
+                        self.call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await
                     }
                     Value::Function(func) => {
                         let mut arg_values = Vec::new();
@@ -15133,7 +15097,9 @@ impl Interpreter {
                         #[cfg(debug_assertions)]
                         exec_function_call!(&func_name, &arg_values);
 
-                        let result = self.call_function(&func, arg_values, *line, *column).await;
+                        let result = self
+                            .call_function_from(&func, arg_values, *line, *column, Some(&env))
+                            .await;
 
                         #[cfg(debug_assertions)]
                         if let Ok(ref val) = result {
@@ -15153,9 +15119,10 @@ impl Interpreter {
 
                         // Preserve the native error's message and kind; only
                         // point the location at the call site (natives report
-                        // their position as 0,0). CPU-heavy crypto builtins are
-                        // routed onto the blocking pool (Phase 0, PR-0b).
-                        if let Some(fut) =
+                        // their position as 0,0).
+                        if let Some(fut) = io_capture::route(native_name, &arg_values) {
+                            self.await_output(fut, *line, *column).await
+                        } else if let Some(fut) =
                             crate::stdlib::crypto_async::route(native_name, &arg_values)
                         {
                             fut.await.map_err(|mut e| {
@@ -15458,8 +15425,20 @@ impl Interpreter {
                 let obj_value = self.evaluate_expression(object, Rc::clone(&env)).await?;
                 match obj_value {
                     Value::ContainerInstance(instance) => {
+                        // While an action of this object runs, its frame holds
+                        // the current values; the object itself is only
+                        // updated when the action returns (`this.buf` right
+                        // after `store buf as ...`; issue #701).
+                        let working_copy = if instance.borrow().properties.contains_key(property) {
+                            Self::method_frame_for(&env, &instance)
+                                .and_then(|frame| frame.borrow().get_local(property))
+                        } else {
+                            None
+                        };
                         let instance_ref = instance.borrow();
-                        if let Some(prop_value) = instance_ref.properties.get(property) {
+                        if let Some(prop_value) = working_copy {
+                            Ok(prop_value)
+                        } else if let Some(prop_value) = instance_ref.properties.get(property) {
                             Ok(prop_value.clone())
                         } else {
                             Err(RuntimeError::new(
@@ -16092,6 +16071,228 @@ impl Interpreter {
         }
     }
 
+    /// The innermost running action of `instance` on the call chain that
+    /// reaches `env` (issue #701). Scopes are walked outward; an action frame
+    /// or action call scope continues at the scope that called it, so actions
+    /// on other objects and ordinary actions in between are crossed. The
+    /// object may be reached under any name — `this`, a parameter, a global —
+    /// so frames are matched by identity.
+    fn method_frame_for(
+        env: &Rc<RefCell<Environment>>,
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+    ) -> Option<Rc<RefCell<Environment>>> {
+        let mut scope = Some(Rc::clone(env));
+        while let Some(current) = scope {
+            let (is_frame, next) = {
+                let borrowed = current.borrow();
+                let is_frame = borrowed
+                    .method_receiver
+                    .as_ref()
+                    .is_some_and(|receiver| std::ptr::eq(receiver.as_ptr(), Rc::as_ptr(instance)));
+                let next = borrowed
+                    .caller
+                    .as_ref()
+                    .or(borrowed.parent.as_ref())
+                    .and_then(std::rc::Weak::upgrade);
+                (is_frame, next)
+            };
+            if is_frame {
+                return Some(current);
+            }
+            scope = next;
+        }
+        None
+    }
+
+    /// Run one of `instance`'s actions on it (issue #701). Builds the action's
+    /// frame (its receiver, `this` and working copies of the properties),
+    /// keeps a calling frame of the same object in step around the call, and
+    /// writes the properties back afterwards. `env` is the calling scope.
+    /// Shared by `obj.action(...)` and by the constructor path that runs
+    /// `initialize`, so both see the object the same way.
+    async fn invoke_instance_action(
+        &self,
+        instance_rc: &Rc<RefCell<ContainerInstanceValue>>,
+        method_val: &ContainerMethodValue,
+        arg_values: Vec<Value>,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        let object_val = Value::ContainerInstance(Rc::clone(instance_rc));
+
+        // A caller already running an action of this same object holds its
+        // properties as working copies. Push them into the object before this
+        // call copies it, and pull the results back afterwards.
+        let caller_frame = Self::method_frame_for(env, instance_rc);
+        if let Some(frame) = &caller_frame {
+            Self::flush_method_frame(frame, instance_rc);
+        }
+        let property_names: Vec<String> = instance_rc.borrow().properties.keys().cloned().collect();
+
+        // The frame's parent is the scope where the container was defined, as
+        // for ordinary actions: an action must not see or overwrite its
+        // caller's locals (recursion through `this` lost them). The caller's
+        // scope is kept only as the frame's `caller` link. Should the defining
+        // scope be gone, fall back to the caller's scope, the historical
+        // parent.
+        let definition_env = method_val.env.upgrade();
+        let method_env = Environment::new_child_env(definition_env.as_ref().unwrap_or(env));
+        {
+            let mut frame = method_env.borrow_mut();
+            frame.method_receiver = Some(Rc::downgrade(instance_rc));
+            frame.caller = Some(Rc::downgrade(env));
+        }
+
+        // `this` is the object unless the program had its own variable named
+        // `this` where the container was defined, or the object has a
+        // property named `this`; either keeps its meaning.
+        if method_val.binds_receiver_this && !instance_rc.borrow().properties.contains_key("this") {
+            let _ = method_env
+                .borrow_mut()
+                .define_direct("this", object_val.clone());
+        }
+
+        // Add container properties and events as accessible variables
+        {
+            let instance = instance_rc.borrow();
+
+            for (prop_name, prop_value) in &instance.properties {
+                Self::bind_method_property(
+                    &method_env,
+                    definition_env.as_ref(),
+                    prop_name,
+                    prop_value,
+                );
+            }
+
+            if let Some(Value::ContainerDefinition(container_def_rc)) =
+                env.borrow().get(&instance.container_type)
+            {
+                let container_def = container_def_rc.clone();
+                for (event_name, event_value) in &container_def.events {
+                    let _ = method_env.borrow_mut().define(
+                        event_name,
+                        Value::ContainerEvent(Rc::new(event_value.clone())),
+                    );
+                }
+            }
+        } // Drop instance borrow here
+
+        let method_function = FunctionValue {
+            name: Some(method_val.name.clone()),
+            params: method_val.params.clone(),
+            param_types: vec![None; method_val.params.len()],
+            body: method_val.body.clone(),
+            env: Rc::downgrade(&method_env),
+            line: method_val.line,
+            column: method_val.column,
+            enforce_param_types: std::cell::Cell::new(false),
+            static_method_context: None,
+        };
+
+        let result = self
+            .call_function(&method_function, arg_values, line, column)
+            .await;
+
+        // Write the frame's property values back to the object, so changes
+        // made inside the action persist.
+        for prop_name in property_names {
+            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
+                instance_rc
+                    .borrow_mut()
+                    .properties
+                    .insert(prop_name, updated_value);
+            }
+        }
+
+        // The caller's frame picks up what this call wrote back.
+        if let Some(frame) = &caller_frame {
+            Self::refresh_method_frame(frame, instance_rc);
+        }
+
+        result
+    }
+
+    /// Whether the nearest binding of `name` visible from `env` belongs to the
+    /// program, rather than being an action frame's own `this` or property
+    /// binding (a frame is the scope that records a receiver).
+    fn program_binding_visible(env: &Rc<RefCell<Environment>>, name: &str) -> bool {
+        let mut scope = Some(Rc::clone(env));
+        while let Some(current) = scope {
+            let (found, is_frame, parent) = {
+                let borrowed = current.borrow();
+                (
+                    borrowed.values.contains_key(name),
+                    borrowed.method_receiver.is_some(),
+                    borrowed.parent.as_ref().and_then(std::rc::Weak::upgrade),
+                )
+            };
+            if found {
+                return !is_frame;
+            }
+            scope = parent;
+        }
+        false
+    }
+
+    /// Copy an action frame's working property values into its object, for
+    /// the properties the frame holds. Done before a nested call on the same
+    /// object so the callee starts from the caller's latest writes (#701).
+    fn flush_method_frame(
+        frame: &Rc<RefCell<Environment>>,
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+    ) {
+        let frame = frame.borrow();
+        let mut instance = instance.borrow_mut();
+        for (name, value) in instance.properties.iter_mut() {
+            if let Some(working) = frame.values.get(name) {
+                *value = working.clone();
+            }
+        }
+    }
+
+    /// The reverse of [`Self::flush_method_frame`]: after a nested call on the
+    /// same object has written its results back, the caller's frame picks
+    /// them up so its next read and its own write-back are not stale (#701).
+    fn refresh_method_frame(
+        frame: &Rc<RefCell<Environment>>,
+        instance: &Rc<RefCell<ContainerInstanceValue>>,
+    ) {
+        let instance = instance.borrow();
+        let mut frame = frame.borrow_mut();
+        for (name, value) in &instance.properties {
+            if let Some(working) = frame.values.get_mut(name) {
+                *working = value.clone();
+            }
+        }
+    }
+
+    /// Bind one of the receiver's properties in a new action frame.
+    ///
+    /// `define` refuses when an enclosing scope already has the name, and the
+    /// name then resolves to that outer binding. That is the historical rule
+    /// for a binding visible where the container was defined (for example a
+    /// same-named global). Any other refusal comes from the caller's scope,
+    /// which is the frame's parent only in the fallback case; such a binding
+    /// (another action's working copy, or a caller's local or parameter) must
+    /// not stand in for the property, so the property is bound over it (#701:
+    /// `b.bump()` called inside `a.poke(b)` used to run on `a`'s copies).
+    fn bind_method_property(
+        method_env: &Rc<RefCell<Environment>>,
+        definition_env: Option<&Rc<RefCell<Environment>>>,
+        name: &str,
+        value: &Value,
+    ) {
+        if method_env.borrow_mut().define(name, value.clone()).is_ok() {
+            return;
+        }
+        let lexically_visible = definition_env.is_some_and(|scope| scope.borrow().has(name));
+        if !lexically_visible {
+            let _ = method_env.borrow_mut().define_direct(name, value.clone());
+        }
+    }
+
     fn definition_shadows_container_property(
         &self,
         env: &Rc<RefCell<Environment>>,
@@ -16255,6 +16456,26 @@ impl Interpreter {
             let value = definition.static_properties.borrow().get(member).cloned();
             if value.is_some() {
                 return value;
+            }
+            let parent_name = definition.extends.as_ref()?.clone();
+            definition = match env.borrow().get(&parent_name) {
+                Some(Value::ContainerDefinition(parent)) => parent,
+                _ => return None,
+            };
+        }
+    }
+
+    /// Find instance action `member` on `definition`, else on the nearest
+    /// container up its `extends` chain that declares it. A child's action
+    /// therefore overrides its parent's.
+    fn resolve_instance_method(
+        env: &Rc<RefCell<Environment>>,
+        mut definition: Rc<ContainerDefinitionValue>,
+        member: &str,
+    ) -> Option<ContainerMethodValue> {
+        loop {
+            if let Some(method) = definition.methods.get(member).cloned() {
+                return Some(method);
             }
             let parent_name = definition.extends.as_ref()?.clone();
             definition = match env.borrow().get(&parent_name) {
@@ -16446,6 +16667,22 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
+        self.call_function_from(func, args, line, column, None)
+            .await
+    }
+
+    /// [`Self::call_function`] for a call made from user code, recording the
+    /// calling scope on the new call scope. Name lookup never follows that
+    /// link; it only lets an action called on an object find a running action
+    /// of the same object further up the call chain (#701).
+    async fn call_function_from(
+        &self,
+        func: &FunctionValue,
+        args: Vec<Value>,
+        line: usize,
+        column: usize,
+        caller: Option<&Rc<RefCell<Environment>>>,
+    ) -> Result<Value, RuntimeError> {
         #[cfg(feature = "dhat-ad-hoc")]
         dhat::ad_hoc_event(1);
 
@@ -16513,6 +16750,7 @@ impl Interpreter {
         };
 
         let call_env = Environment::new_child_env(&func_env);
+        call_env.borrow_mut().caller = caller.map(Rc::downgrade);
         exec_trace!("call_function - Created child environment for function call");
 
         for (_i, (param, arg)) in func.params.iter().zip(args.clone()).enumerate() {

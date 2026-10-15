@@ -738,29 +738,23 @@ impl CodeFixer {
                 output.push_str(" as ");
                 output.push_str(instance_name);
 
-                // Only add the block if there are property initializers
-                if !property_initializers.is_empty() {
-                    output.push_str(":\n");
+                output.push_str(":\n");
 
-                    // Format property initializers
-                    for initializer in property_initializers {
-                        output.push_str(&format!("{indent}    "));
-                        output.push_str(&initializer.name);
-                        output.push_str(" is ");
-                        self.pretty_print_expression(
-                            &initializer.value,
-                            output,
-                            indent_level + 1,
-                            summary,
-                        );
-                        output.push('\n');
-                    }
-
-                    output.push_str(&indent);
-                    output.push_str("end\n");
-                } else {
+                for initializer in property_initializers {
+                    output.push_str(&format!("{indent}    "));
+                    output.push_str(&initializer.name);
+                    output.push_str(" is ");
+                    self.pretty_print_expression(
+                        &initializer.value,
+                        output,
+                        indent_level + 1,
+                        summary,
+                    );
                     output.push('\n');
                 }
+
+                output.push_str(&indent);
+                output.push_str("end\n");
 
                 summary.lines_reformatted += 1;
             }
