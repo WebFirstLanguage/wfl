@@ -16195,10 +16195,12 @@ impl Interpreter {
             .call_function(&method_function, arg_values, line, column)
             .await;
 
-        // Write the frame's property values back to the object, so changes
-        // made inside the action persist.
+        // Write only the frame's own property bindings back to the object.
+        // A same-named global keeps precedence inside the action, but must
+        // not be copied into a property the frame never bound.
         for prop_name in property_names {
-            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
+            let updated = method_env.borrow().get_local(&prop_name);
+            if let Some(updated_value) = updated {
                 instance_rc
                     .borrow_mut()
                     .properties

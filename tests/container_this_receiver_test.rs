@@ -696,9 +696,11 @@ create new C as a:
     n is 1
 end
 a.show()
+display "after n=" with a.n
 "#,
     );
     assert!(stdout.contains("inside n=7"), "{stdout}");
+    assert!(stdout.contains("after n=1"), "{stdout}");
 }
 
 #[test]

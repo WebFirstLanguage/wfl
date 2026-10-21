@@ -78,6 +78,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   reuses that tag instead of burning a new number.
 
 ### Fixed
+- **Instance actions preserve properties hidden by globals** (#789 review).
+  A bare name inside an action still resolves to a same-named global, but
+  returning from the action no longer copies that global into the object's
+  untouched property. Property write-back reads only the action frame's own
+  bindings.
 - **Container construction binds the instance name only after success**
   (#789 review, #786). `create new K with … as k:` evaluated constructor
   arguments and ran `initialize` after the name was already in the
