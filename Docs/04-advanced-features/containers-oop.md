@@ -55,6 +55,41 @@ create new <ContainerType> as <variable>:
 end
 ```
 
+### Passing Arguments to `initialize`
+
+Define an instance action named `initialize`, then put positional arguments
+between the container type and `as`:
+
+```wfl
+create container Counter:
+    property value: Number
+    action initialize needs amount: Number:
+        change value to value plus amount
+    end
+end
+
+create new Counter with 3 as counter:
+    value is 2
+end
+display counter.value  // 5
+```
+
+The property block runs before `initialize`, so the action above starts with
+`value` equal to 2. Separate multiple arguments with `and`, in the same order
+as the action's parameters: `create new Pair with 3 and "left" as pair:`.
+If an argument is itself a call using `and`, group it so the boundary is clear:
+`create new Pair with (abs of -3) and "left" as pair:`.
+The `as <name>:` property block and closing `end` are required, even when the
+block is empty. `create new Counter as counter: ... end` remains valid and does
+not call `initialize` automatically. An inherited `initialize` works; a child
+action of the same name takes precedence. An absent action, wrong argument
+count, or incompatible type is reported with the container and `initialize`
+named in the diagnostic. Named arguments and container action overloads are
+not supported. `initialize` is an ordinary action name, not a keyword.
+If evaluating an argument or running `initialize` raises, the instance name
+is not bound. A surrounding `try` can recover and create the object again
+under the same name.
+
 ### Calling Actions
 
 ```wfl
@@ -158,6 +193,95 @@ action get_full_name: Text
     return first_name with " " with last_name
 end
 ```
+
+### Calling Other Actions with `this`
+
+Inside an action, `this` means **the object the action was called on**. Use it
+to call another action of the same container, the same way code outside the
+container calls an action through the object's name:
+
+```wfl
+create container Greeter:
+    property name: Text
+    property greetings: Number
+
+    action greet: Text
+        this.count_greeting()
+        return this.message()
+    end
+
+    action message: Text
+        return "Hello, " with name with "! (greeting " with greetings with ")"
+    end
+
+    action count_greeting:
+        change greetings to greetings + 1
+    end
+end
+
+create new Greeter as greeter:
+    name is "Ada"
+    greetings is 0
+end
+
+display greeter.greet()                            // Hello, Ada! (greeting 1)
+display greeter.greet()                            // Hello, Ada! (greeting 2)
+display "Total greetings: " with greeter.greetings // Total greetings: 2
+```
+
+Outside the container you write `greeter.message()`. Inside it you write
+`this.message()`. Both run the same action on the same object.
+
+What to know about `this`:
+
+- **Changes are shared.** Property changes an action makes before calling
+  `this.other()` are visible to `other`, and the changes `other` makes are
+  visible when it returns. This also holds when the object reaches another
+  action under a different name, for example `call helper with this`.
+- **Each call keeps its own local variables.** An action called on an object
+  cannot see or change the caller's local variables, so recursion through
+  `this` works. (Static actions do not have this guarantee yet: a static
+  action still runs inside its caller's scope.)
+- **Order does not matter.** An action can call a sibling declared later in
+  the container. In the example, `greet` calls `message`, which comes after it.
+- **Inheritance works.** `this.action()` also finds actions inherited from a
+  parent container. When a parent's action calls `this.action()` on an object
+  of a child container, the child's override runs (see
+  [Overriding Actions](#overriding-actions)). One known limitation: a parent's
+  action reached with `parent action_name` cannot yet use the object's
+  properties or `this`. To share work between a parent's action and a child's
+  override, put it in a separate parent action (for example
+  `base_summary`) and call that with `this.base_summary()` from both.
+- **Reading properties.** `this.name` reads the property's current value,
+  including changes the action has just made.
+- **Other objects.** An action can call actions on other objects it is given,
+  for example `other.bump()`. Each call runs on its own object, and inside it
+  `this` means that object.
+- **`this` is fixed.** `change this to ...` is an error.
+- **Instance actions only.** A `static action` belongs to the container, not
+  to one object, so using `this` in it is an error.
+- **Existing names keep their meaning.** `this` is not a reserved word. If a
+  program has its own variable named `this` where the container is defined
+  (such as a top-level `this` above it, which also counts for containers in
+  files the program includes or loads afterwards), if an action creates one
+  with `store this as ...` or `for each this in ...`, or if the container has
+  a property named `this`, that name keeps its meaning, and `this` there does
+  not mean the object. Rename it to use `this` for the object.
+- **Concurrent handlers.** Under `main loop concurrently:`, each running
+  action works on its own copy of its object's properties and writes the copy
+  back when it finishes. Two handlers running actions on the same object at
+  the same time can therefore overwrite each other's property changes.
+
+A bare call such as `call count_greeting` is not looked up among the
+container's actions. WFL stops before running the program and names the fix:
+
+```
+error[ANALYZE-SEMANTIC]: 'count_greeting' is an action of container 'Greeter'. Inside the container's actions, call it on the current object: this.count_greeting(...)
+```
+
+In a file that uses `include from`, WFL cannot see which actions the included
+files define, so it only warns about the bare call, and the call fails with
+`Undefined action 'count_greeting'` when it runs.
 
 ## Inheritance
 

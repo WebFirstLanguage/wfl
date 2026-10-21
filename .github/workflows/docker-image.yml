@@ -2,7 +2,7 @@ name: Docker Runtime Validation
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - '.github/workflows/docker-image.yml'
       - '.github/workflows/nightly.yml'

@@ -1,4 +1,10 @@
 {
+  "docs_examples/core/write_stdout.wfl": {
+    "doc_section": "Docs/05-standard-library/core-module.md#write_stdout",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0
+  },
   "docs_examples/error_examples/print_error_exit.wfl": {
     "doc_section": "Docs/03-language-basics/error-handling.md#reporting-cli-failures",
     "type": "executable",
@@ -706,6 +712,43 @@
       "properties"
     ],
     "doc_purpose": "Demonstrates reading instance properties with object.property"
+  },
+  "docs_examples/containers/sibling_actions_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#calling-other-actions-with-this",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "containers",
+      "oop",
+      "actions",
+      "this"
+    ],
+    "doc_purpose": "Demonstrates an action calling sibling actions of the same container through this, including one declared later (issue #701)"
+  },
+  "docs_examples/containers/bare_sibling_call_01.wfl": {
+    "doc_section": "Docs/04-advanced-features/containers-oop.md#calling-other-actions-with-this",
+    "type": "error_example",
+    "validate_layers": [
+      1,
+      2
+    ],
+    "expected_failure_layer": 2,
+    "expected_error_pattern": "'count_greeting' is an action of container 'Greeter'.*this\\.count_greeting\\(",
+    "skip_execution": true,
+    "tags": [
+      "containers",
+      "oop",
+      "this",
+      "error-example"
+    ],
+    "doc_purpose": "Shows that a bare call of a sibling action is rejected during semantic analysis with a message naming the this.action(...) form (issue #701)"
   },
   "docs_examples/modules/diamond/util.wfl": {
     "doc_section": "Docs/04-advanced-features/modules.md",

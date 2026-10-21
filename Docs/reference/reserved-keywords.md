@@ -109,6 +109,10 @@ TLS pairs can also use the existing `for` keyword to select a DNS name:
 pairs begin with `and certificate`; this adds no reserved words. See
 [multiple-domain HTTPS](../04-advanced-features/web-servers.md#multiple-domains-on-one-https-port).
 
+`initialize` is an ordinary container action name, not a reserved keyword.
+`create new K with value and another as k: ... end` passes positional values
+to it after the property block runs. This syntax adds no keywords.
+
 `raise_error` is an ordinary standard-library function called with `call
 raise_error with message` or `raise_error of message`; it is not a keyword.
 
@@ -124,6 +128,17 @@ store transaction as "TX-1094"
 `in`, and directly after the `end` that closes the block. A statement beginning
 with `in` was always a parse error before, so nothing that used to be valid
 changed meaning.
+
+`this` is not a keyword either. Inside a container's instance action it is a
+predefined, read-only name for the object the action was called on, used to
+call sibling actions (`this.other_action()`) and read properties
+(`this.name`); see [Calling Other Actions with
+`this`](../04-advanced-features/containers-oop.md#calling-other-actions-with-this).
+It only fills in where the name would otherwise be undefined. A program's own
+variable named `this` keeps its meaning: one that already exists where the
+container is defined (such as a top-level `this` above it), or one the action
+creates with `store this as ...` or `for each this in ...`. So does a property
+named `this`. Outside instance actions `this` is an ordinary identifier.
 
 ### Why Some Keywords Appear in Multiple Lists
 

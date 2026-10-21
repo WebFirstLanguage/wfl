@@ -645,7 +645,7 @@ fn constructor_arguments_match_the_direct_initialize_method() {
 }
 
 #[test]
-fn constructor_arguments_require_a_direct_initialize_method() {
+fn constructor_arguments_require_an_initialize_method() {
     let diagnostics = check(Program {
         statements: vec![
             container("Widget", None, vec![], vec![], vec![]),
@@ -673,13 +673,10 @@ fn constructor_arguments_require_a_direct_initialize_method() {
         vec![],
     );
     let child = container("Child", Some("Parent"), vec![], vec![], vec![]);
-    assert!(
-        check(Program {
-            statements: vec![parent, child, instantiate("Child", vec![number(1)])],
-        })
-        .is_err(),
-        "runtime does not inherit initialize methods"
-    );
+    check(Program {
+        statements: vec![parent, child, instantiate("Child", vec![number(1)])],
+    })
+    .expect("an inherited initialize method accepts constructor arguments");
 }
 
 #[test]

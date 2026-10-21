@@ -68,6 +68,7 @@ fn register_core(analyzer: &mut Analyzer) {
     register(analyzer, &["print"], vec![], Type::Nothing);
     register(analyzer, &["print_error"], vec![Type::Text], Type::Nothing);
     register(analyzer, &["raise_error"], vec![Type::Text], Type::Nothing);
+    register(analyzer, &["write_stdout"], vec![Type::Text], Type::Nothing);
     register(
         analyzer,
         &["typeof", "type_of"],

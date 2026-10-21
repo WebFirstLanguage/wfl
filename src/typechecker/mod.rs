@@ -2748,7 +2748,7 @@ impl TypeChecker {
             "typeof" | "type_of" => Type::Text,
             "isnothing" | "is_nothing" => Type::Boolean,
             "raise_error" | "print_error" => Type::Nothing,
-            "print" | "sleep" | "foreach" => Type::Nothing, // Void functions
+            "print" | "write_stdout" | "sleep" | "foreach" => Type::Nothing, // Void functions
 
             // Math functions
             "abs" | "round" | "floor" | "ceil" | "clamp" | "min" | "max" | "power" | "sqrt"
@@ -6707,11 +6707,27 @@ impl TypeChecker {
                     .collect();
 
                 if valid_container && !arguments.is_empty() {
-                    let initialize_parameters = self
-                        .analyzer
-                        .get_container(container_type)
-                        .and_then(|container| container.methods.get("initialize"))
-                        .map(|method| method.parameters.clone());
+                    let mut current = Some(container_type.as_str());
+                    let mut visited = HashSet::new();
+                    let mut unresolved_chain = false;
+                    let mut initialize_parameters = None;
+                    while let Some(name) = current {
+                        if !visited.insert(name) {
+                            // The inheritance checker reports the cycle.
+                            unresolved_chain = true;
+                            break;
+                        }
+                        let Some(container) = self.analyzer.get_container(name) else {
+                            // An included parent may not be visible at this stage.
+                            unresolved_chain = true;
+                            break;
+                        };
+                        if let Some(method) = container.methods.get("initialize") {
+                            initialize_parameters = Some(method.parameters.clone());
+                            break;
+                        }
+                        current = container.extends.as_deref();
+                    }
 
                     if let Some(parameters) = initialize_parameters {
                         if parameters.len() != argument_types.len() {
@@ -6753,10 +6769,10 @@ impl TypeChecker {
                                 );
                             }
                         }
-                    } else {
+                    } else if !unresolved_chain {
                         self.type_error(
                             format!(
-                                "Container '{container_type}' has no direct initialize method for constructor arguments"
+                                "Container '{container_type}' has no initialize method for constructor arguments"
                             ),
                             None,
                             None,
@@ -7884,6 +7900,15 @@ impl TypeChecker {
                         // where a concrete type is required at runtime.
                         Type::Unknown
                     }
+                } else if name == "this"
+                    && self.current_method_is_static == Some(false)
+                    && let Some(container) = &self.current_container
+                {
+                    // With no variable of that name in scope, `this` in an
+                    // instance action is the object the action was called on,
+                    // so `this.sibling(...)` is checked like any method call
+                    // (issue #701).
+                    Type::ContainerInstance(container.clone())
                 } else {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)

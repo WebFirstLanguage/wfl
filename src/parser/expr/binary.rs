@@ -473,8 +473,15 @@ impl<'a> Parser<'a> {
                     // For all other cases (including user-defined actions),
                     // treat 'with' as concatenation
                     self.bump_sync(); // Consume "with"
-                    let right =
-                        self.parse_binary_expression_for_context(0, stop_at_clause, terminator)?;
+                    let right = self.parse_binary_expression_for_context(
+                        if self.constructor_arguments {
+                            precedence
+                        } else {
+                            0
+                        },
+                        stop_at_clause,
+                        terminator,
+                    )?;
                     left = Expression::Concatenation {
                         left: Box::new(left),
                         right: Box::new(right),

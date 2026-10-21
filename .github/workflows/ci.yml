@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 # Without this, every push to a branch leaves the previous run compiling a
 # commit whose result nobody will ever read. A superseded clippy-and-test run

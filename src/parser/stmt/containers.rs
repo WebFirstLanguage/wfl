@@ -1,13 +1,13 @@
 //! Container (OOP) statement parsing
 
 use super::super::{
-    ActionSignature, Argument, EventDefinition, ParseError, Parser, PropertyDefinition,
-    PropertyInitializer, Statement, Type, Visibility,
+    ActionSignature, EventDefinition, ParseError, Parser, PropertyDefinition, PropertyInitializer,
+    Statement, Type, Visibility,
 };
 use super::actions::colon_type_from_token;
 use super::{ActionParser, StmtParser};
 use crate::lexer::token::Token;
-use crate::parser::expr::ExprParser;
+use crate::parser::expr::{BinaryExprParser, ExprParser};
 
 pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
     fn parse_container_definition(&mut self) -> Result<Statement, ParseError>
@@ -51,9 +51,7 @@ pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
 
     fn parse_event_definition_full(&mut self) -> Result<EventDefinition, ParseError>;
 
-    fn parse_instantiation_body(
-        &mut self,
-    ) -> Result<(Vec<PropertyInitializer>, Vec<Argument>), ParseError>;
+    fn parse_instantiation_body(&mut self) -> Result<Vec<PropertyInitializer>, ParseError>;
 }
 
 impl<'a> Parser<'a> {
@@ -411,7 +409,33 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
             ));
         };
 
-        self.expect_token(Token::KeywordAs, "Expected 'as' after container type")?;
+        let arguments = if self
+            .cursor
+            .peek()
+            .is_some_and(|token| token.token == Token::KeywordWith)
+        {
+            self.bump_sync(); // Consume 'with'
+            self.constructor_arguments = true;
+            let parsed = self.parse_argument_list();
+            self.constructor_arguments = false;
+            let arguments = parsed?;
+            if arguments.iter().any(|argument| argument.name.is_some()) {
+                let token = self.cursor.peek().unwrap_or(start_token);
+                return Err(ParseError::from_token(
+                    "Constructor arguments must be positional: create new K with value as k:"
+                        .to_string(),
+                    token,
+                ));
+            }
+            arguments
+        } else {
+            Vec::new()
+        };
+
+        self.expect_token(
+            Token::KeywordAs,
+            "Expected 'as' after constructor arguments",
+        )?;
 
         // Parse instance name
         let instance_name = if let Some(token) = self.cursor.peek() {
@@ -435,9 +459,17 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         };
 
         // Expect colon after instance declaration
+        if let Some(token) = self.cursor.peek()
+            && token.token == Token::KeywordWith
+        {
+            return Err(ParseError::from_token(
+                "Put constructor arguments before 'as': create new K with value as k:".to_string(),
+                token,
+            ));
+        }
         self.expect_token(Token::Colon, "Expected ':' after instance name")?;
 
-        let (property_initializers, arguments) = self.parse_instantiation_body()?;
+        let property_initializers = self.parse_instantiation_body()?;
 
         Ok(Statement::ContainerInstantiation {
             container_type,
@@ -828,11 +860,8 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         })
     }
 
-    fn parse_instantiation_body(
-        &mut self,
-    ) -> Result<(Vec<PropertyInitializer>, Vec<Argument>), ParseError> {
+    fn parse_instantiation_body(&mut self) -> Result<Vec<PropertyInitializer>, ParseError> {
         let mut property_initializers = Vec::new();
-        let arguments = Vec::new();
 
         // Parse instantiation body until 'end'
         while let Some(token) = self.cursor.peek() {
@@ -888,6 +917,6 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
             }
         }
 
-        Ok((property_initializers, arguments))
+        Ok(property_initializers)
     }
 }

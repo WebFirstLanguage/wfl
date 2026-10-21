@@ -232,6 +232,7 @@ Guidelines for quality, security, performance, and collaboration — aligned wit
 - **[Contributing index](contributing/index.md)** - Overview of contributor docs (active designs live in `Engineering/`, history in `History/`, retired material in `Archive/` — see [REPOSITORY_HYGIENE.md](../REPOSITORY_HYGIENE.md))
 - **[Building from Source](contributing/building-from-source.md)** - Compile WFL
 - **[Contributing Guide](contributing/contributing-guide.md)** - Day-to-day contribution workflow
+- **[Issue Policy](contributing/issue-policy.md)** - Ranked issue types and agent dispatch, merge, and closure rules
 - **[Architecture Overview](contributing/architecture-overview.md)** - How WFL works
 - **[LSP Integration](contributing/lsp-integration.md)** - Language Server details
 - **[MCP Integration](contributing/mcp-integration.md)** - AI assistant integration

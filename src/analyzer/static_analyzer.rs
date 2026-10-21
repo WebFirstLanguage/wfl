@@ -1318,6 +1318,18 @@ impl Analyzer {
             Statement::ExpressionStatement { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
+            Statement::ContainerInstantiation {
+                arguments,
+                property_initializers,
+                ..
+            } => {
+                for argument in arguments {
+                    self.mark_used_in_expression(&argument.value, usages);
+                }
+                for initializer in property_initializers {
+                    self.mark_used_in_expression(&initializer.value, usages);
+                }
+            }
             Statement::WriteFileStatement { content, file, .. } => {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);
@@ -1861,18 +1873,6 @@ impl Analyzer {
                     } else {
                         self.mark_used_variables(stmt, usages, isolated_unused, containers);
                     }
-                }
-            }
-            Statement::ContainerInstantiation {
-                arguments,
-                property_initializers,
-                ..
-            } => {
-                for argument in arguments {
-                    self.mark_used_in_expression(&argument.value, usages);
-                }
-                for initializer in property_initializers {
-                    self.mark_used_in_expression(&initializer.value, usages);
                 }
             }
             Statement::EventTrigger { arguments, .. }
@@ -2799,6 +2799,16 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unused"));
         assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+    }
+
+    #[test]
+    fn constructor_argument_variables_are_used() {
+        let input = "store headers as 1\nstore suffix as \"h\"\nstore dead as 0\ncreate new K with headers and \"a\" with suffix as k:\nend\n";
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+        let diagnostics = Analyzer::new().check_unused_variables(&program, 0);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("dead"));
     }
 
     #[test]

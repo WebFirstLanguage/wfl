@@ -31,6 +31,9 @@ pub struct Parser<'a> {
     /// Count of primary-expression parses, for the strided budget checkpoint
     /// (see [`Parser::charge_parse_step`]).
     parse_steps: u64,
+    /// Keep `and` as an argument separator after a `with` concatenation in
+    /// a container constructor clause.
+    constructor_arguments: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -39,6 +42,7 @@ impl<'a> Parser<'a> {
             cursor: Cursor::new(tokens),
             errors: Vec::with_capacity(4),
             parse_steps: 0,
+            constructor_arguments: false,
         }
     }
 
