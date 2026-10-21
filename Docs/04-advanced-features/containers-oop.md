@@ -254,6 +254,10 @@ What to know about `this`:
   `base_summary`) and call that with `this.base_summary()` from both.
 - **Reading properties.** `this.name` reads the property's current value,
   including changes the action has just made.
+- **Same-named globals.** A global visible where the container was defined
+  keeps precedence over a property when an action uses the bare name. Reading
+  that global does not copy its value into the object's property; use
+  `this.name` to read the property explicitly.
 - **Other objects.** An action can call actions on other objects it is given,
   for example `other.bump()`. Each call runs on its own object, and inside it
   `this` means that object.

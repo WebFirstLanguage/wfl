@@ -72,3 +72,17 @@ Codex then reviewed the ready-for-review PR and raised two findings:
 - `parent action_name` runs the parent's action in the scope where the parent container was defined, without the object's properties or `this`. A parent action that reads a property, or calls `this.other()`, therefore fails at run time when it is reached through `parent`. This predates #701 and is not changed here.
 - A bare call with empty parentheses, such as `emit()`, is a parse error before analysis. It gets the parser's message, not the `this.emit(...)` suggestion. In a file that uses `include from`, a bare sibling call only draws an analyzer warning, and it fails at run time with `Undefined action`.
 - Inside an action, a global with the same name as a property still hides the property, and when the action returns the global's value is still written into the property. Both behaviors predate this change.
+
+## 2026-10-21 addendum — promotion review (#789)
+
+The parser statement in the constructor-path review note above describes the
+state before #786. Source-level constructor arguments are now supported, so
+ordinary programs can reach `initialize` through `create new K with ... as k:`.
+The original note and its AST-based test evidence are retained as history.
+
+The property write-back limitation above also describes the earlier runtime.
+The #789 follow-up keeps a same-named global's historical precedence inside an
+action, but writes back only properties bound in that action's own frame.
+Reading global `n = 7` no longer changes an untouched instance property `n = 1`.
+The CLI precedence regression checks both values, and
+`TestPrograms/containers/property_writeback.wfl` covers the release-binary path.

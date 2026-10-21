@@ -38,6 +38,8 @@ conflicts on the owning issue instead of silently relaxing a rule.
   [the issue policy](Docs/contributing/issue-policy.md). Authors, including
   agent authors, do not merge their own pull requests. This needs no separate
   per-PR Brad approval once the ruleset, reviews, and CI below are satisfied.
+  For an agent-authored I1 PR, a different eligible agent or an authorized
+  Maintainer must perform the merge.
 - GitHub ruleset **LOG-16 reviewed changes** is enforced on `main` and `dev`
   with no bypass. It requires one approving review from someone other than the
   author (approvals are dismissed on a new push), all review threads resolved,

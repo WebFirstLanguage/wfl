@@ -9,8 +9,10 @@ It does not restrict a person from using AI while preparing a contribution:
 **Dispatch** means assigning or starting implementation, including a fix PR.
 Agents may investigate, reproduce, and propose a scope before dispatch unless
 the issue requires private handling. **Autonomous** I1 work needs no human
-approval before dispatch. It may merge and close without human approval when
-the review bots and branch rules satisfy every I1 completion gate below.
+approval before dispatch. A different eligible agent may merge its PR without
+human approval when the review bots and branch rules satisfy every I1 completion
+gate below. Authors, including agent authors, must not merge their own PRs.
+After the merge, the author agent may close the linked issue with evidence.
 This is a narrow, standing delegation from the Maintainers under
 [GOVERNANCE.md](../../GOVERNANCE.md); it grants no release or general triage
 authority. Closing an issue without a merged fix (for example, as duplicate or
@@ -25,7 +27,7 @@ human decision required below.
 
 | Rank | Issue type | Typical issues | Agent authority before a fix |
 |---|---|---|---|
-| **I1** | Well-defined bug or routine correction, autonomous | A reproducible internal or user-visible bug whose expected behavior is already established; a prose typo or broken link with an unambiguous correction; a test or fixture correction that preserves intended behavior without weakening a required gate | May investigate, self-dispatch, open a PR, then merge and close the linked issue after the I1 completion gates pass. |
+| **I1** | Well-defined bug or routine correction, autonomous | A reproducible internal or user-visible bug whose expected behavior is already established; a prose typo or broken link with an unambiguous correction; a test or fixture correction that preserves intended behavior without weakening a required gate | May investigate, self-dispatch and open a PR. A different eligible agent may merge after the I1 completion gates pass; the author may then close the linked issue with evidence. |
 | **I2** | Human review before dispatch | Any new feature or enhancement; a bug that needs a product or design decision; speculative performance work; dependency, CI, packaging, installer, or configuration changes; unclear acceptance criteria or disputed expected behavior | May triage and propose a fix. A Maintainer must confirm the scope and authorize dispatch in the issue or linked discussion before implementation starts. |
 | **I3** | Maintainer-led, restricted | Potential vulnerabilities or secrets; changes to security boundaries or protected data; new or breaking language syntax or semantics; compatibility exceptions, destructive migrations, release controls, registry trust, governance, legal/licensing, Code of Conduct, or access and permission decisions | Do not self-dispatch. A Maintainer chooses the handling channel, decision, scope, and whether to assign any implementation to an agent. Security reports follow [SECURITY.md](../../SECURITY.md) privately. |
 
@@ -43,9 +45,10 @@ likewise requires proof that shipped behavior is unchanged.
 
 ## I1 completion gates
 
-An agent may merge an I1 PR and close its linked issue when **all** of these
-conditions hold. Human sign-off is unnecessary when qualifying bot review
-satisfies the required approvals:
+An eligible agent other than the PR author may merge an I1 PR when **all** of
+these conditions hold. The I1 delegation does not permit self-merge. Human
+sign-off is unnecessary when qualifying bot review satisfies the required
+approvals:
 
 1. The issue still qualifies as I1 after implementation. The PR links the
    issue and records the expected behavior, risk class, acceptance criteria,
