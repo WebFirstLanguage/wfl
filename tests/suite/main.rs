@@ -73,6 +73,7 @@ mod include_of_form_resolution_test;
 mod include_preserves_constness_test;
 mod include_statement_test;
 mod init_command_test;
+mod insecure_rng_seeding_coverage_test;
 mod interface_contract_test;
 mod issue_709_quantifier_greed_test;
 mod issues_698_700_test;
