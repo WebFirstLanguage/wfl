@@ -369,3 +369,43 @@ async fn test_lsp_diagnostic_empty_document() {
         }
     }
 }
+
+/// The `(line, character)` where the language server places the first
+/// diagnostic whose message contains `message`.
+fn lsp_position_of(source: &str, message: &str) -> (u32, u32) {
+    let diagnostics = wfl_lsp::WflLanguageCore::new().analyze_document(source);
+    let diagnostic = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.message.contains(message))
+        .unwrap_or_else(|| panic!("expected {message:?} in {diagnostics:?}"));
+    (
+        diagnostic.range.start.line,
+        diagnostic.range.start.character,
+    )
+}
+
+#[test]
+fn test_lsp_loop_diagnostics_point_at_the_loop_keyword() {
+    // LSP positions are 0-based: the inner `count` on line 2, column 5 is (1, 4).
+    assert_eq!(
+        lsp_position_of(
+            "count from 1 to 2:\n    count from 1 to 2:\n        display count\n    end count\nend count\n",
+            "Nested count loops",
+        ),
+        (1, 4)
+    );
+    assert_eq!(
+        lsp_position_of(
+            "display \"start\"\ncount from \"a\" to 3:\n    display count\nend count\n",
+            "Start value in count loop must be a number",
+        ),
+        (1, 0)
+    );
+    assert_eq!(
+        lsp_position_of(
+            "store n as 5\nfor each item in n:\n    display item\nend for\n",
+            "Collection in for-each loop must be a list or map",
+        ),
+        (1, 0)
+    );
+}
