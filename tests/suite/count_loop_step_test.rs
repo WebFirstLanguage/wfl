@@ -147,9 +147,11 @@ fn loops_guide_quotes_the_real_negative_step_error() {
     // The docs validator only checks this example's exit status, so pin the
     // message the loops guide quotes to what the interpreter actually says.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // A Windows checkout may convert the guide to CRLF line endings.
     let guide =
         std::fs::read_to_string(root.join("Docs/03-language-basics/loops-and-iteration.md"))
-            .expect("read the loops guide");
+            .expect("read the loops guide")
+            .replace("\r\n", "\n");
     let quoted = guide
         .split("**Error:**\n```\n")
         .nth(1)
