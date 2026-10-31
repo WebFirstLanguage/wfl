@@ -6,6 +6,8 @@ The Random module provides cryptographically secure random number generation. Pe
 
 WFL's random functions use **cryptographically secure** random number generation (StdRng with entropy initialization), making them suitable for security-sensitive applications.
 
+That stops being true once a program calls `random_seed`: a seeded generator produces the same sequence every time. For that reason `random_seed` is an error in any file that also uses a crypto, auth, or session builtin (see [random_seed](#random_seed)). For tokens, salts, and session IDs, prefer [`secure_random_bytes`](crypto-module.md#secure_random_bytes), which reads the operating system's generator directly and is never affected by `random_seed`.
+
 ## Functions
 
 ### random
@@ -251,6 +253,8 @@ display r3 with ", " with r4
 - Procedural generation (games)
 - Scientific simulations
 
+**Not in security code:** `random_seed` is an error (`ANALYZE-SECURITY`) in any file that also uses a crypto, auth, or session builtin such as `hash_password`, `session_create`, `secure_random_bytes`, `hmac_sha256`, or `seal`. `wfl` refuses to run such a file, and an included, loaded, or executed file that breaks the rule fails to load. Checksums with `sha256` or WFLHASH do not count. The full rule is in the [Crypto module](crypto-module.md#secure_random_bytes).
+
 ---
 
 ## Complete Example
@@ -403,7 +407,7 @@ display "Shuffled: " with shuffled_deck
 
 ✅ **Use random_from for selection:** Choose from a list
 
-✅ **Use random_seed for testing:** Reproducible randomness
+✅ **Use random_seed for testing:** Reproducible randomness (never in a file that also does crypto or auth)
 
 ❌ **Don't use random for integers:** Use random_int instead
 

@@ -169,6 +169,8 @@ error[ERROR]: Could not infer type for variable 'v'
 
 Parse errors and semantic errors (for example, an undefined variable) in an included file remain fatal.
 
+So is the security rule against `random_seed` in a file that also does crypto or auth. A file brought in with `include from`, `load module from`, or `execute file at` that breaks it fails to load, with an error naming the file, before any of its statements run. See the [Crypto module](../05-standard-library/crypto-module.md#secure_random_bytes) for the rule.
+
 ## When to Use Each Approach
 
 ### Use `load module from` for:
@@ -233,7 +235,7 @@ When you load a module, WFL performs these steps:
 
 1. **Resolves the path** - Finds the file relative to the current file's directory
 2. **Reads the file** - Loads the module's source code
-3. **Parses and validates** - Checks syntax, semantics, and types
+3. **Parses and validates** - Checks syntax, semantics, the `random_seed` security rule, and types
 4. **Executes in child scope** - Runs the module's statements
 5. **Returns control** - Continues with the parent file
 
