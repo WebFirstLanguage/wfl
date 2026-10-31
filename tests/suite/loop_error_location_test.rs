@@ -355,6 +355,30 @@ fn caught_executed_file_error_quotes_the_loop_line() {
 }
 
 #[test]
+fn empty_range_step_warning_names_the_loop_line() {
+    // `count from 5 to 1` never runs, so a bad step only warns (#800). The
+    // warning names the line the loop is on: line 1, where the step is
+    // written, not the `end count` line.
+    let (stdout, stderr, code) = run_files(
+        &[(
+            "main.wfl",
+            "count from 5 to 1 by -1:\n    display count\nend count\n",
+        )],
+        &[],
+        "",
+    );
+    assert_eq!(code, Some(0), "an empty loop only warns: {stdout}{stderr}");
+    assert!(
+        stderr.contains("Warning: Count loop step must be a positive number, got -1."),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("(count loop on line 1)"),
+        "the warning should name the loop's line: {stderr}"
+    );
+}
+
+#[test]
 fn step_mode_labels_loops_with_their_first_line() {
     let (stdout, stderr, code) = run_files(
         &[(
