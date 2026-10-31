@@ -389,11 +389,19 @@ Variable names cannot:
 
 WFL has **198** keywords and literals. Many cannot be used as variable names.
 
+A **reserved word** is a word WFL uses for its own grammar, so it cannot also be
+a name you choose. WFL uses words where other languages use symbols, and each
+grammar word must mean exactly one thing. See
+[What Is a Reserved Word?](../reference/reserved-keywords.md#what-is-a-reserved-word-start-here)
+for the full explanation.
+
 **Common reserved keywords you'll encounter:**
 - **Control flow:** check, if, otherwise, for, repeat, end
 - **Operations:** store, change, display, return
 - **Comparison:** is, equal, greater, less, than
 - **Values:** yes, no, true, false, nothing
+- **Everyday words that surprise people:** start, output, route, captured, by, find
+  (see [Words That Commonly Bite](../reference/reserved-keywords.md#words-that-commonly-bite))
 
 **Wrong:**
 ```wfl

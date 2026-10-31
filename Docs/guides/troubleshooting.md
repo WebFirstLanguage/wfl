@@ -80,22 +80,29 @@ display "Name: " with name with ", Age: " with age
 
 ---
 
-### "Expected identifier, found Keyword..."
+### "Expected identifier, found Keyword..." / "Cannot use reserved keyword..."
 
-**Problem:** Using reserved keyword as variable name.
+**Problem:** Using reserved keyword as variable name. The same problem applies
+to loop variables, action parameters, and action names. The message names the
+word as a token: `KeywordStart` means `start`.
+
+Everyday words that often cause this: `start`, `output`, `route`, `captured`,
+`by`, `find`.
 
 **Solution:**
 ```wfl
 // Wrong:
 store is as yes        // 'is' is reserved
 store file as "data"   // 'file' is reserved
+store start as 9       // 'start' is reserved
 
 // Right:
 store is_valid as yes
 store filename as "data"
+store start_time as 9
 ```
 
-**[Quick keyword lookup →](../reference/keyword-reference.md)** | **[Why can't I use this keyword? →](../reference/reserved-keywords.md#understanding-keyword-classifications)**
+**[Quick keyword lookup →](../reference/keyword-reference.md)** | **[Why can't I use this keyword? →](../reference/reserved-keywords.md#what-is-a-reserved-word-start-here)** | **[Words that commonly bite →](../reference/reserved-keywords.md#words-that-commonly-bite)**
 
 ---
 
