@@ -29,6 +29,14 @@
     "tags": ["keywords", "marker-words", "loops", "count"],
     "doc_purpose": "Counts down with `down to` and shows that down, downward and upward are ordinary variable names, not keywords"
   },
+  "docs_examples/basic_syntax/loops_step_warning.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md#count-with-step",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["loops", "count", "deprecation"],
+    "doc_purpose": "A negative count-loop step on an empty range still runs zero times, but now prints a warning naming the loop the program meant"
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",
@@ -336,7 +344,7 @@
     "validate_layers": [1, 2, 3, 4, 5],
     "expected_exit_code": 0,
     "tags": ["beginner", "loops", "count", "count-down"],
-    "doc_purpose": "Counts down with `down to`, with a step, and from a parenthesized variable start value"
+    "doc_purpose": "Counts down with `down to` from a variable start value, which needs parentheses so the lexer does not join `top down` into one name"
   },
   "docs_examples/basic_syntax/for_each_01.wfl": {
     "doc_section": "Docs/03-language-basics/loops-and-iteration.md",

@@ -21,8 +21,11 @@ recognizes only between the start value and `to`.
 - `Docs/reference/keyword-reference.md`: a **Counting down** note under the
   Control Flow table, and a pointer from the `pop` / `upward` / `downward`
   scenario.
-- `Docs/03-language-basics/loops-and-iteration.md` gained a **Counting Down**
-  section. Before, `down to` was only mentioned inside the step paragraph.
+- `Docs/03-language-basics/loops-and-iteration.md`: the count-loop step fix
+  (`2026-10-31-count-loop-step-always-checked.md`) added a short **Counting
+  Down** section while this change was in review. This change extends that
+  same section instead of adding a second one: `down` is not a keyword, there
+  is no `downward` or `upward`, and a variable start value needs parentheses.
 - The `reversed` rows showed `count reversed`, which does not parse. They now
   show the real form, `for each item in reversed items`.
 - `CLAUDE.md` gained a Critical Syntax bullet: `count from 5 down to 1:`, not
@@ -40,7 +43,9 @@ All claims were checked against the release binary:
 - `store downward as ...`, `store upward as ...`, and `store down as ...` all
   work.
 - `count from 5 down to 1:` prints 5 to 1, and `count from 10 down to 0 by 5:`
-  prints 10, 5, 0.
+  prints 10, 5, 0. The validated example
+  `TestPrograms/docs_examples/basic_syntax/count_down_01.wfl` shows only the
+  variable-start case, because the merged section already shows the rest.
 - `count from top down to 1:` with a variable `top` fails with
   `Variable 'top down' is not defined` (exit 3): the lexer joins neighboring
   plain words into one name. `count from (top) down to 1:` works. The docs

@@ -32,61 +32,53 @@ The variable `count` is automatically created and contains the current number.
 
 ### Counting Down
 
-To count down, write `down to` instead of `to`:
+Use `down to` to count from a larger number to a smaller one:
 
 ```wfl
-// Count down one at a time with `down to`
 count from 5 down to 1:
-    display "T-minus " with count
-end count
-display "Liftoff!"
-
-// Count down by a step: the step is a distance, so it stays positive
-count from 10 down to 0 by 5:
-    display count
-end count
-
-// A variable start value goes in parentheses before `down to`
-store top as 3
-count from (top) down to 1:
     display count
 end count
 ```
 
 **Output:**
 ```
-T-minus 5
-T-minus 4
-T-minus 3
-T-minus 2
-T-minus 1
-Liftoff!
-10
 5
-0
+4
 3
 2
 1
 ```
 
-**Syntax:**
+The words choose the direction: `to` counts up and `down to` counts down. If
+the start is already past the end for that direction, the loop simply runs
+zero times — `count from 5 to 1` and `count from 1 down to 5` do nothing, and
+so does `count from 1 to length of items` when `items` is empty.
+
+`down` is not a keyword. A count loop recognizes it only between the start
+value and `to`, so `down` is still a normal variable name everywhere else.
+WFL has no `downward` or `upward` keyword: `down to` is the only way to count
+down.
+
+When the start value is a variable, put it in parentheses. Without them, WFL
+joins neighboring plain words into one name, reads `top down` as a single
+variable, and reports `Variable 'top down' is not defined`:
+
 ```wfl
-count from <start> down to <end>:
-    <statements>
+// A variable start value goes in parentheses before `down to`
+store top as 3
+count from (top) down to 1:
+    display "T-minus " with count
 end count
+display "Liftoff!"
 ```
 
-Things to know about counting down:
-
-- `down to` is the only way to count down. WFL has no `downward` or `upward`
-  keyword. `count from 5 to 1:` does not count down either: its range is
-  empty, so its body never runs.
-- `down` is not a keyword. A count loop recognizes it only between the start
-  value and `to`, so `down` is still a normal variable name everywhere else.
-- When the start value is a variable, put it in parentheses:
-  `count from (top) down to 1:`. Without them, WFL joins neighboring plain
-  words into one name, reads `top down` as a single variable, and reports
-  `Variable 'top down' is not defined`.
+**Output:**
+```
+T-minus 3
+T-minus 2
+T-minus 1
+Liftoff!
+```
 
 ### Count with Step
 
@@ -115,12 +107,49 @@ count from <start> to <end> by <step>:
 end count
 ```
 
-The step is a *distance*, so it is always a positive number: a downward loop
-(`count from 10 down to 1 by 2`) subtracts it. A step of `0` or a negative step
-could never reach the end value, so it is reported as an error instead of
-looping forever. A loop whose range is already empty never runs its body, so
-its step is never used and never checked — `count from 5 to 1` does nothing,
-whatever step you give it.
+The step is a *distance*, not a direction, so it is always a positive number.
+The direction comes from `to` or `down to`, and a downward loop subtracts the
+step: `count from 10 down to 1 by 2` gives 10, 8, 6, 4, 2.
+
+WFL checks the step before the loop starts, **every time** — even when the
+range is empty and the body would never run. A step of `0` or a negative step
+is never silently ignored, and a negative step's message names the loop you
+most likely meant:
+
+- **If the loop would run** (for example `count from 5 down to 1 by -1`), it is
+  an error and the program stops:
+
+  ```
+  Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`.
+  ```
+
+- **If the range is empty**, the loop still runs zero times and the program
+  carries on, but WFL prints a warning on stderr (once per loop). From
+  **2027-12-01** this will be an error too:
+
+```wfl
+count from 5 to 1 by -1:
+    display count
+end count
+display "The program carries on."
+```
+
+**Output:**
+```
+The program carries on.
+```
+
+**Warning (on stderr):**
+```
+Warning: Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`. This loop's range is empty, so it runs zero times; from 2027-12-01 this will be an error. (count loop ending on line 3)
+```
+
+Earlier versions of WFL checked the step only when the loop would run, so a
+line like `count from 5 to 1 by -1` quietly did nothing at all — which is why
+it only warns for now. Fix it before the deadline by rewriting it with
+`down to` and a positive step, as the message suggests — but read the loop's
+body first: it never ran before, so the rewritten loop runs it for the first
+time. If the loop was never meant to run, delete it instead.
 
 A step also has to be big enough to actually move the counter. Past about 9
 quadrillion, numbers lose the precision to add 1 to them, so
@@ -870,7 +899,7 @@ Create this pattern using nested loops:
 
 In this section, you learned:
 
-✅ **Count loops** - `count from X to Y` and `count from X to Y by Z`
+✅ **Count loops** - `count from X to Y`, `count from X down to Y`, and `by Z` with a positive step
 ✅ **For each loops** - Iterate over lists
 ✅ **Repeat while loops** - Continue while condition is true
 ✅ **Repeat until loops** - Continue until condition is true

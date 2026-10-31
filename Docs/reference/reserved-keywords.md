@@ -537,7 +537,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `as` | Binding/assignment keyword | `store name as "Alice"` |
 | `be` | Test assertion verb | `expect x to be greater than 5` |
 | `break` | Exit loop early | `break` |
-| `by` | Step amount in count loops | `count from 1 to 10 by 2:` |
+| `by` | Step distance in count loops — always positive; `down to` sets the direction | `count from 1 to 10 by 2:` |
 | `call` | Call an action | `call myFunction with x` |
 | `catch` | Error handler | `catch when error:` |
 | `check` | Start conditional | `check if x is greater than 5:` |

@@ -368,7 +368,7 @@ Change the counting loop to count from 1 to 10.
 ### Exercise 4: Count Backwards
 Make the loop count backwards from 10 to 1.
 
-**Hint:** You'll need to figure out the right syntax. Try `count from 10 to 1:` or explore the REPL!
+**Hint:** `to` always counts up, so `count from 10 to 1:` runs zero times. Look for the counting-down form in [Loops and Iteration](../03-language-basics/loops-and-iteration.md#counting-down), or explore the REPL!
 
 ### Exercise 5: Add More Conditions
 Add a condition for ages 100+:

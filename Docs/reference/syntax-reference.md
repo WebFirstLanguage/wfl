@@ -82,6 +82,11 @@ count from 0 to 6 by 2:
     display count
 end count
 
+// Count down (the step is always a positive distance)
+count from 6 down to 0 by 2:
+    display count
+end count
+
 // For each
 store items as ["a", "b"]
 for each item in items:

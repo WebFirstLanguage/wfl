@@ -29,6 +29,7 @@ mod container_ast_corruption_test;
 mod container_parsing_fixes;
 mod contains_unification_test;
 mod count_down_keyword_docs_test;
+mod count_loop_step_test;
 mod crypto_async_test;
 mod crypto_kdf_test;
 mod crypto_seal_test;
