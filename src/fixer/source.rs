@@ -448,6 +448,13 @@ fn rename_locals(
         {
             protected.insert(operand);
         }
+        // `find all <name> in ...` merges the same way (`all <name>`).
+        if matches!(pair[0].token, Token::KeywordFind)
+            && let Token::Identifier(name) = &pair[1].token
+            && let Some(operand) = name.strip_prefix("all ")
+        {
+            protected.insert(operand);
+        }
         if matches!(pair[0].token, Token::Dot | Token::Colon)
             && let Token::Identifier(name) = &pair[1].token
         {

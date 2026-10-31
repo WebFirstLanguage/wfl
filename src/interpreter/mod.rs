@@ -1570,6 +1570,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::Concatenation { .. } => "Concatenation".to_string(),
         Expression::PatternMatch { .. } => "PatternMatch".to_string(),
         Expression::PatternFind { .. } => "PatternFind".to_string(),
+        Expression::PatternFindAll { .. } => "PatternFindAll".to_string(),
         Expression::PatternReplace { .. } => "PatternReplace".to_string(),
         Expression::PatternSplit { .. } => "PatternSplit".to_string(),
         Expression::StringSplit { .. } => "StringSplit".to_string(),
@@ -15431,6 +15432,56 @@ impl Interpreter {
                     }
                     None => Ok(Value::Null),
                 }
+            }
+
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                line,
+                column,
+            } => {
+                // Backward compatibility: before `find all` existed, these tokens
+                // were a single-match `find` over a binding named `all <name>`
+                // (or `all`). While that binding exists, keep that meaning.
+                if let Some(fallback) = legacy_fallback
+                    && legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| env.borrow().get(name).is_some())
+                {
+                    return self.evaluate_expression(fallback, env).await;
+                }
+
+                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
+                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
+                let Value::Text(text_str) = &text_val else {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "find all needs Text after 'in', got {}",
+                            text_val.type_name()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                };
+                let Value::Pattern(compiled_pattern) = &pattern_val else {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "find all needs a Pattern before 'in', got {}",
+                            pattern_val.type_name()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                };
+
+                // Every match under the shared budget; a breach is a catchable
+                // error, never a silently short list.
+                let matches = compiled_pattern
+                    .find_all_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *line, *column))?;
+                Ok(crate::stdlib::pattern::match_list_value(matches))
             }
 
             Expression::PatternReplace {

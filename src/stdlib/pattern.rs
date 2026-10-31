@@ -2,7 +2,7 @@ use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
-use crate::pattern::PatternError;
+use crate::pattern::{MatchResult, PatternError};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -178,36 +178,43 @@ pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> 
     let matches = compiled_pattern
         .find_all_with_budget(text_str, &budget)
         .map_err(pattern_err)?;
-    let mut result_list = Vec::new();
+    Ok(match_list_value(matches))
+}
 
-    for match_result in matches {
-        let mut result_map = HashMap::new();
-        result_map.insert(
-            "matched_text".to_string(),
-            Value::Text(Arc::from(match_result.matched_text.as_str())),
-        );
-        result_map.insert(
-            "start".to_string(),
-            Value::Number(match_result.start as f64),
-        );
-        result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
+/// A list of match objects, as returned by `pattern_find_all` and
+/// `find all <pattern> in <text>`.
+pub fn match_list_value(matches: Vec<MatchResult>) -> Value {
+    let result_list = matches.into_iter().map(match_result_value).collect();
+    Value::List(Rc::new(RefCell::new(result_list)))
+}
 
-        // Add captures if any
-        if !match_result.captures.is_empty() {
-            let mut captures_map = HashMap::new();
-            for (name, value) in match_result.captures {
-                captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
-            }
-            result_map.insert(
-                "captures".to_string(),
-                Value::Object(Rc::new(RefCell::new(captures_map))),
-            );
+/// One match object: `matched_text`, `start`, `end`, and `captures` when the
+/// pattern has any.
+fn match_result_value(match_result: MatchResult) -> Value {
+    let mut result_map = HashMap::new();
+    result_map.insert(
+        "matched_text".to_string(),
+        Value::Text(Arc::from(match_result.matched_text.as_str())),
+    );
+    result_map.insert(
+        "start".to_string(),
+        Value::Number(match_result.start as f64),
+    );
+    result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
+
+    // Add captures if any
+    if !match_result.captures.is_empty() {
+        let mut captures_map = HashMap::new();
+        for (name, value) in match_result.captures {
+            captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
         }
-
-        result_list.push(Value::Object(Rc::new(RefCell::new(result_map))));
+        result_map.insert(
+            "captures".to_string(),
+            Value::Object(Rc::new(RefCell::new(captures_map))),
+        );
     }
 
-    Ok(Value::List(Rc::new(RefCell::new(result_list))))
+    Value::Object(Rc::new(RefCell::new(result_map)))
 }
 
 /// Native function for pattern replacement (called by interpreter)
