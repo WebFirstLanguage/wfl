@@ -1,7 +1,8 @@
 use super::Analyzer;
 use crate::diagnostics::{Severity, WflDiagnostic};
 use crate::parser::ast::{
-    Assertion, ExportType, Expression, Parameter, PatternExpression, Program, Statement, Type,
+    Argument, Assertion, ExportType, Expression, Literal, Parameter, PatternExpression, Program,
+    PropertyDefinition, Statement, Type,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -378,299 +379,789 @@ impl RngSecurityIngredients {
 }
 
 /// Scan a single program for the two insecure-RNG-seeding ingredients (see
-/// [`RngSecurityIngredients`]). Recurses into action bodies, loops, and blocks
-/// exactly as [`Analyzer::check_insecure_rng_seeding`] does, since both use the
-/// same call collector.
+/// [`RngSecurityIngredients`]). Walks the whole program exactly as
+/// [`Analyzer::check_insecure_rng_seeding`] does, since both use
+/// [`BuiltinUses`].
 pub fn rng_security_ingredients(program: &Program) -> RngSecurityIngredients {
-    let mut calls = Vec::new();
-    collect_calls_in_statements(&program.statements, &mut calls);
+    let uses = BuiltinUses::of(program);
     RngSecurityIngredients {
-        seed_site: calls
-            .iter()
-            .find(|call| call.name == "random_seed")
-            .map(|call| (call.line, call.column)),
-        security_site: calls
-            .iter()
-            .find(|call| SECURITY_SENSITIVE_BUILTINS.contains(&call.name.as_str()))
-            .map(|call| (call.line, call.column)),
+        seed_site: uses.of_random_seed().next().map(CallSite::position),
+        security_site: uses.of_security_builtins().next().map(CallSite::position),
     }
 }
 
-/// Record of a builtin call site discovered while walking the AST.
+/// A place where a program names a function: a call (`f of x`,
+/// `call f with x`) or a bare mention (`store g as f`).
 struct CallSite {
     name: String,
     line: usize,
     column: usize,
+    /// A bare mention rather than a call. WFL can store a builtin in a
+    /// variable and call it through that name, so a mention is a use too —
+    /// unless the program binds the name itself.
+    is_mention: bool,
 }
 
-/// Collect every builtin/function call name (with position) in a list of statements.
-fn collect_calls_in_statements(statements: &[Statement], out: &mut Vec<CallSite>) {
-    for stmt in statements {
-        collect_calls_in_statement(stmt, out);
+impl CallSite {
+    fn position(&self) -> (usize, usize) {
+        (self.line, self.column)
     }
 }
 
-fn collect_calls_in_statement(stmt: &Statement, out: &mut Vec<CallSite>) {
-    match stmt {
-        Statement::VariableDeclaration { value, .. }
-        | Statement::Assignment { value, .. }
-        | Statement::DisplayStatement { value, .. } => {
-            collect_calls_in_expression(value, out);
-        }
-        Statement::ExpressionStatement { expression, .. } => {
-            collect_calls_in_expression(expression, out);
-        }
-        Statement::ReturnStatement {
-            value: Some(value), ..
-        } => {
-            collect_calls_in_expression(value, out);
-        }
-        Statement::PushStatement { list, value, .. } => {
-            collect_calls_in_expression(list, out);
-            collect_calls_in_expression(value, out);
-        }
-        Statement::IfStatement {
-            condition,
-            then_block,
-            else_block,
-            ..
-        } => {
-            collect_calls_in_expression(condition, out);
-            collect_calls_in_statements(then_block, out);
-            if let Some(else_block) = else_block {
-                collect_calls_in_statements(else_block, out);
-            }
-        }
-        // A transaction block is an ordinary block as far as the call collector
-        // is concerned. Without this arm, the insecure-RNG-seeding lint cannot
-        // see calls inside one, and moving them into a transaction would be
-        // enough to evade a security check.
-        Statement::TransactionStatement { db, body, .. } => {
-            collect_calls_in_expression(db, out);
-            collect_calls_in_statements(body, out);
-        }
-        // A database statement's operands are ordinary expressions, so a call
-        // can hide in the handle, the SQL text, or a bound parameter — e.g.
-        // `query db with "..." and parameters [seal of secret and key]`. Without
-        // this arm those calls are invisible to the security lint whether or not
-        // they sit inside a transaction block.
-        Statement::DatabaseQueryStatement {
-            db,
-            sql,
-            parameters,
-            ..
-        } => {
-            collect_calls_in_expression(db, out);
-            collect_calls_in_expression(sql, out);
-            if let Some(parameters) = parameters {
-                collect_calls_in_expression(parameters, out);
-            }
-        }
-        Statement::SingleLineIf {
-            condition,
-            then_stmt,
-            else_stmt,
-            ..
-        } => {
-            collect_calls_in_expression(condition, out);
-            collect_calls_in_statement(then_stmt, out);
-            if let Some(else_stmt) = else_stmt {
-                collect_calls_in_statement(else_stmt, out);
-            }
-        }
-        Statement::ForEachLoop {
-            collection, body, ..
-        } => {
-            collect_calls_in_expression(collection, out);
-            collect_calls_in_statements(body, out);
-        }
-        Statement::CountLoop {
-            start,
-            end,
-            step,
-            body,
-            ..
-        } => {
-            collect_calls_in_expression(start, out);
-            collect_calls_in_expression(end, out);
-            if let Some(step) = step {
-                collect_calls_in_expression(step, out);
-            }
-            collect_calls_in_statements(body, out);
-        }
-        Statement::WhileLoop {
-            condition, body, ..
-        }
-        | Statement::RepeatWhileLoop {
-            condition, body, ..
-        }
-        | Statement::RepeatUntilLoop {
-            condition, body, ..
-        } => {
-            collect_calls_in_expression(condition, out);
-            collect_calls_in_statements(body, out);
-        }
-        Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
-            collect_calls_in_statements(body, out);
-        }
-        Statement::ActionDefinition { body, .. } => {
-            collect_calls_in_statements(body, out);
-        }
-        Statement::TryStatement {
-            body,
-            when_clauses,
-            otherwise_block,
-            finally_block,
-            ..
-        } => {
-            collect_calls_in_statements(body, out);
-            for clause in when_clauses {
-                collect_calls_in_statements(&clause.body, out);
-            }
-            if let Some(otherwise_block) = otherwise_block {
-                collect_calls_in_statements(otherwise_block, out);
-            }
-            if let Some(finally_block) = finally_block {
-                collect_calls_in_statements(finally_block, out);
-            }
-        }
-        Statement::TestBlock { body, .. } => {
-            collect_calls_in_statements(body, out);
-        }
-        Statement::DescribeBlock {
-            setup,
-            teardown,
-            tests,
-            ..
-        } => {
-            if let Some(setup) = setup {
-                collect_calls_in_statements(setup, out);
-            }
-            if let Some(teardown) = teardown {
-                collect_calls_in_statements(teardown, out);
-            }
-            collect_calls_in_statements(tests, out);
-        }
-        Statement::WebSocketHandlerStatement { body, .. } => {
-            collect_calls_in_statements(body, out);
-        }
-        Statement::EventHandler { handler_body, .. } => {
-            collect_calls_in_statements(handler_body, out);
-        }
-        Statement::RespondStatement {
-            request,
-            content,
-            status,
-            content_type,
-            headers,
-            ..
-        } => {
-            collect_calls_in_expression(request, out);
-            collect_calls_in_expression(content, out);
-            if let Some(status) = status {
-                collect_calls_in_expression(status, out);
-            }
-            if let Some(content_type) = content_type {
-                collect_calls_in_expression(content_type, out);
-            }
-            if let Some(headers) = headers {
-                collect_calls_in_expression(headers, out);
-            }
-        }
-        Statement::ContainerDefinition {
-            methods,
-            static_methods,
-            ..
-        } => {
-            for method in methods.iter().chain(static_methods.iter()) {
-                collect_calls_in_statement(method, out);
-            }
-        }
-        _ => {}
-    }
+/// Every call and bare mention of a name in one program, in walk order, plus
+/// the names the program binds itself.
+///
+/// The walk is exhaustive on purpose: every `Statement` and `Expression`
+/// variant is matched by name, with no catch-all arm, so a new AST node fails
+/// to compile until someone decides how this walk sees it. The catch-all this
+/// replaced let calls inside transaction blocks, database parameters, container
+/// creation, file writes, `expect`, and more escape the security lint.
+struct BuiltinUses {
+    sites: Vec<CallSite>,
+    /// Names the program binds (variables, parameters, properties, handler
+    /// bindings, ...). A bare mention of one of these is the program's own
+    /// value, not the builtin of the same name.
+    bound: HashSet<String>,
 }
 
-fn collect_calls_in_expression(expr: &Expression, out: &mut Vec<CallSite>) {
-    match expr {
-        Expression::FunctionCall {
-            function,
-            arguments,
+impl BuiltinUses {
+    fn of(program: &Program) -> Self {
+        let mut uses = BuiltinUses {
+            sites: Vec::new(),
+            bound: HashSet::new(),
+        };
+        uses.statements(&program.statements);
+        uses
+    }
+
+    /// Uses of a builtin whose name satisfies `is_builtin`: every call, and
+    /// every bare mention of a name the program has not bound itself.
+    fn uses_of<'a>(
+        &'a self,
+        is_builtin: impl Fn(&str) -> bool + 'a,
+    ) -> impl Iterator<Item = &'a CallSite> + 'a {
+        self.sites.iter().filter(move |site| {
+            is_builtin(&site.name) && !(site.is_mention && self.bound.contains(&site.name))
+        })
+    }
+
+    fn of_random_seed(&self) -> impl Iterator<Item = &CallSite> {
+        self.uses_of(|name| name == "random_seed")
+    }
+
+    fn of_security_builtins(&self) -> impl Iterator<Item = &CallSite> {
+        self.uses_of(|name| SECURITY_SENSITIVE_BUILTINS.contains(&name))
+    }
+
+    fn record(&mut self, name: &str, line: usize, column: usize, is_mention: bool) {
+        self.sites.push(CallSite {
+            name: name.to_string(),
             line,
             column,
-        } => {
-            if let Expression::Variable(name, ..) = function.as_ref() {
-                out.push(CallSite {
-                    name: name.clone(),
-                    line: *line,
-                    column: *column,
-                });
+            is_mention,
+        });
+    }
+
+    fn bind(&mut self, name: &str) {
+        self.bound.insert(name.to_string());
+    }
+
+    fn bind_optional(&mut self, name: &Option<String>) {
+        if let Some(name) = name {
+            self.bind(name);
+        }
+    }
+
+    fn statements(&mut self, statements: &[Statement]) {
+        for statement in statements {
+            self.statement(statement);
+        }
+    }
+
+    fn optional(&mut self, expression: &Option<Expression>) {
+        if let Some(expression) = expression {
+            self.expression(expression);
+        }
+    }
+
+    fn arguments(&mut self, arguments: &[Argument]) {
+        for argument in arguments {
+            self.expression(&argument.value);
+        }
+    }
+
+    /// Parameters bind their names and may carry a default expression.
+    fn parameters(&mut self, parameters: &[Parameter]) {
+        for parameter in parameters {
+            // `label expected actual` is one parameter entry naming three
+            // variables, as the analyzer's own parameter handling treats it.
+            for part in parameter.name.split_whitespace() {
+                self.bind(part);
             }
-            collect_calls_in_expression(function, out);
-            for arg in arguments {
-                collect_calls_in_expression(&arg.value, out);
-            }
+            self.optional(&parameter.default_value);
         }
-        Expression::ActionCall {
-            name,
-            arguments,
-            line,
-            column,
-        } => {
-            out.push(CallSite {
-                name: name.clone(),
-                line: *line,
-                column: *column,
-            });
-            for arg in arguments {
-                collect_calls_in_expression(&arg.value, out);
-            }
-        }
-        Expression::BinaryOperation { left, right, .. }
-        | Expression::Concatenation { left, right, .. } => {
-            collect_calls_in_expression(left, out);
-            collect_calls_in_expression(right, out);
-        }
-        Expression::UnaryOperation { expression, .. }
-        | Expression::AwaitExpression { expression, .. } => {
-            collect_calls_in_expression(expression, out);
-        }
-        Expression::MemberAccess { object, .. } => {
-            collect_calls_in_expression(object, out);
-        }
-        Expression::IndexAccess {
-            collection, index, ..
-        } => {
-            collect_calls_in_expression(collection, out);
-            collect_calls_in_expression(index, out);
-        }
-        Expression::PatternMatch { text, pattern, .. }
-        | Expression::PatternFind { text, pattern, .. }
-        | Expression::PatternSplit { text, pattern, .. } => {
-            collect_calls_in_expression(text, out);
-            collect_calls_in_expression(pattern, out);
-        }
-        Expression::PatternReplace {
-            text,
-            pattern,
-            replacement,
-            ..
-        } => {
-            collect_calls_in_expression(text, out);
-            collect_calls_in_expression(pattern, out);
-            collect_calls_in_expression(replacement, out);
-        }
-        Expression::StringSplit {
-            text, delimiter, ..
-        } => {
-            collect_calls_in_expression(text, out);
-            collect_calls_in_expression(delimiter, out);
-        }
-        Expression::Literal(crate::parser::ast::Literal::List(elements), ..) => {
-            for element in elements {
-                collect_calls_in_expression(element, out);
+    }
+
+    /// Container properties are read by bare name inside methods, and may
+    /// carry a default and validation rule arguments.
+    fn properties(&mut self, properties: &[PropertyDefinition]) {
+        for property in properties {
+            self.bind(&property.name);
+            self.optional(&property.default_value);
+            for rule in &property.validation_rules {
+                for parameter in &rule.parameters {
+                    self.expression(parameter);
+                }
             }
         }
-        _ => {}
+    }
+
+    fn statement(&mut self, statement: &Statement) {
+        match statement {
+            Statement::VariableDeclaration { name, value, .. }
+            | Statement::Assignment { name, value, .. } => {
+                self.bind(name);
+                self.expression(value);
+            }
+            Statement::DisplayStatement { value, .. } => self.expression(value),
+            Statement::ExpressionStatement { expression, .. } => self.expression(expression),
+            Statement::ReturnStatement { value, .. } => self.optional(value),
+            Statement::ExitStatement { code, .. } => self.optional(code),
+            Statement::BreakStatement { .. } | Statement::ContinueStatement { .. } => {}
+            Statement::IfStatement {
+                condition,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.expression(condition);
+                self.statements(then_block);
+                if let Some(else_block) = else_block {
+                    self.statements(else_block);
+                }
+            }
+            Statement::SingleLineIf {
+                condition,
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.expression(condition);
+                self.statement(then_stmt);
+                if let Some(else_stmt) = else_stmt {
+                    self.statement(else_stmt);
+                }
+            }
+            Statement::ForEachLoop {
+                item_name,
+                collection,
+                body,
+                ..
+            } => {
+                self.bind(item_name);
+                self.expression(collection);
+                self.statements(body);
+            }
+            Statement::CountLoop {
+                start,
+                end,
+                step,
+                variable_name,
+                body,
+                ..
+            } => {
+                self.bind_optional(variable_name);
+                self.expression(start);
+                self.expression(end);
+                self.optional(step);
+                self.statements(body);
+            }
+            Statement::WhileLoop {
+                condition, body, ..
+            }
+            | Statement::RepeatWhileLoop {
+                condition, body, ..
+            }
+            | Statement::RepeatUntilLoop {
+                condition, body, ..
+            } => {
+                self.expression(condition);
+                self.statements(body);
+            }
+            Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
+                self.statements(body);
+            }
+            Statement::ActionDefinition {
+                parameters, body, ..
+            } => {
+                self.parameters(parameters);
+                self.statements(body);
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                finally_block,
+                ..
+            } => {
+                self.statements(body);
+                for clause in when_clauses {
+                    self.bind(&clause.error_name);
+                    self.statements(&clause.body);
+                }
+                if let Some(otherwise_block) = otherwise_block {
+                    self.statements(otherwise_block);
+                }
+                if let Some(finally_block) = finally_block {
+                    self.statements(finally_block);
+                }
+            }
+
+            // Files and directories.
+            Statement::OpenFileStatement {
+                path,
+                variable_name,
+                ..
+            }
+            | Statement::ReadFileStatement {
+                path,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(path);
+            }
+            Statement::WriteFileStatement { file, content, .. }
+            | Statement::WriteToStatement { content, file, .. } => {
+                self.expression(file);
+                self.expression(content);
+            }
+            Statement::WriteContentStatement {
+                content, target, ..
+            }
+            | Statement::WriteBinaryStatement {
+                content, target, ..
+            } => {
+                self.expression(content);
+                self.expression(target);
+            }
+            Statement::CloseFileStatement { file, .. } => self.expression(file),
+            Statement::CreateDirectoryStatement { path, .. }
+            | Statement::DeleteFileStatement { path, .. }
+            | Statement::DeleteDirectoryStatement { path, .. }
+            | Statement::IncludeStatement { path, .. } => self.expression(path),
+            Statement::CreateFileStatement { path, content, .. } => {
+                self.expression(path);
+                self.expression(content);
+            }
+            Statement::LoadModuleStatement { path, alias, .. } => {
+                self.bind_optional(alias);
+                self.expression(path);
+            }
+            // Names an existing binding; evaluates nothing.
+            Statement::ExportStatement { .. } => {}
+
+            // Databases.
+            Statement::OpenDatabaseStatement {
+                url, variable_name, ..
+            } => {
+                self.bind(variable_name);
+                self.expression(url);
+            }
+            // A call can hide in the handle, the SQL text, or a bound
+            // parameter — e.g. `query db with "..." and parameters [seal of x]`.
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(db);
+                self.expression(sql);
+                self.optional(parameters);
+            }
+            Statement::CloseDatabaseStatement { db, .. } => self.expression(db),
+            // The header (`in transaction on <expr>:`) is walked as well as
+            // the body; moving calls into a transaction must not hide them.
+            Statement::TransactionStatement { db, body, .. } => {
+                self.expression(db);
+                self.statements(body);
+            }
+
+            // Processes.
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                directory,
+                variable_name,
+                ..
+            } => {
+                self.bind_optional(variable_name);
+                self.expression(command);
+                self.optional(arguments);
+                self.optional(directory);
+            }
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                directory,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(command);
+                self.optional(arguments);
+                self.optional(directory);
+            }
+            Statement::ExecuteFileStatement {
+                path,
+                request,
+                variable_name,
+                ..
+            } => {
+                self.bind_optional(variable_name);
+                self.expression(path);
+                self.optional(request);
+            }
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(process_id);
+            }
+            Statement::KillProcessStatement { process_id, .. } => self.expression(process_id),
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name,
+                timeout,
+                ..
+            } => {
+                self.bind_optional(variable_name);
+                self.expression(process_id);
+                self.optional(timeout);
+            }
+
+            // Waiting.
+            Statement::WaitForStatement { inner, .. } => self.statement(inner),
+            Statement::WaitForDurationStatement { duration, .. } => self.expression(duration),
+
+            // Outbound HTTP.
+            Statement::HttpGetStatement {
+                url, variable_name, ..
+            } => {
+                self.bind(variable_name);
+                self.expression(url);
+            }
+            Statement::HttpPostStatement {
+                url,
+                data,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(url);
+                self.expression(data);
+            }
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                ..
+            }
+            | Statement::HttpStreamStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(url);
+                self.optional(method);
+                self.optional(headers);
+                self.optional(body);
+            }
+            Statement::WaitForNextChunkStatement {
+                source,
+                variable_name,
+                ..
+            }
+            | Statement::WaitForNextLineStatement {
+                source,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(source);
+            }
+
+            // Lists, maps, dates.
+            Statement::PushStatement { list, value, .. } => {
+                self.expression(list);
+                self.expression(value);
+            }
+            Statement::CreateListStatement {
+                name,
+                initial_values,
+                ..
+            } => {
+                self.bind(name);
+                for value in initial_values {
+                    self.expression(value);
+                }
+            }
+            Statement::MapCreation { name, entries, .. } => {
+                self.bind(name);
+                for (_, value) in entries {
+                    self.expression(value);
+                }
+            }
+            Statement::CreateDateStatement { name, value, .. }
+            | Statement::CreateTimeStatement { name, value, .. } => {
+                self.bind(name);
+                self.optional(value);
+            }
+            Statement::AddToListStatement { value, .. }
+            | Statement::RemoveFromListStatement { value, .. } => self.expression(value),
+            Statement::ClearListStatement { .. } => {}
+
+            // Containers, interfaces, events, patterns.
+            Statement::ContainerDefinition {
+                properties,
+                methods,
+                events,
+                static_properties,
+                static_methods,
+                ..
+            } => {
+                self.properties(properties);
+                self.properties(static_properties);
+                for method in methods.iter().chain(static_methods.iter()) {
+                    self.statement(method);
+                }
+                for event in events {
+                    self.parameters(&event.parameters);
+                }
+            }
+            Statement::ContainerInstantiation {
+                instance_name,
+                arguments,
+                property_initializers,
+                ..
+            } => {
+                self.bind(instance_name);
+                self.arguments(arguments);
+                for initializer in property_initializers {
+                    self.expression(&initializer.value);
+                }
+            }
+            // Signatures only: nothing in an interface runs.
+            Statement::InterfaceDefinition { .. } => {}
+            Statement::EventDefinition { parameters, .. } => self.parameters(parameters),
+            Statement::EventTrigger { arguments, .. }
+            | Statement::ParentMethodCall { arguments, .. } => self.arguments(arguments),
+            Statement::EventHandler {
+                event_source,
+                handler_body,
+                ..
+            } => {
+                self.expression(event_source);
+                self.statements(handler_body);
+            }
+            // A pattern is a matcher, not an expression; it calls nothing.
+            Statement::PatternDefinition { name, .. } => self.bind(name),
+
+            // Web servers and streams.
+            Statement::ListenStatement {
+                port,
+                server_name,
+                tls,
+                redirect_to_port,
+                ..
+            } => {
+                self.bind(server_name);
+                self.expression(port);
+                if let Some(tls) = tls {
+                    self.optional(&tls.cert_path);
+                    self.optional(&tls.key_path);
+                    for certificate in &tls.sni_certificates {
+                        self.expression(&certificate.hostname);
+                        self.expression(&certificate.cert_path);
+                        self.expression(&certificate.key_path);
+                    }
+                }
+                self.optional(redirect_to_port);
+            }
+            Statement::WaitForRequestStatement {
+                server,
+                request_name,
+                timeout,
+                ..
+            } => {
+                self.bind(request_name);
+                self.expression(server);
+                self.optional(timeout);
+            }
+            Statement::RespondStatement {
+                request,
+                content,
+                status,
+                content_type,
+                headers,
+                ..
+            } => {
+                self.expression(request);
+                self.expression(content);
+                self.optional(status);
+                self.optional(content_type);
+                self.optional(headers);
+            }
+            Statement::StartStreamingResponseStatement {
+                request,
+                status,
+                content_type,
+                headers,
+                variable_name,
+                ..
+            } => {
+                self.bind(variable_name);
+                self.expression(request);
+                self.optional(status);
+                self.optional(content_type);
+                self.optional(headers);
+            }
+            // The fallbacks are alternative readings of the same source text
+            // kept for backward compatibility; walking them can visit one
+            // position twice, which `check_insecure_rng_seeding` de-duplicates.
+            Statement::StreamWriteStatement {
+                value,
+                target,
+                fallback_content,
+                ..
+            } => {
+                self.expression(value);
+                self.expression(target);
+                if let Some(fallback_content) = fallback_content {
+                    self.expression(fallback_content);
+                }
+            }
+            Statement::FlushStreamStatement {
+                target,
+                action_fallback,
+                ..
+            } => {
+                self.expression(target);
+                self.optional(action_fallback);
+            }
+            Statement::ListenWebSocketStatement {
+                port, server_name, ..
+            } => {
+                self.bind(server_name);
+                self.expression(port);
+            }
+            Statement::WebSocketHandlerStatement {
+                server,
+                binding,
+                body,
+                ..
+            } => {
+                self.bind(binding);
+                self.expression(server);
+                self.statements(body);
+            }
+            Statement::SendWebSocketMessageStatement {
+                message, target, ..
+            } => {
+                self.expression(message);
+                self.expression(target);
+            }
+            Statement::BroadcastWebSocketMessageStatement {
+                message, server, ..
+            } => {
+                self.expression(message);
+                self.expression(server);
+            }
+            // Names the action to run on the signal; evaluates nothing here.
+            Statement::RegisterSignalHandlerStatement { .. } => {}
+            Statement::StopAcceptingConnectionsStatement { server, .. }
+            | Statement::CloseServerStatement { server, .. } => self.expression(server),
+
+            // Tests.
+            Statement::DescribeBlock {
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                if let Some(setup) = setup {
+                    self.statements(setup);
+                }
+                if let Some(teardown) = teardown {
+                    self.statements(teardown);
+                }
+                self.statements(tests);
+            }
+            Statement::TestBlock { body, .. } => self.statements(body),
+            Statement::ExpectStatement {
+                subject, assertion, ..
+            } => {
+                self.expression(subject);
+                match assertion {
+                    Assertion::Equal(expected)
+                    | Assertion::Be(expected)
+                    | Assertion::GreaterThan(expected)
+                    | Assertion::LessThan(expected)
+                    | Assertion::Contain(expected)
+                    | Assertion::HaveLength(expected) => self.expression(expected),
+                    Assertion::BeYes
+                    | Assertion::BeNo
+                    | Assertion::Exist
+                    | Assertion::BeEmpty
+                    | Assertion::BeOfType(_) => {}
+                }
+            }
+        }
+    }
+
+    fn expression(&mut self, expression: &Expression) {
+        match expression {
+            Expression::Literal(literal, ..) => match literal {
+                Literal::List(elements) => {
+                    for element in elements {
+                        self.expression(element);
+                    }
+                }
+                Literal::String(_)
+                | Literal::Integer(_)
+                | Literal::Float(_)
+                | Literal::Boolean(_)
+                | Literal::Nothing
+                | Literal::Pattern(_) => {}
+            },
+            Expression::Variable(name, line, column) => self.record(name, *line, *column, true),
+            Expression::FunctionCall {
+                function,
+                arguments,
+                line,
+                column,
+            } => {
+                if let Expression::Variable(name, ..) = function.as_ref() {
+                    self.record(name, *line, *column, false);
+                } else {
+                    self.expression(function);
+                }
+                self.arguments(arguments);
+            }
+            Expression::ActionCall {
+                name,
+                arguments,
+                line,
+                column,
+            } => {
+                self.record(name, *line, *column, false);
+                self.arguments(arguments);
+            }
+            // The method name is a container action, not a builtin.
+            Expression::MethodCall {
+                object, arguments, ..
+            } => {
+                self.expression(object);
+                self.arguments(arguments);
+            }
+            Expression::BinaryOperation { left, right, .. }
+            | Expression::Concatenation { left, right, .. } => {
+                self.expression(left);
+                self.expression(right);
+            }
+            Expression::UnaryOperation { expression, .. }
+            | Expression::AwaitExpression { expression, .. } => self.expression(expression),
+            Expression::MemberAccess { object, .. } | Expression::PropertyAccess { object, .. } => {
+                self.expression(object);
+            }
+            Expression::HeaderAccess { request, .. } => self.expression(request),
+            Expression::IndexAccess {
+                collection, index, ..
+            } => {
+                self.expression(collection);
+                self.expression(index);
+            }
+            Expression::PatternMatch { text, pattern, .. }
+            | Expression::PatternFind { text, pattern, .. }
+            | Expression::PatternSplit { text, pattern, .. } => {
+                self.expression(text);
+                self.expression(pattern);
+            }
+            Expression::PatternReplace {
+                text,
+                pattern,
+                replacement,
+                ..
+            } => {
+                self.expression(text);
+                self.expression(pattern);
+                self.expression(replacement);
+            }
+            Expression::StringSplit {
+                text, delimiter, ..
+            } => {
+                self.expression(text);
+                self.expression(delimiter);
+            }
+            // Names a container and member; evaluates nothing.
+            Expression::StaticMemberAccess { .. } => {}
+            Expression::CurrentTimeMilliseconds { .. }
+            | Expression::CurrentTimeFormatted { .. } => {}
+            Expression::FileExists { path, .. }
+            | Expression::DirectoryExists { path, .. }
+            | Expression::ListFiles { path, .. } => self.expression(path),
+            Expression::ListFilesRecursive {
+                path, extensions, ..
+            } => {
+                self.expression(path);
+                for extension in extensions.iter().flatten() {
+                    self.expression(extension);
+                }
+            }
+            Expression::ListFilesFiltered {
+                path, extensions, ..
+            } => {
+                self.expression(path);
+                for extension in extensions {
+                    self.expression(extension);
+                }
+            }
+            Expression::ReadContent { file_handle, .. }
+            | Expression::ReadBinaryContent { file_handle, .. }
+            | Expression::FileSizeOf { file_handle, .. } => self.expression(file_handle),
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                self.expression(file_handle);
+                self.expression(count);
+            }
+            Expression::ProcessRunning { process_id, .. } => self.expression(process_id),
+            // The expression form of a database query (`give back query ...`);
+            // the statement form is handled in `statement`.
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.expression(db);
+                self.expression(sql);
+                if let Some(parameters) = parameters {
+                    self.expression(parameters);
+                }
+            }
+        }
     }
 }
 
@@ -969,20 +1460,18 @@ impl StaticAnalyzer for Analyzer {
     /// session identifiers, and tokens. This is the analyzer half of the CI rule
     /// that keeps `random_seed` out of auth/session/crypto modules.
     fn check_insecure_rng_seeding(&self, program: &Program, file_id: usize) -> Vec<WflDiagnostic> {
-        let mut calls = Vec::new();
-        collect_calls_in_statements(&program.statements, &mut calls);
+        let uses = BuiltinUses::of(program);
 
         // Only flag seeding when the same file also does security-sensitive work.
-        let uses_security_builtin = calls
-            .iter()
-            .any(|call| SECURITY_SENSITIVE_BUILTINS.contains(&call.name.as_str()));
-        if !uses_security_builtin {
+        if uses.of_security_builtins().next().is_none() {
             return Vec::new();
         }
 
-        calls
-            .iter()
-            .filter(|call| call.name == "random_seed")
+        // One error per seed site; a position the walk visits twice (see the
+        // stream fallbacks in `BuiltinUses::statement`) is reported once.
+        let mut reported = HashSet::new();
+        uses.of_random_seed()
+            .filter(|call| reported.insert(call.position()))
             .map(|call| {
                 WflDiagnostic::new(
                     Severity::Error,
