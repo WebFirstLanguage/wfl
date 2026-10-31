@@ -293,6 +293,60 @@ otherwise:
 end check
 ```
 
+## Finding Matches
+
+`matches` only answers yes or no. To get the matched text itself, use `find`
+for the first match or `find all` for every match:
+
+```wfl
+create pattern number:
+    one or more digit
+end pattern
+
+store order as "3 apples, 12 pears and 100 plums"
+
+store first_number as find number in order
+check if isnothing of first_number:
+    display "No numbers"
+otherwise:
+    display "First: " with first_number["matched_text"]
+end check
+
+store every_number as find all number in order
+display "Count: " with length of every_number
+for each item in every_number:
+    display item["matched_text"] with " starts at " with item["start"]
+end for
+```
+
+**Output:**
+```
+First: 3
+Count: 3
+3 starts at 0
+12 starts at 10
+100 starts at 23
+```
+
+**Syntax:**
+```wfl
+find <pattern> in <text>
+find all <pattern> in <text>
+```
+
+Each match has `matched_text`, `start` and `end` (character positions), and
+`captures` when the pattern names a part with `capture { ... } as <name>`. `find`
+returns `nothing` when there is no match, so check with `isnothing of` before
+reading it. `find all` returns a list — empty when nothing matches — so you can
+loop over it straight away. Matches are found left to right and never overlap.
+
+`find all <pattern> in <text>` gives the same list as
+`pattern_find_all of <text> and <pattern>` from the
+[Pattern Module](../05-standard-library/pattern-module.md#pattern_find_all).
+`all` is not a reserved word: if your program already has a variable whose name
+starts with `all` (such as `all digits`), `find all digits in ...` keeps meaning
+a single `find` with that variable, exactly as before.
+
 ## Replacing Matches
 
 `replace ... with ... in ...` returns a new text with every match replaced:
@@ -630,6 +684,7 @@ In this section, you learned:
 
 ✅ **Creating patterns** - `create pattern` block
 ✅ **Testing matches** - `matches` keyword
+✅ **Finding matches** - `find` for the first match, `find all` for every match
 ✅ **Character classes** - digit, letter, whitespace, any
 ✅ **Quantifiers** - one or more, zero or more, optional, exactly N, between N and M
 ✅ **Combining patterns** - Using `then` and `followed by`

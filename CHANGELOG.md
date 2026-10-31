@@ -78,6 +78,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   reuses that tag instead of burning a new number.
 
 ### Fixed
+- **`find all <pattern> in <text>` works as documented.** The pattern docs and
+  the builtin reference promised this spelling, but the lexer merges `all word`
+  into one name, so the documented program failed with "Variable 'all word' is
+  not defined" (exit 3). It now returns a list of every non-overlapping match,
+  the same as `pattern_find_all of <text> and <pattern>`, and an empty list
+  when nothing matches. **Compatibility:** `all` is not reserved. A program
+  that already has a variable named `all <name>` (or `all`) keeps the old
+  single-match meaning of `find all <name> in ...` while that variable exists.
+  `wfl --lint --fix` keeps the spelling of a variable used as a `find all`
+  operand, because its merged `all <name>` use cannot be renamed with it.
 - **Instance actions preserve properties hidden by globals** (#789 review).
   A bare name inside an action still resolves to a same-named global, but
   returning from the action no longer copies that global into the object's
