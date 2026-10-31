@@ -3361,3 +3361,38 @@ fn can_start_primary_expression_matches_parse_primary_expression() {
         }
     }
 }
+
+#[test]
+fn nested_find_all_parses_in_polynomial_steps() {
+    // `find all` keeps the pre-`find all` parse of its tokens as a backward-
+    // compatibility fallback, so each level is parsed a second time. That
+    // second parse must not itself recurse into nested `find all` handling, or
+    // nesting depth d would cost about 2^d primary-expression parses on
+    // untrusted input.
+    let depth = 30;
+    let mut input = String::from("store result as ");
+    for _ in 0..depth {
+        input.push_str("find all (");
+    }
+    input.push_str("word");
+    for _ in 0..depth {
+        input.push_str(") in text_value");
+    }
+    input.push('\n');
+
+    let tokens = lex_wfl_with_positions(&input);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("nested find all must parse");
+    let Some(Statement::VariableDeclaration { value, .. }) = program.statements.first() else {
+        panic!("expected a store statement, got {:?}", program.statements);
+    };
+    assert!(
+        format!("{value:?}").starts_with("PatternFindAll"),
+        "the outermost expression must be a find-all, got {value:?}"
+    );
+    assert!(
+        parser.parse_steps < 50_000,
+        "nested find all took {} primary-expression parses at depth {depth}",
+        parser.parse_steps
+    );
+}
