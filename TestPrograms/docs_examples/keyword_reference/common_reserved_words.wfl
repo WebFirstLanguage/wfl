@@ -1,0 +1,45 @@
+// `start` and `captured` doing their real jobs, inside patterns
+create pattern begins_with_hello:
+    start of text then "hello"
+end pattern
+
+create pattern doubled_word:
+    capture {one or more letter} as word then " " then same as captured "word"
+end pattern
+
+// `by` doing its real jobs
+store step_size as 2
+store separator as ","
+store parts as split "red,green,blue" by separator
+store half as 10 divided by 2
+
+// `find` doing its real job
+store search_text as "say hello hello"
+store find_result as find doubled_word in search_text
+
+// Our own names: never the bare reserved word
+store start_time as "09:00"
+store command_output as "nothing run yet"
+store current_route as "/health"
+store captured_text as "hello"
+
+check if "hello world" matches begins_with_hello:
+    display "starts with hello"
+end check
+
+check if isnothing of find_result:
+    display "no doubled word"
+otherwise:
+    display "found a doubled word"
+end check
+
+count from 1 to 5 by step_size:
+    display count
+end count
+
+display parts
+display half
+display captured_text
+display start_time
+display command_output
+display current_route

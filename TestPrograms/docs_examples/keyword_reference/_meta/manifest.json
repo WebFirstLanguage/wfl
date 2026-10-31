@@ -75,6 +75,13 @@
       "validation_status": "pending",
       "notes": "Demonstrates contextual keyword usage as variables",
       "tested_with": []
+    },
+    {
+      "file": "common_reserved_words.wfl",
+      "keywords_covered": ["start", "captured", "by", "find", "output", "route"],
+      "validation_status": "validated",
+      "notes": "Byte-identical to the 'All Six, Side by Side' block in Docs/reference/reserved-keywords.md; registered in docs_examples/_meta/manifest.json and run by scripts/validate_docs_examples.py",
+      "tested_with": ["parse", "analyze", "typecheck", "lint", "execute"]
     }
   ],
   "next_steps": [
