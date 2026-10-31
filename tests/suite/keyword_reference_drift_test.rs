@@ -312,11 +312,16 @@ fn complete_reference_class_sections_list_exactly_their_keywords() {
 fn quick_reference_lists_every_keyword_with_matching_as_var() {
     let actual = actual_keywords();
     let page = read_repo_file(QUICK_REFERENCE);
+    // Only rows that end in an "As Var?" mark list a keyword. Other tables,
+    // such as "Words That Commonly Bite", end in suggested names instead.
     let mut marks: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for cells in page.lines().filter_map(table_cells) {
-        if let Some(word) = backticked(cells[0]) {
-            let mark = cells.last().copied().unwrap_or_default().to_string();
-            marks.entry(word.to_string()).or_default().insert(mark);
+        let mark = cells.last().copied().unwrap_or_default();
+        if let (Some(word), "✓" | "✗") = (backticked(cells[0]), mark) {
+            marks
+                .entry(word.to_string())
+                .or_default()
+                .insert(mark.to_string());
         }
     }
     let mut problems = Vec::new();
