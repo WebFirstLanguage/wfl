@@ -103,6 +103,7 @@ mod property_index_access_test;
 mod random_functions_test;
 mod recursive_action_return_type_test;
 mod request_of_action_body_test;
+mod reserved_common_words_test;
 mod respond_headers_test;
 mod respond_statement_parser_test;
 mod response_expression_disconnect_runtime_test;
