@@ -39,7 +39,11 @@ true.
   it. That turns the recurring bug into a build failure.
 - The walk records bare mentions as well as calls. A mention counts unless the
   file binds that name itself, because `store random_seed as 5` is legal WFL
-  and after it the name is the program's own number.
+  and after it the name is the program's own number. The same holds for a
+  program action that replaces a replaceable builtin such as `session_cookie`
+  (Codex review). Container method names are not bindings: they are reached
+  as `object.method()`, so a method named `hash_password` does not hide the
+  real builtin.
 - Each runtime loader runs the same check right after its semantic check. The
   load fails with a runtime error naming the file, line, column, rule, and fix,
   before any statement of that file executes.

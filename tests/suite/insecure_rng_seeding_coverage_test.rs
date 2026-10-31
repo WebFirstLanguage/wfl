@@ -361,6 +361,26 @@ store seeded as random_seed of 42
     );
 }
 
+#[test]
+fn a_container_method_name_does_not_hide_the_builtin() {
+    // Methods are reached as `object.method()`, so a method that happens to be
+    // called `hash_password` must not exempt the real builtin's alias.
+    assert_flagged(
+        "container method named like a builtin",
+        r#"
+create container Hasher:
+    property label: Text
+    action hash_password needs value: Text:
+        give back value
+    end
+end
+store hasher as hash_password
+store digest as hasher of "hunter2"
+store seeded as random_seed of 42
+"#,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Boundary: general-purpose hashes stay excluded (deliberate design, see
 // SECURITY_SENSITIVE_BUILTINS), even in the newly walked constructs.

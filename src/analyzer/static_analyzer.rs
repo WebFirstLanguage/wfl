@@ -502,6 +502,11 @@ impl BuiltinUses {
         }
     }
 
+    fn action_body(&mut self, parameters: &[Parameter], body: &[Statement]) {
+        self.parameters(parameters);
+        self.statements(body);
+    }
+
     /// Container properties are read by bare name inside methods, and may
     /// carry a default and validation rule arguments.
     fn properties(&mut self, properties: &[PropertyDefinition]) {
@@ -591,11 +596,17 @@ impl BuiltinUses {
             Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
                 self.statements(body);
             }
+            // A program may define its own action under some builtin names
+            // (`EXPLICIT_CALL_BUILTIN_FUNCTIONS`, e.g. `session_cookie`); a bare
+            // mention of that name is then the program's action.
             Statement::ActionDefinition {
-                parameters, body, ..
+                name,
+                parameters,
+                body,
+                ..
             } => {
-                self.parameters(parameters);
-                self.statements(body);
+                self.bind(name);
+                self.action_body(parameters, body);
             }
             Statement::TryStatement {
                 body,
@@ -843,8 +854,16 @@ impl BuiltinUses {
             } => {
                 self.properties(properties);
                 self.properties(static_properties);
+                // Methods are reached as `object.method()`, never by bare name,
+                // so their names are not bound: a method called `hash_password`
+                // must not exempt the real builtin elsewhere in the file.
                 for method in methods.iter().chain(static_methods.iter()) {
-                    self.statement(method);
+                    match method {
+                        Statement::ActionDefinition {
+                            parameters, body, ..
+                        } => self.action_body(parameters, body),
+                        other => self.statement(other),
+                    }
                 }
                 for event in events {
                     self.parameters(&event.parameters);
