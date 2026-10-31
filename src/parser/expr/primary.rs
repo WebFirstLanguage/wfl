@@ -2,7 +2,9 @@
 //!
 //! This module handles parsing of atomic expressions (literals, variables, etc.)
 
-use super::super::{Argument, Expression, Literal, ParseError, Parser, UnaryOperator};
+use super::super::{
+    Argument, Expression, FileFilterKind, Literal, ParseError, Parser, UnaryOperator,
+};
 use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
@@ -1040,10 +1042,12 @@ impl<'a> Parser<'a> {
                                 && with_token.token == Token::KeywordWith
                             {
                                 self.bump_sync(); // Consume "with"
-                                let extensions = self.parse_extension_filter(stop_at_clause)?;
+                                let (extensions, filter_kind) =
+                                    self.parse_extension_filter(stop_at_clause)?;
                                 return Ok(Expression::ListFilesRecursive {
                                     path: Box::new(path),
                                     extensions: Some(extensions),
+                                    filter_kind,
                                     line: token_line,
                                     column: token_column,
                                 });
@@ -1053,6 +1057,7 @@ impl<'a> Parser<'a> {
                             return Ok(Expression::ListFilesRecursive {
                                 path: Box::new(path),
                                 extensions: None,
+                                filter_kind: FileFilterKind::default(),
                                 line: token_line,
                                 column: token_column,
                             });
@@ -1069,11 +1074,12 @@ impl<'a> Parser<'a> {
                                         && with_token.token == Token::KeywordWith
                                     {
                                         self.bump_sync(); // Consume "with"
-                                        let extensions =
+                                        let (extensions, filter_kind) =
                                             self.parse_extension_filter(stop_at_clause)?;
                                         return Ok(Expression::ListFilesRecursive {
                                             path: Box::new(path),
                                             extensions: Some(extensions),
+                                            filter_kind,
                                             line: token_line,
                                             column: token_column,
                                         });
@@ -1083,16 +1089,19 @@ impl<'a> Parser<'a> {
                                     return Ok(Expression::ListFilesRecursive {
                                         path: Box::new(path),
                                         extensions: None,
+                                        filter_kind: FileFilterKind::default(),
                                         line: token_line,
                                         column: token_column,
                                     });
                                 }
                                 Token::KeywordWith => {
                                     self.bump_sync(); // Consume "with"
-                                    let extensions = self.parse_extension_filter(stop_at_clause)?;
+                                    let (extensions, filter_kind) =
+                                        self.parse_extension_filter(stop_at_clause)?;
                                     return Ok(Expression::ListFilesFiltered {
                                         path: Box::new(path),
                                         extensions,
+                                        filter_kind,
                                         line: token_line,
                                         column: token_column,
                                     });

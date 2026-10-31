@@ -1,0 +1,70 @@
+// `list files ... with pattern` matches file names with a glob (issue #578).
+// The fixture is created under target/test-artifacts/ and removed afterwards.
+
+describe "list files with pattern":
+
+    setup:
+        store fixture_dir as "target/test-artifacts/list_files_pattern"
+        makedirs "target/test-artifacts/list_files_pattern/nested"
+        write content "a" into "target/test-artifacts/list_files_pattern/a.txt"
+        write content "b" into "target/test-artifacts/list_files_pattern/b.txt"
+        write content "r" into "target/test-artifacts/list_files_pattern/report.txt"
+        write content "c" into "target/test-artifacts/list_files_pattern/c.log"
+        write content "d" into "target/test-artifacts/list_files_pattern/nested/deep.txt"
+    end setup
+
+    test "star matches every file with that ending":
+        store txt_files as list files in fixture_dir with pattern "*.txt"
+        expect txt_files to have length 3
+    end test
+
+    test "an exact name matches only that file":
+        store report_files as list files in fixture_dir with pattern "report.txt"
+        expect report_files to have length 1
+        expect path_basename of report_files[0] to equal "report.txt"
+    end test
+
+    test "question mark matches exactly one character":
+        store short_names as list files in fixture_dir with pattern "?.txt"
+        expect short_names to have length 2
+    end test
+
+    test "a pattern can come from a variable":
+        store wanted as "*.log"
+        store log_files as list files in fixture_dir with pattern wanted
+        expect log_files to have length 1
+    end test
+
+    test "recursive listing matches at every depth":
+        store all_txt as list files recursively in fixture_dir with pattern "*.txt"
+        expect all_txt to have length 4
+    end test
+
+    test "a pattern with no match gives an empty list":
+        store markdown_files as list files in fixture_dir with pattern "*.md"
+        expect markdown_files to have length 0
+    end test
+
+    test "extension filters are unchanged":
+        store by_extension as list files in fixture_dir with extension ".txt"
+        expect by_extension to have length 3
+        store legacy_form as list files in fixture_dir with pattern ".txt"
+        expect legacy_form to have length 3
+    end test
+
+    test "an invalid pattern raises a catchable error":
+        store caught as no
+        try:
+            store broken as list files in fixture_dir with pattern "[abc"
+            display "Unexpected listing: " with broken
+        catch:
+            change caught to yes
+        end try
+        expect caught to be yes
+    end test
+
+    teardown:
+        remove_dir at "target/test-artifacts/list_files_pattern" recursive yes
+    end teardown
+
+end describe

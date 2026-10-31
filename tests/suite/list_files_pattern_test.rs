@@ -153,6 +153,15 @@ fn recursive_listing_with_pattern_searches_subdirectories() {
 }
 
 #[test]
+fn pattern_cannot_reach_outside_the_listed_directory() {
+    // `a.txt` exists one level up, but only names inside `sub` are compared.
+    for pattern in ["../*", "../a.txt"] {
+        let listing = format!(r#"list files in "sub" with pattern "{pattern}""#);
+        assert_listing(&listing, &[]);
+    }
+}
+
+#[test]
 fn invalid_pattern_is_a_clear_catchable_error() {
     // An unterminated `[` set is not a valid glob. Silently returning an empty
     // list would hide the mistake, so it must raise a catchable error.
