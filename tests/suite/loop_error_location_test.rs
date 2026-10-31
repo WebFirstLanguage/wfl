@@ -1,0 +1,221 @@
+//! Count and for-each loops report their diagnostics at the loop's opening
+//! keyword.
+//!
+//! `parse_count_loop` and `parse_for_each_loop` used to store the position of
+//! the token *after* `end count` / `end for`, so every diagnostic keyed on the
+//! loop statement pointed past the end of the loop. A loop that ended the file
+//! without a trailing newline had no next token at all and was placed at line
+//! 0, column 0, which the renderer showed as the start of the file. The
+//! interpreter's count-loop and for-each errors, the type checker's loop type
+//! errors, the analyzer's nested count-loop error and the linter's nesting
+//! warning all use that position.
+//!
+//! The end-to-end tests run the real `wfl` binary and read the location from
+//! the rendered diagnostic (`main.wfl:LINE:COLUMN`). The CLI prints analyzer
+//! and linter diagnostics without a location, so those are checked through
+//! their APIs.
+
+use crate::common::run_src;
+use wfl::analyzer::Analyzer;
+use wfl::lexer::lex_wfl_with_positions;
+use wfl::linter::Linter;
+use wfl::parser::Parser;
+use wfl::parser::ast::{Program, Statement};
+
+/// The `(line, column)` of the first `main.wfl:LINE:COLUMN` rendered after
+/// `message`, which is where that diagnostic points.
+fn location_after(out: &str, message: &str) -> Option<(usize, usize)> {
+    let rest = &out[out.find(message)? + message.len()..];
+    let rest = &rest[rest.find("main.wfl:")? + "main.wfl:".len()..];
+    let mut numbers = rest.split(':').map(|part| {
+        part.chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .ok()
+    });
+    Some((numbers.next()??, numbers.next()??))
+}
+
+/// Runs `src` and asserts it fails, reporting each of `messages` at
+/// `(line, column)`.
+fn assert_errors_at(src: &str, messages: &[&str], line: usize, column: usize) {
+    let (out, code) = run_src(src);
+    assert_ne!(code, Some(0), "program should fail: {out}");
+    for message in messages {
+        assert!(out.contains(message), "expected {message:?} in: {out}");
+        assert_eq!(
+            location_after(&out, message),
+            Some((line, column)),
+            "{message:?} should point at the loop's opening keyword: {out}"
+        );
+    }
+}
+
+fn parse(src: &str) -> Program {
+    let tokens = lex_wfl_with_positions(src);
+    Parser::new(&tokens)
+        .parse()
+        .unwrap_or_else(|errors| panic!("{src:?} should parse: {errors:?}"))
+}
+
+fn position(stmt: &Statement) -> (usize, usize) {
+    match stmt {
+        Statement::CountLoop { line, column, .. } | Statement::ForEachLoop { line, column, .. } => {
+            (*line, *column)
+        }
+        other => panic!("expected a count or for-each loop, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Parser: the statement records the opening keyword
+// ---------------------------------------------------------------------------
+
+#[test]
+fn count_loop_records_the_count_keyword_position() {
+    let program = parse("count from 1 to 3:\n    display count\nend count\n");
+    assert_eq!(position(&program.statements[0]), (1, 1));
+}
+
+#[test]
+fn nested_count_loop_records_its_own_count_keyword_position() {
+    let program = parse(
+        "count from 1 to 2 as outer:\n    count from 1 to 2 as inner:\n        display inner\n    end count\nend count\n",
+    );
+    assert_eq!(position(&program.statements[0]), (1, 1));
+    let Statement::CountLoop { body, .. } = &program.statements[0] else {
+        panic!("expected a count loop");
+    };
+    assert_eq!(position(&body[0]), (2, 5));
+}
+
+#[test]
+fn count_loop_at_end_of_file_records_the_count_keyword_position() {
+    // No trailing newline: there is no token after `end count`.
+    let program = parse("display 0\ncount from 1 to 3:\n    display count\nend count");
+    assert_eq!(position(&program.statements[1]), (2, 1));
+}
+
+#[test]
+fn for_each_loop_records_the_for_keyword_position() {
+    let program =
+        parse("store items as [1, 2]\nfor each item in items:\n    display item\nend for\n");
+    assert_eq!(position(&program.statements[1]), (2, 1));
+}
+
+#[test]
+fn for_each_loop_at_end_of_file_records_the_for_keyword_position() {
+    // No trailing newline: there is no token after `end for`.
+    let program =
+        parse("store items as [1, 2]\nfor each item in items:\n    display item\nend for");
+    assert_eq!(position(&program.statements[1]), (2, 1));
+}
+
+// ---------------------------------------------------------------------------
+// Runtime errors raised by the loop itself (real binary)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn negative_step_error_points_at_the_count_keyword() {
+    assert_errors_at(
+        "count from 1 to 5 by -1:\n    display count\nend count\n",
+        &["Count loop step must be a positive number"],
+        1,
+        1,
+    );
+}
+
+#[test]
+fn zero_step_error_in_a_nested_block_points_at_the_count_keyword() {
+    assert_errors_at(
+        "check if yes:\n    count from 1 to 3 by 0:\n        display count\n    end count\nend check\n",
+        &["Count loop step must be a positive number"],
+        2,
+        5,
+    );
+}
+
+#[test]
+fn step_error_at_end_of_file_points_at_the_count_keyword() {
+    // No trailing newline: the old position was line 0, column 0.
+    assert_errors_at(
+        "display \"start\"\ncount from 5 down to 1 by -1:\n    display count\nend count",
+        &["Count loop step must be a positive number"],
+        2,
+        1,
+    );
+}
+
+#[test]
+fn stalled_counter_error_points_at_the_count_keyword() {
+    // Past 2^53 a step of 1 cannot move the counter.
+    assert_errors_at(
+        "display \"start\"\ncount from 9007199254740992 to 9007199254740994:\n    display count\nend count\n",
+        &["is too small to move the counter"],
+        2,
+        1,
+    );
+}
+
+#[test]
+fn non_numeric_start_errors_point_at_the_count_keyword() {
+    // The type checker warns, then the run fails on the same loop.
+    assert_errors_at(
+        "display \"start\"\ncount from \"a\" to 3:\n    display count\nend count\n",
+        &[
+            "Start value in count loop must be a number",
+            "Count loop requires numeric start and end values",
+        ],
+        2,
+        1,
+    );
+}
+
+#[test]
+fn non_collection_errors_point_at_the_for_keyword() {
+    // The type checker warns, then the run fails on the same loop.
+    assert_errors_at(
+        "store n as 5\nfor each item in n:\n    display item\nend for\n",
+        &[
+            "Collection in for-each loop must be a list or map",
+            "Cannot iterate over Number",
+        ],
+        2,
+        1,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Analyzer and linter diagnostics keyed on the loop statement
+// ---------------------------------------------------------------------------
+
+#[test]
+fn nested_count_loop_name_clash_points_at_the_inner_count_keyword() {
+    let program = parse(
+        "count from 1 to 2:\n    count from 1 to 2:\n        display count\n    end count\nend count\n",
+    );
+    let errors = Analyzer::new()
+        .analyze(&program)
+        .expect_err("nested loops sharing `count` must be rejected");
+    let clash = errors
+        .iter()
+        .find(|error| error.message.contains("Nested count loops"))
+        .unwrap_or_else(|| panic!("expected the nested-loop error, got {errors:?}"));
+    assert_eq!((clash.line, clash.column), (2, 5));
+}
+
+#[test]
+fn nesting_depth_warnings_point_at_each_loop_keyword() {
+    let src = "count from 1 to 2 as outer:\n    for each item in [1, 2]:\n        count from 1 to 2 as inner:\n            display inner\n        end count\n    end for\nend count\n";
+    let program = parse(src);
+    let mut linter = Linter::new();
+    linter.set_max_nesting_depth(1);
+    let (diagnostics, _) = linter.lint(&program, src, "main.wfl");
+    let positions: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == "LINT-COMPLEX")
+        .map(|diagnostic| (diagnostic.line, diagnostic.column))
+        .collect();
+    assert_eq!(positions, vec![(2, 5), (3, 9)]);
+}
