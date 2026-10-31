@@ -94,7 +94,7 @@ Names **may not**:
 
 ## Reserved Keywords
 
-WFL has **181** keywords and literals. Many cannot be used as bare variable names.
+WFL has **198** keywords and literals. Many cannot be used as bare variable names.
 
 **Quick Reference:** [Keyword Reference](../reference/keyword-reference.md)  
 **Complete details:** [Reserved Keywords](../reference/reserved-keywords.md)
@@ -120,7 +120,7 @@ Why these words are reserved, and the full list of words that commonly bite:
 [Words That Commonly Bite](../reference/reserved-keywords.md#words-that-commonly-bite).
 
 ```wfl
-// Wrong — structural keywords as names fail to parse
+// Wrong — reserved keywords as names fail to parse
 // store is as yes
 // store file as "data.txt"
 
