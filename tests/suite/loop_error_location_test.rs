@@ -13,9 +13,15 @@
 //! The end-to-end tests run the real `wfl` binary and read the location from
 //! the rendered diagnostic (`main.wfl:LINE:COLUMN`). The CLI prints analyzer
 //! and linter diagnostics without a location, so those are checked through
-//! their APIs.
+//! their APIs. Some messages quote the position in their text, and a program
+//! can print a caught module error, so those and `--step` output are checked
+//! through the binary as well.
 
-use crate::common::run_src;
+use crate::common::{run_src, wfl_exe};
+use std::fs;
+use std::io::Write;
+use std::process::{Command, Stdio};
+use tempfile::TempDir;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::linter::Linter;
@@ -218,4 +224,113 @@ fn nesting_depth_warnings_point_at_each_loop_keyword() {
         .map(|diagnostic| (diagnostic.line, diagnostic.column))
         .collect();
     assert_eq!(positions, vec![(2, 5), (3, 9)]);
+}
+
+// ---------------------------------------------------------------------------
+// Positions quoted inside message text, and `--step` output (real binary)
+// ---------------------------------------------------------------------------
+
+/// Runs `main.wfl` from `files` (name, source) in a fresh temp dir, feeding
+/// `stdin`. Returns (stdout, stderr, exit code).
+fn run_files(files: &[(&str, &str)], args: &[&str], stdin: &str) -> (String, String, Option<i32>) {
+    let dir = TempDir::new().expect("tempdir");
+    for (name, source) in files {
+        fs::write(dir.path().join(name), source).unwrap();
+    }
+    let mut child = Command::new(wfl_exe())
+        .args(args)
+        .arg(dir.path().join("main.wfl"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to execute WFL");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.code(),
+    )
+}
+
+#[test]
+fn loop_variable_redefinition_names_the_loop_line() {
+    let (stdout, stderr, code) = run_files(
+        &[(
+            "main.wfl",
+            "display \"start\"\ncount from 1 to 3 as i:\n    store i as 5\nend count\n",
+        )],
+        &[],
+        "",
+    );
+    let out = format!("{stdout}{stderr}");
+    assert_eq!(
+        code,
+        Some(3),
+        "redefining the loop variable is a semantic error: {out}"
+    );
+    assert!(
+        out.contains("Variable 'i' has already been defined at line 2."),
+        "the message should name the loop's line: {out}"
+    );
+}
+
+#[test]
+fn caught_module_error_quotes_the_loop_position() {
+    // A program can catch a module's analysis error and print its text, which
+    // quotes the loop's position.
+    let (stdout, stderr, code) = run_files(
+        &[
+            (
+                "badmod.wfl",
+                "count from 1 to 2:\n    count from 1 to 2:\n        display count\n    end count\nend count\n",
+            ),
+            (
+                "main.wfl",
+                "try:\n    load module from \"badmod.wfl\"\nwhen error:\n    display \"caught: \" with error_message\nend try\n",
+            ),
+        ],
+        &[],
+        "",
+    );
+    assert_eq!(code, Some(0), "the error is caught: {stdout}{stderr}");
+    assert!(
+        stdout.contains("Semantic error at line 2, column 5: Nested count loops"),
+        "the caught message should quote the inner loop's position: {stdout}{stderr}"
+    );
+}
+
+#[test]
+fn step_mode_labels_loops_with_their_first_line() {
+    let (stdout, stderr, code) = run_files(
+        &[(
+            "main.wfl",
+            "display \"start\"\ncount from 1 to 2:\n    display count\nend count\nstore items as [1]\nfor each item in items:\n    display item\nend for\n",
+        )],
+        &["--step"],
+        // Answer every `continue (y/n)?` prompt; more than the program asks.
+        // The final `n` stops the run rather than hanging if it ever asks
+        // more: at end of input the prompt repeats forever.
+        &format!("{}n\n", "y\n".repeat(50)),
+    );
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    let labels: Vec<&str> = stdout
+        .match_indices("Line ")
+        .map(|(at, _)| &stdout[at..])
+        .filter_map(|rest| {
+            let label = rest.split_once(" {").map_or(rest, |(label, _)| label);
+            (label.ends_with("CountLoop") || label.ends_with("ForEachLoop")).then_some(label)
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        vec!["Line 2: CountLoop", "Line 6: ForEachLoop"],
+        "{stdout}"
+    );
 }
