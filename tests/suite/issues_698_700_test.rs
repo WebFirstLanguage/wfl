@@ -313,35 +313,11 @@ fn bare_exit_still_leaves_the_loop_and_keeps_going() {
 // Follow-ups raised in review of the fix itself
 // ---------------------------------------------------------------------------
 
-#[test]
-fn count_loop_with_an_empty_range_ignores_its_step() {
-    // Backward compatibility: the step only matters if the loop is entered.
-    // `count from 5 to 1` never runs its body, so a nonsense step was — and
-    // must remain — harmless. Validating it unconditionally turned a working
-    // program into a runtime error.
-    let (out, code) = run_src(
-        "count from 5 to 1 by 0:\n\
-         \x20   display \"never\"\n\
-         end count\n\
-         display \"done\"\n",
-    );
-    assert!(!out.contains("never"), "the body must not run: {out}");
-    assert!(out.contains("done"), "the program continues: {out}");
-    assert_eq!(code, Some(0), "an empty range is not an error: {out}");
-}
-
-#[test]
-fn count_loop_with_an_empty_downward_range_ignores_its_step() {
-    let (out, code) = run_src(
-        "count from 1 down to 5 by 0:\n\
-         \x20   display \"never\"\n\
-         end count\n\
-         display \"done\"\n",
-    );
-    assert!(!out.contains("never"), "the body must not run: {out}");
-    assert!(out.contains("done"), "the program continues: {out}");
-    assert_eq!(code, Some(0), "an empty range is not an error: {out}");
-}
+// Review of #699 originally pinned here that a step was checked only when the
+// loop was entered, so `count from 5 to 1 by 0` stayed a silent no-op. The
+// maintainer reversed that: the same rule let `count from 5 to 1 by -1` run
+// zero times without a word. The reversed assertions — every step is checked,
+// empty range or not — live in `count_loop_step_test.rs`.
 
 #[test]
 fn count_loop_rejects_a_step_too_small_to_advance_the_counter() {

@@ -21,6 +21,15 @@
     "tags": ["keywords", "reserved-words", "naming", "patterns"],
     "doc_purpose": "Uses start, captured, by and find in their real jobs and names its own variables start_time, command_output, current_route and captured_text instead of the reserved words"
   },
+  "docs_examples/error_examples/count_loop_negative_step.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md#count-with-step",
+    "type": "error_example",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 1,
+    "expected_error_pattern": "Count loop step must be a positive number, got -1\\..*count from 5 down to 1",
+    "tags": ["loops", "count", "error-example"],
+    "doc_purpose": "A negative count-loop step is reported even when the range would not run, and the error names the loop the program meant"
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",
