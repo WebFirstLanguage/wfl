@@ -91,11 +91,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   and message wording are unchanged. **Compatibility:** some messages quote the
   position in their text, and those numbers change too. They now name the
   loop's first line instead of a point past its end:
-  `Variable 'i' has already been defined at line N` for a count loop's
-  variable, and the `Semantic error at line N, column M` text inside the error
-  raised when `load module`, `include from` or `execute file` finds a bad loop.
-  A program that catches that error and displays `error_message` prints the
-  new numbers.
+  - `Variable 'i' has already been defined at line N` for a count loop's
+    variable.
+  - The `Semantic error at line N, column M` text in the error that
+    `load module`, `include from` or `execute file` raises for a file with a
+    bad loop, and the `Type error at line N, column M` text in the error
+    `load module` raises.
+  - The `(line N)` in `Error in executed file '...' (line N): ...` when a loop
+    in a file run by `execute file` fails.
+
+  A program that catches one of these errors and displays `error_message`
+  prints the new numbers.
 - **`random_seed` is an error in any file that also does crypto or auth, as
   documented.** The `ANALYZE-SECURITY` check missed a crypto or auth call (or
   the seed) inside most constructs, including container creation, method-call

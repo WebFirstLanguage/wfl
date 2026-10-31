@@ -74,21 +74,28 @@ being past the end of the loop:
 ## A program can see the change
 
 My first draft said messages were unchanged and no program could observe the
-position. An independent review showed both claims were too strong:
+position. An independent review, and a second pass over my correction, showed
+both claims were too strong. A loop error raised in the running program and
+caught with `try ... when error` binds only the message, with no position. But
+some messages quote a position in their text:
 
-- A runtime error caught with `try ... when error` binds only the message, with
-  no position. But when `load module`, `include from` or `execute file` finds an
-  analysis or type error in the loaded file, the message it raises embeds that
-  error's text, including `at line N, column M`. A program that catches it and
-  displays `error_message` printed `line 4, column 14` for a nested-loop clash
-  on line 2; it now prints `line 2, column 5`.
+- `load module`, `include from` and `execute file` raise an error that embeds
+  the loaded file's semantic error text, including `at line N, column M`.
+  `load module` does the same for type errors (`include from` only prints them
+  as warnings, and `execute file` does not type-check). A program that catches
+  the error and displays `error_message` printed `line 4, column 14` for a
+  nested-loop clash on line 2; it now prints `line 2, column 5`.
+- When a loop fails at run time inside a file run by `execute file`, the error
+  is re-raised as `Error in executed file '...' (line N): ...`. That printed
+  `(line 4)` for a loop on line 2; it now prints `(line 2)`.
 - `Variable 'i' has already been defined at line N` named the line after the
   loop's end.
 
-Both are corrections of a wrong number, not a change in what the program does.
+All of these correct a wrong number; none changes what the program does.
 Still, stdout can differ, so the CHANGELOG entry carries a compatibility note,
-and the change is classed R3 under `testing.md` §5 (backward compatibility)
-rather than R2.
+and the change is classed R3 rather than R2: CLAUDE.md ("Risk class first")
+and the backward-compatibility trigger in `testing.md`'s WFL profile (§11.6)
+make anything touching backward compatibility R3.
 
 ## Fix
 
@@ -112,9 +119,15 @@ that shows it:
   the nested count-loop error, an undefined variable, and the linter's nesting
   warning.) That is existing CLI behavior and this change leaves it alone.
 - **Message text and `--step`, through the binary** (added after review): the
-  redefinition message, a caught `load module` error displayed by the program,
-  and the `Line N: CountLoop` / `Line N: ForEachLoop` labels in `--step`
-  output.
+  redefinition message, a caught `load module` error and a caught
+  `execute file` error, each displayed by the program, and the
+  `Line N: CountLoop` / `Line N: ForEachLoop` labels in `--step` output.
+- **Malformed input:** the parser is an untrusted-input path, and both loop
+  parsers now hold their opening token, so a guard test checks that twelve
+  cut-off loops (`count`, `count from 1 to 3:`, `for each item in`, ...) are
+  parse errors, not panics. It passes with and without the fix; it guards, it
+  does not reproduce anything. No fuzz campaign was run; the fuzz workspace
+  compiles.
 
 `wfl-lsp/tests/lsp_diagnostics_test.rs` adds a test through
 `WflLanguageCore::analyze_document`, the function that produces the editor's
@@ -126,12 +139,13 @@ diagnostics.
   the LSP test failed, each with the token after `end` (for example `(3, 10)`,
   `(4, 14)`) or `(0, 0)` at the end of a file.
 - Green: `c792dd4`. All 14 pass.
-- The three tests added after review came after the fix, so they do not prove
-  TDD order (`testing.md` §6.2); `a10961e` does that for this defect. To show
-  they can fail, I reverted `c792dd4` in the working tree only: all 16 suite
-  tests failed, the new ones with `defined at line 4`, `line 4, column 14` and
-  `Line 4: CountLoop` / `Line 8: ForEachLoop`. With the fix restored, 16 of 16
-  pass.
+- The four position tests added after review came after the fix, so they do
+  not prove TDD order (`testing.md` §6.2); `a10961e` does that for this defect.
+  To show they can fail, I reverted `c792dd4` in the working tree only. All 17
+  position tests then failed, the new ones with `defined at line 4`,
+  `line 4, column 14`, `(line 4)` and `Line 4: CountLoop` /
+  `Line 8: ForEachLoop`; the malformed-input guard passed, as it should. With
+  the fix restored, 18 of 18 pass.
 
 ## Noticed, not changed
 
