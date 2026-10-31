@@ -28,11 +28,11 @@ The docs say the same thing in `Docs/03-language-basics/loops-and-iteration.md`.
 The bug is real for any loop that does run, so the tests use
 `count from 1 to 5 by -1`.
 
-The example comes from open PR #800, which adds a diagnostic for exactly that
-loop (see also issue #801). Its description lists the `end count` location as a
-pre-existing problem for a separate task; this is that task. #800 raises its
-diagnostic with the same loop position, so once both changes are in, it points
-at the `count` line too.
+The example comes from PR #800, which adds a diagnostic for exactly that loop
+(see also issue #801). Its description lists the `end count` location as a
+pre-existing problem for a separate task; this is that task. #800 was still
+open when this work started; it merged into `dev` while this PR was in review,
+and the section "After #800 merged" below covers what that changed.
 
 ## Root cause
 
@@ -146,6 +146,31 @@ diagnostics.
   `line 4, column 14`, `(line 4)` and `Line 4: CountLoop` /
   `Line 8: ForEachLoop`; the malformed-input guard passed, as it should. With
   the fix restored, 18 of 18 pass.
+
+## After #800 merged
+
+#800 merged into `dev`, and a reviewer merged that `dev` into this branch
+(`a4bcda9`). CI on that merge failed: #800's
+`loops_guide_quotes_the_real_warning` compares the warning the loops guide
+quotes with the real one, and they no longer matched.
+
+#800 had written its warning around the old position. Its code said the line
+was "where the parser recorded the loop (just after `end count`)", the text
+read `(count loop ending on line N)`, and the guide quoted
+`(count loop ending on line 3)` for a three-line example. With this fix, the
+task's own example printed `(count loop ending on line 1)`. The number was
+right, but the loop does not end on line 1.
+
+- Red: `c927a66` adds only a test that runs the task's exact program
+  (`count from 5 to 1 by -1`) and expects `(count loop on line 1)`. On `a4bcda9`
+  it failed with `(count loop ending on line 1)`, and #800's guide test failed
+  the same way locally as in CI.
+- Green: `d955bf2` words the warning `(count loop on line N)`, fixes the code
+  comment, and updates the guide's quote to `(count loop on line 1)`. Both
+  modules pass: 35 tests.
+
+The warning is new in this release (still under `[Unreleased]`), so rewording
+it breaks no released program.
 
 ## Noticed, not changed
 

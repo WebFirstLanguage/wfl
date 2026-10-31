@@ -110,8 +110,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   warning, `--step` output and the language server's squiggles. A loop at the
   very end of a file with no trailing newline was reported at line 0, which
   showed as the start of the file. These now point at the loop's `count` or
-  `for` keyword, as `check`, `repeat` and `main loop` already did. Exit codes
-  and message wording are unchanged. **Compatibility:** some messages quote the
+  `for` keyword, as `check`, `repeat` and `main loop` already did. The new
+  empty-range step warning (see **Deprecated** above) names the same line, as
+  `(count loop on line N)`. Exit codes and the wording of existing messages
+  are unchanged. **Compatibility:** some messages quote the
   position in their text, and those numbers change too. They now name the
   loop's first line instead of a point past its end:
   - `Variable 'i' has already been defined at line N` for a count loop's
