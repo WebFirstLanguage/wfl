@@ -15,6 +15,27 @@ Quick lookup for all WFL reserved keywords.
 
 **Tip:** When in doubt, add an underscore or use a different word. Example: `file` → `filename`, `is` → `is_valid`
 
+**New to reserved words?** Read [What Is a Reserved Word?](reserved-keywords.md#what-is-a-reserved-word-start-here)
+first. It explains what "reserved" means and why WFL reserves words at all.
+
+---
+
+## Words That Commonly Bite
+
+These everyday words are reserved. None of them can be a variable, loop
+variable, action parameter, or action name, and they also break multi-word
+names such as `start time`. Full explanations:
+[Words That Commonly Bite](reserved-keywords.md#words-that-commonly-bite).
+
+| Reserved word | What WFL uses it for | Use instead |
+|---|---|---|
+| `start` | Streaming web response; `start of text` pattern anchor | `start_time`, `start_index` |
+| `output` | `read output from process` | `command_output`, `process_output` |
+| `route` | `route ... end route` dispatch | `current_route`, `request_path` |
+| `captured` | `same as captured "name"` in patterns | `captured_text`, `matched_word` |
+| `by` | `count ... by 2`, `divided by`, `split ... by` | `step_size`, `divisor`, `separator` |
+| `find` | `find pattern in text` | `search_term`, `find_result` |
+
 ---
 
 ## Control Flow Keywords (24)
@@ -22,7 +43,7 @@ Quick lookup for all WFL reserved keywords.
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
 | `break` | Exit loop early | ✗ |
-| `by` | Step amount in count loops | ✗ |
+| `by` | Count-loop step; also `divided by`, `split ... by` | ✗ |
 | `check` | Start conditional | ✗ |
 | `continue` | Skip to next iteration | ✗ |
 | `count` | Count loop keyword | ✓ |
@@ -138,12 +159,12 @@ Quick lookup for all WFL reserved keywords.
 | `behind` | Lookbehind assertion | ✗ |
 | `between` | Range specification | ✗ |
 | `capture` | Capture group | ✗ |
-| `captured` | Captured text reference | ✗ |
+| `captured` | Backreference: `same as captured "name"` | ✗ |
 | `category` | Unicode category | ✗ |
 | `character` | Character class | ✗ |
 | `digit` | Digit class | ✗ |
 | `exactly` | Exact quantifier | ✗ |
-| `find` | Find pattern | ✗ |
+| `find` | Search text: `find pattern in text` | ✗ |
 | `greedy` | Reserved word; not accepted in pattern syntax. Default quantifiers are already greedy. | ✗ |
 | `lazy` | Reserved word; not accepted in pattern syntax. There is no lazy quantifier spelling. | ✗ |
 | `letter` | Letter class | ✗ |
@@ -155,7 +176,7 @@ Quick lookup for all WFL reserved keywords.
 | `replace` | Pattern or text replacement | ✗ |
 | `script` | Unicode script | ✗ |
 | `split` | Split by pattern | ✗ |
-| `start` | Start anchor | ✗ |
+| `start` | `start of text` anchor; also `start streaming response` | ✗ |
 | `text` | Text type | ✓ |
 | `unicode` | Unicode support | ✗ |
 | `whitespace` | Whitespace class | ✗ |
@@ -265,7 +286,7 @@ the program has its own variable named `this` there. See
 | `execute` | Run command | ✗ |
 | `into` | Output redirection | ✗ |
 | `kill` | Terminate process | ✗ |
-| `output` | Process output | ✗ |
+| `output` | `read output from process` | ✗ |
 | `process` | Process resource | ✗ |
 | `running` | Running state | ✗ |
 | `shell` | Shell execution | ✗ |
@@ -366,9 +387,11 @@ connect to database at "sqlite://app.db" as db
 - ✗ means never use as variable
 - ✓ means context-dependent (see comprehensive reference)
 
-### "Getting 'Expected identifier' error?" → Check if you used a reserved keyword
-- Add underscore: `is` → `is_valid`
+### "Getting 'Expected identifier' or 'Cannot use reserved keyword' error?" → Check if you used a reserved keyword
+- The error names the word as a token: `KeywordStart` means `start`, `KeywordRoute` means `route`
+- Add underscore: `is` → `is_valid`, `start` → `start_time`
 - Use different word: `file` → `filename`
+- See [Reading the Error Message](reserved-keywords.md#reading-the-error-message) for every message form
 
 ### "Can I use this contextual keyword?" → See the Comprehensive Reference
 - 24 contextual keywords CAN be used as variables in certain contexts

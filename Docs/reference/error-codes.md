@@ -13,21 +13,38 @@ WFL errors fall into 4 categories:
 
 ## Parse Errors
 
-### "Expected identifier, found Keyword..."
+### "Expected identifier, found Keyword..." / "Cannot use reserved keyword 'Keyword...' as a variable name"
 
-**Cause:** Using reserved keyword as variable name.
+**Cause:** Using a reserved keyword as a name you chose: a variable, loop
+variable, action parameter, or action name.
+
+The message names the word by its internal token name. Remove `Keyword` from
+the front and read the rest in lowercase: `KeywordStart` means `start`.
+
+Common forms of this error:
+
+- `Expected identifier for variable name, found KeywordStart`
+- `Cannot use reserved keyword 'KeywordRoute' as a variable name`
+- `Expected identifier after 'each', found KeywordFind`
+- `Expected identifier after 'called', found KeywordFind`
+- `Expected ':' after action definition: expected Colon, found KeywordOutput`
+  (a reserved word used as an action parameter)
+
+Everyday words that often cause this: `start`, `output`, `route`, `captured`,
+`by`, `find`.
 
 **Example:**
 ```wfl
 store is as 10  // ERROR: 'is' is reserved
 ```
 
-**Fix:**
+**Fix:** add a describing word, joined with an underscore:
 ```wfl
 store is_valid as 10
+store start_time as 9
 ```
 
-**[Quick lookup →](keyword-reference.md)** | **[Complete details →](reserved-keywords.md)**
+**[Quick lookup →](keyword-reference.md)** | **[What reserved words are, and why →](reserved-keywords.md#what-is-a-reserved-word-start-here)** | **[Words that commonly bite →](reserved-keywords.md#words-that-commonly-bite)**
 
 ---
 
