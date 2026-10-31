@@ -294,6 +294,53 @@ store digest as hash_password of "hunter2"
 }
 
 // ---------------------------------------------------------------------------
+// 1c. Renaming a builtin does not hide it. WFL lets a program store a builtin
+// in a variable and call it through that name, so a bare mention counts.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn random_seed_called_through_an_alias_is_seen() {
+    assert_flagged(
+        "store f as random_seed, then f of 42",
+        r#"
+store reseed as random_seed
+store seeded as reseed of 42
+store digest as hash_password of "hunter2"
+"#,
+    );
+}
+
+#[test]
+fn a_crypto_builtin_called_through_an_alias_is_seen() {
+    assert_flagged(
+        "store h as hash_password, then h of …",
+        r#"
+store seeded as random_seed of 42
+store hasher as hash_password
+store digest as hasher of "hunter2"
+"#,
+    );
+}
+
+#[test]
+fn a_program_variable_named_random_seed_is_not_the_builtin() {
+    // Negative control: WFL allows `store random_seed as 5`. After that the
+    // name is the program's own number, so mentioning it seeds nothing.
+    let program = parse(
+        r#"
+store random_seed as 5
+display random_seed
+store digest as hash_password of "hunter2"
+"#,
+    );
+    let diagnostics = Analyzer::new().check_insecure_rng_seeding(&program, 0);
+    assert!(
+        diagnostics.is_empty(),
+        "the program's own variable is not a seed call: {diagnostics:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Boundary: general-purpose hashes stay excluded (deliberate design, see
 // SECURITY_SENSITIVE_BUILTINS), even in the newly walked constructs.
 // ---------------------------------------------------------------------------
