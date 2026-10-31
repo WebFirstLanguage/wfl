@@ -413,7 +413,7 @@ Hello, Bob!
 10
 
 > // Try backwards
-> count from 5 to 1:
+> count from 5 down to 1:
 ...     display count
 ... end count
 5
@@ -422,6 +422,9 @@ Hello, Bob!
 2
 1
 ```
+
+`to` always counts up, so `count from 5 to 1` runs zero times; `down to`
+counts down.
 
 **Result:** Learned how `count` works through experimentation.
 

@@ -94,11 +94,34 @@ Red first, as a test-only commit:
 - `TestPrograms/count_loop_step_test.wfl` covers the same behaviour end to end
   in `describe` / `expect` form, catching each error with `when error`.
 - `TestPrograms/docs_examples/error_examples/count_loop_negative_step.wfl` is
-  the validated example behind the error shown in the loops guide.
+  the example behind the error shown in the loops guide. The docs validator
+  checks only its exit status, so a Rust test
+  (`loops_guide_quotes_the_real_negative_step_error`) pins the guide's quoted
+  message to the interpreter's actual output.
 
 Against the unfixed binary, all four new behaviours in the WFL program failed
 with `Expected "" to contain …`, meaning no error was raised at all. The docs
 example failed with "Exit code 0, expected 1". The guards passed.
+
+## What review caught
+
+- **A test that could not pass.** A runtime diagnostic quotes the source lines
+  around the error, so a literal `display "after"` in a test program showed up
+  in the error output even though that line never ran. "The program must stop
+  at the loop" therefore failed against a correct fix. The probe words are now
+  assembled at run time (`"aft" with "er"`). The assertion is unchanged, and
+  re-running against the unfixed interpreter showed the same Red failures.
+- **Untested branches.** No test reached the non-finite branch. `inf`, `-inf`
+  and `NaN` steps are now built at run time (squaring 1e9 eight times
+  overflows), along with a `-0` step, all on empty ranges. Those tests went in
+  a second test-only commit, ahead of the fix.
+- **Two beginner docs taught the bug.** The REPL guide's "Try backwards" showed
+  `count from 5 to 1` printing 5 4 3 2 1, and the first-program exercise hinted
+  `count from 10 to 1`. Both loops run zero times. They now use or point to
+  `down to`.
+- **Migration advice.** Rewriting a dead `count from 5 to 1 by -1` runs its
+  body for the first time, so the guide and CHANGELOG now say to review the
+  body first, or delete the loop if it was never meant to run.
 
 ## Docs shipped with the change
 
@@ -110,6 +133,8 @@ example failed with "Exit code 0, expected 1". The guards passed.
   `down` and `as <identifier>`, plus the step rule.
 - `Docs/reference/syntax-reference.md` — a countdown example.
 - Both keyword reference pages: `by` is a positive step distance.
+- `Docs/02-getting-started/repl-guide.md` and `your-first-program.md` — the
+  backwards-counting examples use `down to`.
 
 ## Noted, not fixed
 
@@ -117,3 +142,8 @@ The runtime error for a count loop points at the `end count` line, not the
 `count from` line. The parser records the loop's position *after* consuming
 `end count`. That affects every runtime error a count loop itself raises, so
 it is left for its own change rather than folded in here.
+
+Both keyword reference pages also list a `downward` keyword with a
+`count downward` example. The lexer has no such token: the real form is
+`down to`, where `down` is a contextual word. That is a stale-docs problem
+unrelated to the step, so it is left for its own change too.

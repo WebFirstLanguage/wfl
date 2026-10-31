@@ -74,10 +74,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `count from 5 to 1 by -1`, the mirror `count from 1 down to 5 by -1`, and a
   `by 0` on either silently ran zero times with exit status 0. They now stop
   with an error that names the loop the program most likely meant, e.g.
-  "Write `count from 5 down to 1`". Programs containing such a line never ran
-  its body; rewrite it with `down to` and a positive step. An empty range with
-  a valid step (`count from 1 to length of items` over an empty list) still
-  runs zero times without an error.
+  "Write `count from 5 down to 1`". An empty range with a valid step
+  (`count from 1 to length of items` over an empty list) still runs zero
+  times without an error. **Compatibility:** a program containing such a line
+  used to finish with the loop skipped and now stops with this error. Rewrite
+  the line with `down to` and a positive step, but review the loop body first:
+  it never ran before, and the rewritten loop runs it. Delete the loop instead
+  if it was never meant to run.
 - **Nightly versions are numbered from `vYY.M.N` tags at publish time.** The
   next build for the current UTC month is max N + 1, or 1 if none exist, and
   the committed `.build_meta.json` is a same-month floor only. It is no longer

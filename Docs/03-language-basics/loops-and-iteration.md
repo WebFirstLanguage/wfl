@@ -104,7 +104,9 @@ Count loop step must be a positive number, got -1. The step is a distance, not a
 Programs written for earlier versions of WFL may hit this error. Those
 versions checked the step only when the loop would run, so a line like
 `count from 5 to 1 by -1` quietly did nothing at all. Rewrite it with
-`down to` and a positive step, as the message suggests.
+`down to` and a positive step, as the message suggests — but read the loop's
+body first: it never ran before, so the rewritten loop runs it for the first
+time. If the loop was never meant to run, delete it instead.
 
 A step also has to be big enough to actually move the counter. Past about 9
 quadrillion, numbers lose the precision to add 1 to them, so
