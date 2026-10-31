@@ -111,6 +111,32 @@ fn for_each_loop_records_the_for_keyword_position() {
 }
 
 #[test]
+fn truncated_loops_are_parse_errors_not_panics() {
+    // Both parsers now hold their opening keyword token; malformed or cut-off
+    // loops must still come back as parse errors.
+    for src in [
+        "count",
+        "count from",
+        "count from 1 to",
+        "count from 1 to 3 by",
+        "count from 1 to 3 as",
+        "count from 1 to 3:",
+        "count from 1 to 3:\n    display count\nend",
+        "for",
+        "for each",
+        "for each item in",
+        "for each item in [1]:",
+        "for each item in [1]:\n    display item\nend",
+    ] {
+        let tokens = lex_wfl_with_positions(src);
+        assert!(
+            Parser::new(&tokens).parse().is_err(),
+            "{src:?} should be a parse error"
+        );
+    }
+}
+
+#[test]
 fn for_each_loop_at_end_of_file_records_the_for_keyword_position() {
     // No trailing newline: there is no token after `end for`.
     let program =
@@ -245,12 +271,9 @@ fn run_files(files: &[(&str, &str)], args: &[&str], stdin: &str) -> (String, Str
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to execute WFL");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin.as_bytes())
-        .unwrap();
+    // A child that exits before reading closes the pipe; the assertions on
+    // its output report that more clearly than a BrokenPipe panic would.
+    let _ = child.stdin.take().unwrap().write_all(stdin.as_bytes());
     let output = child.wait_with_output().unwrap();
     (
         String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -303,6 +326,31 @@ fn caught_module_error_quotes_the_loop_position() {
     assert!(
         stdout.contains("Semantic error at line 2, column 5: Nested count loops"),
         "the caught message should quote the inner loop's position: {stdout}{stderr}"
+    );
+}
+
+#[test]
+fn caught_executed_file_error_quotes_the_loop_line() {
+    // `execute file` re-raises a runtime error from the file it ran with that
+    // error's line in the text, and a program can catch and print it.
+    let (stdout, stderr, code) = run_files(
+        &[
+            (
+                "steps.wfl",
+                "display \"a\"\ncount from 1 to 5 by -1:\n    display count\nend count\n",
+            ),
+            (
+                "main.wfl",
+                "try:\n    execute file at \"steps.wfl\"\nwhen error:\n    display \"caught: \" with error_message\nend try\n",
+            ),
+        ],
+        &[],
+        "",
+    );
+    assert_eq!(code, Some(0), "the error is caught: {stdout}{stderr}");
+    assert!(
+        stdout.contains("(line 2): Count loop step must be a positive number"),
+        "the caught message should name the loop's line: {stdout}{stderr}"
     );
 }
 
