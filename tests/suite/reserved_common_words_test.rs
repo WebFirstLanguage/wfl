@@ -158,13 +158,16 @@ fn read_output_may_bind_a_result_named_output_but_store_and_change_may_not() {
 
 #[test]
 fn docs_side_by_side_block_matches_validated_example() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let doc = std::fs::read_to_string(root.join("Docs/reference/reserved-keywords.md"))
-        .expect("read reserved-keywords.md");
-    let example = std::fs::read_to_string(
-        root.join("TestPrograms/docs_examples/keyword_reference/common_reserved_words.wfl"),
-    )
-    .expect("read common_reserved_words.wfl");
+    // Normalize line endings on read: a Windows checkout with
+    // `core.autocrlf=true` has CRLF, and the fence search below expects LF.
+    let read_lf = |relative: &str| {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {relative}: {e}"))
+            .replace("\r\n", "\n")
+    };
+    let doc = read_lf("Docs/reference/reserved-keywords.md");
+    let example = read_lf("TestPrograms/docs_examples/keyword_reference/common_reserved_words.wfl");
 
     let section = doc
         .split("### All Six, Side by Side")
@@ -176,10 +179,8 @@ fn docs_side_by_side_block_matches_validated_example() {
         .and_then(|rest| rest.split("```").next())
         .expect("the section has a wfl code block");
 
-    // Normalize line endings so a Windows checkout compares equal.
     assert_eq!(
-        block.replace("\r\n", "\n"),
-        example.replace("\r\n", "\n"),
+        block, example,
         "the docs block and the validated example must stay identical"
     );
 }
