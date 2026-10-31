@@ -78,6 +78,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   reuses that tag instead of burning a new number.
 
 ### Fixed
+- **Count and for-each loop errors point at the loop's first line.** An error
+  raised by a `count` or `for each` loop itself was reported at the token after
+  `end count` or `end for`, so the location and source excerpt showed the end
+  of the loop. This affected the count-loop step errors, `Count loop requires
+  numeric start and end values`, `Cannot iterate over ...`, the type checker's
+  loop type errors, the nested count-loop name error, the linter's nesting
+  warning, `--step` output and the language server's squiggles. A loop at the
+  very end of a file with no trailing newline was reported at line 0, which
+  showed as the start of the file. These now point at the loop's `count` or
+  `for` keyword, as `check`, `repeat` and `main loop` already did. Messages and
+  exit codes are unchanged.
 - **`random_seed` is an error in any file that also does crypto or auth, as
   documented.** The `ANALYZE-SECURITY` check missed a crypto or auth call (or
   the seed) inside most constructs, including container creation, method-call
