@@ -156,3 +156,24 @@ fn keyword_pages_point_readers_at_down_to() {
         );
     }
 }
+
+#[test]
+fn docs_count_down_blocks_match_validated_examples() {
+    for (page, example) in [
+        (
+            "Docs/03-language-basics/loops-and-iteration.md",
+            "TestPrograms/docs_examples/basic_syntax/count_down_01.wfl",
+        ),
+        (
+            "Docs/reference/reserved-keywords.md",
+            "TestPrograms/docs_examples/keyword_reference/down_is_not_reserved.wfl",
+        ),
+    ] {
+        let doc = read_lf(page);
+        let code = read_lf(example);
+        assert!(
+            doc.contains(&format!("```wfl\n{code}```")),
+            "{page} should contain {example} verbatim as a wfl code block"
+        );
+    }
+}

@@ -1,0 +1,16 @@
+// Count down one at a time with `down to`
+count from 5 down to 1:
+    display "T-minus " with count
+end count
+display "Liftoff!"
+
+// Count down by a step: the step is a distance, so it stays positive
+count from 10 down to 0 by 5:
+    display count
+end count
+
+// A variable start value goes in parentheses before `down to`
+store top as 3
+count from (top) down to 1:
+    display count
+end count

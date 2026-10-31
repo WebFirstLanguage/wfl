@@ -5,7 +5,7 @@ Complete technical documentation for all WFL reserved keywords.
 **→ For quick lookup:** [Keyword Reference (Quick) →](keyword-reference.md)
 
 **Source:** WFL Compiler v26.1.x (extracted from `src/lexer/token.rs`)
-**Total:** 181 keywords and literals
+**Total:** 179 keywords and literals
 **Last Updated:** 2026-10-31
 
 ---
@@ -23,7 +23,7 @@ Complete technical documentation for all WFL reserved keywords.
    - [Why Some Keywords Appear in Multiple Lists](#why-some-keywords-appear-in-multiple-lists)
 2. [Structural Keywords (54)](#structural-keywords-54)
 3. [Contextual Keywords (29)](#contextual-keywords-29)
-4. [Other Reserved Keywords (96)](#other-reserved-keywords-96)
+4. [Other Reserved Keywords (94)](#other-reserved-keywords-94)
 5. [Boolean & Null Literals (7)](#boolean--null-literals-7)
 6. [Keywords by Feature Category](#keywords-by-feature-category)
 7. [Usage Guidelines & Best Practices](#usage-guidelines--best-practices)
@@ -319,7 +319,7 @@ nothing run yet
 
 ## Understanding Keyword Classifications
 
-WFL's 181 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
+WFL's 179 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
 
 ### What Makes a Keyword "Structural"?
 
@@ -383,7 +383,7 @@ create list called items     // ✅ 'list' is a type keyword here
 
 ### Marker Words That Are Not Keywords at All
 
-A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 181 keywords, and you can freely use them as variable names everywhere:
+A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 179 keywords, and you can freely use them as variable names everywhere:
 
 - `secured` - HTTPS marker in `listen on port 8443 secured ... as server`
 - `certificate` - certificate path marker in `secured with certificate "cert.pem"`
@@ -393,6 +393,7 @@ A few words have special meaning in exactly one statement position but are **not
 - `transaction` - transaction block marker in `in transaction on db:` and `end transaction`
 - `schema`, `changes` - optional SQLite transaction mode in `in transaction on db for schema changes:`
 - `without following redirects` - per-request redirect clause in `open url at address and without following redirects and read response as reply`; the individual words and the complete phrase remain ordinary variable names outside that clause position
+- `down` - count-down marker in `count from 5 down to 1:`; recognized only between a count loop's start value and `to` (see [`down` and Counting Down](#down-and-counting-down) below)
 
 TLS pairs can also use the existing `for` keyword to select a DNS name:
 `certificate "cert.pem" and key "key.pem" for "example.com"`. Additional named
@@ -429,6 +430,41 @@ variable named `this` keeps its meaning: one that already exists where the
 container is defined (such as a top-level `this` above it), or one the action
 creates with `store this as ...` or `for each this in ...`. So does a property
 named `this`. Outside instance actions `this` is an ordinary identifier.
+
+#### `down` and Counting Down
+
+A count loop counts down with `down to`: `count from 5 down to 1:`. `down` is
+recognized in exactly one position, between the loop's start value and `to`.
+Everywhere else it is an ordinary name.
+
+WFL has no `downward` or `upward` keyword. Earlier versions of this page listed
+both by mistake; the lexer never defined them. Writing
+`count from 5 downward to 1:` is a parse error that points at the word and
+suggests the real form:
+`Expected 'to' or 'down to', found Identifier("downward")`. All three words
+work as variable names:
+
+```wfl
+// `down` is not a keyword: a count loop recognizes it only right before `to`
+count from 3 down to 1:
+    display count
+end count
+
+// So `down` is still an ordinary name everywhere else,
+// and so are `downward` and `upward`, which WFL never used
+store down as "the floor below"
+store downward as "toward the floor"
+store upward as "toward the sky"
+display down
+display downward
+display upward
+```
+
+When the start value is a variable, put it in parentheses:
+`count from (top) down to 1:`. Without them, WFL joins neighboring plain words
+into one name, reads `top down` as a single variable, and reports
+`Variable 'top down' is not defined`. See
+[Counting Down](../03-language-basics/loops-and-iteration.md#counting-down).
 
 ### Why Some Keywords Appear in Multiple Lists
 
@@ -544,7 +580,7 @@ These keywords are **context-dependent**. Most **CAN** be used as variable names
 | `parent` | Parent reference | Container inheritance | ✅ Yes | `store parent as "mom"` works (context-sensitive) |
 | `pattern` | Pattern definition | Pattern matching | ✅ Yes | `store pattern as "design"` works outside pattern context |
 | `read` | Read operation | File I/O | ✅ Yes | `store read as "reading"` works (context-sensitive) |
-| `reversed` | Reverse iteration | Loop direction | ✅ Yes | `store reversed as yes` works |
+| `reversed` | Reverse iteration | `for each item in reversed items` | ✅ Yes | `store reversed as yes` works |
 | `text` | Text type | Type context | ✅ Yes | `store text as "message"` works outside type context |
 
 **Count:** 24 contextual keywords that CAN be used as variables (in appropriate contexts)
@@ -567,7 +603,7 @@ These keywords appear in the contextual list but also appear as structural keywo
 
 ---
 
-## Other Reserved Keywords (96)
+## Other Reserved Keywords (94)
 
 All other reserved keywords that don't fall into structural or contextual-only categories. These keywords cannot be used as variable names.
 
@@ -593,12 +629,12 @@ All other reserved keywords that don't fall into structural or contextual-only c
 
 **Note:** `list`, `map`, `text` are contextual keywords counted separately.
 
-### Miscellaneous (6)
-`comes`, `downward`, `exit`, `loop`, `parameters`, `upward`
+### Miscellaneous (4)
+`comes`, `exit`, `loop`, `parameters`
 
-**Count:** 96 other reserved keywords
+**Count:** 94 other reserved keywords
 
-**Note:** This count (96) represents keywords that are not in the structural (54) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 54 + 24 + 96 + 7 = 181.
+**Note:** This count (94) represents keywords that are not in the structural (54) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 54 + 24 + 94 + 7 = 179.
 
 ---
 
@@ -642,8 +678,8 @@ store nothing as 0            // ❌ ERROR: 'nothing' is reserved
 
 Keywords organized by functional area for easier reference.
 
-### Control Flow (23 keywords)
-`break`, `check`, `continue`, `count`, `downward`, `each`, `end`, `exit`, `for`, `forever`, `from`, `if`, `in`, `loop`, `otherwise`, `repeat`, `reversed`, `skip`, `then`, `to`, `until`, `while`, `by`
+### Control Flow (22 keywords)
+`break`, `check`, `continue`, `count`, `each`, `end`, `exit`, `for`, `forever`, `from`, `if`, `in`, `loop`, `otherwise`, `repeat`, `reversed`, `skip`, `then`, `to`, `until`, `while`, `by`
 
 ### Declaration (18 keywords)
 `action`, `as`, `called`, `change`, `constant`, `container`, `create`, `defaults`, `define`, `extends`, `implements`, `interface`, `list`, `map`, `needs`, `new`, `property`, `static`, `store`
@@ -882,7 +918,7 @@ reserved word. See [Words That Commonly Bite](#words-that-commonly-bite).
 
 ## Complete Alphabetical Reference
 
-Complete reference table of all 181 keywords.
+Complete reference table of all 179 keywords.
 
 | Keyword | Type | Category | As Var? | Example |
 |---------|------|----------|---------|---------|
@@ -938,7 +974,6 @@ Complete reference table of all 181 keywords.
 | `display` | Structural | Operations | ❌ | `display message` |
 | `divide` | Other | Operations | ❌ | `divide by 2` |
 | `divided` | Other | Operations | ❌ | `divided by` (multi-word) |
-| `downward` | Other | Control Flow | ❌ | `count downward` |
 | `each` | Structural | Control Flow | ❌ | `for each item` |
 | `end` | Structural | Control Flow | ❌ | `end block` |
 | `equal` | Other | Comparison | ❌ | `is equal to` |
@@ -1027,7 +1062,7 @@ Complete reference table of all 181 keywords.
 | `respond` | Other | Web/Network | ❌ | `respond to request` |
 | `response` | Other | Web/Network | ❌ | `HTTP response` |
 | `return` | Structural | Operations | ❌ | `return value` |
-| `reversed` | Contextual | Control Flow | ✅ | `count reversed` |
+| `reversed` | Contextual | Control Flow | ✅ | `for each item in reversed items` |
 | `route` | Structural | Control Flow | ❌ | `route path:` |
 | `running` | Other | Process | ❌ | `process running` |
 | `same` | Other | Comparison | ❌ | `is same as` |
@@ -1057,7 +1092,6 @@ Complete reference table of all 181 keywords.
 | `undefined` | Literal | Values | ❌ | Null alias |
 | `unicode` | Other | Pattern | ❌ | `unicode support` |
 | `until` | Structural | Control Flow | ❌ | `repeat until` |
-| `upward` | Other | Control Flow | ❌ | `count upward` |
 | `url` | Other | Data & Types | ❌ | `URL type` |
 | `using` | Other | Process | ❌ | `using shell` |
 | `wait` | Structural | Operations | ❌ | `wait for result` |
@@ -1069,7 +1103,7 @@ Complete reference table of all 181 keywords.
 | `yes` | Literal | Values | ❌ | Boolean true |
 | `zero` | Structural | Pattern | ❌ | `zero or more` |
 
-**Total: 181 keywords and literals**
+**Total: 179 keywords and literals**
 
 ---
 

@@ -290,7 +290,7 @@ agent MUST follow:
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords
-  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 181 keywords)
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 179 keywords)
   - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
   - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
@@ -299,13 +299,14 @@ agent MUST follow:
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals: flat `otherwise check if` chains share one `end check`; nested `otherwise:` / `check if` needs an `end check` per nested check
-  - Reserved keywords: **181 keywords total** (54 structural, 29 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
+  - Reserved keywords: **179 keywords total** (54 structural, 29 contextual, 94 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
     - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc. — and the everyday words `start`, `output`, `route`, `captured`, `by`, `find` (see **Reserved Words — Check Before You Name Anything**)
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
     - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`
     - See `Docs/reference/keyword-reference.md` (quick) and `Docs/reference/reserved-keywords.md` (complete)
   - List push syntax: `push with <list> and <value>`, NOT `push to`
   - Loop variable: `count` in count loops, NOT `the current count`
+  - Count down: `count from 5 down to 1:`, NOT `count downward` (`down` is not a keyword; a variable start needs parentheses: `count from (top) down to 1:`)
   - Typeof syntax: `typeof of value`, NOT `typeof(value)`
   - Action syntax: `define action called name with parameters x:`, NOT `action name with x:`
 - **Working Examples**:

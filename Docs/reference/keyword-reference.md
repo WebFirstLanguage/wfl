@@ -4,7 +4,7 @@ Quick lookup for all WFL reserved keywords.
 
 **→ For complete technical details:** [Reserved Keywords (Complete) →](reserved-keywords.md)
 
-**Total:** 181 keywords and literals
+**Total:** 179 keywords and literals
 
 ---
 
@@ -38,7 +38,7 @@ names such as `start time`. Full explanations:
 
 ---
 
-## Control Flow Keywords (24)
+## Control Flow Keywords (23)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -47,7 +47,6 @@ names such as `start time`. Full explanations:
 | `check` | Start conditional | ✗ |
 | `continue` | Skip to next iteration | ✗ |
 | `count` | Count loop keyword | ✓ |
-| `downward` | Count loop direction | ✗ |
 | `each` | For each loop | ✗ |
 | `end` | Close block | ✗ |
 | `exit` | Exit loops (`exit loop`) or the program (`exit program [with code number]`) | ✗ |
@@ -59,13 +58,21 @@ names such as `start time`. Full explanations:
 | `loop` | Loop reference | ✗ |
 | `otherwise` | Else, else-if (`otherwise check if`), or default clause | ✗ |
 | `repeat` | Loop construct | ✗ |
-| `reversed` | Reverse iteration | ✓ |
+| `reversed` | Reverse a for-each loop (`for each item in reversed items`) | ✓ |
 | `route` | Dispatch on a value (match/switch) | ✗ |
 | `skip` | Continue (alias) | ✗ |
 | `then` | Conditional separator | ✗ |
 | `to` | Count loop end | ✗ |
 | `until` | Loop condition | ✗ |
 | `while` | Loop condition | ✗ |
+
+**Counting down:** write `count from 5 down to 1:`. The `down` in `down to` is
+not a keyword. A count loop recognizes it only between the start value and
+`to`, so `down` is still a normal variable name everywhere else. WFL has no
+`downward` or `upward` keyword (earlier versions of this page listed them by
+mistake), so those are normal names too. If the start value is a variable, put
+it in parentheses: `count from (top) down to 1:`. See
+[Counting Down](../03-language-basics/loops-and-iteration.md#counting-down).
 
 ---
 

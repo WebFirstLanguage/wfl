@@ -30,6 +30,64 @@ end count
 
 The variable `count` is automatically created and contains the current number.
 
+### Counting Down
+
+To count down, write `down to` instead of `to`:
+
+```wfl
+// Count down one at a time with `down to`
+count from 5 down to 1:
+    display "T-minus " with count
+end count
+display "Liftoff!"
+
+// Count down by a step: the step is a distance, so it stays positive
+count from 10 down to 0 by 5:
+    display count
+end count
+
+// A variable start value goes in parentheses before `down to`
+store top as 3
+count from (top) down to 1:
+    display count
+end count
+```
+
+**Output:**
+```
+T-minus 5
+T-minus 4
+T-minus 3
+T-minus 2
+T-minus 1
+Liftoff!
+10
+5
+0
+3
+2
+1
+```
+
+**Syntax:**
+```wfl
+count from <start> down to <end>:
+    <statements>
+end count
+```
+
+Things to know about counting down:
+
+- `down to` is the only way to count down. WFL has no `downward` or `upward`
+  keyword. `count from 5 to 1:` does not count down either: its range is
+  empty, so its body never runs.
+- `down` is not a keyword. A count loop recognizes it only between the start
+  value and `to`, so `down` is still a normal variable name everywhere else.
+- When the start value is a variable, put it in parentheses:
+  `count from (top) down to 1:`. Without them, WFL joins neighboring plain
+  words into one name, reads `top down` as a single variable, and reports
+  `Variable 'top down' is not defined`.
+
 ### Count with Step
 
 Count by different increments using `by`:

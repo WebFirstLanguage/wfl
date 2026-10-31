@@ -19,12 +19,12 @@ WFL’s design follows the [19 guiding principles](../wfl-foundation.md) and the
 
 ### Keywords
 
-**181** keywords and literals, organized by purpose and type.
+**179** keywords and literals, organized by purpose and type.
 
 **Keyword types:**
 - 54 Structural Keywords (core language constructs)
 - 29 Contextual Keywords (context-dependent usage)
-- 96 Other Reserved Keywords (feature-specific)
+- 94 Other Reserved Keywords (feature-specific)
 - 7 Boolean & Null Literals
 
 **See:** [Quick Reference](keyword-reference.md) | [Complete Reference](reserved-keywords.md)

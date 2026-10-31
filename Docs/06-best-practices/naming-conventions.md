@@ -94,7 +94,7 @@ Names **may not**:
 
 ## Reserved Keywords
 
-WFL has **181** keywords and literals. Many cannot be used as bare variable names.
+WFL has **179** keywords and literals. Many cannot be used as bare variable names.
 
 **Quick Reference:** [Keyword Reference](../reference/keyword-reference.md)  
 **Complete details:** [Reserved Keywords](../reference/reserved-keywords.md)
