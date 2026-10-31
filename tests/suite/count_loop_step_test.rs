@@ -16,9 +16,14 @@ use crate::common::run_src;
 
 /// Run `header` as a count loop whose body prints `tick`, followed by a
 /// statement that prints `after`. A refused loop must print neither.
+///
+/// Both words are assembled at run time (`"aft" with "er"`) because a runtime
+/// diagnostic quotes the surrounding source lines: a literal `"after"` in the
+/// program would show up in that excerpt even though the line never ran.
 fn run_loop(header: &str) -> (String, Option<i32>) {
     run_src(&format!(
-        "{header}:\n    display \"tick \" with count\nend count\ndisplay \"after\"\n"
+        "{header}:\n    display \"ti\" with \"ck \" with count\nend count\n\
+         display \"aft\" with \"er\"\n"
     ))
 }
 
@@ -77,8 +82,8 @@ fn negative_step_on_a_running_loop_suggests_the_loop_it_meant() {
 fn computed_and_fractional_negative_steps_are_reported() {
     let (out, code) = run_src(
         "store stride as 0 minus 0.5\n\
-         count from 9 to 3 by stride:\n    display \"tick\"\nend count\n\
-         display \"after\"\n",
+         count from 9 to 3 by stride:\n    display \"ti\" with \"ck\"\nend count\n\
+         display \"aft\" with \"er\"\n",
     );
     assert_eq!(code, Some(1), "a computed negative step is an error: {out}");
     assert!(
