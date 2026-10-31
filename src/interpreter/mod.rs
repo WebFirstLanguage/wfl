@@ -1358,6 +1358,28 @@ fn count_loop_step_error(start: f64, end: f64, step: f64) -> String {
     )
 }
 
+/// The date from which a bad step on an empty count-loop range is an error.
+/// Until then such a loop still runs zero times and only warns, because
+/// programs have long relied on it finishing quietly and GOVERNANCE.md §3.1
+/// keeps a broken behaviour working for a year after it is announced.
+const COUNT_LOOP_STEP_ERROR_FROM: &str = "2027-12-01";
+
+/// The warning for a bad step on an empty range: the same diagnostic as the
+/// error, plus what happens now and when that changes. `line` is where the
+/// parser recorded the loop (just after `end count`); 0 means it is unknown.
+fn count_loop_step_warning(start: f64, end: f64, step: f64, line: usize) -> String {
+    let location = if line > 0 {
+        format!(" (count loop ending on line {line})")
+    } else {
+        String::new()
+    };
+    format!(
+        "Warning: {} This loop's range is empty, so it runs zero times; from \
+         {COUNT_LOOP_STEP_ERROR_FROM} this will be an error.{location}",
+        count_loop_step_error(start, end, step)
+    )
+}
+
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
@@ -1632,6 +1654,9 @@ pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
+    /// Count loops (source file, line, column) already warned about an
+    /// empty-range bad step, so a loop reached repeatedly warns once.
+    count_step_warned: RefCell<HashSet<(Option<PathBuf>, usize, usize)>>,
     // Main-loop state (deadline exemption) now lives on the shared budget as a
     // depth counter with an RAII guard (see `ExecutionBudget::enter_main_loop`),
     // so it restores on every exit and nests correctly across `execute file`.
@@ -5245,6 +5270,7 @@ impl Interpreter {
             global_env,
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
+            count_step_warned: RefCell::new(HashSet::new()),
             sched_counter: Cell::new(0),
             budget,
             current_block_overload_dups: RefCell::new(None),
@@ -7965,14 +7991,31 @@ impl Interpreter {
                 // way vanish without a word: `count from 5 to 1 by -1` reads like
                 // a countdown, but as an upward range it is empty, so it ran zero
                 // times and exited 0 — as did `count from 1 down to 5 by -1`.
+                //
+                // Programs have relied on such a loop finishing quietly, so for
+                // an empty range it still runs zero times and only warns, once
+                // per loop, until COUNT_LOOP_STEP_ERROR_FROM.
                 if !step_num.is_finite() || step_num <= 0.0 {
-                    *self.current_count.borrow_mut() = previous_count;
-                    *self.in_count_loop.borrow_mut() = was_in_count_loop;
-                    return Err(RuntimeError::new(
-                        count_loop_step_error(start_num, end_num, step_num),
-                        *line,
-                        *column,
-                    ));
+                    if should_continue(count, end_num) {
+                        *self.current_count.borrow_mut() = previous_count;
+                        *self.in_count_loop.borrow_mut() = was_in_count_loop;
+                        return Err(RuntimeError::new(
+                            count_loop_step_error(start_num, end_num, step_num),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    let source = self.current_source_file.borrow().clone();
+                    if self
+                        .count_step_warned
+                        .borrow_mut()
+                        .insert((source, *line, *column))
+                    {
+                        eprintln!(
+                            "{}",
+                            count_loop_step_warning(start_num, end_num, step_num, *line)
+                        );
+                    }
                 }
 
                 *self.in_count_loop.borrow_mut() = true;
