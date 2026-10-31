@@ -178,7 +178,6 @@ The runtime error for a count loop points at the `end count` line, not the
 `end count`. That affects every runtime error a count loop itself raises, so
 it is left for its own change rather than folded in here.
 
-Both keyword reference pages also list a `downward` keyword with a
-`count downward` example. The lexer has no such token: the real form is
-`down to`, where `down` is a contextual word. That is a stale-docs problem
-unrelated to the step, so it is left for its own change too.
+Review also found that both keyword reference pages listed a `downward`
+keyword the lexer does not have (the real form is `down to`). That was fixed
+separately on `dev` by #797 while this change was in review.
