@@ -20,7 +20,7 @@ describe "Count loop steps":
             change reported to error_message
         end try
         expect ran to equal 0
-        expect reported to contain "count from 5 down to 1"
+        expect reported to contain "`count from 5 down to 1`"
     end test
 
     test "any numbers are reported, not just 5 to 1":
@@ -32,7 +32,7 @@ describe "Count loop steps":
         when error:
             change reported to error_message
         end try
-        expect reported to contain "count from 12 down to 2 by 2"
+        expect reported to contain "`count from 12 down to 2 by 2`"
     end test
 
     test "the mirror direction is reported too":
@@ -46,7 +46,7 @@ describe "Count loop steps":
             change reported to error_message
         end try
         expect ran to equal 0
-        expect reported to contain "count from 1 to 5"
+        expect reported to contain "`count from 1 to 5`"
     end test
 
     test "a zero step is reported even when the range is empty":

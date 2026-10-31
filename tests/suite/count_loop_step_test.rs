@@ -106,6 +106,68 @@ fn zero_step_on_an_empty_range_is_reported() {
 }
 
 #[test]
+fn negative_zero_step_is_reported_as_zero() {
+    // `-0` is a zero step too; it must not slip past as "negative" or print
+    // a confusing `-0`.
+    assert_refused("count from 5 to 1 by -0", "got 0. A step of 0");
+}
+
+#[test]
+fn non_finite_steps_are_reported() {
+    // WFL has no infinity literal, so build one at run time: squaring 1e9
+    // eight times overflows to inf. Each loop's range is empty in the written
+    // direction, which used to hide the step entirely.
+    let build_inf = "store x as 1000000000\n\
+                     count from 1 to 8 as j:\n    change x to x times x\nend count\n";
+    for (step, shown) in [
+        ("x", "got inf."),
+        ("(0 minus x)", "got -inf."),
+        ("(x minus x)", "got NaN."),
+    ] {
+        let (out, code) = run_src(&format!(
+            "{build_inf}count from 5 to 1 by {step}:\n    display \"ti\" with \"ck\"\nend count\n\
+             display \"aft\" with \"er\"\n"
+        ));
+        assert_eq!(code, Some(1), "step `{step}` must be an error: {out}");
+        assert!(
+            out.contains(&format!(
+                "Count loop step must be a positive number, {shown}"
+            )),
+            "step `{step}`: the diagnostic states the rule and `{shown}`: {out}"
+        );
+        assert!(
+            !out.contains("tick") && !out.contains("after"),
+            "step `{step}`: nothing runs: {out}"
+        );
+    }
+}
+
+#[test]
+fn loops_guide_quotes_the_real_negative_step_error() {
+    // The docs validator only checks this example's exit status, so pin the
+    // message the loops guide quotes to what the interpreter actually says.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let guide =
+        std::fs::read_to_string(root.join("Docs/03-language-basics/loops-and-iteration.md"))
+            .expect("read the loops guide");
+    let quoted = guide
+        .split("**Error:**\n```\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n```").next())
+        .expect("the loops guide quotes the negative-step error under **Error:**");
+    let example = std::fs::read_to_string(
+        root.join("TestPrograms/docs_examples/error_examples/count_loop_negative_step.wfl"),
+    )
+    .expect("read the docs example");
+    let (out, code) = run_src(&example);
+    assert_eq!(code, Some(1), "the docs example is an error: {out}");
+    assert!(
+        out.contains(quoted),
+        "the guide must quote the real error.\n  guide:  {quoted}\n  actual: {out}"
+    );
+}
+
+#[test]
 fn step_error_can_be_caught() {
     let (out, code) = run_src(
         "store ran as 0\n\
