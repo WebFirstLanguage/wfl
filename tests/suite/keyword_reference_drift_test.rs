@@ -394,10 +394,19 @@ fn published_keyword_totals_match_the_lexer() {
         ),
         (
             "Docs/reference/language-specification.md",
-            format!(
-                "- {structural} Structural Keywords\n- {contextual} Contextual Keywords\n\
-                 - {other} Other Reserved Keywords\n- {literal} Boolean & Null Literals"
-            ),
+            format!("- {structural} Structural Keywords"),
+        ),
+        (
+            "Docs/reference/language-specification.md",
+            format!("- {contextual} Contextual Keywords"),
+        ),
+        (
+            "Docs/reference/language-specification.md",
+            format!("- {other} Other Reserved Keywords"),
+        ),
+        (
+            "Docs/reference/language-specification.md",
+            format!("- {literal} Boolean & Null Literals"),
         ),
         (
             "Docs/03-language-basics/variables-and-types.md",

@@ -264,7 +264,7 @@ agent MUST follow:
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords
-  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 181 keywords)
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 198 keywords)
   - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
   - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
@@ -273,7 +273,7 @@ agent MUST follow:
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals: flat `otherwise check if` chains share one `end check`; nested `otherwise:` / `check if` needs an `end check` per nested check
-  - Reserved keywords: **181 keywords total** (54 structural, 29 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
+  - Reserved keywords: **198 keywords total** (63 structural, 32 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`). `tests/suite/keyword_reference_drift_test.rs` fails when a lexer `#[token]` word, its classification, or these counts drift from the two keyword references, so a new keyword must be documented in both in the same change
     - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
     - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`

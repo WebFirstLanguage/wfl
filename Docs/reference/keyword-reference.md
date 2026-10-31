@@ -4,20 +4,24 @@ Quick lookup for all WFL reserved keywords.
 
 **→ For complete technical details:** [Reserved Keywords (Complete) →](reserved-keywords.md)
 
-**Total:** 181 keywords and literals
+**Total:** 198 keywords and literals (63 structural, 32 contextual, 96 other, 7 literals)
 
 ---
 
 ## How to Use This Reference
 
 - **✗** = Cannot use as variable name (reserved in all contexts)
-- **✓** = Can use as variable name in certain contexts (see comprehensive reference for details)
+- **✓** = Can use as variable name: `store <word> as value` works outside the word's keyword context (see comprehensive reference for details)
 
 **Tip:** When in doubt, add an underscore or use a different word. Example: `file` → `filename`, `is` → `is_valid`
 
+A keyword can appear in more than one table below; it has the same mark everywhere.
+`tests/suite/keyword_reference_drift_test.rs` checks that every lexer keyword is
+listed here with the right mark, and that each heading's count matches its table.
+
 ---
 
-## Control Flow Keywords (24)
+## Control Flow Keywords (23)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -26,7 +30,6 @@ Quick lookup for all WFL reserved keywords.
 | `check` | Start conditional | ✗ |
 | `continue` | Skip to next iteration | ✗ |
 | `count` | Count loop keyword | ✓ |
-| `downward` | Count loop direction | ✗ |
 | `each` | For each loop | ✗ |
 | `end` | Close block | ✗ |
 | `exit` | Exit loops (`exit loop`) or the program (`exit program [with code number]`) | ✗ |
@@ -48,7 +51,7 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## Declaration Keywords (18)
+## Declaration Keywords (19)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -67,13 +70,14 @@ Quick lookup for all WFL reserved keywords.
 | `list` | List type | ✓ |
 | `map` | Map type | ✓ |
 | `needs` | Action parameters (alias) | ✓ |
-| `new` | Instantiate container (`create new K [with value and ...] as k: ... end`) | ✓ |
+| `new` | Instantiate container (`create new K [with value and ...] as k: ... end`); `store new` always starts `store new constant` | ✗ |
+| `parameters` | Action parameter list (`define action called f with parameters x:`) | ✗ |
 | `property` | Container field | ✗ |
 | `store` | Create variable | ✗ |
 
 ---
 
-## Operations Keywords (25)
+## Operations Keywords (23)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -85,17 +89,15 @@ Quick lookup for all WFL reserved keywords.
 | `close` | Close resource | ✗ |
 | `display` | Output text | ✗ |
 | `divide` | Division | ✗ |
-| `divided` | Division (multi-word: "divided by") | ✗ |
+| `divided` | Division (first word of `divided by`) | ✗ |
+| `divided by` | Division (`10 divided by 2`) | ✗ |
 | `execute` | Run command | ✗ |
 | `give` | Return keyword part | ✓ |
 | `kill` | Terminate process | ✗ |
-| `load` | Load module | ✗ |
 | `minus` | Subtraction | ✗ |
 | `modulo` | Modulo/remainder (word form of `%`) | ✗ |
-| `module` | Module reference | ✗ |
 | `multiply` | Multiplication | ✗ |
 | `plus` | Addition | ✗ |
-| `pop` | Remove from list | ✗ |
 | `push` | Add to list | ✗ |
 | `remove` | Remove item | ✗ |
 | `return` | Return value | ✗ |
@@ -105,7 +107,18 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## Comparison Keywords (14)
+## Module Keywords (4)
+
+| Keyword | Description | As Var? |
+|---------|-------------|---------|
+| `export` | Export a definition from a module file (`export container Person`) | ✗ |
+| `include` | Run another file in this scope (`include from "lib.wfl"`) | ✗ |
+| `load` | Load module | ✗ |
+| `module` | Module reference | ✗ |
+
+---
+
+## Comparison Keywords (19)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -114,6 +127,7 @@ Quick lookup for all WFL reserved keywords.
 | `at` | Location preposition | ✓ |
 | `below` | Less than (alias) | ✗ |
 | `contains` | Contains check | ✓ |
+| `ends` | Text suffix check (`name ends with ".css"`) | ✓ |
 | `equal` | Equality | ✗ |
 | `greater` | Greater comparison | ✗ |
 | `is` | Comparison/equality | ✗ |
@@ -124,12 +138,13 @@ Quick lookup for all WFL reserved keywords.
 | `of` | Possession/function call | ✗ |
 | `or` | Logical OR | ✗ |
 | `same` | Equality (alias) | ✗ |
+| `starts` | Text prefix check (`path starts with "/api"`) | ✓ |
 | `than` | Comparison | ✗ |
 | `with` | Action/constructor arguments or concatenation | ✗ |
 
 ---
 
-## Pattern Matching Keywords (28)
+## Pattern Matching Keywords (27)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -163,15 +178,18 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## File & I/O Keywords (16)
+## File & I/O Keywords (20)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
 | `append` | Append to file | ✗ |
 | `appending` | Append mode | ✗ |
+| `binary` | Binary mode (`read binary from h`, `write binary data into h`) | ✓ |
+| `bytes` | Byte count (`read 8 bytes from h`) | ✓ |
 | `close` | Close file | ✗ |
 | `content` | File content | ✗ |
 | `delete` | Delete file | ✗ |
+| `denied` | Permission denied | ✗ |
 | `directory` | Directory resource | ✗ |
 | `exists` | File exists check | ✗ |
 | `extension` | File extension | ✓ |
@@ -181,14 +199,13 @@ Quick lookup for all WFL reserved keywords.
 | `found` | File found check | ✗ |
 | `open` | Open file | ✗ |
 | `permission` | File permission | ✗ |
-| `denied` | Permission denied | ✗ |
 | `read` | Read operation | ✓ |
 | `recursively` | Recursive operation | ✗ |
 | `write` | Write operation | ✗ |
 
 ---
 
-## Web & Network Keywords (17)
+## Web & Network Keywords (21)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -211,6 +228,7 @@ Quick lookup for all WFL reserved keywords.
 | `signal` | Server signal | ✗ |
 | `status` | Response status | ✗ |
 | `stop` | Stop server | ✗ |
+| `that` | Optional filler (`wait for request that comes in on server as req`) | ✓ |
 | `timeout` | Timeout duration | ✗ |
 
 ---
@@ -227,7 +245,7 @@ Quick lookup for all WFL reserved keywords.
 | `implements` | Interface implementation | ✗ |
 | `interface` | Interface definition | ✗ |
 | `must` | Interface requirement | ✓ |
-| `new` | Create instance | ✓ |
+| `new` | Create instance | ✗ |
 | `on` | Event handler | ✗ |
 | `parent` | Parent reference | ✓ |
 | `private` | Private visibility | ✗ |
@@ -244,7 +262,7 @@ the program has its own variable named `this` there. See
 
 ---
 
-## Error Handling Keywords (6)
+## Error Handling Keywords (5)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -274,7 +292,7 @@ the program has its own variable named `this` there. See
 
 ---
 
-## Data & Types Keywords (7)
+## Data & Types Keywords (8)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -286,6 +304,23 @@ the program has its own variable named `this` there. See
 | `text` | Text type | ✓ |
 | `time` | Time type | ✗ |
 | `url` | URL type | ✗ |
+
+---
+
+## Testing Keywords (10)
+
+| Keyword | Description | As Var? |
+|---------|-------------|---------|
+| `be` | Assertion verb (`expect x to be greater than 5`) | ✗ |
+| `contain` | Assertion: contains a value (`to contain "apple"`) | ✓ |
+| `describe` | Group related tests (`describe "Math":`) | ✗ |
+| `empty` | Assertion: empty value (`to be empty`) | ✗ |
+| `exist` | Assertion: value exists (`to exist`) | ✓ |
+| `expect` | Start an assertion (`expect result to equal 5`) | ✗ |
+| `have` | Assertion: length (`to have length 3`) | ✓ |
+| `setup` | Setup block inside `describe` | ✗ |
+| `teardown` | Cleanup block inside `describe` | ✗ |
+| `test` | Single test case (`test "adds numbers":`) | ✗ |
 
 ---
 
@@ -341,8 +376,10 @@ end count
 // ✅ Outside type declarations, 'list' can be a variable
 store list as "shopping_list"
 
-// ❌ In type context, 'list' is reserved
-create list called items
+// In a list declaration, 'list' is still the type keyword
+create list items:
+    add "apple"
+end list
 ```
 
 **Example: `query` and `connect` (database statement shapes)**
@@ -366,13 +403,20 @@ connect to database at "sqlite://app.db" as db
 - ✗ means never use as variable
 - ✓ means context-dependent (see comprehensive reference)
 
-### "Getting 'Expected identifier' error?" → Check if you used a reserved keyword
+### "Getting 'Expected identifier' or 'Cannot use reserved keyword' error?" → Check if you used a reserved keyword
 - Add underscore: `is` → `is_valid`
 - Use different word: `file` → `filename`
 
 ### "Can I use this contextual keyword?" → See the Comprehensive Reference
-- 24 contextual keywords CAN be used as variables in certain contexts
-- 5 appear contextual but are actually always reserved
+- 31 of the 32 contextual keywords CAN be used as variables in certain contexts
+- `new` cannot be declared with `store`, because `store new` starts `store new constant`
+- `any`, `push`, `skip`, `than` and `zero` are listed as contextual in the source code too, but they are structural and always reserved
+
+### "What about `pop`, `upward`, `downward`?" → Not keywords
+
+`pop` is a standard-library list function, and `upward` / `downward` have no
+special meaning. All three are ordinary names. Earlier versions of these pages
+listed them as keywords by mistake.
 
 ### "What about `secured`, `certificate`, `key`, `redirecting`, `content_type`, `transaction`, `schema`, `changes`, `without following redirects`?" → Not keywords
 

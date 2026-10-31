@@ -387,7 +387,7 @@ Variable names cannot:
 
 ### Reserved Keywords
 
-WFL has **181** keywords and literals. Many cannot be used as variable names.
+WFL has **198** keywords and literals. Many cannot be used as variable names.
 
 **Common reserved keywords you'll encounter:**
 - **Control flow:** check, if, otherwise, for, repeat, end
