@@ -421,6 +421,7 @@ A few words have special meaning in exactly one statement position but are **not
 - `schema`, `changes` - optional SQLite transaction mode in `in transaction on db for schema changes:`
 - `without following redirects` - per-request redirect clause in `open url at address and without following redirects and read response as reply`; the individual words and the complete phrase remain ordinary variable names outside that clause position
 - `all` - every-match marker in `find all <pattern> in <text>`; see below for names that start with `all`
+- `down` - count-down marker in `count from 5 down to 1:`; recognized only between a count loop's start value and `to` (see [`down` and Counting Down](#down-and-counting-down) below)
 
 TLS pairs can also use the existing `for` keyword to select a DNS name:
 `certificate "cert.pem" and key "key.pem" for "example.com"`. Additional named
@@ -436,7 +437,9 @@ raise_error with message` or `raise_error of message`; it is not a keyword.
 
 `pop`, `upward` and `downward` are not keywords either. `pop` is a
 standard-library list function, and `upward` / `downward` have no special
-meaning. Earlier versions of this page listed all three by mistake.
+meaning. Earlier versions of this page listed all three by mistake. A count
+loop counts down with `down to`; see
+[`down` and Counting Down](#down-and-counting-down) below.
 
 ```wfl
 // All perfectly valid — these words are not reserved:
@@ -468,6 +471,40 @@ variable named `this` keeps its meaning: one that already exists where the
 container is defined (such as a top-level `this` above it), or one the action
 creates with `store this as ...` or `for each this in ...`. So does a property
 named `this`. Outside instance actions `this` is an ordinary identifier.
+
+#### `down` and Counting Down
+
+A count loop counts down with `down to`: `count from 5 down to 1:`. `down` is
+recognized in exactly one position, between the loop's start value and `to`.
+Everywhere else it is an ordinary name.
+
+`downward` and `upward` are not count directions. Writing
+`count from 5 downward to 1:` is a parse error that points at the word and
+suggests the real form:
+`Expected 'to' or 'down to', found Identifier("downward")`. All three words
+work as variable names:
+
+```wfl
+// `down` is not a keyword: a count loop recognizes it only right before `to`
+count from 3 down to 1:
+    display count
+end count
+
+// So `down` is still an ordinary name everywhere else,
+// and so are `downward` and `upward`, which WFL never used
+store down as "the floor below"
+store downward as "toward the floor"
+store upward as "toward the sky"
+display down
+display downward
+display upward
+```
+
+When the start value is a variable, put it in parentheses:
+`count from (top) down to 1:`. Without them, WFL joins neighboring plain words
+into one name, reads `top down` as a single variable, and reports
+`Variable 'top down' is not defined`. See
+[Counting Down](../03-language-basics/loops-and-iteration.md#counting-down).
 
 ### Why Some Keywords Appear in Both Lists
 
@@ -599,7 +636,7 @@ These keywords are **context-dependent**. All but one **CAN** be used as variabl
 | `parent` | Parent reference | Container inheritance | ✅ Yes | `store parent as "mom"` works (context-sensitive) |
 | `pattern` | Pattern definition | Pattern matching | ✅ Yes | `store pattern as "design"` works outside pattern context |
 | `read` | Read operation | File I/O | ✅ Yes | `store read as "reading"` works (context-sensitive) |
-| `reversed` | Reverse iteration | Loop direction | ✅ Yes | `store reversed as yes` works |
+| `reversed` | Reverse iteration | `for each item in reversed items` | ✅ Yes | `store reversed as yes` works |
 | `starts` | Text prefix check | `path starts with "/api"` | ✅ Yes | `store starts as "head"` works |
 | `text` | Text type | Type context | ✅ Yes | `store text as "message"` works outside type context |
 | `that` | Optional filler word | `wait for request that comes in on server as req` | ✅ Yes | `store that as 3` works |
@@ -1100,7 +1137,7 @@ whether `store <word> as 1` is accepted.
 | `respond` | Other | Web/Network | ❌ | `respond to request` |
 | `response` | Other | Web/Network | ❌ | `HTTP response` |
 | `return` | Structural | Operations | ❌ | `return value` |
-| `reversed` | Contextual | Control Flow | ✅ | `count reversed` |
+| `reversed` | Contextual | Control Flow | ✅ | `for each item in reversed items` |
 | `route` | Structural | Control Flow | ❌ | `route path:` |
 | `running` | Other | Process | ❌ | `process running` |
 | `same` | Other | Comparison | ❌ | `is same as` |

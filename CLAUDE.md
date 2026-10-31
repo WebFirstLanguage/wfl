@@ -306,6 +306,7 @@ agent MUST follow:
     - See `Docs/reference/keyword-reference.md` (quick) and `Docs/reference/reserved-keywords.md` (complete)
   - List push syntax: `push with <list> and <value>`, NOT `push to`
   - Loop variable: `count` in count loops, NOT `the current count`
+  - Count down: `count from 5 down to 1:`, NOT `count downward` (`down` is not a keyword; a variable start needs parentheses: `count from (top) down to 1:`)
   - Typeof syntax: `typeof of value`, NOT `typeof(value)`
   - Action syntax: `define action called name with parameters x:`, NOT `action name with x:`
 - **Working Examples**:

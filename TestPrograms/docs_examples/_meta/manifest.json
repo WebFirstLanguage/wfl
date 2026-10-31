@@ -21,6 +21,14 @@
     "tags": ["keywords", "reserved-words", "naming", "patterns"],
     "doc_purpose": "Uses start, captured, by and find in their real jobs and names its own variables start_time, command_output, current_route and captured_text instead of the reserved words"
   },
+  "docs_examples/keyword_reference/down_is_not_reserved.wfl": {
+    "doc_section": "Docs/reference/reserved-keywords.md#down-and-counting-down",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["keywords", "marker-words", "loops", "count"],
+    "doc_purpose": "Counts down with `down to` and shows that down, downward and upward are ordinary variable names, not keywords"
+  },
   "docs_examples/basic_syntax/loops_step_warning.wfl": {
     "doc_section": "Docs/03-language-basics/loops-and-iteration.md#count-with-step",
     "type": "executable",
@@ -329,6 +337,14 @@
       "count"
     ],
     "doc_purpose": "Demonstrates count loops"
+  },
+  "docs_examples/basic_syntax/count_down_01.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md#counting-down",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "loops", "count", "count-down"],
+    "doc_purpose": "Counts down with `down to` from a variable start value, which needs parentheses so the lexer does not join `top down` into one name"
   },
   "docs_examples/basic_syntax/for_each_01.wfl": {
     "doc_section": "Docs/03-language-basics/loops-and-iteration.md",

@@ -82,6 +82,13 @@
       "validation_status": "validated",
       "notes": "Byte-identical to the 'All Six, Side by Side' block in Docs/reference/reserved-keywords.md; registered in docs_examples/_meta/manifest.json and run by scripts/validate_docs_examples.py",
       "tested_with": ["parse", "analyze", "typecheck", "lint", "execute"]
+    },
+    {
+      "file": "down_is_not_reserved.wfl",
+      "keywords_covered": ["count", "from", "to"],
+      "validation_status": "validated",
+      "notes": "Shows the `down to` marker and that down, downward and upward are ordinary names. Byte-identical to the block under '`down` and Counting Down' in Docs/reference/reserved-keywords.md; registered in docs_examples/_meta/manifest.json and run by scripts/validate_docs_examples.py",
+      "tested_with": ["parse", "analyze", "typecheck", "lint", "execute"]
     }
   ],
   "next_steps": [
