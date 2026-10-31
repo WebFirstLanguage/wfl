@@ -1366,11 +1366,11 @@ fn count_loop_step_error(start: f64, end: f64, step: f64) -> String {
 const COUNT_LOOP_STEP_ERROR_FROM: &str = "2027-12-01";
 
 /// The warning for a bad step on an empty range: the same diagnostic as the
-/// error, plus what happens now and when that changes. `line` is where the
-/// parser recorded the loop (just after `end count`); 0 means it is unknown.
+/// error, plus what happens now and when that changes. `line` is the line of
+/// the loop's `count` keyword; 0 means it is unknown.
 fn count_loop_step_warning(start: f64, end: f64, step: f64, line: usize) -> String {
     let location = if line > 0 {
-        format!(" (count loop ending on line {line})")
+        format!(" (count loop on line {line})")
     } else {
         String::new()
     };

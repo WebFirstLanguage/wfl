@@ -115,7 +115,7 @@ The program carries on.
 
 **Warning (on stderr):**
 ```
-Warning: Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`. This loop's range is empty, so it runs zero times; from 2027-12-01 this will be an error. (count loop ending on line 3)
+Warning: Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`. This loop's range is empty, so it runs zero times; from 2027-12-01 this will be an error. (count loop on line 1)
 ```
 
 Earlier versions of WFL checked the step only when the loop would run, so a
