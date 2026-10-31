@@ -1328,6 +1328,34 @@ impl<'a> Drop for ModuleLoadGuard<'a> {
     }
 }
 
+/// The diagnostic for a count-loop step that is not a positive, finite
+/// distance. A negative step almost always means "count the other way", so
+/// its message names the loop that walks from `start` to `end` with the
+/// step's magnitude — the loop the program most likely meant.
+fn count_loop_step_error(start: f64, end: f64, step: f64) -> String {
+    const RULE: &str = "Count loop step must be a positive number";
+    if step == 0.0 {
+        return format!(
+            "{RULE}, got 0. A step of 0 never moves the counter. \
+             Use a positive step such as `by 1`."
+        );
+    }
+    if !step.is_finite() {
+        return format!("{RULE}, got {step}.");
+    }
+    let direction = if start > end { "down to" } else { "to" };
+    let distance = -step;
+    let by = if distance == 1.0 {
+        String::new()
+    } else {
+        format!(" by {distance}")
+    };
+    format!(
+        "{RULE}, got {step}. The step is a distance, not a direction: `to` counts \
+         up and `down to` counts down. Write `count from {start} {direction} {end}{by}`."
+    )
+}
+
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
@@ -7892,19 +7920,16 @@ impl Interpreter {
                 // *toward* its end value (a downward loop subtracts the step), so
                 // the step is a magnitude and must be a positive, finite number.
                 //
-                // Only a loop that actually runs is validated: `count from 5 to 1`
-                // never enters its body, so its step never mattered and a program
-                // that passed a nonsense one has always completed successfully.
-                // Validating unconditionally would break those programs.
-                if should_continue(count, end_num) && (!step_num.is_finite() || step_num <= 0.0) {
+                // The step is checked even when the range is empty. Checking it
+                // only for a loop that would run let a step pointing the other
+                // way vanish without a word: `count from 5 to 1 by -1` reads like
+                // a countdown, but as an upward range it is empty, so it ran zero
+                // times and exited 0 — as did `count from 1 down to 5 by -1`.
+                if !step_num.is_finite() || step_num <= 0.0 {
                     *self.current_count.borrow_mut() = previous_count;
                     *self.in_count_loop.borrow_mut() = was_in_count_loop;
                     return Err(RuntimeError::new(
-                        format!(
-                            "Count loop step must be a positive number, got {step_num}. \
-                             A count loop always moves toward its end value, so \
-                             `count from 10 down to 1 by 2` steps down by 2."
-                        ),
+                        count_loop_step_error(start_num, end_num, step_num),
                         *line,
                         *column,
                     ));
