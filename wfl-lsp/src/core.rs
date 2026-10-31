@@ -5,6 +5,7 @@ use tower_lsp::lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, Position, Range, Url,
 };
 use wfl::analyzer::Analyzer;
+use wfl::analyzer::static_analyzer::StaticAnalyzer;
 use wfl::diagnostics::{DiagnosticReporter, WflDiagnostic};
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::{Parser, ast::Program};
@@ -116,6 +117,10 @@ impl WflLanguageCore {
                         diagnostics.push(wfl_diag);
                     }
                 }
+
+                // `random_seed` in a file that also does crypto or auth stops
+                // `wfl` from running it, so the editor must show it as an error.
+                diagnostics.extend(analyzer.check_insecure_rng_seeding(&program, file_id));
 
                 // Run type checking. A shared-budget breach is surfaced as a
                 // diagnostic here (the LSP only reports; it never executes), so
@@ -230,6 +235,19 @@ impl WflLanguageCore {
                     },
                 };
             }
+        } else if wfl_diag.line > 0 {
+            // A diagnostic without a span (such as ANALYZE-SECURITY) still
+            // records its 1-based line and column; place it there rather than
+            // at the start of the file.
+            let line = (wfl_diag.line - 1) as u32;
+            let character = wfl_diag.column.saturating_sub(1) as u32;
+            range = Range {
+                start: Position { line, character },
+                end: Position {
+                    line,
+                    character: character + 1,
+                },
+            };
         }
 
         Diagnostic {
