@@ -4,9 +4,16 @@ Complete technical documentation for all WFL reserved keywords.
 
 **→ For quick lookup:** [Keyword Reference (Quick) →](keyword-reference.md)
 
-**Source:** WFL Compiler v26.1.x (extracted from `src/lexer/token.rs`)
-**Total:** 181 keywords and literals
+**Source:** WFL Compiler v26.9.x (extracted from `src/lexer/token.rs`)
+**Total:** 198 keywords and literals
 **Last Updated:** 2026-10-31
+
+**Kept in sync by a test:** `tests/suite/keyword_reference_drift_test.rs` reads
+`src/lexer/token.rs` and fails when this page or the
+[quick reference](keyword-reference.md) misses a lexer word, lists a word that
+is not one, gives a word the wrong type or "As Var?" value, or states a count
+that does not match its list. If you add a keyword to the lexer, add it here,
+to the quick reference, and to the counts.
 
 ---
 
@@ -20,9 +27,10 @@ Complete technical documentation for all WFL reserved keywords.
 1. [Understanding Keyword Classifications](#understanding-keyword-classifications)
    - [What Makes a Keyword "Structural"?](#what-makes-a-keyword-structural)
    - [What Makes a Keyword "Contextual"?](#what-makes-a-keyword-contextual)
-   - [Why Some Keywords Appear in Multiple Lists](#why-some-keywords-appear-in-multiple-lists)
-2. [Structural Keywords (54)](#structural-keywords-54)
-3. [Contextual Keywords (29)](#contextual-keywords-29)
+   - [What Makes a Keyword "Other"?](#what-makes-a-keyword-other)
+   - [Why Some Keywords Appear in Both Lists](#why-some-keywords-appear-in-both-lists)
+2. [Structural Keywords (63)](#structural-keywords-63)
+3. [Contextual Keywords (32)](#contextual-keywords-32)
 4. [Other Reserved Keywords (96)](#other-reserved-keywords-96)
 5. [Boolean & Null Literals (7)](#boolean--null-literals-7)
 6. [Keywords by Feature Category](#keywords-by-feature-category)
@@ -115,7 +123,7 @@ genuinely want to use. WFL tries to keep this cost small in two ways:
 - **Contextual keywords** are special in only one position. For example,
   `count` is the loop variable inside `count from 1 to 10:`, but
   `store count as 0` works everywhere else. See
-  [Contextual Keywords](#contextual-keywords-29).
+  [Contextual Keywords](#contextual-keywords-32).
 - **Marker words** are not reserved at all. HTTPS settings (`secured`,
   `certificate`, `key`) and database transactions (`transaction`) were added
   as marker words, so they take no names away from you. See
@@ -319,7 +327,22 @@ nothing run yet
 
 ## Understanding Keyword Classifications
 
-WFL's 181 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
+WFL has 198 reserved words: 63 structural keywords, 32 contextual keywords, 96
+other reserved keywords, and 7 boolean and null literals. Each word belongs to
+exactly one of these four types. The type tells you whether you can use the
+word as a variable name.
+
+You can see the type in the error message when you try `store <word> as 1`:
+
+| Type | Count | `store <word> as 1` |
+|------|-------|---------------------|
+| Structural | 63 | Error: `Cannot use reserved keyword '…' as a variable name` |
+| Contextual | 32 | Works (except `new`, see below) |
+| Other | 96 | Error: `Expected identifier for variable name, found …` |
+| Literal | 7 | Error: `Expected identifier for variable name, found …` |
+
+The one structural word with a different message is `as`: `store as as 1`
+fails with `Expected a variable name before 'as'`.
 
 ### What Makes a Keyword "Structural"?
 
@@ -328,12 +351,12 @@ WFL's 181 reserved keywords are organized into four distinct types. Understandin
 **Key characteristics:**
 - **Always reserved** - Cannot be used as variable names in any context
 - **Parser priority** - Checked first by the parser
-- **Total count:** 54 keywords
+- **Total count:** 63 keywords
 
 **Examples:**
 ```wfl
 // These are structural - NEVER use as variables
-check if x is 5:      // 'check', 'if', 'is' are structural
+check if x is 5:      // 'check' and 'if' are structural
     display "Yes"     // 'display' is structural
 end check            // 'end', 'check' are structural
 
@@ -344,46 +367,50 @@ store name as "Alice"  // 'store', 'as' are structural
 
 ### What Makes a Keyword "Contextual"?
 
-**Contextual keywords** have special meaning only in specific contexts. Outside those contexts, some (but not all) can be used as variable names.
+**Contextual keywords** have special meaning only in specific statement positions. Everywhere else they are ordinary names.
 
 **Key characteristics:**
 - **Context-dependent meaning** - Special in certain situations
-- **24 are usable as variables** - Outside their keyword context
-- **5 overlap with structural** - Cannot be used as variables despite being contextual
-- **Total count:** 29 keywords
+- **31 are usable as variables** - `store count as 0` works, and `display count` reads the value back
+- **1 cannot be declared with `store`** - `new`, because `store new` always begins `store new constant NAME as value`
+- **Total count:** 32 keywords
 
-**The 24 you CAN use as variables:**
+**The 31 you CAN use as variables:**
 ```wfl
 // Example 1: 'count' as a variable (outside count loops)
 store count as 0              // ✅ 'count' is just a variable here
 change count to count plus 1
 display count
 
-// But inside count loops, 'count' is reserved:
+// But inside count loops, 'count' is the loop counter:
 count from 1 to 10:          // ✅ 'count' is a keyword here
     display count            // ✅ 'count' refers to loop variable
 end count
 
-// Example 2: 'list' as a variable (outside type declarations)
+// Example 2: 'list' as a variable (outside list declarations)
 store list as "my_list_name"  // ✅ 'list' is just a variable here
 display list
 
-// But in type context, 'list' is reserved:
-create list called items     // ✅ 'list' is a type keyword here
+// 'list' is still the type keyword in a list declaration:
+create list items:            // ✅ 'list' is a type keyword here
+    add "apple"
+end list
 ```
 
-**The 5 you CANNOT use as variables** (despite being contextual):
-- `any` - Also appears as structural keyword
-- `push` - Also appears as structural keyword
-- `skip` - Also appears as structural keyword
-- `than` - Also appears as structural keyword
-- `zero` - Also appears as structural keyword
+**The one you CANNOT declare with `store`:**
+- `new` - `store new as "fresh"` fails with `Expected 'constant' after 'new'`, because `store new` is the start of `store new constant MAX as 10`
 
-**Why the overlap?** The parser checks structural keywords first. Even though these keywords are listed as contextual in the source code, the structural check takes precedence, making them always reserved.
+### What Makes a Keyword "Other"?
+
+**Other reserved keywords** belong to one feature, such as file I/O, pattern
+matching, or web servers. They are neither structural nor contextual, and the
+parser does not accept them as variable names: `store file as "a.txt"` fails
+with `Expected identifier for variable name, found KeywordFile`. `is` is in
+this group, not in the structural group, but it is just as reserved.
 
 ### Marker Words That Are Not Keywords at All
 
-A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 181 keywords, and you can freely use them as variable names everywhere:
+A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 198 keywords, and you can freely use them as variable names everywhere:
 
 - `secured` - HTTPS marker in `listen on port 8443 secured ... as server`
 - `certificate` - certificate path marker in `secured with certificate "cert.pem"`
@@ -405,6 +432,10 @@ to it after the property block runs. This syntax adds no keywords.
 
 `raise_error` is an ordinary standard-library function called with `call
 raise_error with message` or `raise_error of message`; it is not a keyword.
+
+`pop`, `upward` and `downward` are not keywords either. `pop` is a
+standard-library list function, and `upward` / `downward` have no special
+meaning. Earlier versions of this page listed all three by mistake.
 
 ```wfl
 // All perfectly valid — these words are not reserved:
@@ -430,13 +461,15 @@ container is defined (such as a top-level `this` above it), or one the action
 creates with `store this as ...` or `for each this in ...`. So does a property
 named `this`. Outside instance actions `this` is an ordinary identifier.
 
-### Why Some Keywords Appear in Multiple Lists
+### Why Some Keywords Appear in Both Lists
 
-You might notice keywords like `push`, `zero`, and `than` appear in both the structural and contextual keyword lists in the compiler source code. This isn't a bug—it's by design:
+Five keywords — `any`, `push`, `skip`, `than` and `zero` — appear in both the
+structural list (`Token::is_structural_keyword`) and the contextual list
+(`Token::is_contextual_keyword`) in `src/lexer/token.rs`.
 
 1. **Parser checks structural keywords first** - If a keyword is structural, it's always reserved
-2. **Contextual list provides additional context** - Helps the parser handle specific situations
-3. **Net result:** If a keyword is in BOTH lists, treat it as structural (always reserved)
+2. **Net result:** A keyword in BOTH lists behaves exactly like a structural keyword
+3. **Counting:** This page counts each of the five once, as structural. The 32 contextual keywords are the words that are contextual and not structural.
 
 **Example:**
 ```wfl
@@ -447,7 +480,7 @@ store push as "save"         // ❌ ERROR: 'push' is reserved (structural)
 
 ---
 
-## Structural Keywords (54)
+## Structural Keywords (63)
 
 These keywords **MUST** always be reserved and **CANNOT** be used as variable names. They define program structure and control flow.
 
@@ -457,6 +490,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `and` | Logical AND operator | `check if x is 5 and y is 10:` |
 | `any` | Match any (pattern/quantifier) | `define pattern zero or more any` |
 | `as` | Binding/assignment keyword | `store name as "Alice"` |
+| `be` | Test assertion verb | `expect x to be greater than 5` |
 | `break` | Exit loop early | `break` |
 | `by` | Step distance in count loops — always positive; `down to` sets the direction | `count from 1 to 10 by 2:` |
 | `call` | Call an action | `call myFunction with x` |
@@ -466,10 +500,14 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `container` | Define a class/container | `create container Person:` |
 | `continue` | Skip to next iteration | `continue` |
 | `define` | Define action/container | `define action called test:` |
+| `describe` | Group related tests | `describe "Math":` |
 | `display` | Output text | `display "Hello World"` |
 | `each` | For each loop | `for each item in list:` |
+| `empty` | Test assertion: empty value | `expect items to be empty` |
 | `end` | Close block | `end` |
 | `event` | Define an event | `event click` |
+| `expect` | Test assertion | `expect result to equal 5` |
+| `export` | Export a definition from a module file | `export container Person` |
 | `extends` | Inheritance | `create container Employee extends Person:` |
 | `finally` | Always-run cleanup clause on try | `finally:` |
 | `for` | For loop | `for each x in items:` |
@@ -478,6 +516,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `if` | Conditional | `check if x is 5:` |
 | `implements` | Interface implementation | `create container Dog implements Animal:` |
 | `in` | For each collection | `for each item in list:` |
+| `include` | Run another file in this scope | `include from "lib.wfl"` |
 | `interface` | Interface definition | `create interface Runnable:` |
 | `load` | Load module | `load module math` |
 | `module` | Module reference | `load module fs` |
@@ -493,9 +532,12 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `requires` | Interface requirement | `requires action run` |
 | `return` | Return value | `return result` |
 | `route` | Dispatch on a value (match/switch) | `route path:` |
+| `setup` | Setup block inside `describe` | `setup:` |
 | `skip` | Continue (alias) | `skip` |
 | `static` | Static member | `static property counter` |
 | `store` | Create variable | `store x as 10` |
+| `teardown` | Cleanup block inside `describe` | `teardown:` |
+| `test` | Single test case | `test "adds numbers":` |
 | `than` | Comparison keyword | `greater than`, `less than` |
 | `then` | Conditional separator | `check if x is 5 then display "yes"` |
 | `to` | Count loop end | `count from 1 to 10:` |
@@ -508,97 +550,96 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `with` | Parameter separator | `call action with x and y` |
 | `zero` | Pattern quantifier | `define pattern zero or more digits` |
 
-**Total:** 54 structural keywords
+**Total:** 63 structural keywords
 
-**Important Note:** The keywords `any`, `push`, `skip`, `than`, and `zero` also appear in the contextual keyword list in the source code, but since structural keywords are checked first in the parser, they **CANNOT** be used as variable names.
+**Important Note:** The keywords `any`, `push`, `skip`, `than`, and `zero` also appear in the contextual keyword list in the source code, but since structural keywords are checked first in the parser, they **CANNOT** be used as variable names. They are counted here, not under contextual keywords.
 
 ---
 
-## Contextual Keywords (29)
+## Contextual Keywords (32)
 
-These keywords are **context-dependent**. Most **CAN** be used as variable names outside their keyword context, but 5 of them overlap with structural keywords and **CANNOT** be used as variables.
+These keywords are **context-dependent**. All but one **CAN** be used as variable names outside their keyword context. Each "works" example below was checked with the release binary: the value can be stored and read back with `display`.
 
-### The 24 You CAN Use as Variables
+### The 31 You CAN Use as Variables
 
 | Keyword | Description | Context | Can Use As Variable? | Example |
 |---------|-------------|---------|----------------------|---------|
 | `at` | Location preposition | File/position operations | ✅ Yes | `store at as 5` works outside file ops |
 | `back` | Return keyword part | `give back` expression | ✅ Yes | `store back as "rear"` works |
+| `binary` | Binary I/O mode | `read binary from h`, `write binary data into h` | ✅ Yes | `store binary as yes` works |
+| `bytes` | Byte count | `read 8 bytes from h` | ✅ Yes | `store bytes as 8` works |
 | `called` | Action name | `define action called X` | ✅ Yes | `store called as "named"` works |
-| `change` | Modify variable | Variable modification | ✅ Yes | `store change as "coins"` works in expressions |
-| `contains` | Contains check | Collection/string operations | ✅ Yes | Can be function name |
+| `change` | Modify variable | Variable modification | ✅ Yes | `store change as "coins"` works |
+| `contain` | Test assertion | `expect items to contain "apple"` | ✅ Yes | `store contain as 3` works |
+| `contains` | Contains check | Collection/string operations | ✅ Yes | `store contains as yes` works |
 | `count` | Count loop | `count from X to Y` | ✅ Yes | `store count as 0` works outside count loops |
-| `create` | Create resource | Resource creation | ✅ Yes | `store create as "make"` works in expressions |
+| `create` | Create resource | Resource creation | ✅ Yes | `store create as "make"` works |
 | `defaults` | Default value | Container properties | ✅ Yes | `store defaults as "standard"` works |
+| `ends` | Text suffix check | `name ends with ".css"` | ✅ Yes | `store ends as "tail"` works |
+| `exist` | Test assertion | `expect value to exist` | ✅ Yes | `store exist as yes` works |
 | `extension` | File extension | File operations | ✅ Yes | `store extension as ".txt"` works |
-| `extensions` | File extensions | File operations | ✅ Yes | `store extensions as list` works |
-| `files` | File collection | File operations | ✅ Yes | `store files as list` works |
+| `extensions` | File extensions | File operations | ✅ Yes | `store extensions as [".txt", ".md"]` works |
+| `files` | File collection | File operations | ✅ Yes | `store files as ["a.txt", "b.txt"]` works |
 | `give` | Return keyword part | `give back` expression | ✅ Yes | `store give as "donate"` works |
+| `have` | Test assertion | `expect items to have length 3` | ✅ Yes | `store have as 2` works |
 | `least` | Minimum amount | Quantifiers | ✅ Yes | `store least as 1` works |
 | `list` | List type | Type/create context | ✅ Yes | `store list as "shopping"` works outside type context |
 | `map` | Map type | Type/create context | ✅ Yes | `store map as "directions"` works outside type context |
 | `most` | Maximum amount | Quantifiers | ✅ Yes | `store most as 100` works |
 | `must` | Requirement | Interface/validation | ✅ Yes | `store must as "required"` works |
 | `needs` | Action parameters | `action needs X` (alias for `with`) | ✅ Yes | `store needs as "requirements"` works |
-| `new` | Instantiate container | Container creation | ✅ Yes | `store new as "fresh"` works (context-sensitive) |
 | `parent` | Parent reference | Container inheritance | ✅ Yes | `store parent as "mom"` works (context-sensitive) |
 | `pattern` | Pattern definition | Pattern matching | ✅ Yes | `store pattern as "design"` works outside pattern context |
 | `read` | Read operation | File I/O | ✅ Yes | `store read as "reading"` works (context-sensitive) |
 | `reversed` | Reverse iteration | Loop direction | ✅ Yes | `store reversed as yes` works |
+| `starts` | Text prefix check | `path starts with "/api"` | ✅ Yes | `store starts as "head"` works |
 | `text` | Text type | Type context | ✅ Yes | `store text as "message"` works outside type context |
+| `that` | Optional filler word | `wait for request that comes in on server as req` | ✅ Yes | `store that as 3` works |
 
-**Count:** 24 contextual keywords that CAN be used as variables (in appropriate contexts)
+**Count:** 31 contextual keywords that CAN be used as variables (in appropriate contexts)
 
-### The 5 You CANNOT Use as Variables
+### The One You CANNOT Declare with `store`
 
-These keywords appear in the contextual list but also appear as structural keywords. Since the parser checks structural keywords first, they are **always reserved**:
+| Keyword | Why | Example Error |
+|---------|-----|---------------|
+| `new` | `store new` always begins `store new constant NAME as value` | `store new as "fresh"` → ERROR: `Expected 'constant' after 'new'` |
 
-| Keyword | Why Reserved | Example Error |
-|---------|-------------|---------------|
-| `any` | Also structural (pattern matching) | `store any as "something"` → ERROR |
-| `push` | Also structural (list operations) | `store push as "add"` → ERROR |
-| `skip` | Also structural (loop control) | `store skip as "jump"` → ERROR |
-| `than` | Also structural (comparisons) | `store than as "then"` → ERROR |
-| `zero` | Also structural (pattern quantifier) | `store zero as 0` → ERROR |
-
-**Count:** 5 contextual keywords that CANNOT be used as variables
-
-**Total Contextual Keywords:** 29 (24 usable + 5 structural overlap)
+**Total Contextual Keywords:** 32 (31 usable with `store`, plus `new`)
 
 ---
 
 ## Other Reserved Keywords (96)
 
-All other reserved keywords that don't fall into structural or contextual-only categories. These keywords cannot be used as variable names.
+All other reserved keywords that are neither structural nor contextual. These keywords cannot be used as variable names.
 
 ### File & I/O Operations (14)
 `append`, `appending`, `close`, `content`, `delete`, `directory`, `exists`, `file`, `found`, `open`, `permission`, `denied`, `recursively`, `write`
 
-### Arithmetic & Comparison (16)
-`add`, `above`, `below`, `divide`, `divided`, `equal`, `greater`, `is`, `less`, `minus`, `modulo`, `multiply`, `plus`, `same`, `subtract`, `times`
+### Arithmetic & Comparison (17)
+`add`, `above`, `below`, `divide`, `divided`, `divided by`, `equal`, `greater`, `is`, `less`, `minus`, `modulo`, `multiply`, `plus`, `same`, `subtract`, `times`
 
-### Pattern Matching (26)
+### Pattern Matching (24)
 `ahead`, `behind`, `between`, `capture`, `captured`, `category`, `character`, `digit`, `exactly`, `find`, `greedy`, `lazy`, `letter`, `matches`, `more`, `of`, `one`, `optional`, `replace`, `script`, `split`, `start`, `unicode`, `whitespace`
 
 **Note:** Some pattern keywords like `any`, `zero`, `pattern`, `text` are counted in other categories (structural or contextual). `greedy` and `lazy` are reserved (they cannot be variable names) but are not accepted in pattern syntax; `greedy match` / `lazy match` is a parse error. Default quantifiers are greedy.
 
-### Web & Network (17)
+### Web & Network (19)
 `accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `port`, `register`, `request`, `respond`, `response`, `server`, `signal`, `status`, `stop`, `timeout`
 
 ### Process & Execution (11)
 `arguments`, `command`, `execute`, `into`, `kill`, `output`, `process`, `running`, `shell`, `spawn`, `using`
 
-### Data & Types (6)
+### Data & Types (5)
 `data`, `database`, `date`, `time`, `url`
 
 **Note:** `list`, `map`, `text` are contextual keywords counted separately.
 
 ### Miscellaneous (6)
-`comes`, `downward`, `exit`, `loop`, `parameters`, `upward`
+`clear`, `error`, `exit`, `loop`, `parameters`, `remove`
 
 **Count:** 96 other reserved keywords
 
-**Note:** This count (96) represents keywords that are not in the structural (54) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 54 + 24 + 96 + 7 = 181.
+**Note:** This count (96) represents keywords that are not in the structural (63) or contextual (32) categories, and are not boolean/null literals (7). Total: 63 + 32 + 96 + 7 = 198.
 
 ---
 
@@ -640,40 +681,46 @@ store nothing as 0            // ❌ ERROR: 'nothing' is reserved
 
 ## Keywords by Feature Category
 
-Keywords organized by functional area for easier reference.
+Keywords organized by functional area for easier reference. A keyword can belong to more than one area.
 
 ### Control Flow (23 keywords)
-`break`, `check`, `continue`, `count`, `downward`, `each`, `end`, `exit`, `for`, `forever`, `from`, `if`, `in`, `loop`, `otherwise`, `repeat`, `reversed`, `skip`, `then`, `to`, `until`, `while`, `by`
+`break`, `by`, `check`, `continue`, `count`, `each`, `end`, `exit`, `for`, `forever`, `from`, `if`, `in`, `loop`, `otherwise`, `repeat`, `reversed`, `route`, `skip`, `then`, `to`, `until`, `while`
 
-### Declaration (18 keywords)
-`action`, `as`, `called`, `change`, `constant`, `container`, `create`, `defaults`, `define`, `extends`, `implements`, `interface`, `list`, `map`, `needs`, `new`, `property`, `static`, `store`
+### Declaration (19 keywords)
+`action`, `as`, `called`, `change`, `constant`, `container`, `create`, `defaults`, `define`, `extends`, `implements`, `interface`, `list`, `map`, `needs`, `new`, `parameters`, `property`, `store`
 
-### Operations (24 keywords)
-`add`, `append`, `back`, `call`, `clear`, `close`, `display`, `divide`, `divided`, `execute`, `give`, `kill`, `load`, `minus`, `module`, `multiply`, `plus`, `pop`, `push`, `remove`, `return`, `subtract`, `times`, `wait`, `write`
+### Operations (23 keywords)
+`add`, `append`, `back`, `call`, `clear`, `close`, `display`, `divide`, `divided`, `divided by`, `execute`, `give`, `kill`, `minus`, `modulo`, `multiply`, `plus`, `push`, `remove`, `return`, `subtract`, `times`, `wait`
 
-### Comparisons (16 keywords)
-`above`, `and`, `at`, `below`, `contains`, `equal`, `greater`, `is`, `least`, `less`, `most`, `not`, `of`, `or`, `same`, `than`, `with`
+### Modules (4 keywords)
+`export`, `include`, `load`, `module`
 
-### Pattern Matching (28 keywords)
+### Comparisons (19 keywords)
+`above`, `and`, `at`, `below`, `contains`, `ends`, `equal`, `greater`, `is`, `least`, `less`, `most`, `not`, `of`, `or`, `same`, `starts`, `than`, `with`
+
+### Pattern Matching (27 keywords)
 `ahead`, `any`, `behind`, `between`, `capture`, `captured`, `category`, `character`, `digit`, `exactly`, `find`, `greedy`, `lazy`, `letter`, `matches`, `more`, `one`, `optional`, `pattern`, `replace`, `script`, `split`, `start`, `text`, `unicode`, `whitespace`, `zero`
 
-### File & I/O (18 keywords)
-`append`, `appending`, `close`, `content`, `delete`, `directory`, `exists`, `extension`, `extensions`, `file`, `files`, `found`, `open`, `permission`, `denied`, `read`, `recursively`, `write`
+### File & I/O (20 keywords)
+`append`, `appending`, `binary`, `bytes`, `close`, `content`, `delete`, `denied`, `directory`, `exists`, `extension`, `extensions`, `file`, `files`, `found`, `open`, `permission`, `read`, `recursively`, `write`
 
-### Web & Network (20 keywords)
-`accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `on`, `port`, `register`, `request`, `respond`, `response`, `server`, `signal`, `status`, `stop`, `timeout`
+### Web & Network (21 keywords)
+`accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `on`, `port`, `register`, `request`, `respond`, `response`, `server`, `signal`, `status`, `stop`, `that`, `timeout`
 
 ### Containers & OOP (17 keywords)
 `constant`, `container`, `defaults`, `event`, `extends`, `implements`, `interface`, `must`, `new`, `on`, `parent`, `private`, `property`, `public`, `requires`, `static`, `trigger`
 
-### Error Handling (4 keywords)
-`catch`, `error`, `try`, `when`
+### Error Handling (5 keywords)
+`catch`, `error`, `finally`, `try`, `when`
 
 ### Process & Execution (11 keywords)
 `arguments`, `command`, `execute`, `into`, `kill`, `output`, `process`, `running`, `shell`, `spawn`, `using`
 
 ### Data & Types (8 keywords)
 `data`, `database`, `date`, `list`, `map`, `text`, `time`, `url`
+
+### Testing (10 keywords)
+`be`, `contain`, `describe`, `empty`, `exist`, `expect`, `have`, `setup`, `teardown`, `test`
 
 ### Values (7 keywords)
 `yes`, `no`, `true`, `false`, `nothing`, `missing`, `undefined`
@@ -682,9 +729,9 @@ Keywords organized by functional area for easier reference.
 
 ## Usage Guidelines & Best Practices
 
-### Rule 1: Structural Keywords Are Always Reserved
+### Rule 1: Structural and Other Keywords Are Always Reserved
 
-Never use the 54 structural keywords as variable names, function names, or any other identifier.
+Never use the 63 structural keywords or the 96 other reserved keywords as variable names, function names, or any other identifier.
 
 **Wrong:**
 ```wfl
@@ -706,7 +753,7 @@ store should_check as yes   // ✅ Descriptive name
 
 ### Rule 2: Check Context for Contextual Keywords
 
-The 24 contextual keywords CAN be used as variables, but only outside their keyword context.
+The 31 contextual keywords marked ✅ CAN be used as variables, but only outside their keyword context.
 
 **Example: `count` contextual usage**
 ```wfl
@@ -727,8 +774,10 @@ end count
 store list as "shopping_list"
 display list
 
-// ❌ In type context, 'list' is reserved
-create list called items   // 'list' is a type keyword here
+// In a list declaration, 'list' is still the type keyword
+create list items:
+    add "apple"
+end list
 ```
 
 ### Rule 3: Use Underscore Convention
@@ -814,6 +863,7 @@ end count
 store file as "data.txt"    // ❌ 'file' is reserved
 store is as yes             // ❌ 'is' is reserved
 store check as "verify"     // ❌ 'check' is reserved
+store test as "unit"        // ❌ 'test' is reserved (testing framework)
 ```
 
 **Solution:** Add context to your variable names.
@@ -821,6 +871,7 @@ store check as "verify"     // ❌ 'check' is reserved
 store target_file as "data.txt"
 store is_valid as yes
 store check_type as "verify"
+store test_kind as "unit"
 ```
 
 ### Pitfall 3: Multi-word Keywords
@@ -840,18 +891,19 @@ store result as 10 divide 2      // ❌ ERROR: 'divide' alone isn't valid here
 
 ### Pitfall 4: Assuming Contextual = Always Usable
 
-**Problem:** Not all contextual keywords are usable as variables.
+**Problem:** Not every contextual keyword works with `store`, and some words look contextual in the source code but are structural.
 
-**The 5 exceptions:**
+**The exceptions:**
 ```wfl
-store any as "something"    // ❌ ERROR: 'any' is also structural
-store push as "add"         // ❌ ERROR: 'push' is also structural
-store skip as "jump"        // ❌ ERROR: 'skip' is also structural
-store than as "then"        // ❌ ERROR: 'than' is also structural
-store zero as 0             // ❌ ERROR: 'zero' is also structural
+store new as "fresh"        // ❌ ERROR: 'store new' starts 'store new constant'
+store any as "something"    // ❌ ERROR: 'any' is structural (also in the contextual list)
+store push as "add"         // ❌ ERROR: 'push' is structural (also in the contextual list)
+store skip as "jump"        // ❌ ERROR: 'skip' is structural (also in the contextual list)
+store than as "then"        // ❌ ERROR: 'than' is structural (also in the contextual list)
+store zero as 0             // ❌ ERROR: 'zero' is structural (also in the contextual list)
 ```
 
-**Solution:** Check both the contextual and structural keyword lists.
+**Solution:** Check the "As Var?" column in the table below.
 
 ### Pitfall 5: A Reserved Word Inside a Multi-word Name
 
@@ -882,10 +934,12 @@ reserved word. See [Words That Commonly Bite](#words-that-commonly-bite).
 
 ## Complete Alphabetical Reference
 
-Complete reference table of all 181 keywords.
+Complete reference table of all 198 keywords and literals. "As Var?" shows
+whether `store <word> as 1` is accepted.
 
 | Keyword | Type | Category | As Var? | Example |
 |---------|------|----------|---------|---------|
+| `above` | Other | Comparison | ❌ | `above threshold` |
 | `accepting` | Other | Web/Network | ❌ | `accepting connections` |
 | `action` | Structural | Declaration | ❌ | `define action called name:` |
 | `add` | Other | Operations | ❌ | `add 5 to total` |
@@ -897,15 +951,17 @@ Complete reference table of all 181 keywords.
 | `arguments` | Other | Process | ❌ | `with arguments` |
 | `as` | Structural | Declaration | ❌ | `store x as 10` |
 | `at` | Contextual | Comparison | ✅ | `at position 5` |
-| `above` | Other | Comparison | ❌ | `above threshold` |
 | `back` | Contextual | Operations | ✅ | `give back result` |
+| `be` | Structural | Testing | ❌ | `expect x to be greater than 5` |
 | `behind` | Other | Pattern | ❌ | `behind pattern` |
 | `below` | Other | Comparison | ❌ | `below limit` |
 | `between` | Other | Pattern | ❌ | `between values` |
+| `binary` | Contextual | File I/O | ✅ | `read binary from h` / `write binary data into h` |
 | `break` | Structural | Control Flow | ❌ | `break loop` |
 | `by` | Structural | Control Flow | ❌ | `count from 1 to 10 by 2:` · `10 divided by 2` · `split text by ","` |
-| `called` | Contextual | Declaration | ✅ | `action called name` |
+| `bytes` | Contextual | File I/O | ✅ | `read 8 bytes from h` |
 | `call` | Structural | Operations | ❌ | `call function` |
+| `called` | Contextual | Declaration | ✅ | `action called name` |
 | `capture` | Other | Pattern | ❌ | `capture group` |
 | `captured` | Other | Pattern | ❌ | `same as captured "word"` (pattern backreference) |
 | `catch` | Structural | Error Handling | ❌ | `catch error` |
@@ -919,6 +975,7 @@ Complete reference table of all 181 keywords.
 | `command` | Other | Process | ❌ | `execute command` |
 | `connections` | Other | Web/Network | ❌ | `network connections` |
 | `constant` | Structural | Declaration | ❌ | `constant property` |
+| `contain` | Contextual | Testing | ✅ | `expect items to contain "apple"` |
 | `container` | Structural | OOP | ❌ | `create container` |
 | `contains` | Contextual | Comparison | ✅ | `list contains item` |
 | `content` | Other | File I/O | ❌ | `file content` |
@@ -933,24 +990,30 @@ Complete reference table of all 181 keywords.
 | `define` | Structural | Declaration | ❌ | `define action` |
 | `delete` | Other | File I/O | ❌ | `delete file` |
 | `denied` | Other | File I/O | ❌ | `permission denied` |
+| `describe` | Structural | Testing | ❌ | `describe "Math":` |
 | `digit` | Other | Pattern | ❌ | `digit class` |
 | `directory` | Other | File I/O | ❌ | `create directory` |
 | `display` | Structural | Operations | ❌ | `display message` |
 | `divide` | Other | Operations | ❌ | `divide by 2` |
-| `divided` | Other | Operations | ❌ | `divided by` (multi-word) |
-| `downward` | Other | Control Flow | ❌ | `count downward` |
+| `divided` | Other | Operations | ❌ | `10 divided by 2` (first word of `divided by`) |
+| `divided by` | Other | Operations | ❌ | `10 divided by 2` |
 | `each` | Structural | Control Flow | ❌ | `for each item` |
+| `empty` | Structural | Testing | ❌ | `expect items to be empty` |
 | `end` | Structural | Control Flow | ❌ | `end block` |
+| `ends` | Contextual | Comparison | ✅ | `name ends with ".css"` |
 | `equal` | Other | Comparison | ❌ | `is equal to` |
 | `error` | Other | Error Handling | ❌ | `handle error` |
 | `event` | Structural | OOP | ❌ | `define event` |
 | `exactly` | Other | Pattern | ❌ | `exactly 5 times` |
 | `execute` | Other | Process | ❌ | `execute command` |
+| `exist` | Contextual | Testing | ✅ | `expect value to exist` |
 | `exists` | Other | File I/O | ❌ | `file exists` |
 | `exit` | Other | Control Flow | ❌ | `exit loop` / `exit program with code 1` |
+| `expect` | Structural | Testing | ❌ | `expect result to equal 5` |
+| `export` | Structural | Modules | ❌ | `export container Person` |
+| `extends` | Structural | OOP | ❌ | `container extends` |
 | `extension` | Contextual | File I/O | ✅ | `file extension` |
 | `extensions` | Contextual | File I/O | ✅ | `file extensions` |
-| `extends` | Structural | OOP | ❌ | `container extends` |
 | `false` | Literal | Values | ❌ | Boolean false |
 | `file` | Other | File I/O | ❌ | `open file` |
 | `files` | Contextual | File I/O | ✅ | `list files` |
@@ -965,10 +1028,12 @@ Complete reference table of all 181 keywords.
 | `greater` | Other | Comparison | ❌ | `greater than` |
 | `greedy` | Other | Pattern | ❌ | Reserved; not accepted in pattern syntax. Default quantifiers (`one or more`, `zero or more`, `at least N`) are greedy. |
 | `handler` | Other | Web/Network | ❌ | `request handler` |
+| `have` | Contextual | Testing | ✅ | `expect items to have length 3` |
 | `header` | Other | Web/Network | ❌ | `HTTP header` |
 | `if` | Structural | Control Flow | ❌ | `check if` |
 | `implements` | Structural | OOP | ❌ | `implements interface` |
 | `in` | Structural | Control Flow | ❌ | `for each in` |
+| `include` | Structural | Modules | ❌ | `include from "lib.wfl"` |
 | `interface` | Structural | OOP | ❌ | `create interface` |
 | `into` | Other | Process | ❌ | `output into` |
 | `is` | Other | Comparison | ❌ | `x is 5` |
@@ -979,21 +1044,21 @@ Complete reference table of all 181 keywords.
 | `letter` | Other | Pattern | ❌ | `letter class` |
 | `list` | Contextual | Data & Types | ✅ | `create list` |
 | `listen` | Other | Web/Network | ❌ | `listen on port` |
-| `load` | Structural | Operations | ❌ | `load module` |
+| `load` | Structural | Modules | ❌ | `load module` |
 | `loop` | Other | Control Flow | ❌ | `loop reference` |
 | `map` | Contextual | Data & Types | ✅ | `create map` |
 | `matches` | Other | Pattern | ❌ | `pattern matches` |
 | `milliseconds` | Other | Web/Network | ❌ | `timeout milliseconds` |
 | `minus` | Other | Operations | ❌ | `minus 5` |
-| `modulo` | Other | Operations | ❌ | `10 modulo 3` |
 | `missing` | Literal | Values | ❌ | Null alias |
-| `module` | Structural | Operations | ❌ | `load module` |
+| `module` | Structural | Modules | ❌ | `load module` |
+| `modulo` | Other | Operations | ❌ | `10 modulo 3` |
 | `more` | Other | Pattern | ❌ | `one or more` |
 | `most` | Contextual | Comparison | ✅ | `at most 10` |
 | `multiply` | Other | Operations | ❌ | `multiply by 2` |
 | `must` | Contextual | OOP | ✅ | `must implement` |
 | `needs` | Contextual | Declaration | ✅ | `action needs` |
-| `new` | Contextual | Declaration | ✅ | `new instance` |
+| `new` | Contextual | Declaration | ❌ | `store new constant MAX as 10` (so `store new as ...` is an error) |
 | `no` | Literal | Values | ❌ | Boolean false |
 | `not` | Structural | Comparison | ❌ | `not equal` |
 | `nothing` | Literal | Values | ❌ | Null value |
@@ -1005,11 +1070,11 @@ Complete reference table of all 181 keywords.
 | `or` | Structural | Comparison | ❌ | `x or y` |
 | `otherwise` | Structural | Control Flow | ❌ | `otherwise:` / `otherwise check if` |
 | `output` | Other | Process | ❌ | `wait for read output from process child as text` |
+| `parameters` | Other | Declaration | ❌ | `define action called f with parameters x:` |
 | `parent` | Contextual | OOP | ✅ | `parent reference` |
 | `pattern` | Contextual | Pattern | ✅ | `define pattern` |
 | `permission` | Other | File I/O | ❌ | `file permission` |
 | `plus` | Other | Operations | ❌ | `plus 5` |
-| `pop` | Other | Operations | ❌ | `pop of list` |
 | `port` | Other | Web/Network | ❌ | `listen on port` |
 | `private` | Structural | OOP | ❌ | `private property` |
 | `process` | Other | Process | ❌ | `spawn process` |
@@ -1033,19 +1098,24 @@ Complete reference table of all 181 keywords.
 | `same` | Other | Comparison | ❌ | `is same as` |
 | `script` | Other | Pattern | ❌ | `unicode script` |
 | `server` | Other | Web/Network | ❌ | `web server` |
+| `setup` | Structural | Testing | ❌ | `setup:` inside `describe` |
 | `shell` | Other | Process | ❌ | `shell command` |
 | `signal` | Other | Web/Network | ❌ | `server signal` |
 | `skip` | Structural | Control Flow | ❌ | `skip iteration` |
 | `spawn` | Other | Process | ❌ | `spawn process` |
 | `split` | Other | Pattern | ❌ | `split by pattern` |
 | `start` | Other | Pattern / Web | ❌ | `start of text` (pattern anchor) · `start streaming response to req ...` |
+| `starts` | Contextual | Comparison | ✅ | `path starts with "/api"` |
 | `static` | Structural | OOP | ❌ | `static property` |
 | `status` | Other | Web/Network | ❌ | `response status` |
 | `stop` | Other | Web/Network | ❌ | `stop server` |
 | `store` | Structural | Declaration | ❌ | `store variable` |
 | `subtract` | Other | Operations | ❌ | `subtract 5` |
+| `teardown` | Structural | Testing | ❌ | `teardown:` inside `describe` |
+| `test` | Structural | Testing | ❌ | `test "adds numbers":` |
 | `text` | Contextual | Data & Types | ✅ | `text type` |
 | `than` | Structural | Comparison | ❌ | `greater than` |
+| `that` | Contextual | Web/Network | ✅ | `wait for request that comes in on server as req` |
 | `then` | Structural | Control Flow | ❌ | `if condition then` |
 | `time` | Other | Data & Types | ❌ | `current time` |
 | `timeout` | Other | Web/Network | ❌ | `request timeout` |
@@ -1057,7 +1127,6 @@ Complete reference table of all 181 keywords.
 | `undefined` | Literal | Values | ❌ | Null alias |
 | `unicode` | Other | Pattern | ❌ | `unicode support` |
 | `until` | Structural | Control Flow | ❌ | `repeat until` |
-| `upward` | Other | Control Flow | ❌ | `count upward` |
 | `url` | Other | Data & Types | ❌ | `URL type` |
 | `using` | Other | Process | ❌ | `using shell` |
 | `wait` | Structural | Operations | ❌ | `wait for result` |
@@ -1069,7 +1138,7 @@ Complete reference table of all 181 keywords.
 | `yes` | Literal | Values | ❌ | Boolean true |
 | `zero` | Structural | Pattern | ❌ | `zero or more` |
 
-**Total: 181 keywords and literals**
+**Total: 198 keywords and literals**
 
 ---
 
