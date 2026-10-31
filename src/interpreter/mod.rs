@@ -6,6 +6,7 @@ pub mod control_flow;
 pub mod database;
 pub mod environment;
 pub mod error;
+mod file_filter;
 #[cfg(test)]
 mod file_io_tests;
 pub(crate) mod io_capture;
@@ -58,6 +59,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
+use file_filter::FileFilter;
 use once_cell::sync::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -15792,6 +15794,7 @@ impl Interpreter {
             Expression::ListFilesRecursive {
                 path,
                 extensions,
+                filter_kind,
                 line,
                 column,
             } => {
@@ -15847,9 +15850,13 @@ impl Interpreter {
                 } else {
                     None
                 };
+                let filter = ext_filters
+                    .map(|values| FileFilter::new(*filter_kind, values))
+                    .transpose()
+                    .map_err(|message| RuntimeError::new(message, *line, *column))?;
 
                 // Perform recursive directory listing
-                match self.list_files_recursive(&path_str, ext_filters).await {
+                match self.list_files_recursive(&path_str, filter.as_ref()).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
                     Err(e) => Err(RuntimeError::new(
                         format!("Failed to list files recursively: {e}"),
@@ -15861,6 +15868,7 @@ impl Interpreter {
             Expression::ListFilesFiltered {
                 path,
                 extensions,
+                filter_kind,
                 line,
                 column,
             } => {
@@ -15910,8 +15918,11 @@ impl Interpreter {
                     }
                 }
 
+                let filter = FileFilter::new(*filter_kind, ext_filters)
+                    .map_err(|message| RuntimeError::new(message, *line, *column))?;
+
                 // List files with filtering
-                match self.list_files_filtered(&path_str, ext_filters).await {
+                match self.list_files_filtered(&path_str, &filter).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
                     Err(e) => Err(RuntimeError::new(
                         format!("Failed to list files with filter: {e}"),
@@ -17274,7 +17285,7 @@ impl Interpreter {
     async fn list_files_recursive(
         &self,
         path: &str,
-        extensions: Option<Vec<String>>,
+        filter: Option<&FileFilter>,
     ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
 
@@ -17290,22 +17301,8 @@ impl Interpreter {
 
                 if path.is_dir() {
                     dirs_to_process.push(path_str);
-                } else if path.is_file() {
-                    // Check extension filter if provided
-                    if let Some(ref exts) = extensions {
-                        let file_ext = path
-                            .extension()
-                            .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{ext}"));
-
-                        if let Some(ext) = file_ext
-                            && exts.iter().any(|e| e == &ext)
-                        {
-                            files.push(Value::Text(path_str.into()));
-                        }
-                    } else {
-                        files.push(Value::Text(path_str.into()));
-                    }
+                } else if path.is_file() && filter.is_none_or(|filter| filter.matches(&path)) {
+                    files.push(Value::Text(path_str.into()));
                 }
             }
         }
@@ -17316,7 +17313,7 @@ impl Interpreter {
     async fn list_files_filtered(
         &self,
         path: &str,
-        extensions: Vec<String>,
+        filter: &FileFilter,
     ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
 
@@ -17326,20 +17323,8 @@ impl Interpreter {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
 
-            if path.is_file() {
-                let path_str = path.to_string_lossy().to_string();
-
-                // Check extension filter
-                let file_ext = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{ext}"));
-
-                if let Some(ext) = file_ext
-                    && extensions.iter().any(|e| e == &ext)
-                {
-                    files.push(Value::Text(path_str.into()));
-                }
+            if path.is_file() && filter.matches(&path) {
+                files.push(Value::Text(path.to_string_lossy().to_string().into()));
             }
         }
 

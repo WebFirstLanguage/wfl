@@ -9390,6 +9390,7 @@ impl TypeChecker {
                 extensions,
                 line,
                 column,
+                ..
             } => {
                 self.check_file_listing_operands(
                     path,
@@ -9404,6 +9405,7 @@ impl TypeChecker {
                 extensions,
                 line,
                 column,
+                ..
             } => {
                 self.check_file_listing_operands(path, extensions, *line, *column);
                 Type::List(Box::new(Type::Text))

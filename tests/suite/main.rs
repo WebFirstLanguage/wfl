@@ -80,6 +80,7 @@ mod issue_709_quantifier_greed_test;
 mod issues_698_700_test;
 mod lint_cli_test;
 mod list_double_execution_test;
+mod list_files_pattern_test;
 mod load_module_undefined_hint_test;
 mod main_loop_parser_test;
 mod managed_auth_http_test;
