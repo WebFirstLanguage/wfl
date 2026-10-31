@@ -68,6 +68,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   used to bind the object over it).
 
 ### Changed
+- **Count-loop step errors name the program's own loop.** A count loop's step
+  is a positive distance (`to` counts up, `down to` counts down). When a loop
+  that would run has a step of zero or less, the error now suggests the loop
+  the program most likely meant, e.g. "Write `count from 5 down to 1`",
+  instead of a fixed unrelated example.
 - **Nightly versions are numbered from `vYY.M.N` tags at publish time.** The
   next build for the current UTC month is max N + 1, or 1 if none exist, and
   the committed `.build_meta.json` is a same-month floor only. It is no longer
@@ -76,6 +81,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   succeed). A successful nightly writes the version into the tree at build
   time and pushes the `vX.Y.Z` tag at the built commit; a same-commit rerun
   reuses that tag instead of burning a new number.
+
+### Deprecated
+- **An empty count loop with a step of zero or less** (#800, removal tracked in
+  #801). Examples are `count from 5 to 1 by -1`, the mirror
+  `count from 1 down to 5 by -1`, and a `by 0` on either.
+  - **Before:** such a loop ran zero times without a word, so a line that
+    reads like a countdown silently did nothing.
+  - **Now:** it still runs zero times and the program carries on, but WFL
+    prints a warning on stderr, once per loop. The warning names the loop the
+    program most likely meant ("Write `count from 5 down to 1`") and the date
+    it becomes an error.
+  - **From 2027-12-01 it will be a runtime error**, after the one-year window
+    GOVERNANCE.md §3.1 requires.
+  - **Migration:** rewrite the line with `down to` and a positive step. Review
+    the loop body first: it never ran before, and the rewritten loop runs it.
+    Delete the loop instead if it was never meant to run.
+  - **Not affected:** an empty range with a valid step
+    (`count from 1 to length of items` over an empty list) does not warn.
 
 ### Fixed
 - **Count and for-each loop errors point at the loop's first line.** An error

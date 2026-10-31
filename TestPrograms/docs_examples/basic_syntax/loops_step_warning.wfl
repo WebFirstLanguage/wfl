@@ -1,0 +1,9 @@
+// Example from: Docs/03-language-basics/loops-and-iteration.md
+// The step is a distance, so a negative step is always reported. This range
+// is empty in the written direction, so the loop runs zero times and the
+// program carries on, with a warning on stderr naming the loop it meant.
+
+count from 5 to 1 by -1:
+    display count
+end count
+display "The program carries on."

@@ -21,6 +21,14 @@
     "tags": ["keywords", "reserved-words", "naming", "patterns"],
     "doc_purpose": "Uses start, captured, by and find in their real jobs and names its own variables start_time, command_output, current_route and captured_text instead of the reserved words"
   },
+  "docs_examples/basic_syntax/loops_step_warning.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md#count-with-step",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["loops", "count", "deprecation"],
+    "doc_purpose": "A negative count-loop step on an empty range still runs zero times, but now prints a warning naming the loop the program meant"
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",
