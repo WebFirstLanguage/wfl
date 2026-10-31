@@ -5,6 +5,7 @@ use tower_lsp::lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, Position, Range, Url,
 };
 use wfl::analyzer::Analyzer;
+use wfl::analyzer::static_analyzer::StaticAnalyzer;
 use wfl::diagnostics::{DiagnosticReporter, WflDiagnostic};
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::{Parser, ast::Program};
@@ -116,6 +117,10 @@ impl WflLanguageCore {
                         diagnostics.push(wfl_diag);
                     }
                 }
+
+                // `random_seed` in a file that also does crypto or auth stops
+                // `wfl` from running it, so the editor must show it as an error.
+                diagnostics.extend(analyzer.check_insecure_rng_seeding(&program, file_id));
 
                 // Run type checking. A shared-budget breach is surfaced as a
                 // diagnostic here (the LSP only reports; it never executes), so
@@ -230,6 +235,19 @@ impl WflLanguageCore {
                     },
                 };
             }
+        } else if wfl_diag.line > 0 {
+            // A diagnostic without a span (such as ANALYZE-SECURITY) still
+            // records its 1-based line and column; place it there rather than
+            // at the start of the file.
+            let line = (wfl_diag.line - 1) as u32;
+            let character = wfl_diag.column.saturating_sub(1) as u32;
+            range = Range {
+                start: Position { line, character },
+                end: Position {
+                    line,
+                    character: character + 1,
+                },
+            };
         }
 
         Diagnostic {
@@ -314,4 +332,40 @@ mod tests {
             "Invalid code should have diagnostics"
         );
     }
+
+    #[test]
+    fn test_random_seed_in_crypto_code_is_an_error_in_the_editor() {
+        // `wfl` refuses to run this file, so the editor (and the MCP
+        // `analyze_wfl` tool, which shares this pipeline) must not call it clean.
+        let core = WflLanguageCore::new();
+        let diagnostics = core.analyze_document(
+            "store digest as hash_password of \"hunter2\"\nstore seeded as random_seed of 42\n",
+        );
+        let security: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.starts_with(RANDOM_SEED_RULE))
+            .collect();
+        assert_eq!(security.len(), 1, "got {diagnostics:?}");
+        assert_eq!(security[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(
+            security[0].range.start.line, 1,
+            "the error belongs on the random_seed line (0-based line 1)"
+        );
+    }
+
+    #[test]
+    fn test_random_seed_without_crypto_is_clean_in_the_editor() {
+        let core = WflLanguageCore::new();
+        let diagnostics =
+            core.analyze_document("store seeded as random_seed of 42\ndisplay seeded\n");
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| !d.message.starts_with(RANDOM_SEED_RULE)),
+            "seeding alone is legal: {diagnostics:?}"
+        );
+    }
+
+    const RANDOM_SEED_RULE: &str =
+        "random_seed must not be used in authentication, session, or cryptographic code";
 }
