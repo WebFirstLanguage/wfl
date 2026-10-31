@@ -13,6 +13,14 @@
     "tags": ["errors", "cli", "stderr"],
     "doc_purpose": "Show an intentional CLI diagnostic with a nonzero exit status"
   },
+  "docs_examples/keyword_reference/common_reserved_words.wfl": {
+    "doc_section": "Docs/reference/reserved-keywords.md#words-that-commonly-bite",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["keywords", "reserved-words", "naming", "patterns"],
+    "doc_purpose": "Uses start, captured, by and find in their real jobs and names its own variables start_time, command_output, current_route and captured_text instead of the reserved words"
+  },
   "docs_examples/tls_sni/multiple_domains.wfl": {
     "doc_section": "Docs/04-advanced-features/web-servers.md#multiple-domains-on-one-https-port",
     "type": "snippet",

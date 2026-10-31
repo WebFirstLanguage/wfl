@@ -109,6 +109,15 @@ WFL has **181** keywords and literals. Many cannot be used as bare variable name
 | `current` | `current_value`, `current_item` |
 | `list` (in some contexts) | `item_list`, `entries` |
 | `count` (inside count loops) | loop variable is special; use `total_count` for your own counter outside |
+| `start` | `start_time`, `start_index` |
+| `output` | `command_output`, `process_output` |
+| `route` | `current_route`, `request_path` |
+| `captured` | `captured_text`, `matched_word` |
+| `by` | `step_size`, `divisor`, `separator` |
+| `find` | `search_term`, `find_result` |
+
+Why these words are reserved, and the full list of words that commonly bite:
+[Words That Commonly Bite](../reference/reserved-keywords.md#words-that-commonly-bite).
 
 ```wfl
 // Wrong — structural keywords as names fail to parse
