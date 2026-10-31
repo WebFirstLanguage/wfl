@@ -1362,6 +1362,7 @@ fn count_loop_step_error(start: f64, end: f64, step: f64) -> String {
 /// Until then such a loop still runs zero times and only warns, because
 /// programs have long relied on it finishing quietly and GOVERNANCE.md §3.1
 /// keeps a broken behaviour working for a year after it is announced.
+/// Tracked in #801: on or after this date, make the warning an error.
 const COUNT_LOOP_STEP_ERROR_FROM: &str = "2027-12-01";
 
 /// The warning for a bad step on an empty range: the same diagnostic as the

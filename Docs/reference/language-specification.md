@@ -127,8 +127,9 @@ end count
 ```
 
 `to` counts up and `down to` counts down. `<step>` is a distance and must be a
-positive number; it is checked before the loop starts, even when the range is
-empty.
+positive, finite number; it is checked before the loop starts. A step of zero
+or less is a runtime error when the loop would run. On an empty range the loop
+runs zero times with a warning on stderr; from 2027-12-01 that is an error too.
 
 **For Each Loop:**
 ```

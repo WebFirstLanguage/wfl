@@ -87,23 +87,40 @@ step: `count from 10 down to 1 by 2` gives 10, 8, 6, 4, 2.
 
 WFL checks the step before the loop starts, **every time** — even when the
 range is empty and the body would never run. A step of `0` or a negative step
-is reported as an error instead of being silently ignored, and a negative
-step's error names the loop you most likely meant:
+is never silently ignored, and a negative step's message names the loop you
+most likely meant:
+
+- **If the loop would run** (for example `count from 5 down to 1 by -1`), it is
+  an error and the program stops:
+
+  ```
+  Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`.
+  ```
+
+- **If the range is empty**, the loop still runs zero times and the program
+  carries on, but WFL prints a warning on stderr (once per loop). From
+  **2027-12-01** this will be an error too:
 
 ```wfl
 count from 5 to 1 by -1:
     display count
 end count
+display "The program carries on."
 ```
 
-**Error:**
+**Output:**
 ```
-Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`.
+The program carries on.
 ```
 
-Programs written for earlier versions of WFL may hit this error. Those
-versions checked the step only when the loop would run, so a line like
-`count from 5 to 1 by -1` quietly did nothing at all. Rewrite it with
+**Warning (on stderr):**
+```
+Warning: Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`. This loop's range is empty, so it runs zero times; from 2027-12-01 this will be an error. (count loop ending on line 3)
+```
+
+Earlier versions of WFL checked the step only when the loop would run, so a
+line like `count from 5 to 1 by -1` quietly did nothing at all — which is why
+it only warns for now. Fix it before the deadline by rewriting it with
 `down to` and a positive step, as the message suggests — but read the loop's
 body first: it never ran before, so the rewritten loop runs it for the first
 time. If the loop was never meant to run, delete it instead.
