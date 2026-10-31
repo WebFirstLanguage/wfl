@@ -833,6 +833,14 @@
     "tags": ["stdlib", "crypto", "passwords", "argon2", "rehash"],
     "doc_purpose": "Verifies an existing account password before upgrading its Argon2id memory and iteration costs."
   },
+  "docs_examples/stdlib_functions/list_files_pattern.wfl": {
+    "doc_section": "Docs/05-standard-library/filesystem-module.md#pattern-rules",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["stdlib", "filesystem", "list-files", "glob"],
+    "doc_purpose": "Lists files whose names match a glob, in one folder and recursively."
+  },
   "docs_examples/modules/diamond/main.wfl": {
     "doc_section": "Docs/04-advanced-features/modules.md",
     "type": "executable",

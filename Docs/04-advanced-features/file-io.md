@@ -263,6 +263,14 @@ for each wfl_file in wfl_files:
 end for
 ```
 
+The pattern is a glob matched against each file's name: `*` matches any run
+of characters, `?` exactly one, and `[abc]` one character from a set. Filtered
+results contain only files, each joined with the directory path (for example
+`./main.wfl`). Add `recursively` to search subfolders too:
+`list files recursively in "." with pattern "*.wfl"`. See the
+[pattern rules](../05-standard-library/filesystem-module.md#pattern-rules)
+for the full list, including `with extension` and invalid patterns.
+
 ### Creating Directories
 
 ```wfl
