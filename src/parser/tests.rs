@@ -3368,31 +3368,46 @@ fn nested_find_all_parses_in_polynomial_steps() {
     // compatibility fallback, so each level is parsed a second time. That
     // second parse must not itself recurse into nested `find all` handling, or
     // nesting depth d would cost about 2^d primary-expression parses on
-    // untrusted input.
+    // untrusted input. Nesting through the text operand is the shape where the
+    // old reading parses too, so both readings reach the inner `find`.
     let depth = 30;
-    let mut input = String::from("store result as ");
-    for _ in 0..depth {
-        input.push_str("find all (");
-    }
-    input.push_str("word");
-    for _ in 0..depth {
-        input.push_str(") in text_value");
-    }
-    input.push('\n');
+    let through_text = format!(
+        "store result as {}text_value{}\n",
+        "find all word in (".repeat(depth),
+        ")".repeat(depth)
+    );
+    let through_pattern = format!(
+        "store result as {}word{}\n",
+        "find all (".repeat(depth),
+        ") in text_value".repeat(depth)
+    );
 
-    let tokens = lex_wfl_with_positions(&input);
-    let mut parser = Parser::new(&tokens);
-    let program = parser.parse().expect("nested find all must parse");
-    let Some(Statement::VariableDeclaration { value, .. }) = program.statements.first() else {
-        panic!("expected a store statement, got {:?}", program.statements);
-    };
-    assert!(
-        format!("{value:?}").starts_with("PatternFindAll"),
-        "the outermost expression must be a find-all, got {value:?}"
-    );
-    assert!(
-        parser.parse_steps < 50_000,
-        "nested find all took {} primary-expression parses at depth {depth}",
-        parser.parse_steps
-    );
+    // The `wfl` binary parses on its large interpreter stack. An unoptimized
+    // build needs more than a default 2 MiB test thread at this depth; the
+    // single-match `find (...)` nesting overflows there from depth 27 too.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || {
+            for input in [through_text, through_pattern] {
+                let tokens = lex_wfl_with_positions(&input);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().expect("nested find all must parse");
+                let Some(Statement::VariableDeclaration { value, .. }) = program.statements.first()
+                else {
+                    panic!("expected a store statement, got {:?}", program.statements);
+                };
+                assert!(
+                    format!("{value:?}").starts_with("PatternFindAll"),
+                    "the outermost expression must be a find-all for {input}, got {value:?}"
+                );
+                assert!(
+                    parser.parse_steps < 50_000,
+                    "nested find all took {} primary-expression parses at depth {depth}: {input}",
+                    parser.parse_steps
+                );
+            }
+        })
+        .expect("spawn parser thread")
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
 }
