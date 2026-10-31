@@ -340,6 +340,27 @@ store digest as hash_password of "hunter2"
     );
 }
 
+#[test]
+fn a_program_action_that_replaces_a_builtin_is_not_the_builtin() {
+    // Negative control: WFL lets a program define its own action under some
+    // builtin names (EXPLICIT_CALL_BUILTIN_FUNCTIONS, e.g. `session_cookie`).
+    // A bare mention then refers to that action, so no session code runs.
+    let program = parse(
+        r#"
+define action called session_cookie with parameters name:
+    give back "cookie for " with name
+end action
+store make_cookie as session_cookie
+store seeded as random_seed of 42
+"#,
+    );
+    let diagnostics = Analyzer::new().check_insecure_rng_seeding(&program, 0);
+    assert!(
+        diagnostics.is_empty(),
+        "a mention of the program's own action is not a session builtin: {diagnostics:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Boundary: general-purpose hashes stay excluded (deliberate design, see
 // SECURITY_SENSITIVE_BUILTINS), even in the newly walked constructs.
