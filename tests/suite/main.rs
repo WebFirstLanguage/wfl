@@ -54,6 +54,7 @@ mod file_io_modes_test;
 mod file_io_performance_test;
 mod file_io_windows_sync_errors_test;
 mod filesystem_mode_test;
+mod find_all_syntax_test;
 mod fixer_output_test;
 mod fixer_return_type_roundtrip_test;
 mod fixer_runtime_test;

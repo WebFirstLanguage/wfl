@@ -1,0 +1,56 @@
+// `find all <pattern> in <text>` — the documented all-matches spelling.
+// The gated runner executes this with --test; a missing or wrong result fails the file.
+
+describe "find all returns every match":
+
+    test "find all returns each word in order":
+        create pattern word:
+            one or more letter
+        end pattern
+        store word_matches as find all word in "The quick brown fox"
+        expect word_matches to have length 4
+        store first_match as word_matches[0]
+        store first_text as first_match["matched_text"]
+        expect first_text to equal "The"
+        store last_match as word_matches[3]
+        store last_text as last_match["matched_text"]
+        expect last_text to equal "fox"
+    end test
+
+    test "find all agrees with pattern_find_all":
+        create pattern digits:
+            one or more digit
+        end pattern
+        store sample as "a1 b22 c333"
+        store via_phrase as find all digits in sample
+        store via_function as pattern_find_all of sample and digits
+        expect via_phrase to have length 3
+        expect via_function to have length 3
+    end test
+
+    test "find all accepts a multi-word pattern name":
+        create pattern phone number:
+            digit digit digit followed by "-" followed by digit digit digit digit
+        end pattern
+        store numbers as find all phone number in "call 555-1234 or 555-9876"
+        expect numbers to have length 2
+    end test
+
+    test "find all with no matches is an empty list":
+        create pattern digits:
+            one or more digit
+        end pattern
+        store hits as find all digits in "no numbers here"
+        expect hits to have length 0
+    end test
+
+    test "a pattern already named all digits keeps the single-match meaning":
+        create pattern all digits:
+            one or more digit
+        end pattern
+        store hit as find all digits in "ab 12 cd 345"
+        store hit_text as hit["matched_text"]
+        expect hit_text to equal "12"
+    end test
+
+end describe

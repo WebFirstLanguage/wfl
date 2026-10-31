@@ -7,7 +7,7 @@ use super::super::{
 };
 use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
-use crate::lexer::token::Token;
+use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::stmt::PatternParser;
 use std::sync::Arc;
 
@@ -118,6 +118,126 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_expression()
         }
+    }
+
+    /// The single-match `find <pattern> in <text>`, entered just after `find`.
+    fn parse_single_find_after_find(
+        &mut self,
+        find_token: &TokenWithPosition,
+        stop_at_clause: bool,
+    ) -> Result<Expression, ParseError> {
+        let pattern_expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
+        self.expect_token(
+            Token::KeywordIn,
+            "Expected 'in' after pattern in find expression",
+        )?;
+        let text_expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
+        Ok(Expression::PatternFind {
+            pattern: Box::new(pattern_expr),
+            text: Box::new(text_expr),
+            line: find_token.line,
+            column: find_token.column,
+        })
+    }
+
+    /// `find all <pattern> in <text>`, entered just after `find`. Returns
+    /// `None`, with the cursor untouched, when the tokens are not that form.
+    ///
+    /// The lexer merges `all` with a following plain word, so the form arrives
+    /// as `Identifier("all <name>")`, or as a bare `Identifier("all")` before an
+    /// operand that does not merge (`all (p)`). Before this form existed, the
+    /// same tokens were a single-match `find` over a binding literally named
+    /// `all <name>` or `all`. That old parse becomes the node's legacy fallback,
+    /// which later phases use whenever the binding is defined. When only the
+    /// old parse succeeds, or the two readings end at different tokens, the old
+    /// parse is returned unchanged. No previously valid program changes meaning.
+    fn parse_find_all_after_find(
+        &mut self,
+        find_token: &TokenWithPosition,
+        stop_at_clause: bool,
+    ) -> Result<Option<Expression>, ParseError> {
+        if self.legacy_find_only {
+            return Ok(None);
+        }
+        let Some(all_token) = self.cursor.peek() else {
+            return Ok(None);
+        };
+        let Token::Identifier(binding) = &all_token.token else {
+            return Ok(None);
+        };
+        let pattern_lead = if binding == "all" {
+            // `find all in <text>` searches with a pattern named `all`.
+            if matches!(
+                self.cursor.peek_next().map(|t| &t.token),
+                None | Some(Token::KeywordIn | Token::Eol)
+            ) {
+                return Ok(None);
+            }
+            None
+        } else if let Some(name) = binding.strip_prefix("all ") {
+            Some(Expression::Variable(
+                name.to_string(),
+                all_token.line,
+                all_token.column,
+            ))
+        } else {
+            return Ok(None);
+        };
+
+        // The old reading, parsed exactly as before `find all` existed.
+        let start = self.cursor.checkpoint();
+        let errors_before = self.errors.len();
+        self.legacy_find_only = true;
+        let legacy = self.parse_single_find_after_find(find_token, stop_at_clause);
+        self.legacy_find_only = false;
+        let legacy_end = self.cursor.checkpoint();
+        let legacy_errors = self.errors.split_off(errors_before);
+
+        self.cursor.rewind(start);
+        self.bump_sync(); // Consume `all`, merged with its operand if any
+        let operands = self.parse_find_all_operands(pattern_lead, stop_at_clause);
+        let readings_agree = self.cursor.checkpoint() == legacy_end;
+
+        let find_all = |pattern, text, legacy: Option<Expression>| Expression::PatternFindAll {
+            text: Box::new(text),
+            pattern: Box::new(pattern),
+            legacy_binding: legacy.as_ref().map(|_| binding.clone()),
+            legacy_fallback: legacy.map(Box::new),
+            line: find_token.line,
+            column: find_token.column,
+        };
+        match (operands, legacy) {
+            (Ok((pattern, text)), Err(_)) => Ok(Some(find_all(pattern, text, None))),
+            (Ok((pattern, text)), Ok(legacy)) if readings_agree => {
+                Ok(Some(find_all(pattern, text, Some(legacy))))
+            }
+            (_, Ok(legacy)) => {
+                self.errors.truncate(errors_before);
+                self.errors.extend(legacy_errors);
+                self.cursor.rewind(legacy_end);
+                Ok(Some(legacy))
+            }
+            (Err(error), Err(_)) => Err(error),
+        }
+    }
+
+    /// `<pattern> in <text>` after the `all` of `find all`. `lead` is the
+    /// pattern name split off a merged `all <name>` token.
+    fn parse_find_all_operands(
+        &mut self,
+        lead: Option<Expression>,
+        stop_at_clause: bool,
+    ) -> Result<(Expression, Expression), ParseError> {
+        let pattern = match lead {
+            Some(lead) => self.parse_seeded_expression_continuation(lead, stop_at_clause)?,
+            None => self.parse_expression_with_clause_boundary(stop_at_clause)?,
+        };
+        self.expect_token(
+            Token::KeywordIn,
+            "Expected 'in' after pattern in find all expression",
+        )?;
+        let text = self.parse_expression_with_clause_boundary(stop_at_clause)?;
+        Ok((pattern, text))
     }
 
     /// Consume postfix accessors — bracket index (`["key"]`, `[0]`) and dotted
@@ -1205,19 +1325,10 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordFind => {
                     self.bump_sync(); // Consume "find"
-                    let pattern_expr =
-                        self.parse_expression_with_clause_boundary(stop_at_clause)?;
-                    self.expect_token(
-                        Token::KeywordIn,
-                        "Expected 'in' after pattern in find expression",
-                    )?;
-                    let text_expr = self.parse_expression_with_clause_boundary(stop_at_clause)?;
-                    Ok(Expression::PatternFind {
-                        pattern: Box::new(pattern_expr),
-                        text: Box::new(text_expr),
-                        line: token.line,
-                        column: token.column,
-                    })
+                    match self.parse_find_all_after_find(token, stop_at_clause)? {
+                        Some(find_all) => Ok(find_all),
+                        None => self.parse_single_find_after_find(token, stop_at_clause),
+                    }
                 }
                 Token::KeywordReplace => {
                     self.bump_sync(); // Consume "replace"

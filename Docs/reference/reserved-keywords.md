@@ -420,6 +420,7 @@ A few words have special meaning in exactly one statement position but are **not
 - `transaction` - transaction block marker in `in transaction on db:` and `end transaction`
 - `schema`, `changes` - optional SQLite transaction mode in `in transaction on db for schema changes:`
 - `without following redirects` - per-request redirect clause in `open url at address and without following redirects and read response as reply`; the individual words and the complete phrase remain ordinary variable names outside that clause position
+- `all` - every-match marker in `find all <pattern> in <text>`; see below for names that start with `all`
 
 TLS pairs can also use the existing `for` keyword to select a DNS name:
 `certificate "cert.pem" and key "key.pem" for "example.com"`. Additional named
@@ -449,6 +450,13 @@ store transaction as "TX-1094"
 `in`, and directly after the `end` that closes the block. A statement beginning
 with `in` was always a parse error before, so nothing that used to be valid
 changed meaning.
+
+`all` is recognized only directly after `find`. Before `find all` existed,
+`find all digits in text` searched with a variable literally named
+`all digits` (WFL names may contain spaces), and `find all in text` with one
+named `all`. Those programs keep that meaning: when a variable with the full
+name (`all digits`, or `all`) exists, the single-match `find` is used. Otherwise
+`find all digits in text` returns every match of `digits`.
 
 `this` is not a keyword either. Inside a container's instance action it is a
 predefined, read-only name for the object the action was called on, used to
