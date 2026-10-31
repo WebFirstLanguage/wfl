@@ -315,9 +315,10 @@ fn bare_exit_still_leaves_the_loop_and_keeps_going() {
 
 // Review of #699 originally pinned here that a step was checked only when the
 // loop was entered, so `count from 5 to 1 by 0` stayed a silent no-op. The
-// maintainer reversed that: the same rule let `count from 5 to 1 by -1` run
-// zero times without a word. The reversed assertions — every step is checked,
-// empty range or not — live in `count_loop_step_test.rs`.
+// same rule let `count from 5 to 1 by -1` run zero times without a word. Such
+// a loop still completes — GOVERNANCE.md §3.1 keeps it working for a year —
+// but it now prints a warning that names the deadline. Those assertions live
+// in `count_loop_step_test.rs`.
 
 #[test]
 fn count_loop_rejects_a_step_too_small_to_advance_the_counter() {

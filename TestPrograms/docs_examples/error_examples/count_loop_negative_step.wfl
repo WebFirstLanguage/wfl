@@ -1,7 +1,0 @@
-// Example from: Docs/03-language-basics/loops-and-iteration.md
-// The step is a distance, so a negative step is reported before the loop
-// starts, even though this range would not run upward at all.
-
-count from 5 to 1 by -1:
-    display count
-end count
