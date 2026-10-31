@@ -458,7 +458,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `any` | Match any (pattern/quantifier) | `define pattern zero or more any` |
 | `as` | Binding/assignment keyword | `store name as "Alice"` |
 | `break` | Exit loop early | `break` |
-| `by` | Step amount in count loops | `count from 1 to 10 by 2:` |
+| `by` | Step distance in count loops — always positive; `down to` sets the direction | `count from 1 to 10 by 2:` |
 | `call` | Call an action | `call myFunction with x` |
 | `catch` | Error handler | `catch when error:` |
 | `check` | Start conditional | `check if x is greater than 5:` |

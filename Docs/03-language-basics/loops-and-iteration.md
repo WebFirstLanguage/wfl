@@ -30,6 +30,30 @@ end count
 
 The variable `count` is automatically created and contains the current number.
 
+### Counting Down
+
+Use `down to` to count from a larger number to a smaller one:
+
+```wfl
+count from 5 down to 1:
+    display count
+end count
+```
+
+**Output:**
+```
+5
+4
+3
+2
+1
+```
+
+The words choose the direction: `to` counts up and `down to` counts down. If
+the start is already past the end for that direction, the loop simply runs
+zero times — `count from 5 to 1` and `count from 1 down to 5` do nothing, and
+so does `count from 1 to length of items` when `items` is empty.
+
 ### Count with Step
 
 Count by different increments using `by`:
@@ -57,12 +81,30 @@ count from <start> to <end> by <step>:
 end count
 ```
 
-The step is a *distance*, so it is always a positive number: a downward loop
-(`count from 10 down to 1 by 2`) subtracts it. A step of `0` or a negative step
-could never reach the end value, so it is reported as an error instead of
-looping forever. A loop whose range is already empty never runs its body, so
-its step is never used and never checked — `count from 5 to 1` does nothing,
-whatever step you give it.
+The step is a *distance*, not a direction, so it is always a positive number.
+The direction comes from `to` or `down to`, and a downward loop subtracts the
+step: `count from 10 down to 1 by 2` gives 10, 8, 6, 4, 2.
+
+WFL checks the step before the loop starts, **every time** — even when the
+range is empty and the body would never run. A step of `0` or a negative step
+is reported as an error instead of being silently ignored, and a negative
+step's error names the loop you most likely meant:
+
+```wfl
+count from 5 to 1 by -1:
+    display count
+end count
+```
+
+**Error:**
+```
+Count loop step must be a positive number, got -1. The step is a distance, not a direction: `to` counts up and `down to` counts down. Write `count from 5 down to 1`.
+```
+
+Programs written for earlier versions of WFL may hit this error. Those
+versions checked the step only when the loop would run, so a line like
+`count from 5 to 1 by -1` quietly did nothing at all. Rewrite it with
+`down to` and a positive step, as the message suggests.
 
 A step also has to be big enough to actually move the counter. Past about 9
 quadrillion, numbers lose the precision to add 1 to them, so
@@ -812,7 +854,7 @@ Create this pattern using nested loops:
 
 In this section, you learned:
 
-✅ **Count loops** - `count from X to Y` and `count from X to Y by Z`
+✅ **Count loops** - `count from X to Y`, `count from X down to Y`, and `by Z` with a positive step
 ✅ **For each loops** - Iterate over lists
 ✅ **Repeat while loops** - Continue while condition is true
 ✅ **Repeat until loops** - Continue until condition is true

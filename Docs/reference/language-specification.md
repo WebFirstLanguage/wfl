@@ -121,10 +121,14 @@ end check
 
 **Count Loop:**
 ```
-count from <start> to <end> [by <step>]:
+count from <start> [down] to <end> [by <step>] [as <identifier>]:
     <statements>
 end count
 ```
+
+`to` counts up and `down to` counts down. `<step>` is a distance and must be a
+positive number; it is checked before the loop starts, even when the range is
+empty.
 
 **For Each Loop:**
 ```

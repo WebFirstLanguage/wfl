@@ -68,6 +68,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   used to bind the object over it).
 
 ### Changed
+- **Count-loop steps are always checked.** A count loop's step is a positive
+  distance (`to` counts up, `down to` counts down), and it is now checked
+  before the loop starts even when the range is empty. Previously
+  `count from 5 to 1 by -1`, the mirror `count from 1 down to 5 by -1`, and a
+  `by 0` on either silently ran zero times with exit status 0. They now stop
+  with an error that names the loop the program most likely meant, e.g.
+  "Write `count from 5 down to 1`". Programs containing such a line never ran
+  its body; rewrite it with `down to` and a positive step. An empty range with
+  a valid step (`count from 1 to length of items` over an empty list) still
+  runs zero times without an error.
 - **Nightly versions are numbered from `vYY.M.N` tags at publish time.** The
   next build for the current UTC month is max N + 1, or 1 if none exist, and
   the committed `.build_meta.json` is a same-month floor only. It is no longer

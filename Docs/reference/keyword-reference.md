@@ -43,7 +43,7 @@ names such as `start time`. Full explanations:
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
 | `break` | Exit loop early | ✗ |
-| `by` | Count-loop step; also `divided by`, `split ... by` | ✗ |
+| `by` | Count-loop step distance (always positive); also `divided by`, `split ... by` | ✗ |
 | `check` | Start conditional | ✗ |
 | `continue` | Skip to next iteration | ✗ |
 | `count` | Count loop keyword | ✓ |
