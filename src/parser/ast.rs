@@ -937,15 +937,21 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    /// `list files recursively in <path> [with extension(s)/pattern <filter>]`.
+    /// `filter_kind` says how the `extensions` values are matched.
     ListFilesRecursive {
         path: Box<Expression>,
         extensions: Option<Vec<Expression>>,
+        filter_kind: FileFilterKind,
         line: usize,
         column: usize,
     },
+    /// `list files in <path> with extension(s)/pattern <filter>`.
+    /// `filter_kind` says how the `extensions` values are matched.
     ListFilesFiltered {
         path: Box<Expression>,
         extensions: Vec<Expression>,
+        filter_kind: FileFilterKind,
         line: usize,
         column: usize,
     },
@@ -1197,6 +1203,17 @@ pub enum ExitScope {
     Loop,
     /// `exit program`
     Program,
+}
+
+/// How a `list files ... with ...` filter value is compared with each file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FileFilterKind {
+    /// `with extension ".txt"` / `with extensions [...]`: the file's
+    /// extension, including its dot, must equal a filter value.
+    #[default]
+    Extension,
+    /// `with pattern "*.txt"`: a glob matched against the file name.
+    Pattern,
 }
 
 #[derive(Debug, Clone, PartialEq)]

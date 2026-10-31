@@ -1,0 +1,8 @@
+wait for store wfl_files as list files in "." with pattern "*.wfl"
+display "WFL files:"
+for each wfl_file in wfl_files:
+    display "  - " with wfl_file
+end for
+
+wait for store all_wfl as list files recursively in "." with pattern "*.wfl"
+display "WFL files in this folder and below: " with length of all_wfl
