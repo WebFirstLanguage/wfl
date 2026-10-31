@@ -6,6 +6,7 @@ pub mod control_flow;
 pub mod database;
 pub mod environment;
 pub mod error;
+mod file_filter;
 #[cfg(test)]
 mod file_io_tests;
 pub(crate) mod io_capture;
@@ -58,6 +59,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
+use file_filter::FileFilter;
 use once_cell::sync::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1540,6 +1542,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::Concatenation { .. } => "Concatenation".to_string(),
         Expression::PatternMatch { .. } => "PatternMatch".to_string(),
         Expression::PatternFind { .. } => "PatternFind".to_string(),
+        Expression::PatternFindAll { .. } => "PatternFindAll".to_string(),
         Expression::PatternReplace { .. } => "PatternReplace".to_string(),
         Expression::PatternSplit { .. } => "PatternSplit".to_string(),
         Expression::StringSplit { .. } => "StringSplit".to_string(),
@@ -15406,6 +15409,56 @@ impl Interpreter {
                 }
             }
 
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                line,
+                column,
+            } => {
+                // Backward compatibility: before `find all` existed, these tokens
+                // were a single-match `find` over a binding named `all <name>`
+                // (or `all`). While that binding exists, keep that meaning.
+                if let Some(fallback) = legacy_fallback
+                    && legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| env.borrow().get(name).is_some())
+                {
+                    return self.evaluate_expression(fallback, env).await;
+                }
+
+                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
+                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
+                let Value::Text(text_str) = &text_val else {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "find all needs Text after 'in', got {}",
+                            text_val.type_name()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                };
+                let Value::Pattern(compiled_pattern) = &pattern_val else {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "find all needs a Pattern before 'in', got {}",
+                            pattern_val.type_name()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                };
+
+                // Every match under the shared budget; a breach is a catchable
+                // error, never a silently short list.
+                let matches = compiled_pattern
+                    .find_all_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *line, *column))?;
+                Ok(crate::stdlib::pattern::match_list_value(matches))
+            }
+
             Expression::PatternReplace {
                 text,
                 pattern,
@@ -15741,6 +15794,7 @@ impl Interpreter {
             Expression::ListFilesRecursive {
                 path,
                 extensions,
+                filter_kind,
                 line,
                 column,
             } => {
@@ -15796,9 +15850,13 @@ impl Interpreter {
                 } else {
                     None
                 };
+                let filter = ext_filters
+                    .map(|values| FileFilter::new(*filter_kind, values))
+                    .transpose()
+                    .map_err(|message| RuntimeError::new(message, *line, *column))?;
 
                 // Perform recursive directory listing
-                match self.list_files_recursive(&path_str, ext_filters).await {
+                match self.list_files_recursive(&path_str, filter.as_ref()).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
                     Err(e) => Err(RuntimeError::new(
                         format!("Failed to list files recursively: {e}"),
@@ -15810,6 +15868,7 @@ impl Interpreter {
             Expression::ListFilesFiltered {
                 path,
                 extensions,
+                filter_kind,
                 line,
                 column,
             } => {
@@ -15859,8 +15918,11 @@ impl Interpreter {
                     }
                 }
 
+                let filter = FileFilter::new(*filter_kind, ext_filters)
+                    .map_err(|message| RuntimeError::new(message, *line, *column))?;
+
                 // List files with filtering
-                match self.list_files_filtered(&path_str, ext_filters).await {
+                match self.list_files_filtered(&path_str, &filter).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
                     Err(e) => Err(RuntimeError::new(
                         format!("Failed to list files with filter: {e}"),
@@ -17223,7 +17285,7 @@ impl Interpreter {
     async fn list_files_recursive(
         &self,
         path: &str,
-        extensions: Option<Vec<String>>,
+        filter: Option<&FileFilter>,
     ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
 
@@ -17239,22 +17301,8 @@ impl Interpreter {
 
                 if path.is_dir() {
                     dirs_to_process.push(path_str);
-                } else if path.is_file() {
-                    // Check extension filter if provided
-                    if let Some(ref exts) = extensions {
-                        let file_ext = path
-                            .extension()
-                            .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{ext}"));
-
-                        if let Some(ext) = file_ext
-                            && exts.iter().any(|e| e == &ext)
-                        {
-                            files.push(Value::Text(path_str.into()));
-                        }
-                    } else {
-                        files.push(Value::Text(path_str.into()));
-                    }
+                } else if path.is_file() && filter.is_none_or(|filter| filter.matches(&path)) {
+                    files.push(Value::Text(path_str.into()));
                 }
             }
         }
@@ -17265,7 +17313,7 @@ impl Interpreter {
     async fn list_files_filtered(
         &self,
         path: &str,
-        extensions: Vec<String>,
+        filter: &FileFilter,
     ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
 
@@ -17275,20 +17323,8 @@ impl Interpreter {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
 
-            if path.is_file() {
-                let path_str = path.to_string_lossy().to_string();
-
-                // Check extension filter
-                let file_ext = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{ext}"));
-
-                if let Some(ext) = file_ext
-                    && extensions.iter().any(|e| e == &ext)
-                {
-                    files.push(Value::Text(path_str.into()));
-                }
+            if path.is_file() && filter.matches(&path) {
+                files.push(Value::Text(path.to_string_lossy().to_string().into()));
             }
         }
 
