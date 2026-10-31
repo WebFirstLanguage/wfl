@@ -62,13 +62,20 @@ names such as `start time`. Full explanations:
 | `loop` | Loop reference | ✗ |
 | `otherwise` | Else, else-if (`otherwise check if`), or default clause | ✗ |
 | `repeat` | Loop construct | ✗ |
-| `reversed` | Reverse iteration | ✓ |
+| `reversed` | Reverse a for-each loop (`for each item in reversed items`) | ✓ |
 | `route` | Dispatch on a value (match/switch) | ✗ |
 | `skip` | Continue (alias) | ✗ |
 | `then` | Conditional separator | ✗ |
 | `to` | Count loop end | ✗ |
 | `until` | Loop condition | ✗ |
 | `while` | Loop condition | ✗ |
+
+**Counting down:** write `count from 5 down to 1:`. The `down` in `down to` is
+not a keyword. A count loop recognizes it only between the start value and
+`to`, so `down` is still a normal variable name everywhere else. `downward`
+and `upward` are not count directions. If the start value is a variable, put
+it in parentheses: `count from (top) down to 1:`. See
+[Counting Down](../03-language-basics/loops-and-iteration.md#counting-down).
 
 ---
 
@@ -439,7 +446,9 @@ connect to database at "sqlite://app.db" as db
 
 `pop` is a standard-library list function, and `upward` / `downward` have no
 special meaning. All three are ordinary names. Earlier versions of these pages
-listed them as keywords by mistake.
+listed them as keywords by mistake. To count down, write `down to`, as in
+`count from 5 down to 1:`; see the **Counting down** note under
+[Control Flow Keywords](#control-flow-keywords-23).
 
 ### "What about `secured`, `certificate`, `key`, `redirecting`, `content_type`, `transaction`, `schema`, `changes`, `without following redirects`, `all`?" → Not keywords
 

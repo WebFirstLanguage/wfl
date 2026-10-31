@@ -1,0 +1,6 @@
+// A variable start value goes in parentheses before `down to`
+store top as 3
+count from (top) down to 1:
+    display "T-minus " with count
+end count
+display "Liftoff!"

@@ -54,6 +54,32 @@ the start is already past the end for that direction, the loop simply runs
 zero times — `count from 5 to 1` and `count from 1 down to 5` do nothing, and
 so does `count from 1 to length of items` when `items` is empty.
 
+`down` is not a keyword. A count loop recognizes it only between the start
+value and `to`, so `down` is still a normal variable name everywhere else.
+WFL has no `downward` or `upward` keyword: `down to` is the only way to count
+down.
+
+When the start value is a variable, put it in parentheses. Without them, WFL
+joins neighboring plain words into one name, reads `top down` as a single
+variable, and reports `Variable 'top down' is not defined`:
+
+```wfl
+// A variable start value goes in parentheses before `down to`
+store top as 3
+count from (top) down to 1:
+    display "T-minus " with count
+end count
+display "Liftoff!"
+```
+
+**Output:**
+```
+T-minus 3
+T-minus 2
+T-minus 1
+Liftoff!
+```
+
 ### Count with Step
 
 Count by different increments using `by`:
