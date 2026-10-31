@@ -382,7 +382,6 @@ fn issue_592_bare_undefined_without_include_stays_fatal() {
 // `list files in <dir> with pattern <glob>` drops every match and returns 0.
 // CURRENT (26.7.37): COUNT=0 even when matching files exist.
 #[test]
-#[ignore = "open defect #578: `list files … with pattern` glob path returns 0"]
 fn issue_578_list_files_with_pattern_matches() {
     let (out, code) = run_files(
         &[
