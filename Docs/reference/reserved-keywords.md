@@ -6,12 +6,17 @@ Complete technical documentation for all WFL reserved keywords.
 
 **Source:** WFL Compiler v26.1.x (extracted from `src/lexer/token.rs`)
 **Total:** 181 keywords and literals
-**Last Updated:** 2026-01-16
+**Last Updated:** 2026-10-31
 
 ---
 
 ## Table of Contents
 
+- [What Is a Reserved Word? (Start Here)](#what-is-a-reserved-word-start-here)
+  - [Why WFL Reserves Words](#why-wfl-reserves-words)
+  - [What It Costs, and How WFL Keeps the Cost Small](#what-it-costs-and-how-wfl-keeps-the-cost-small)
+  - [Reading the Error Message](#reading-the-error-message)
+- [Words That Commonly Bite: `start`, `output`, `route`, `captured`, `by`, `find`](#words-that-commonly-bite)
 1. [Understanding Keyword Classifications](#understanding-keyword-classifications)
    - [What Makes a Keyword "Structural"?](#what-makes-a-keyword-structural)
    - [What Makes a Keyword "Contextual"?](#what-makes-a-keyword-contextual)
@@ -24,6 +29,291 @@ Complete technical documentation for all WFL reserved keywords.
 7. [Usage Guidelines & Best Practices](#usage-guidelines--best-practices)
 8. [Common Pitfalls](#common-pitfalls)
 9. [Complete Alphabetical Reference](#complete-alphabetical-reference)
+
+---
+
+## What Is a Reserved Word? (Start Here)
+
+A **reserved word** is a word that WFL has claimed for its own grammar. WFL
+also calls these words **keywords**. Examples are `store`, `check`, `route`,
+and `find`.
+
+You **cannot** use a reserved word as a name that you choose yourself. "A name
+you choose" means any of these:
+
+| Where you choose a name | Example of the mistake |
+|---|---|
+| A variable | `store find as "cat"` |
+| A loop variable | `for each start in items:` |
+| An action parameter | `define action called greet with parameters output:` |
+| An action name | `define action called route:` |
+| One word of a multi-word name | `store start time as 9` |
+
+When this happens, WFL stops **before your program runs** and reports a parse
+error. No line of your program executes, so nothing is left half-done.
+
+The fix is always the same: **add a describing word, joined with an
+underscore.** `start_time`, `command_output`, and `search_term` are ordinary
+names, because WFL reads a name joined with underscores as one whole word.
+(A name with *spaces*, such as `start time`, is read word by word, so a
+reserved word inside it still breaks it.)
+
+```wfl
+// ❌ Each of these lines would stop the program before it runs:
+// store find as "cat"
+// store start time as 9
+
+// ✅ The same ideas, with underscore names:
+store search_term as "cat"
+store start_time as 9
+display search_term
+display start_time
+```
+
+### Why WFL Reserves Words
+
+Most programming languages mark structure with **symbols**: brackets `{ }`,
+parentheses `( )`, semicolons `;`, and the equals sign `=`. WFL deliberately
+uses very few symbols so that code reads like English (see Principles 1 and 2
+in [WFL Foundation](../wfl-foundation.md)). Instead, WFL uses **words** to do
+the job that punctuation does in other languages.
+
+That only works if each grammar word means exactly one thing. Look at this
+line:
+
+```text
+route path:
+```
+
+WFL reads `route` and knows that a dispatch block starts here. Now imagine that
+`route` could also be a variable you created. WFL would have to guess which
+meaning you wanted. A wrong guess would make your program do something
+different from what you wrote, without telling you. Reserving the word removes
+the guess.
+
+Reserving words gives you four concrete benefits:
+
+1. **No guessing.** Every line has exactly one meaning. WFL never has to decide
+   between "this is a keyword" and "this is your variable".
+2. **Early errors.** A naming conflict is reported when WFL reads your file,
+   before any line runs. It never appears later as a surprise in the middle of
+   a running program (Principles 4 and 17: clear error reporting and error
+   transparency).
+3. **Programs keep their meaning.** A reserved word can never be a variable.
+   So when a later WFL version adds a new phrase that uses that word, programs
+   that already work keep meaning the same thing. This protects WFL's
+   backward-compatibility promise.
+4. **Code you can trust when reading.** In every WFL program, `find` means
+   "search text with a pattern". It never secretly means somebody's variable.
+
+### What It Costs, and How WFL Keeps the Cost Small
+
+Reserving a word has a real cost: it takes a natural English name away from
+you. Words such as `start`, `output`, and `find` are names that people
+genuinely want to use. WFL tries to keep this cost small in two ways:
+
+- **Contextual keywords** are special in only one position. For example,
+  `count` is the loop variable inside `count from 1 to 10:`, but
+  `store count as 0` works everywhere else. See
+  [Contextual Keywords](#contextual-keywords-29).
+- **Marker words** are not reserved at all. HTTPS settings (`secured`,
+  `certificate`, `key`) and database transactions (`transaction`) were added
+  as marker words, so they take no names away from you. See
+  [Marker Words That Are Not Keywords at All](#marker-words-that-are-not-keywords-at-all).
+
+The words in the next section are **fully** reserved: no name you choose may be
+one of them (with one narrow exception for `output`, explained below).
+
+### Reading the Error Message
+
+The error message points at the exact word, but it names the word by WFL's
+**internal token name**, not by the word itself. To find the word, remove
+`Keyword` from the front of the token name and read the rest in lowercase:
+`KeywordStart` means `start`, and `KeywordRoute` means `route`.
+
+Depending on the word and where you used it, you will see one of these
+messages:
+
+| You wrote | WFL says |
+|---|---|
+| `store start as 1` | `Expected identifier for variable name, found KeywordStart` |
+| `store route as 1` | `Cannot use reserved keyword 'KeywordRoute' as a variable name` |
+| `for each start in items:` | `Expected identifier after 'each', found KeywordStart` |
+| `define action called find:` | `Expected identifier after 'called', found KeywordFind` |
+| `define action called greet with parameters output:` | `Expected ':' after action definition: expected Colon, found KeywordOutput` |
+
+The last message does not mention a name at all. If WFL reports an unexpected
+`Keyword...` token where you meant to write a name, check this page first.
+
+---
+
+<a id="words-that-commonly-bite"></a>
+
+## Words That Commonly Bite: `start`, `output`, `route`, `captured`, `by`, `find`
+
+These six words are everyday English words that programmers often want to use
+as names. All six are reserved. WFL rejects each of them as a variable name, a
+loop variable, an action parameter, and an action name.
+
+| Word | Kind | What WFL uses it for | Use instead |
+|---|---|---|---|
+| `start` | Other reserved | Starting a streaming web response; the `start of text` pattern anchor | `start_time`, `start_index`, `starting_value` |
+| `output` | Other reserved | Reading a running process's output | `command_output`, `process_output`, `result_text` |
+| `route` | Structural | Dispatching on a value (`route ... end route`) | `current_route`, `request_path`, `route_name` |
+| `captured` | Other reserved | Referring back to a named capture inside a pattern | `captured_text`, `matched_word`, `capture_value` |
+| `by` | Structural | Count-loop steps, division, splitting, multiply/divide | `step_size`, `divisor`, `separator` |
+| `find` | Other reserved | Searching text with a pattern | `search_term`, `found_item`, `find_result` |
+
+"Structural" and "Other reserved" are explained in
+[Understanding Keyword Classifications](#understanding-keyword-classifications).
+For you, the result is the same: neither kind can be a name you choose.
+
+### `start`
+
+**Why it is reserved:** `start` opens two different constructs:
+
+- In a web server, `start streaming response to req with status 200 and content type "application/x-ndjson" as out`
+  begins a response that is sent in pieces. See
+  [Streaming a response](../04-advanced-features/web-servers.md#streaming-a-response).
+- Inside a pattern, `start of text` means "the match must begin at the very
+  start of the text".
+
+**Use instead:** `start_time`, `start_index`, `starting_value`.
+
+### `output`
+
+**Why it is reserved:** `output` is part of the statement that reads what a
+running process has printed: `wait for read output from process child as text`.
+See [Subprocess Execution](../04-advanced-features/subprocess-execution.md).
+
+**The one narrow exception:** that same statement may name its result
+`output` (`wait for read output from process child as output`), and later lines
+may read the value. This is accepted because existing programs use it. You
+still cannot create or change a variable named `output` with `store` or
+`change`, or use it as a loop variable, parameter, or action name. Choosing a
+different name such as `command_output` avoids the exception entirely.
+
+**Use instead:** `command_output`, `process_output`, `result_text`.
+
+### `route`
+
+**Why it is reserved:** `route` starts a dispatch block that chooses one branch
+by value:
+
+```text
+route path:
+    when "/health":
+        ...
+    otherwise:
+        ...
+end route
+```
+
+`route` is a **structural** keyword, the strictest kind. See
+[Routing](../04-advanced-features/routing.md). Its partner word `when` is also
+reserved.
+
+**Use instead:** `current_route`, `request_path`, `route_name`.
+
+### `captured`
+
+**Why it is reserved:** inside a pattern, `same as captured "word"` means "match
+the same text that the capture named `word` matched earlier". This lets a
+pattern find a repeated word such as `"hello hello"`.
+
+**Use instead:** `captured_text`, `matched_word`, `capture_value`.
+
+### `by`
+
+**Why it is reserved:** `by` connects a value to the amount or separator that
+acts on it, in several different statements:
+
+- `count from 1 to 10 by 2:` (count-loop step)
+- `10 divided by 2` (division)
+- `split "a,b,c" by ","` (splitting text)
+- `multiply total by 3` and `divide total by 2` (changing a number in place)
+
+`by` is a **structural** keyword, the strictest kind.
+
+**Use instead:** `step_size`, `divisor`, `separator`.
+
+### `find`
+
+**Why it is reserved:** `find email_pattern in contact_info` searches text with
+a pattern. It gives back the first match, or `nothing` when there is no match.
+See [Pattern Matching](../04-advanced-features/pattern-matching.md) and the
+[Pattern Module](../05-standard-library/pattern-module.md).
+
+**Use instead:** `search_term`, `found_item`, `find_result`.
+
+### All Six, Side by Side
+
+This program uses every one of the six words in its real job, and uses the
+suggested replacement names for its own variables. The validated copy is
+`TestPrograms/docs_examples/keyword_reference/common_reserved_words.wfl`.
+
+```wfl
+// `start` and `captured` doing their real jobs, inside patterns
+create pattern begins_with_hello:
+    start of text then "hello"
+end pattern
+
+create pattern doubled_word:
+    capture {one or more letter} as word then " " then same as captured "word"
+end pattern
+
+// `by` doing its real jobs
+store step_size as 2
+store separator as ","
+store parts as split "red,green,blue" by separator
+store half as 10 divided by 2
+
+// `find` doing its real job
+store search_text as "say hello hello"
+store find_result as find doubled_word in search_text
+
+// Our own names: never the bare reserved word
+store start_time as "09:00"
+store command_output as "nothing run yet"
+store current_route as "/health"
+store captured_text as "hello"
+
+check if "hello world" matches begins_with_hello:
+    display "starts with hello"
+end check
+
+check if isnothing of find_result:
+    display "no doubled word"
+otherwise:
+    display "found a doubled word"
+end check
+
+count from 1 to 5 by step_size:
+    display count
+end count
+
+display parts
+display half
+display captured_text
+display start_time
+display command_output
+display current_route
+```
+
+**Output:**
+```
+starts with hello
+found a doubled word
+1
+3
+5
+[red, green, blue]
+5
+hello
+09:00
+nothing run yet
+/health
+```
 
 ---
 
@@ -563,6 +853,31 @@ store zero as 0             // ❌ ERROR: 'zero' is also structural
 
 **Solution:** Check both the contextual and structural keyword lists.
 
+### Pitfall 5: A Reserved Word Inside a Multi-word Name
+
+**Problem:** WFL lets a name contain spaces, such as `account balance`. WFL
+reads such a name word by word. If any one of those words is reserved, the
+name breaks, even though the whole phrase is not a keyword.
+
+**Example:**
+```wfl
+// ❌ Each of these lines stops the program before it runs:
+// store start time as "09:00"     ('start' is reserved)
+// store program output as "done"  ('output' is reserved)
+// store last route as "/home"     ('route' is reserved)
+
+// ✅ Join the words with underscores instead:
+store start_time as "09:00"
+store program_output as "done"
+store last_route as "/home"
+display start_time
+display program_output
+display last_route
+```
+
+**Solution:** Use underscores (`start_time`) for any name that contains a
+reserved word. See [Words That Commonly Bite](#words-that-commonly-bite).
+
 ---
 
 ## Complete Alphabetical Reference
@@ -588,11 +903,11 @@ Complete reference table of all 181 keywords.
 | `below` | Other | Comparison | ❌ | `below limit` |
 | `between` | Other | Pattern | ❌ | `between values` |
 | `break` | Structural | Control Flow | ❌ | `break loop` |
-| `by` | Structural | Control Flow | ❌ | `count by 2` |
+| `by` | Structural | Control Flow | ❌ | `count from 1 to 10 by 2:` · `10 divided by 2` · `split text by ","` |
 | `called` | Contextual | Declaration | ✅ | `action called name` |
 | `call` | Structural | Operations | ❌ | `call function` |
 | `capture` | Other | Pattern | ❌ | `capture group` |
-| `captured` | Other | Pattern | ❌ | `captured text` |
+| `captured` | Other | Pattern | ❌ | `same as captured "word"` (pattern backreference) |
 | `catch` | Structural | Error Handling | ❌ | `catch error` |
 | `category` | Other | Pattern | ❌ | `unicode category` |
 | `change` | Contextual | Declaration | ✅ | `change value` |
@@ -640,7 +955,7 @@ Complete reference table of all 181 keywords.
 | `file` | Other | File I/O | ❌ | `open file` |
 | `files` | Contextual | File I/O | ✅ | `list files` |
 | `finally` | Structural | Error Handling | ❌ | `finally:` |
-| `find` | Other | Pattern | ❌ | `find pattern` |
+| `find` | Other | Pattern | ❌ | `find email_pattern in contact_info` |
 | `for` | Structural | Control Flow | ❌ | `for each` |
 | `forever` | Structural | Control Flow | ❌ | `repeat forever` |
 | `formatted` | Other | Web/Network | ❌ | `formatted response` |
@@ -689,7 +1004,7 @@ Complete reference table of all 181 keywords.
 | `optional` | Other | Pattern | ❌ | `optional match` |
 | `or` | Structural | Comparison | ❌ | `x or y` |
 | `otherwise` | Structural | Control Flow | ❌ | `otherwise:` / `otherwise check if` |
-| `output` | Other | Process | ❌ | `process output` |
+| `output` | Other | Process | ❌ | `wait for read output from process child as text` |
 | `parent` | Contextual | OOP | ✅ | `parent reference` |
 | `pattern` | Contextual | Pattern | ✅ | `define pattern` |
 | `permission` | Other | File I/O | ❌ | `file permission` |
@@ -723,7 +1038,7 @@ Complete reference table of all 181 keywords.
 | `skip` | Structural | Control Flow | ❌ | `skip iteration` |
 | `spawn` | Other | Process | ❌ | `spawn process` |
 | `split` | Other | Pattern | ❌ | `split by pattern` |
-| `start` | Other | Pattern | ❌ | `start anchor` |
+| `start` | Other | Pattern / Web | ❌ | `start of text` (pattern anchor) · `start streaming response to req ...` |
 | `static` | Structural | OOP | ❌ | `static property` |
 | `status` | Other | Web/Network | ❌ | `response status` |
 | `stop` | Other | Web/Network | ❌ | `stop server` |
