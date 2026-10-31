@@ -5452,6 +5452,38 @@ impl Interpreter {
         Ok(canonical)
     }
 
+    /// `random_seed` is an error in any file that also does crypto or auth
+    /// (`ANALYZE-SECURITY`). The CLI checks the file it was given before it
+    /// runs; a file brought in at runtime (`what`: "module", "included file",
+    /// "executed file") is checked here, so moving the code into a second file
+    /// does not evade the rule. Returns the error message and the offending
+    /// line/column within that file.
+    fn insecure_rng_seeding_in(
+        program: &Program,
+        what: &str,
+        path: &std::path::Path,
+    ) -> Option<(String, usize, usize)> {
+        use crate::analyzer::Analyzer;
+        use crate::analyzer::static_analyzer::StaticAnalyzer;
+
+        let diagnostic = Analyzer::new()
+            .check_insecure_rng_seeding(program, 0)
+            .into_iter()
+            .next()?;
+        let mut message = format!(
+            "Security error in {what} '{}' (line {}, column {}): {}",
+            path.display(),
+            diagnostic.line,
+            diagnostic.column,
+            diagnostic.message
+        );
+        for note in &diagnostic.notes {
+            message.push_str(". ");
+            message.push_str(note);
+        }
+        Some((message, diagnostic.line, diagnostic.column))
+    }
+
     fn check_circular_dependency(
         &self,
         path: &PathBuf,
@@ -6261,6 +6293,11 @@ impl Interpreter {
                 line,
                 column,
             ));
+        }
+        if let Some((message, _, _)) =
+            Self::insecure_rng_seeding_in(&program, "executed file", &resolved_path)
+        {
+            return Err(RuntimeError::new(message, line, column));
         }
 
         // Run the file in a fresh nested interpreter (own global env and
@@ -9046,6 +9083,11 @@ impl Interpreter {
                         error_column,
                     ));
                 }
+                if let Some((message, error_line, error_column)) =
+                    Self::insecure_rng_seeding_in(&program, "module", &resolved_path)
+                {
+                    return Err(RuntimeError::new(message, error_line, error_column));
+                }
 
                 // 8. Type check
                 use crate::typechecker::{TypeCheckError, TypeChecker};
@@ -9238,6 +9280,11 @@ impl Interpreter {
                         error_line,
                         error_column,
                     ));
+                }
+                if let Some((message, error_line, error_column)) =
+                    Self::insecure_rng_seeding_in(&program, "included file", &resolved_path)
+                {
+                    return Err(RuntimeError::new(message, error_line, error_column));
                 }
 
                 // 7. Type check. Type errors are reported as non-fatal
