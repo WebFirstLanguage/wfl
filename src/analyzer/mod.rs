@@ -5447,6 +5447,26 @@ impl Analyzer {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
             }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                ..
+            } => {
+                // Analyze the reading the runtime will take: the legacy
+                // single-match `find` while `all <name>` is defined.
+                if let Some(fallback) = legacy_fallback
+                    && legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| self.name_is_defined(name))
+                {
+                    self.analyze_expression(fallback);
+                } else {
+                    self.analyze_expression(text);
+                    self.analyze_expression(pattern);
+                }
+            }
             Expression::PatternReplace {
                 text,
                 pattern,

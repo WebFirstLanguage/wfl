@@ -34,6 +34,10 @@ pub struct Parser<'a> {
     /// Keep `and` as an argument separator after a `with` concatenation in
     /// a container constructor clause.
     constructor_arguments: bool,
+    /// Parse `find` as it was before `find all` existed. Set while building a
+    /// `find all` node's legacy fallback, so that second parse cannot recurse
+    /// into `find all` handling (nesting would otherwise cost 2^depth).
+    legacy_find_only: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -43,6 +47,7 @@ impl<'a> Parser<'a> {
             errors: Vec::with_capacity(4),
             parse_steps: 0,
             constructor_arguments: false,
+            legacy_find_only: false,
         }
     }
 

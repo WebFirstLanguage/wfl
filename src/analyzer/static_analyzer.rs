@@ -649,6 +649,18 @@ fn collect_calls_in_expression(expr: &Expression, out: &mut Vec<CallSite>) {
             collect_calls_in_expression(text, out);
             collect_calls_in_expression(pattern, out);
         }
+        Expression::PatternFindAll {
+            text,
+            pattern,
+            legacy_fallback,
+            ..
+        } => {
+            collect_calls_in_expression(text, out);
+            collect_calls_in_expression(pattern, out);
+            if let Some(fallback) = legacy_fallback {
+                collect_calls_in_expression(fallback, out);
+            }
+        }
         Expression::PatternReplace {
             text,
             pattern,
@@ -2043,6 +2055,20 @@ impl Analyzer {
             | Expression::PatternSplit { text, pattern, .. } => {
                 self.mark_used_in_expression(text, usages);
                 self.mark_used_in_expression(pattern, usages);
+            }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_fallback,
+                ..
+            } => {
+                // The runtime chooses between the two readings; mark both, as
+                // for an ambiguous `flush`.
+                self.mark_used_in_expression(text, usages);
+                self.mark_used_in_expression(pattern, usages);
+                if let Some(fallback) = legacy_fallback {
+                    self.mark_used_in_expression(fallback, usages);
+                }
             }
             Expression::StringSplit {
                 text, delimiter, ..
