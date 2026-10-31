@@ -20,12 +20,19 @@ error[ERROR]: Count loop step must be a positive number, got -1. ...
 The step is on line 1, but the error points at line 3, column 10: the end of
 `end count`.
 
-The report that started this work used `count from 5 to 1 by -1`. That program
-does not fail at all, on `dev` or on `main`. Counting up from 5 to 1 never runs
-the body, and a loop that never runs is deliberately not checked, so programs
-that passed a nonsense step to an empty loop keep working. The docs say the
-same thing in `Docs/03-language-basics/loops-and-iteration.md`. The bug is real
-for any loop that does run, so the tests use `count from 1 to 5 by -1`.
+The report that started this work used `count from 5 to 1 by -1`. On `dev` (at
+`19c5758`) and on `main`, that program does not fail at all. Counting up from 5
+to 1 never runs the body, and a loop that never runs is deliberately not
+checked, so programs that passed a nonsense step to an empty loop keep working.
+The docs say the same thing in `Docs/03-language-basics/loops-and-iteration.md`.
+The bug is real for any loop that does run, so the tests use
+`count from 1 to 5 by -1`.
+
+The example comes from open PR #800, which adds a diagnostic for exactly that
+loop (see also issue #801). Its description lists the `end count` location as a
+pre-existing problem for a separate task; this is that task. #800 raises its
+diagnostic with the same loop position, so once both changes are in, it points
+at the `count` line too.
 
 ## Root cause
 
@@ -46,20 +53,42 @@ The unused, uncompiled `src/parser/mod_complete.rs` already records
 
 ## Who used the position
 
-Every consumer wanted "where is this statement". None relied on the old value:
+Every consumer wanted "where is this statement". None depended on the old value
+being past the end of the loop:
 
 - **Interpreter:** the four count-loop errors (two step errors, the
   stalled-counter error past 2^53, non-numeric bounds), for-each's
   `Cannot iterate over ...`, and `--step` output.
 - **Type checker:** `Start/End value in count loop must be a number` and
   `Collection in for-each loop must be a list or map`.
-- **Analyzer:** `Nested count loops both use the loop variable ...`.
+- **Analyzer:** `Nested count loops both use the loop variable ...`, and the
+  count loop's variable symbol. That symbol's line is quoted in
+  `Variable 'i' has already been defined at line N`.
 - **Linter:** `Nesting depth exceeds maximum`. With nested loops the old
   positions even came out in reverse order, because the outer loop ends after
   the inner one.
 - **Static analyzer:** the unreachable-code warning.
 - **Language server:** the squiggles, through the analyzer and type checker.
 - **Fixer:** does not read the position.
+
+## A program can see the change
+
+My first draft said messages were unchanged and no program could observe the
+position. An independent review showed both claims were too strong:
+
+- A runtime error caught with `try ... when error` binds only the message, with
+  no position. But when `load module`, `include from` or `execute file` finds an
+  analysis or type error in the loaded file, the message it raises embeds that
+  error's text, including `at line N, column M`. A program that catches it and
+  displays `error_message` printed `line 4, column 14` for a nested-loop clash
+  on line 2; it now prints `line 2, column 5`.
+- `Variable 'i' has already been defined at line N` named the line after the
+  loop's end.
+
+Both are corrections of a wrong number, not a change in what the program does.
+Still, stdout can differ, so the CHANGELOG entry carries a compatibility note,
+and the change is classed R3 under `testing.md` §5 (backward compatibility)
+rather than R2.
 
 ## Fix
 
@@ -82,6 +111,10 @@ that shows it:
   diagnostics without a location, so there is nothing to read there. (Checked:
   the nested count-loop error, an undefined variable, and the linter's nesting
   warning.) That is existing CLI behavior and this change leaves it alone.
+- **Message text and `--step`, through the binary** (added after review): the
+  redefinition message, a caught `load module` error displayed by the program,
+  and the `Line N: CountLoop` / `Line N: ForEachLoop` labels in `--step`
+  output.
 
 `wfl-lsp/tests/lsp_diagnostics_test.rs` adds a test through
 `WflLanguageCore::analyze_document`, the function that produces the editor's
@@ -93,3 +126,18 @@ diagnostics.
   the LSP test failed, each with the token after `end` (for example `(3, 10)`,
   `(4, 14)`) or `(0, 0)` at the end of a file.
 - Green: `c792dd4`. All 14 pass.
+- The three tests added after review came after the fix, so they do not prove
+  TDD order (`testing.md` §6.2); `a10961e` does that for this defect. To show
+  they can fail, I reverted `c792dd4` in the working tree only: all 16 suite
+  tests failed, the new ones with `defined at line 4`, `line 4, column 14` and
+  `Line 4: CountLoop` / `Line 8: ForEachLoop`. With the fix restored, 16 of 16
+  pass.
+
+## Noticed, not changed
+
+- At end of input, `--step`'s `continue (y/n)?` prompt repeats forever instead
+  of stopping. The new `--step` test ends its answers with `n` so it cannot
+  hang.
+- The for-each parse error `Unexpected end of input after 'each'` still uses a
+  made-up position of line 0, column 0. It could use `for_token` now, but it is
+  a separate parse-error change with its own tests.

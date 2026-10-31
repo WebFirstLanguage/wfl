@@ -87,8 +87,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   warning, `--step` output and the language server's squiggles. A loop at the
   very end of a file with no trailing newline was reported at line 0, which
   showed as the start of the file. These now point at the loop's `count` or
-  `for` keyword, as `check`, `repeat` and `main loop` already did. Messages and
-  exit codes are unchanged.
+  `for` keyword, as `check`, `repeat` and `main loop` already did. Exit codes
+  and message wording are unchanged. **Compatibility:** some messages quote the
+  position in their text, and those numbers change too. They now name the
+  loop's first line instead of a point past its end:
+  `Variable 'i' has already been defined at line N` for a count loop's
+  variable, and the `Semantic error at line N, column M` text inside the error
+  raised when `load module`, `include from` or `execute file` finds a bad loop.
+  A program that catches that error and displays `error_message` prints the
+  new numbers.
 - **`random_seed` is an error in any file that also does crypto or auth, as
   documented.** The `ANALYZE-SECURITY` check missed a crypto or auth call (or
   the seed) inside most constructs, including container creation, method-call
