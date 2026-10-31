@@ -314,4 +314,40 @@ mod tests {
             "Invalid code should have diagnostics"
         );
     }
+
+    #[test]
+    fn test_random_seed_in_crypto_code_is_an_error_in_the_editor() {
+        // `wfl` refuses to run this file, so the editor (and the MCP
+        // `analyze_wfl` tool, which shares this pipeline) must not call it clean.
+        let core = WflLanguageCore::new();
+        let diagnostics = core.analyze_document(
+            "store digest as hash_password of \"hunter2\"\nstore seeded as random_seed of 42\n",
+        );
+        let security: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.message.starts_with(RANDOM_SEED_RULE))
+            .collect();
+        assert_eq!(security.len(), 1, "got {diagnostics:?}");
+        assert_eq!(security[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(
+            security[0].range.start.line, 1,
+            "the error belongs on the random_seed line (0-based line 1)"
+        );
+    }
+
+    #[test]
+    fn test_random_seed_without_crypto_is_clean_in_the_editor() {
+        let core = WflLanguageCore::new();
+        let diagnostics =
+            core.analyze_document("store seeded as random_seed of 42\ndisplay seeded\n");
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| !d.message.starts_with(RANDOM_SEED_RULE)),
+            "seeding alone is legal: {diagnostics:?}"
+        );
+    }
+
+    const RANDOM_SEED_RULE: &str =
+        "random_seed must not be used in authentication, session, or cryptographic code";
 }
