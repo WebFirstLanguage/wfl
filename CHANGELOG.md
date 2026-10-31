@@ -88,6 +88,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   single-match meaning of `find all <name> in ...` while that variable exists.
   `wfl --lint --fix` keeps the spelling of a variable used as a `find all`
   operand, because its merged `all <name>` use cannot be renamed with it.
+- **`random_seed` is an error in any file that also does crypto or auth, as
+  documented.** The `ANALYZE-SECURITY` check missed a crypto or auth call (or
+  the seed) inside most constructs, including container creation, method-call
+  arguments, `create map`/`create list`, file writes, `wait for`, outbound HTTP,
+  `expect`, and the expression form of a database query. It also missed a
+  builtin called through a variable (`store reseed as random_seed`), and it
+  never ran on files brought in with `include from`, `load module from`, or
+  `execute file at`. All of these are now reported. A loaded file that breaks
+  the rule fails to load, before any of it runs. The language server and the
+  MCP `analyze_wfl` tool now show the error too. Programs that relied on these
+  gaps now stop with an error naming the file and line. That is intended: they
+  are the programs the rule exists to stop. `sha256` and WFLHASH still do not
+  count as crypto for this rule. The check remains per file.
 - **Instance actions preserve properties hidden by globals** (#789 review).
   A bare name inside an action still resolves to a same-named global, but
   returning from the action no longer copies that global into the object's
