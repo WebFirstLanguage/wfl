@@ -1,8 +1,8 @@
 //! Pattern matching and pattern definition statement parsing
 
 use super::super::{
-    Anchor, CharClass, Expression, Literal, ParseError, Parser, PatternExpression, Quantifier,
-    Statement,
+    Anchor, CharClass, Expression, FileFilterKind, Literal, ParseError, Parser, PatternExpression,
+    Quantifier, Statement,
 };
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
@@ -83,7 +83,7 @@ pub(crate) trait PatternParser<'a>: ExprParser<'a> {
     fn parse_extension_filter(
         &mut self,
         stop_at_clause: bool,
-    ) -> Result<Vec<Expression>, ParseError>;
+    ) -> Result<(Vec<Expression>, FileFilterKind), ParseError>;
 }
 
 impl<'a> PatternParser<'a> for Parser<'a> {
@@ -195,7 +195,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
     fn parse_extension_filter(
         &mut self,
         stop_at_clause: bool,
-    ) -> Result<Vec<Expression>, ParseError> {
+    ) -> Result<(Vec<Expression>, FileFilterKind), ParseError> {
         // Expect "extension", "extensions", or "pattern"
         if let Some(token) = self.cursor.peek() {
             match &token.token {
@@ -203,7 +203,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "extension"
                     // Parse single extension
                     let ext = self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
-                    Ok(vec![ext])
+                    Ok((vec![ext], FileFilterKind::Extension))
                 }
                 Token::KeywordExtensions => {
                     self.bump_sync(); // Consume "extensions"
@@ -219,7 +219,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         let list_expr =
                             self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
                         if let Expression::Literal(Literal::List(items), _, _) = list_expr {
-                            Ok(items)
+                            Ok((items, FileFilterKind::Extension))
                         } else {
                             Err(ParseError::from_span(
                                 "Expected list of extensions after 'extensions'".to_string(),
@@ -232,7 +232,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         // Allow a variable containing the extensions list
                         let expr =
                             self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
-                        Ok(vec![expr])
+                        Ok((vec![expr], FileFilterKind::Extension))
                     }
                 }
                 Token::KeywordPattern => {
@@ -240,7 +240,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     // Parse pattern expression (e.g., "*.wfl")
                     let expr =
                         self.parse_primary_expression_with_clause_boundary(stop_at_clause)?;
-                    Ok(vec![expr])
+                    Ok((vec![expr], FileFilterKind::Pattern))
                 }
                 _ => {
                     let err_token = token.clone();

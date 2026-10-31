@@ -387,7 +387,7 @@ Variable names cannot:
 
 ### Reserved Keywords
 
-WFL has **179** keywords and literals. Many cannot be used as variable names.
+WFL has **198** keywords and literals. Many cannot be used as variable names.
 
 A **reserved word** is a word WFL uses for its own grammar, so it cannot also be
 a name you choose. WFL uses words where other languages use symbols, and each

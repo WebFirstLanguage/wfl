@@ -26,23 +26,31 @@ and path rules](../04-advanced-features/file-io.md#closing-file-handles).
 
 ### list files in
 
-**Purpose:** List files in a directory.
+**Purpose:** List files in a directory, optionally keeping only the files
+whose names match a pattern or an extension.
 
 **Signature:**
 ```wfl
 list files in <path>
 ```
 
-**Alternative with pattern:**
+**Alternatives with a filter:**
 ```wfl
 list files in <path> with pattern <pattern>
+list files in <path> with extension <extension>
+list files in <path> with extensions <list of extensions>
+list files recursively in <path>
+list files recursively in <path> with pattern <pattern>
 ```
 
 **Parameters:**
 - `path` (Text): Directory path
-- `pattern` (Text, optional): Glob pattern (e.g., "*.wfl")
+- `pattern` (Text, optional): Glob pattern matched against each file's name (e.g., `"*.wfl"`); see [Pattern rules](#pattern-rules)
+- `extension` / `extensions` (Text or List of Text, optional): Exact extensions, including the dot (e.g., `".md"`)
 
-**Returns:** List - Filenames in the directory
+**Returns:** List of Text
+- With no filter and no `recursively`: the names of everything in the directory, folders included (e.g., `notes.txt`).
+- With a filter or `recursively`: only files, never folders. Each entry is the directory path joined with the file name using the platform's separator (e.g., `./notes.txt` for `list files in "."`, or `.\notes.txt` on Windows). Use `path_basename` to get just the name.
 
 **Example:**
 ```wfl
@@ -60,6 +68,39 @@ display "WFL files:"
 for each wfl_file in wfl_files:
     display "  - " with wfl_file
 end for
+```
+
+#### Pattern rules
+
+A `with pattern` value is a glob, the same kind of pattern the `glob`
+function uses. It is matched against each file's **name**, never its folder.
+
+| Pattern | Matches | Example |
+|---|---|---|
+| `*` | Any run of characters, including none | `"*.txt"` matches `notes.txt` and `a.txt` |
+| `?` | Exactly one character | `"?.txt"` matches `a.txt` but not `notes.txt` |
+| `[abc]` | One character from the set | `"[ab].txt"` matches `a.txt` and `b.txt` |
+| `[a-z]` | One character in the range | `"[a-c].log"` matches `b.log` |
+| `[!abc]` | One character not in the set | `"[!a].txt"` matches `b.txt` but not `a.txt` |
+| Any other character | Itself | `"report.txt"` matches only `report.txt` |
+
+- Matching is case-sensitive: `"*.TXT"` does not match `notes.txt`.
+- Names that start with a dot are matched like any other name, so `"*.txt"`
+  also matches `.notes.txt`. The `glob` function and `with extension` behave
+  the same way.
+- With `recursively`, the pattern is checked against the name of every file
+  in every subfolder, so `"*.txt"` finds `.txt` files at any depth.
+- A pattern that is only an extension, such as `".txt"`, also matches every
+  file with that extension, exactly like `with extension ".txt"`. Programs
+  written before glob matching was fixed keep working.
+- An invalid pattern, such as `"[abc"` (a set that is never closed), stops
+  with a runtime error that names the pattern. Use `try` / `catch` to handle
+  it.
+
+**Recursive search with a pattern:**
+```wfl
+wait for store all_wfl as list files recursively in "." with pattern "*.wfl"
+display "WFL files in this folder and below: " with length of all_wfl
 ```
 
 **Use Cases:**

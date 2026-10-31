@@ -1117,6 +1117,18 @@ impl BuiltinUses {
                 self.expression(text);
                 self.expression(pattern);
             }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_fallback,
+                ..
+            } => {
+                self.expression(text);
+                self.expression(pattern);
+                if let Some(fallback) = legacy_fallback {
+                    self.expression(fallback);
+                }
+            }
             Expression::PatternReplace {
                 text,
                 pattern,
@@ -2551,6 +2563,20 @@ impl Analyzer {
             | Expression::PatternSplit { text, pattern, .. } => {
                 self.mark_used_in_expression(text, usages);
                 self.mark_used_in_expression(pattern, usages);
+            }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_fallback,
+                ..
+            } => {
+                // The runtime chooses between the two readings; mark both, as
+                // for an ambiguous `flush`.
+                self.mark_used_in_expression(text, usages);
+                self.mark_used_in_expression(pattern, usages);
+                if let Some(fallback) = legacy_fallback {
+                    self.mark_used_in_expression(fallback, usages);
+                }
             }
             Expression::StringSplit {
                 text, delimiter, ..

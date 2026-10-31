@@ -10,6 +10,9 @@
 //! `Docs/reference/reserved-keywords.md` describe `down to` instead. Changing
 //! any of this is a user-visible change: update both pages, the "Counting
 //! Down" section of the loops guide, and this test together.
+//!
+//! `keyword_reference_drift_test.rs` already fails if either page lists a word
+//! the lexer does not define, so this file only covers `down to` itself.
 
 use std::path::PathBuf;
 
@@ -41,15 +44,6 @@ fn read_lf(relative: &str) -> String {
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {relative}: {e}"))
         .replace("\r\n", "\n")
-}
-
-/// A line made only of backticked words separated by `, `, such as the
-/// "Miscellaneous" and "Keywords by Feature Category" lists.
-fn is_keyword_list(line: &str) -> bool {
-    !line.is_empty()
-        && line
-            .split(", ")
-            .all(|item| item.len() > 2 && item.starts_with('`') && item.ends_with('`'))
 }
 
 #[test]
@@ -117,28 +111,6 @@ fn downward_and_upward_are_not_count_directions() {
             "the error for `{word}` should suggest `down to`: {}",
             errors[0].message
         );
-    }
-}
-
-#[test]
-fn keyword_pages_do_not_list_downward_or_upward() {
-    for page in KEYWORD_PAGES {
-        let doc = read_lf(page);
-        for (index, line) in doc.lines().enumerate() {
-            for word in NOT_KEYWORDS {
-                let backticked = format!("`{word}`");
-                assert!(
-                    !line.starts_with(&format!("| {backticked} |")),
-                    "{page}:{} lists {backticked} as a keyword table row: {line}",
-                    index + 1
-                );
-                assert!(
-                    !(is_keyword_list(line) && line.contains(&backticked)),
-                    "{page}:{} lists {backticked} in a keyword list: {line}",
-                    index + 1
-                );
-            }
-        }
     }
 }
 

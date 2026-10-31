@@ -8622,6 +8622,52 @@ impl TypeChecker {
                     Box::new(Type::Any),
                 )))
             }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                line,
+                column,
+            } => {
+                // The legacy single-match `find` while `all <name>` is defined,
+                // as the analyzer and the runtime choose it.
+                if let Some(fallback) = legacy_fallback
+                    && legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| self.name_is_defined_for_write(name))
+                {
+                    return self.infer_expression_type(fallback);
+                }
+
+                let text_type = self.infer_expression_type(text);
+                let pattern_type = self.infer_expression_type(pattern);
+
+                if text_type != Type::Text && !self.is_gradual_type(&text_type) {
+                    self.type_error(
+                        format!("Expected Text after 'in' in find all, got {text_type}"),
+                        Some(Type::Text),
+                        Some(text_type),
+                        *line,
+                        *column,
+                    );
+                }
+
+                if pattern_type != Type::Pattern && !self.is_gradual_type(&pattern_type) {
+                    self.type_error(
+                        format!("Expected Pattern before 'in' in find all, got {pattern_type}"),
+                        Some(Type::Pattern),
+                        Some(pattern_type),
+                        *line,
+                        *column,
+                    );
+                }
+
+                Type::List(Box::new(Type::Map(
+                    Box::new(Type::Text),
+                    Box::new(Type::Any),
+                )))
+            }
             Expression::PatternReplace {
                 text,
                 pattern,
@@ -9344,6 +9390,7 @@ impl TypeChecker {
                 extensions,
                 line,
                 column,
+                ..
             } => {
                 self.check_file_listing_operands(
                     path,
@@ -9358,6 +9405,7 @@ impl TypeChecker {
                 extensions,
                 line,
                 column,
+                ..
             } => {
                 self.check_file_listing_operands(path, extensions, *line, *column);
                 Type::List(Box::new(Type::Text))
@@ -10881,6 +10929,24 @@ impl TypeChecker {
             } => {
                 self.check_expression_names_defined(left);
                 self.check_expression_names_defined(right);
+            }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                ..
+            } => {
+                if let Some(fallback) = legacy_fallback
+                    && legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| self.name_is_defined_for_write(name))
+                {
+                    self.check_expression_names_defined(fallback);
+                } else {
+                    self.check_expression_names_defined(text);
+                    self.check_expression_names_defined(pattern);
+                }
             }
             Expression::UnaryOperation {
                 expression: inner, ..
