@@ -101,6 +101,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     (`count from 1 to length of items` over an empty list) does not warn.
 
 ### Fixed
+- **Count and for-each loop errors point at the loop's first line.** An error
+  raised by a `count` or `for each` loop itself was reported at the token after
+  `end count` or `end for`, so the location and source excerpt showed the end
+  of the loop. This affected the count-loop step errors, `Count loop requires
+  numeric start and end values`, `Cannot iterate over ...`, the type checker's
+  loop type errors, the nested count-loop name error, the linter's nesting
+  warning, `--step` output and the language server's squiggles. A loop at the
+  very end of a file with no trailing newline was reported at line 0, which
+  showed as the start of the file. These now point at the loop's `count` or
+  `for` keyword, as `check`, `repeat` and `main loop` already did. The new
+  empty-range step warning (see **Deprecated** above) names the same line, as
+  `(count loop on line N)`. Exit codes and the wording of existing messages
+  are unchanged. **Compatibility:** some messages quote the
+  position in their text, and those numbers change too. They now name the
+  loop's first line instead of a point past its end:
+  - `Variable 'i' has already been defined at line N` for a count loop's
+    variable.
+  - The `Semantic error at line N, column M` text in the error that
+    `load module`, `include from` or `execute file` raises for a file with a
+    bad loop, and the `Type error at line N, column M` text in the error
+    `load module` raises.
+  - The `(line N)` in `Error in executed file '...' (line N): ...` when a loop
+    in a file run by `execute file` fails.
+
+  A program that catches one of these errors and displays `error_message`
+  prints the new numbers.
 - **`find all <pattern> in <text>` works as documented.** The pattern docs and
   the builtin reference promised this spelling, but the lexer merges `all word`
   into one name, so the documented program failed with "Variable 'all word' is

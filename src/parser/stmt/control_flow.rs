@@ -2,7 +2,7 @@
 
 use super::super::{ParseError, Parser, Statement};
 use super::StmtParser;
-use crate::lexer::token::{Token, TokenWithPosition};
+use crate::lexer::token::Token;
 use crate::parser::expr::ExprParser;
 
 pub(crate) trait ControlFlowParser<'a>: ExprParser<'a> {
@@ -381,7 +381,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
     where
         Self: StmtParser<'a>,
     {
-        self.bump_sync(); // Consume "for"
+        let for_token = self.bump_sync().unwrap(); // Consume "for"
 
         self.expect_token(Token::KeywordEach, "Expected 'each' after 'for'")?;
 
@@ -446,24 +446,13 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordEnd, "Expected 'end' after for-each loop body")?;
         self.expect_token(Token::KeywordFor, "Expected 'for' after 'end'")?;
 
-        let token_pos = self.cursor.peek().map_or(
-            &TokenWithPosition {
-                token: Token::KeywordFor,
-                line: 0,
-                column: 0,
-                length: 0,
-                byte_start: 0,
-                byte_end: 0,
-            },
-            |v| v,
-        );
         Ok(Statement::ForEachLoop {
             item_name,
             collection,
             reversed,
             body,
-            line: token_pos.line,
-            column: token_pos.column,
+            line: for_token.line,
+            column: for_token.column,
         })
     }
 
@@ -581,17 +570,6 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordEnd, "Expected 'end' after count loop body")?;
         self.expect_token(Token::KeywordCount, "Expected 'count' after 'end'")?;
 
-        let token_pos = self.cursor.peek().map_or(
-            &TokenWithPosition {
-                token: Token::KeywordCount,
-                line: 0,
-                column: 0,
-                length: 0,
-                byte_start: 0,
-                byte_end: 0,
-            },
-            |v| v,
-        );
         Ok(Statement::CountLoop {
             start,
             end,
@@ -599,8 +577,8 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
             downward,
             variable_name,
             body,
-            line: token_pos.line,
-            column: token_pos.column,
+            line: count_token.line,
+            column: count_token.column,
         })
     }
 
