@@ -17,6 +17,8 @@ This is a narrow, standing delegation from the Maintainers under
 [GOVERNANCE.md](../../GOVERNANCE.md); it grants no release or general triage
 authority. Closing an issue without a merged fix (for example, as duplicate or
 not planned) still requires a Maintainer or delegated Contributor decision.
+A second, separate delegation lets agents merge eligible pull requests opened
+by Dependabot; see [Dependabot pull requests](#dependabot-pull-requests).
 
 ## Ranked issue types
 
@@ -28,7 +30,7 @@ human decision required below.
 | Rank | Issue type | Typical issues | Agent authority before a fix |
 |---|---|---|---|
 | **I1** | Well-defined bug or routine correction, autonomous | A reproducible internal or user-visible bug whose expected behavior is already established; a prose typo or broken link with an unambiguous correction; a test or fixture correction that preserves intended behavior without weakening a required gate | May investigate, self-dispatch and open a PR. A different eligible agent may merge after the I1 completion gates pass; the author may then close the linked issue with evidence. |
-| **I2** | Human review before dispatch | Any new feature or enhancement; a bug that needs a product or design decision; speculative performance work; dependency, CI, packaging, installer, or configuration changes; unclear acceptance criteria or disputed expected behavior | May triage and propose a fix. A Maintainer must confirm the scope and authorize dispatch in the issue or linked discussion before implementation starts. |
+| **I2** | Human review before dispatch | Any new feature or enhancement; a bug that needs a product or design decision; speculative performance work; dependency, CI, packaging, installer, or configuration changes (a pull request opened by Dependabot follows [Dependabot pull requests](#dependabot-pull-requests) instead); unclear acceptance criteria or disputed expected behavior | May triage and propose a fix. A Maintainer must confirm the scope and authorize dispatch in the issue or linked discussion before implementation starts. |
 | **I3** | Maintainer-led, restricted | Potential vulnerabilities or secrets; changes to security boundaries or protected data; new or breaking language syntax or semantics; compatibility exceptions, destructive migrations, release controls, registry trust, governance, legal/licensing, Code of Conduct, or access and permission decisions | Do not self-dispatch. A Maintainer chooses the handling channel, decision, scope, and whether to assign any implementation to an agent. Security reports follow [SECURITY.md](../../SECURITY.md) privately. |
 
 I1 applies to bugs when the agent can reproduce the failure, explain the
@@ -79,6 +81,117 @@ After the merge succeeds, the agent may close the linked issue with the merged
 PR and verification evidence. A merge keyword that closes the issue on merge
 also satisfies this step. If any gate fails or the change expands beyond I1,
 pause and seek a Maintainer decision.
+
+## Dependabot pull requests
+
+Dependabot opens pull requests that update dependencies. No agent writes these
+changes, so they need no dispatch decision. A project-run agent may review,
+approve, and merge an **eligible** Dependabot pull request without per-PR human
+approval. The agent may merge it directly, or it may turn on GitHub auto-merge
+so that GitHub merges the pull request once the branch rules pass. This is a
+narrow, standing delegation from the Maintainers under
+[GOVERNANCE.md](../../GOVERNANCE.md). Like the I1 delegation, it grants no
+release, tag, deployment, or general triage authority.
+
+Dependabot opens security updates against the default branch, `main`. An
+eligible Dependabot pull request may therefore merge into `main` or `dev`,
+whichever branch Dependabot targeted. This is the only exception to
+"promotion is `dev → main` by PR" and to the CEO gate for merges to `main`.
+A dependency update that reaches `main` this way returns to `dev` through the
+normal `main → dev` sync pull request.
+
+### Eligibility
+
+A Dependabot pull request is eligible only when **all** of these hold:
+
+1. **Dependabot made every change.** The pull request author is
+   `dependabot[bot]` and Dependabot created every commit on its head. If a
+   person or another agent pushes a commit to the branch, the pull request is
+   no longer eligible; a Maintainer decides it. Agents must not push to a
+   Dependabot branch. An agent may ask Dependabot to rebase or recreate the
+   pull request with a `@dependabot` command.
+2. **Only dependency files change.** The diff touches only dependency
+   manifests and lockfiles for Cargo (`Cargo.toml`, `Cargo.lock`, including
+   `fuzz/`) or npm (`package.json`, `package-lock.json`, including
+   `vscode-extension/`). The manifest change is limited to the version
+   requirement of the dependency being updated.
+3. **The update is compatible.** Each directly updated package moves to a
+   semver-compatible version: the same major version, and for a `0.x` version
+   the same minor version, because `0.y` steps are breaking changes under Cargo
+   and npm rules. A major update, or a `0.x` minor update, is never eligible,
+   even when it fixes a security advisory.
+4. **No new trust is added.** The update adds no new direct dependency,
+   removes none, changes no Cargo feature or npm script, and adds no npm
+   install script (`preinstall`, `install`, or `postinstall`). Any new
+   transitive package uses a licence compatible with Apache-2.0 that already
+   appears in the lockfile. A licence change on any updated package is not
+   eligible.
+5. **The release has aged, unless it fixes an advisory.** The new version was
+   published at least 72 hours before the merge, so the ecosystem has time to
+   report and yank a compromised or broken release. A security update that
+   resolves an open Dependabot alert is exempt from this wait. A yanked or
+   deprecated target version is never eligible.
+6. **Restricted areas stay with Maintainers.** GitHub Actions, Docker, and
+   other non-Cargo, non-npm ecosystems are not eligible, because they change
+   workflows, release builds, or container images (see the Brad-reserved
+   decisions in [GOVERNANCE.md](../../GOVERNANCE.md)). An update that would
+   need a code change, a docs change, a test change, or a compatibility
+   exception is not eligible.
+
+### Risk class
+
+A dependency update can change executable behavior, so it is never `R0`. It
+is `R2` by default under [testing.md](../../testing.md#5-change-risk-classes).
+It is `R3` when the updated package (direct or transitive) implements
+cryptography, TLS, authentication, sessions, password hashing, random number
+generation for security, subprocess handling, a database driver, or parsing
+of untrusted input such as HTTP. An `R3` update is eligible only when it is a
+patch update (only the last version number changes) and its security-focused
+independent review is complete. `testing.md` does not require an artificial
+failing test for dependency maintenance; it does require the compatibility,
+security, integration, and end-to-end evidence that CI provides.
+
+### Merge gates
+
+The agent may approve and merge, or turn on auto-merge, only when **all** of
+these hold:
+
+1. **The agent reviewed the update itself.** The agent read the full diff,
+   the release notes or changelog between the old and new versions, and any
+   linked security advisory. Its approving review on the pull request states
+   the update type, the risk class, why each eligibility rule holds, and any
+   notable change it found. An approval that repeats Dependabot's description
+   without that check does not count as independent review.
+2. **Required CI passes on the final head.** Every required check passes on
+   the exact head commit. This includes Linux and Windows integration, fuzz
+   compilation, and the extension dependency security check when npm files
+   change. Pending, skipped, cancelled, flaky, and failed required checks are
+   not passes. The agent must not rerun a genuine failure to get green. When
+   auto-merge is on, GitHub waits for the required checks; if one fails, the
+   pull request is not merged and the agent records the failure for a
+   Maintainer.
+3. **Bot reviews are handled.** Every triggered review bot has finished. The
+   agent records a technically supported response to each actionable finding.
+   Agents cannot push fixes to a Dependabot branch (eligibility rule 1), so a
+   finding that needs a change, or any blocking finding, makes the pull
+   request ineligible.
+4. **Branch rules pass without a bypass.** The LOG-16 ruleset permits the
+   merge. The agent does not grant itself access, dismiss a required review,
+   use an administrator override, or weaken a check. If Dependabot rebases the
+   branch, the ruleset dismisses the earlier approval, and the agent must
+   review the new head again before it approves.
+5. **The evidence is recorded.** The approving review, or a pull request
+   comment, links the passing CI run for the head commit and lists the
+   individual required results.
+
+### When an update is not eligible
+
+If any eligibility rule or gate fails, the agent does not approve or merge.
+It leaves one comment that names the failed rule, so a Maintainer can decide.
+It may still investigate read-only, for example by reading release notes or
+reproducing a CI failure locally. A Dependabot alert for a possible
+vulnerability that is **not** yet public follows [SECURITY.md](../../SECURITY.md)
+privately, as an I3 matter.
 
 ## Triage and escalation
 

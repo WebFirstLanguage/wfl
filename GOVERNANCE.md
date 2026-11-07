@@ -32,9 +32,12 @@ conflicts on the owning issue instead of silently relaxing a rule.
 
 - Start a short-lived feature, fix or documentation branch from current `dev`;
   open its PR into `dev`. Never push directly to `dev`, `main` or a release
-  branch, or force-push shared branches. Promotion is `dev → main` by PR.
-- Maintainers merge. The only standing exception is an eligible I1 fix by a
-  project-run agent under §3.9 and
+  branch, or force-push shared branches. Promotion is `dev → main` by PR,
+  except that an eligible Dependabot pull request may merge into the branch
+  Dependabot targeted, including `main` (§3.10).
+- Maintainers merge. There are two standing exceptions: an eligible I1 fix by
+  a project-run agent under §3.9, and an eligible Dependabot pull request
+  merged by a project-run agent under §3.10, both as defined in
   [the issue policy](Docs/contributing/issue-policy.md). Authors, including
   agent authors, do not merge their own pull requests. This needs no separate
   per-PR Brad approval once the ruleset, reviews, and CI below are satisfied.
@@ -82,6 +85,10 @@ individual result links, then recheck immediately before acting. A different
 SHA or aggregate green is insufficient; a flaky rerun is not a waiver.
 Anything short of fully green stops for Brad's explicit authorization.
 Current-revision independent review and handled bot feedback remain required.
+The one exception is the §3.10 Dependabot delegation, which lets a project-run
+agent merge an eligible Dependabot pull request into `main` under the same
+exact-commit, fully-green rule. It grants no build, release, tag, promotion or
+deployment authority.
 
 Always Brad's decisions regardless of CI: spending money; deleting data,
 agents or repositories; anything touching secrets; VM configuration changes;
@@ -153,7 +160,7 @@ may care about.
 
 | Decision type | Who decides | Notes |
 |---|---|---|
-| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 | Current-revision CI, independent review, handled bot feedback, and the LOG-16 ruleset |
+| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 and eligible Dependabot updates under §3.10 | Current-revision CI, independent review, handled bot feedback, and the LOG-16 ruleset |
 | Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules |
 | Security advisories and embargo | Maintainer(s) | Per [SECURITY.md](SECURITY.md) |
 | Appointing Contributors / Maintainers | Maintainer(s) | See [CONTRIBUTING.md](CONTRIBUTING.md) application process |
@@ -283,6 +290,32 @@ and human merge approval. This delegation does not extend to releases,
 security response, or general issue triage. Human contributors may use AI under
 `AI_POLICY.md` regardless of issue type.
 
+### 3.10 Agent merges of Dependabot updates
+
+[The issue policy](Docs/contributing/issue-policy.md#dependabot-pull-requests)
+delegates review, approval and merge of **eligible** Dependabot pull requests
+to project-run AI agents, without per-PR human approval. An agent may merge
+directly or turn on GitHub auto-merge. Because Dependabot, not the agent,
+authored the change, the reviewing agent's approval is the independent review;
+it must rest on the agent's own reading of the diff, release notes and any
+advisory, not on Dependabot's description.
+
+Eligible means, in short: Dependabot made every commit; only Cargo or npm
+manifests and lockfiles change; every update is semver-compatible (no major
+update, and no `0.x` minor update); no new direct dependency, feature, install
+script or licence change; the release is at least 72 hours old unless it fixes
+an open Dependabot alert; and every required check, bot review and LOG-16 rule
+passes on the exact head commit without a bypass. Updates to cryptography, TLS,
+authentication or untrusted-input packages are `R3` and eligible only as patch
+updates. GitHub Actions, Docker and other ecosystems stay with Maintainers,
+because they change workflows, release builds or images.
+
+An eligible pull request may merge into `main` or `dev`, whichever Dependabot
+targeted; changes reaching `main` return to `dev` by the normal sync pull
+request. Anything not eligible waits for a Maintainer. This delegation grants
+no build, release, tag, deployment or production authority, and the Maintainers
+remain accountable for it and may revoke it.
+
 ---
 
 ## 4. Contribution paths
@@ -315,9 +348,10 @@ is no automatic promotion timeline; appointments are explicit and public
 5. Address review feedback. AI-assisted work is welcome; accountability
    follows [AI_POLICY.md](AI_POLICY.md).
 6. A Maintainer merges when checks and policies are satisfied, except that a
-   project-run agent may merge an eligible I1 fix under §3.9 after its required
-   CI, review, and evidence gates pass. Main/release actions follow the
-   common policy's conditional CEO gate.
+   project-run agent may merge an eligible I1 fix under §3.9, or an eligible
+   Dependabot pull request under §3.10, after its required CI, review, and
+   evidence gates pass. Other main/release actions follow the common policy's
+   conditional CEO gate.
 
 Maintainers may reject or request changes for any reason grounded in these
 policies, including style that violates WFL’s natural-language design goals,

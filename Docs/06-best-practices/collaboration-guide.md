@@ -61,8 +61,11 @@ GitHub applies it to new pull requests. Do not copy an older local template.
 
 Follow [GOVERNANCE.md](../../GOVERNANCE.md) for feature → `dev` PRs,
 independent review, exact-commit Actions evidence, bot feedback and promotion
-authority. Maintainers merge; the only standing exception is an eligible I1
-fix by a project-run agent under GOVERNANCE.md §3.9.
+authority. Maintainers merge. There are two standing exceptions: an eligible
+I1 fix by a project-run agent under GOVERNANCE.md §3.9, and an eligible
+Dependabot pull request merged by a project-run agent under GOVERNANCE.md
+§3.10 (rules in
+[the issue policy](../contributing/issue-policy.md#dependabot-pull-requests)).
 
 ### Before Submitting PR
 
