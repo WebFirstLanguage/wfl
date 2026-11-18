@@ -760,6 +760,62 @@ async fn changing_resolv_conf_clears_cached_answers() {
     );
 }
 
+/// Review round 4: a lookup that started under the OLD resolv.conf and
+/// finishes after the change must not put its answer back into the cache.
+/// Without that, one stale answer from the old servers survives the change.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lookup_in_flight_during_a_resolv_conf_change_is_not_cached() {
+    let (port, _servers) = FakeDns::start_group(
+        3600,
+        vec![
+            // The old server answers slowly, so its lookup is still running
+            // when resolv.conf changes.
+            handler(|_| Reply::delayed(2500, Reply::v4(10, 0, 0, 1))),
+            handler(|_| Reply::v4(10, 0, 0, 2)),
+        ],
+    )
+    .await;
+    let files = SystemFiles::new("nameserver 127.0.0.1\noptions timeout:5\n", "");
+    let resolver = resolver(&explicit_wfl(), files.sources(port));
+
+    let old_lookup = {
+        let resolver = resolver.clone();
+        tokio::spawn(async move { resolver.lookup("race.wfl.test").await })
+    };
+    // Filesystem timestamps can be as coarse as one second.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    std::fs::write(
+        files.resolv_conf(),
+        "nameserver 127.0.0.2\noptions timeout:5\n",
+    )
+    .unwrap();
+    let new_server: Vec<IpAddr> = vec!["10.0.0.2".parse().unwrap()];
+    assert_eq!(
+        resolver
+            .lookup("race.wfl.test")
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(new_server.clone())
+    );
+
+    // The old lookup finishes after the change, with the old server's answer.
+    let old = old_lookup.await.unwrap();
+    assert_eq!(
+        old.map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.1".parse::<IpAddr>().unwrap()])
+    );
+    // ...but that answer must not replace the fresh one in the cache.
+    assert_eq!(
+        resolver
+            .lookup("race.wfl.test")
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(new_server),
+        "an answer from the old resolv.conf was cached after the change"
+    );
+}
+
 /// NFR-02 + SEC-09: abandoning a lookup (as the request deadline does) stops
 /// it across every search-list name, so a long search list cannot keep
 /// sending queries after the request has given up.
@@ -784,9 +840,14 @@ async fn abandoning_a_lookup_stops_a_long_search() {
         gave_up.is_err(),
         "the lookup should still have been running"
     );
+    // A datagram sent just before the lookup was dropped may still be on its
+    // way to the fake server's log; let it land before taking the baseline,
+    // so only queries sent AFTER the drop can change the count.
+    tokio::time::sleep(Duration::from_millis(300)).await;
     let asked = silent.query_count();
     assert!(asked >= 1);
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    // Long enough for several more rounds (1 s each) had the lookup survived.
+    tokio::time::sleep(Duration::from_millis(3000)).await;
     assert_eq!(
         silent.query_count(),
         asked,
