@@ -833,10 +833,9 @@ fn read_small_file(path: &Path) -> Result<Vec<u8>, String> {
 /// cannot hide the addresses on other lines).
 fn decode_text(bytes: &[u8]) -> String {
     let utf16 = |rest: &[u8], from: fn([u8; 2]) -> u16| {
-        let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|pair| from([pair[0], pair[1]]))
-            .collect();
+        // A trailing odd byte cannot form a UTF-16 unit and is dropped.
+        let (pairs, _odd_byte) = rest.as_chunks::<2>();
+        let units: Vec<u16> = pairs.iter().map(|pair| from(*pair)).collect();
         String::from_utf16_lossy(&units)
     };
     match bytes {
