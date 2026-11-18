@@ -763,7 +763,53 @@ impl fmt::Debug for OrderedResolver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OrderedResolver")
             .field("setup", &self.inner.setup)
+            .field("sources", &self.inner.sources)
             .finish()
+    }
+}
+
+/// Where WFL reads the operating system's DNS settings from.
+///
+/// Production always uses [`SystemSources::platform_default`]. The fields are
+/// public so library callers (the test suite) can point a resolver at a
+/// temporary `resolv.conf` and hosts file; nothing a WFL program, `.wflcfg`,
+/// environment variable, or command-line flag controls can change them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemSources {
+    /// The resolver configuration file: `/etc/resolv.conf` on Linux and macOS,
+    /// `None` on Windows (which has no such file).
+    pub resolv_conf: Option<PathBuf>,
+    /// The hosts file: `/etc/hosts`, or the Windows hosts file.
+    pub hosts: Option<PathBuf>,
+    /// The port used for servers read from `resolv.conf`. Always 53 in
+    /// production, because `resolv.conf` cannot name a port.
+    pub port: u16,
+}
+
+impl SystemSources {
+    /// The real system files for this platform.
+    pub fn platform_default() -> Self {
+        if cfg!(windows) {
+            let root = std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+            Self {
+                resolv_conf: None,
+                hosts: Some(
+                    root.join("System32")
+                        .join("drivers")
+                        .join("etc")
+                        .join("hosts"),
+                ),
+                port: 53,
+            }
+        } else {
+            Self {
+                resolv_conf: Some(PathBuf::from("/etc/resolv.conf")),
+                hosts: Some(PathBuf::from("/etc/hosts")),
+                port: 53,
+            }
+        }
     }
 }
 
@@ -775,15 +821,23 @@ enum Setup {
 
 struct Inner {
     setup: Setup,
+    sources: SystemSources,
     /// One single-server hickory resolver per server, created on first use and
     /// reused (so TCP connections and hickory's per-server state persist).
     clients: Mutex<HashMap<SocketAddr, TokioResolver>>,
 }
 
 impl OrderedResolver {
-    /// Build the resolver for a plan. Returns `None` for [`DnsPlan::System`],
-    /// which means "keep reqwest's default resolver".
+    /// Build the resolver for a plan, reading the real system files. Returns
+    /// `None` for [`DnsPlan::System`], which means "keep reqwest's default
+    /// resolver".
     pub fn from_plan(plan: &DnsPlan) -> Option<Self> {
+        Self::from_plan_with_sources(plan, SystemSources::platform_default())
+    }
+
+    /// Build the resolver for a plan, reading the system's DNS settings from
+    /// `sources`.
+    pub fn from_plan_with_sources(plan: &DnsPlan, sources: SystemSources) -> Option<Self> {
         let setup = match plan {
             DnsPlan::System { .. } => return None,
             DnsPlan::Wfl { settings, warnings } => {
@@ -797,6 +851,7 @@ impl OrderedResolver {
         Some(Self {
             inner: Arc::new(Inner {
                 setup,
+                sources,
                 clients: Mutex::new(HashMap::new()),
             }),
         })
@@ -1272,6 +1327,29 @@ mod tests {
         let mut settings = settings_with(&[("dns_servers", "10.0.0.1")]);
         settings.apply("dns_servers", "", Path::new("/project/.wflcfg"));
         assert_eq!(settings.servers, Setting::Unset);
+    }
+
+    #[test]
+    fn platform_default_sources_point_at_the_real_files() {
+        let sources = SystemSources::platform_default();
+        assert_eq!(sources.port, 53);
+        let hosts = sources.hosts.expect("every platform has a hosts file");
+        if cfg!(windows) {
+            assert_eq!(sources.resolv_conf, None);
+            assert!(
+                hosts.ends_with(
+                    Path::new("System32")
+                        .join("drivers")
+                        .join("etc")
+                        .join("hosts")
+                ),
+                "{}",
+                hosts.display()
+            );
+        } else {
+            assert_eq!(sources.resolv_conf, Some(PathBuf::from("/etc/resolv.conf")));
+            assert_eq!(hosts, PathBuf::from("/etc/hosts"));
+        }
     }
 
     #[tokio::test]
