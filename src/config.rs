@@ -113,6 +113,10 @@ pub struct WflConfig {
     /// buffer without bound. Feeds `ExecutionBudget`. Default 16 MiB; must be at
     /// least 1.
     pub web_socket_max_queued_bytes: usize,
+    /// Ordered DNS resolution settings (`dns_servers`, `dns_servers_mode`,
+    /// `dns_timeout_seconds`, `dns_resolver`), each with its source file. See
+    /// `crate::interpreter::dns`.
+    pub dns: crate::interpreter::dns::DnsSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,6 +225,7 @@ impl Default for WflConfig {
             web_socket_max_connections: 1_024,
             web_socket_max_message_size: 1_048_576,
             web_socket_max_queued_bytes: 16 * 1_048_576,
+            dns: crate::interpreter::dns::DnsSettings::default(),
         }
     }
 }
@@ -941,6 +946,9 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                     value,
                     file,
                 ),
+                "dns_servers" | "dns_servers_mode" | "dns_timeout_seconds" | "dns_resolver" => {
+                    config.dns.apply(key, value, file);
+                }
                 _ => {
                     log::warn!("Unknown configuration key: {} in {}", key, file.display());
                 }

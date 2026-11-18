@@ -4,6 +4,7 @@ pub mod bounded_buffer;
 pub mod command_sanitizer;
 pub mod control_flow;
 pub mod database;
+pub mod dns;
 pub mod environment;
 pub mod error;
 mod file_filter;
@@ -2272,6 +2273,10 @@ pub struct IoClient {
     /// Separate pool for requests that must expose the original 3xx response.
     /// A request never changes another request's redirect policy.
     http_client_no_redirects: OnceCell<reqwest::Client>,
+    /// WFL's ordered DNS resolver, shared by both HTTP clients, or `None` when
+    /// the configuration selects the operating system's resolver. Built on
+    /// first use, like the clients. See [`dns`].
+    dns_resolver: std::sync::OnceLock<Option<dns::OrderedResolver>>,
     // Registry locks cover only lookup/insertion/removal, never disk I/O.
     file_handles: std::sync::Mutex<HashMap<String, SharedFile>>,
     // Handles remain ordinary Text values for display/type/equality. Their
@@ -2750,10 +2755,25 @@ impl IoClient {
             } else {
                 builder.redirect(reqwest::redirect::Policy::none())
             };
+            // Ordered DNS: when the configuration selects WFL's resolver, it
+            // replaces reqwest's default (getaddrinfo) for both clients.
+            let builder = match self.ordered_dns_resolver() {
+                Some(resolver) => builder.dns_resolver(resolver.clone()),
+                None => builder,
+            };
             builder.build().map_err(|error| {
                 HttpClientError::Request(format!("Could not create HTTP client: {error}"))
             })
         })
+    }
+
+    /// WFL's ordered DNS resolver for this run, or `None` when the DNS settings
+    /// select the operating system's resolver (`dns_resolver = system`, or no
+    /// DNS settings on a platform where the system resolver is the default).
+    fn ordered_dns_resolver(&self) -> Option<&dns::OrderedResolver> {
+        self.dns_resolver
+            .get_or_init(|| dns::OrderedResolver::from_plan(&dns::plan(&self.config.dns)))
+            .as_ref()
     }
 
     /// Send a request, re-sending it once on a fresh connection if the first
@@ -2837,8 +2857,16 @@ impl IoClient {
                         // connection that is known to be fresh.
                         Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
                         _ => {
+                            // A DNS failure carries its own explanation (which
+                            // servers were asked and what each said). Use it
+                            // instead of reqwest's wrapper, which would also
+                            // repeat the full URL, path and query included.
+                            let detail = match dns::find_lookup_error(&error) {
+                                Some(lookup) => lookup.to_string(),
+                                None => error.to_string(),
+                            };
                             return Err(HttpClientError::Request(format!(
-                                "Failed to send HTTP {method} request: {error}"
+                                "Failed to send HTTP {method} request: {detail}"
                             )));
                         }
                     },
@@ -2900,6 +2928,7 @@ impl IoClient {
         Self {
             http_client: OnceCell::new(),
             http_client_no_redirects: OnceCell::new(),
+            dns_resolver: std::sync::OnceLock::new(),
             file_handles: std::sync::Mutex::new(HashMap::new()),
             file_handle_values: std::sync::Mutex::new(FileHandleValues::default()),
             next_file_id: Mutex::new(1),

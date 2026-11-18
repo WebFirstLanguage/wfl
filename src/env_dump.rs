@@ -57,6 +57,10 @@ pub fn dump_env(output_path: Option<&str>) -> io::Result<()> {
     report.push_str(&format!("{:#?}\n", config));
     report.push('\n');
 
+    // DNS: which resolver and servers outbound HTTP requests will use.
+    report.push_str(&crate::interpreter::dns::describe(&config.dns));
+    report.push('\n');
+
     // Environment Variables
     report.push_str("=== Environment Variables (WFL_*) ===\n");
     for (key, value) in env::vars() {
