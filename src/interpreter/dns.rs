@@ -646,8 +646,10 @@ fn seconds_words(seconds: u64) -> String {
 ///
 /// Production always uses [`SystemSources::platform_default`]. The fields are
 /// public so library callers (the test suite) can point a resolver at a
-/// temporary `resolv.conf` and hosts file; nothing a WFL program, `.wflcfg`,
-/// environment variable, or command-line flag controls can change them.
+/// temporary `resolv.conf` and hosts file. No WFL program, `.wflcfg` key, or
+/// command-line flag can change them. The one environment input is Windows'
+/// own `%SystemRoot%`, which locates the hosts file the same way Windows does;
+/// changing it for a process only redirects that process's own hosts file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemSources {
     /// The resolver configuration file: `/etc/resolv.conf` on Linux and macOS,
@@ -691,6 +693,9 @@ impl SystemSources {
 const MAX_SYSTEM_SERVERS: usize = 3;
 /// glibc's cap on `options ndots:N`.
 const MAX_NDOTS: usize = 15;
+/// Most search domains used (glibc's classic `MAXDNSRCH`), so a long search
+/// list cannot multiply the worst-case wait without bound.
+const MAX_SEARCH_DOMAINS: usize = 6;
 /// The largest system file WFL reads (resolv.conf or hosts).
 const MAX_SYSTEM_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -719,8 +724,8 @@ impl SystemConfig {
             };
         };
         match read_small_file(path) {
-            Ok(text) => {
-                let mut config = Self::parse(&text);
+            Ok(bytes) => {
+                let mut config = Self::parse(&decode_text(&bytes));
                 if config.servers.is_empty() {
                     config.problem = Some(format!("{} has no nameserver lines", path.display()));
                 }
@@ -734,15 +739,17 @@ impl SystemConfig {
         }
     }
 
-    /// Parse `resolv.conf` text with glibc's rules: the first three
-    /// `nameserver` lines, the last `search` or `domain` line, and `options
-    /// ndots/timeout/attempts` capped at glibc's maximums. `#` and `;` start
-    /// comments.
+    /// Parse `resolv.conf` text with glibc's rules: the first three usable
+    /// `nameserver` lines (a repeated line still uses up a slot, as in
+    /// glibc), the last `search` or `domain` line (at most six domains), and
+    /// `options ndots/timeout/attempts` capped at glibc's maximums. `#` and
+    /// `;` start comments.
     fn parse(text: &str) -> Self {
         let mut config = Self {
             ndots: 1,
             ..Self::default()
         };
+        let mut nameserver_lines = 0;
         for raw in text.lines() {
             let line = raw.split(['#', ';']).next().unwrap_or("").trim();
             let mut words = line.split_whitespace();
@@ -750,7 +757,8 @@ impl SystemConfig {
                 Some("nameserver") => {
                     let Some(value) = words.next() else { continue };
                     match value.parse::<IpAddr>() {
-                        Ok(ip) if config.servers.len() < MAX_SYSTEM_SERVERS => {
+                        Ok(ip) if nameserver_lines < MAX_SYSTEM_SERVERS => {
+                            nameserver_lines += 1;
                             if !config.servers.contains(&ip) {
                                 config.servers.push(ip);
                             }
@@ -769,6 +777,12 @@ impl SystemConfig {
                         .map(|domain| domain.trim_matches('.').to_ascii_lowercase())
                         .filter(|domain| !domain.is_empty())
                         .collect();
+                    for extra in config.search.iter().skip(MAX_SEARCH_DOMAINS) {
+                        config.skipped.push(format!(
+                            "search domain {extra} (WFL uses only the first {MAX_SEARCH_DOMAINS})"
+                        ));
+                    }
+                    config.search.truncate(MAX_SEARCH_DOMAINS);
                 }
                 Some("options") => {
                     for option in words {
@@ -794,8 +808,8 @@ impl SystemConfig {
     }
 }
 
-/// Read a system file, refusing absurdly large ones.
-fn read_small_file(path: &Path) -> Result<String, String> {
+/// Read a system file's bytes, refusing absurdly large ones.
+fn read_small_file(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = std::fs::metadata(path).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound => "does not exist".to_string(),
         _ => format!("could not be read ({error})"),
@@ -809,7 +823,28 @@ fn read_small_file(path: &Path) -> Result<String, String> {
             MAX_SYSTEM_FILE_BYTES / (1024 * 1024)
         ));
     }
-    std::fs::read_to_string(path).map_err(|error| format!("could not be read ({error})"))
+    std::fs::read(path).map_err(|error| format!("could not be read ({error})"))
+}
+
+/// Decode a system text file leniently, so one stray byte never makes WFL
+/// ignore the whole file: UTF-16 with a byte-order mark (as some Windows
+/// editors save the hosts file), UTF-8 with or without a BOM, and anything
+/// else byte by byte with invalid sequences replaced (a Latin-1 comment
+/// cannot hide the addresses on other lines).
+fn decode_text(bytes: &[u8]) -> String {
+    let utf16 = |rest: &[u8], from: fn([u8; 2]) -> u16| {
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|pair| from([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    match bytes {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 /// A file's identity for change detection: modification time and size.
@@ -828,13 +863,23 @@ struct Watched<T> {
 #[derive(Debug, Default)]
 struct HostsFile {
     names: HashMap<String, Vec<IpAddr>>,
+    /// Why an existing hosts file could not be used, for a one-time warning.
+    /// A missing file is normal and is not a problem.
+    problem: Option<String>,
 }
 
 impl HostsFile {
     fn read(path: &Path) -> Self {
         match read_small_file(path) {
-            Ok(text) => Self::parse(&text),
-            Err(_) => Self::default(),
+            Ok(bytes) => Self::parse(&decode_text(&bytes)),
+            Err(reason) if reason == "does not exist" => Self::default(),
+            Err(reason) => Self {
+                problem: Some(format!(
+                    "the hosts file {} {reason}, so names in it are looked up in DNS instead",
+                    path.display()
+                )),
+                ..Self::default()
+            },
         }
     }
 
@@ -975,6 +1020,7 @@ fn candidate_names(name: &str, absolute: bool, search: &[String], ndots: usize) 
     }
     let searched = search
         .iter()
+        .take(MAX_SEARCH_DOMAINS)
         .map(|domain| format!("{name}.{domain}"))
         // A DNS name is at most 253 characters.
         .filter(|candidate| candidate.len() <= 253);
@@ -1232,6 +1278,10 @@ impl AnswerCache {
         }
     }
 
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     fn insert(&mut self, key: String, value: Cached, expires: Instant) {
         self.clock += 1;
         if !self.entries.contains_key(&key) && self.entries.len() >= CACHE_CAPACITY {
@@ -1301,6 +1351,8 @@ struct Inner {
     cache: Mutex<AnswerCache>,
     /// The "mixing mode found no system servers" warning is logged once.
     warned_no_system_servers: AtomicBool,
+    /// An unreadable hosts file is warned about once.
+    warned_hosts_file: AtomicBool,
 }
 
 impl OrderedResolver {
@@ -1333,6 +1385,7 @@ impl OrderedResolver {
                 hosts: Mutex::new(None),
                 cache: Mutex::new(AnswerCache::default()),
                 warned_no_system_servers: AtomicBool::new(false),
+                warned_hosts_file: AtomicBool::new(false),
             }),
         })
     }
@@ -1425,6 +1478,11 @@ impl Inner {
             return Ok(addrs.clone());
         }
 
+        // resolv.conf is checked BEFORE the cache: when it has changed (a
+        // VPN came up, DHCP renewed), reading it clears the cache, so no
+        // answer from the old servers or search list is reused.
+        let system = self.system_config();
+
         let cache_key = if absolute {
             format!("{normalized}.")
         } else {
@@ -1437,7 +1495,6 @@ impl Inner {
             };
         }
 
-        let system = self.system_config();
         let effective = Effective::build(settings, &system, &self.sources);
         if let Some(warning) = &effective.warning
             && !self.warned_no_system_servers.swap(true, Ordering::Relaxed)
@@ -1571,7 +1628,9 @@ impl Inner {
         Ok(client)
     }
 
-    /// `resolv.conf`, re-read when it changes.
+    /// `resolv.conf`, re-read when it changes. A change also clears the
+    /// answer cache, because the cached answers came from the old servers and
+    /// search list.
     fn system_config(&self) -> Arc<SystemConfig> {
         let stamp = self.sources.resolv_conf.as_deref().and_then(file_stamp);
         let mut slot = lock(&self.system);
@@ -1579,6 +1638,9 @@ impl Inner {
             && watched.stamp == stamp
         {
             return Arc::clone(&watched.value);
+        }
+        if slot.is_some() {
+            lock(&self.cache).clear();
         }
         let value = Arc::new(SystemConfig::read(&self.sources));
         *slot = Some(Watched {
@@ -1601,6 +1663,11 @@ impl Inner {
             return Arc::clone(&watched.value);
         }
         let value = Arc::new(HostsFile::read(path));
+        if let Some(problem) = &value.problem
+            && !self.warned_hosts_file.swap(true, Ordering::Relaxed)
+        {
+            log::warn!("DNS: {problem}");
+        }
         *slot = Some(Watched {
             stamp,
             value: Arc::clone(&value),
