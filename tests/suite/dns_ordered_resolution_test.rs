@@ -3,7 +3,7 @@
 //!
 //! The Linux release artifact is a static musl binary, and musl asks *every*
 //! nameserver at once and takes the first reply. On a network whose resolver
-//! list is `10.3.0.100, 10.3.0.101, 8.8.8.8`, Google's "no such name" often
+//! list is `10.0.0.53, 10.0.0.54, 8.8.8.8`, Google's "no such name" often
 //! wins the race and internal names fail. These tests pin the replacement: WFL
 //! asks the servers it is given one at a time, in order, with glibc's rules,
 //! and a developer can list those servers in `.wflcfg`.
@@ -709,7 +709,7 @@ fn config_check_knows_and_validates_the_dns_keys() {
     let good = TempDir::new().unwrap();
     std::fs::write(
         good.path().join(".wflcfg"),
-        "dns_servers = 10.3.0.100, 10.3.0.101\ndns_servers_mode = only\ndns_timeout_seconds = 2\ndns_resolver = wfl\n",
+        "dns_servers = 10.0.0.53, 10.0.0.54\ndns_servers_mode = only\ndns_timeout_seconds = 2\ndns_resolver = wfl\n",
     )
     .unwrap();
     let (out, _) = run_binary(good.path(), &["--configCheck", "."], None);

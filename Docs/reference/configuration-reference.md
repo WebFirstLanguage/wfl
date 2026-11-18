@@ -780,7 +780,7 @@ working when a server is unreliable for one record type.
 
 **Why this matters:** the Linux release binary is statically linked against
 musl, whose own resolver sends every question to *all* listed servers at once and
-takes the first reply. With `nameserver 10.3.0.100`, `nameserver 10.3.0.101` and
+takes the first reply. With `nameserver 10.0.0.53`, `nameserver 10.0.0.54` and
 `nameserver 8.8.8.8`, a public server's "no such name" for an internal host often
 arrived first, so internal names failed at random, and every internal name was
 sent to the public server.
@@ -806,11 +806,11 @@ specific servers wherever it runs.
 
 - **Type:** Comma-separated IP addresses, each with an optional port
 - **Default:** not set (the system's servers are used)
-- **Examples:** `10.3.0.100`, `10.3.0.100:5353`, `fd00::1`, `[fd00::1]:53`
+- **Examples:** `10.0.0.53`, `10.0.0.53:5353`, `fd00::1`, `[fd00::1]:53`
 
 ```ini
 # Ask the internal DNS servers, in this order, and nothing else.
-dns_servers = 10.3.0.100, 10.3.0.101
+dns_servers = 10.0.0.53, 10.0.0.54
 ```
 
 Rules:
@@ -839,7 +839,7 @@ How `dns_servers` combine with the servers in `/etc/resolv.conf`.
 
 ```ini
 # Prefer the internal servers, but keep the system's servers as a backup.
-dns_servers = 10.3.0.100, 10.3.0.101
+dns_servers = 10.0.0.53, 10.0.0.54
 dns_servers_mode = before_system
 ```
 
@@ -903,12 +903,12 @@ what it said, then gives a hint. For example:
 Failed to send HTTP GET request: Could not find the address of "knowledge.lan".
 
 I asked these DNS servers, one at a time, in this order:
-  1. 10.3.0.100:53  (from /etc/resolv.conf)  no reply within 5 seconds
-  2. 10.3.0.101:53  (from /etc/resolv.conf)  answered "server failure"
-  3. 8.8.8.8:53     (from /etc/resolv.conf)  answered "no such name" (final)
+  1. 10.0.0.53:53  (from /etc/resolv.conf)  no reply within 5 seconds
+  2. 10.0.0.54:53  (from /etc/resolv.conf)  answered "server failure"
+  3. 8.8.8.8:53    (from /etc/resolv.conf)  answered "no such name" (final)
 
 Hint: if this is an internal name, list your internal DNS servers first in .wflcfg, for example:
-    dns_servers = 10.3.0.100, 10.3.0.101
+    dns_servers = 10.0.0.53, 10.0.0.54
 ```
 
 The message contains only the hostname, never the URL's path or query string.
@@ -1215,7 +1215,7 @@ the order shown, and the first final answer wins. Put your internal servers
 first, either in `/etc/resolv.conf` or, if you cannot change it, in `.wflcfg`:
 
 ```ini
-dns_servers = 10.3.0.100, 10.3.0.101
+dns_servers = 10.0.0.53, 10.0.0.54
 ```
 
 See [DNS settings](#dns-settings).

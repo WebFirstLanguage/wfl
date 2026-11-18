@@ -19,7 +19,7 @@ The Linux `wfl` binary is statically linked against musl. musl's resolver sends 
 1. The Linux artifact is built for `x86_64-unknown-linux-musl` (see `build-linux` in `.github/workflows/nightly.yml`). It is static on purpose: the old glibc build would not run on Debian 12 or Ubuntu 22.04 (wfl#616), so going back to glibc is not an option.
 2. Rust's standard library and reqwest's default resolver call `getaddrinfo`, which in a musl binary is musl's own resolver.
 3. musl sends the query to every listed nameserver (up to 3) **in parallel** and accepts the **first** reply that is either a success or "no such name" (NXDOMAIN).
-4. With `nameserver 10.3.0.100`, `nameserver 10.3.0.101`, `nameserver 8.8.8.8`, the public resolver frequently replies first with "no such name" for internal hosts such as `knowledge.starnet`. The WFL program then fails with "host not found", while glibc programs on the same machine succeed, because glibc asks the servers in order.
+4. With `nameserver 10.3.0.100`, `nameserver 10.3.0.101`, `nameserver 8.8.8.8`, the public resolver frequently replies first with "no such name" for internal hosts such as `wiki.lan`. The WFL program then fails with "host not found", while glibc programs on the same machine succeed, because glibc asks the servers in order.
 5. Every lookup also sends the internal hostname to `8.8.8.8`, which reveals internal names to a third party.
 
 **Why the `.wflcfg` setting is also needed:** on some servers the Maintainer cannot change the operating system's DNS configuration. WFL needs a way to use the right DNS servers anyway, set per project or per machine in WFL's own configuration.
@@ -45,7 +45,7 @@ So the same race could still happen, and a new leak would be added.
 ### Non-goals (for this version)
 
 - **NG1 — Windows and macOS default behavior is unchanged.** They keep the OS resolver unless `dns_servers` is set. *(Assumption 1)*
-- **NG2 — Database lookups.** `sqlx` connections (for example `postgres://db.starnet`) keep using the system resolver. The docs say plainly that the DNS settings apply to **HTTP requests** only. *(Assumption 2)*
+- **NG2 — Database lookups.** `sqlx` connections (for example `postgres://db.lan`) keep using the system resolver. The docs say plainly that the DNS settings apply to **HTTP requests** only. *(Assumption 2)*
 - **NG3 — No new WFL syntax.** Programs see the change only through `.wflcfg`. *(Assumption 3)*
 - **NG4 — No encrypted DNS.** Only plain DNS on port 53, over UDP with TCP fallback. No DNS-over-HTTPS, DNS-over-TLS, or DNSSEC validation. *(Assumption 4)*
 - **NG5 — No protection against DNS rebinding.** WFL does not block a public name that resolves to a private or loopback address. This is the same as today and as glibc; see residual risks.
@@ -85,8 +85,8 @@ There are no logins, accounts, roles, secrets, or admin interfaces in this featu
 
 ### Flow 1 — Default lookup on Linux (no DNS settings in `.wflcfg`)
 
-1. A WFL program runs `open url "http://knowledge.starnet/api"` (or any HTTP statement).
-2. reqwest asks the WFL resolver for `knowledge.starnet`.
+1. A WFL program runs `open url "http://wiki.lan/api"` (or any HTTP statement).
+2. reqwest asks the WFL resolver for `wiki.lan`.
 3. The resolver handles `localhost` / `*.localhost` itself (always loopback), then checks the hosts file (`/etc/hosts`). On a match, it returns those addresses and stops.
 4. The resolver checks the in-memory cache. On a hit, it returns the cached addresses and stops.
 5. The resolver builds the candidate names from the `search` list and `ndots` (glibc rules).
@@ -225,7 +225,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 **FR-14 — Clear lookup errors (Principle 4).**
 - AC1: A failed lookup reports the hostname, each server asked in order, where each server came from, and the outcome of each, plus a hint. Example:
   ```text
-  Could not find the address of "knowledge.starnet".
+  Could not find the address of "wiki.lan".
 
   I asked these DNS servers, one at a time, in this order:
     1. 10.3.0.100:53  (from /etc/resolv.conf)  no reply within 5 seconds

@@ -4,7 +4,7 @@
 //! server that listens on a real UDP socket and a real TCP listener on
 //! `127.0.0.1`, speaks the RFC 1035 wire format, and answers according to a
 //! per-test script. The resolver under test talks to it exactly as it would
-//! talk to `10.3.0.100`, so these tests exercise the real boundary
+//! talk to `10.0.0.53`, so these tests exercise the real boundary
 //! (`testing.md` §8.4: a test must not mock the boundary it verifies).
 //!
 //! Every question the server receives is logged with its transport, so a test

@@ -6,7 +6,7 @@
 //!
 //! The Linux release artifact is a static musl binary. musl's resolver sends
 //! every query to *all* nameservers at once and takes the first reply. On a
-//! network whose resolver list is `10.3.0.100, 10.3.0.101, 8.8.8.8`, the
+//! network whose resolver list is `10.0.0.53, 10.0.0.54, 8.8.8.8`, the
 //! public server's "no such name" often wins that race, so internal names fail
 //! — and every internal name leaks to the public server on every lookup.
 //!
@@ -315,7 +315,7 @@ fn parse_server_entry(entry: &str) -> Result<SocketAddr, String> {
         ));
     }
     Err(format!(
-        "'{entry}' is not an IP address with an optional port (examples: 10.3.0.100, 10.3.0.100:5353, [fd00::1]:53)"
+        "'{entry}' is not an IP address with an optional port (examples: 10.0.0.53, 10.0.0.53:5353, [fd00::1]:53)"
     ))
 }
 
@@ -1412,7 +1412,7 @@ impl Inner {
             return Err(DnsLookupError::new(format!(
                 "Could not look up \"{normalized}\": no DNS servers were found, so no DNS query was sent.\n\n\
                  {}\n\
-                 Hint: list your DNS servers in .wflcfg, for example:\n    dns_servers = 10.3.0.100, 10.3.0.101\n\
+                 Hint: list your DNS servers in .wflcfg, for example:\n    dns_servers = 10.0.0.53, 10.0.0.54\n\
                  If a DNS resolver runs on this machine, use:\n    dns_servers = 127.0.0.1",
                 effective.no_servers_detail
             )));
@@ -1705,12 +1705,12 @@ fn lookup_failed(name: &str, effective: &Effective, tried: &[Tried]) -> DnsLooku
         .all(|candidate| !matches!(candidate.end, CandidateEnd::Unresolved { .. }));
     if all_answered {
         message.push_str(
-            "Hint: if this is an internal name, list your internal DNS servers first in .wflcfg, for example:\n    dns_servers = 10.3.0.100, 10.3.0.101",
+            "Hint: if this is an internal name, list your internal DNS servers first in .wflcfg, for example:\n    dns_servers = 10.0.0.53, 10.0.0.54",
         );
     } else {
         message.push_str(
             "Hint: none of these DNS servers gave an answer. Check that they are running and reachable, \
-             or list other servers in .wflcfg, for example:\n    dns_servers = 10.3.0.100, 10.3.0.101",
+             or list other servers in .wflcfg, for example:\n    dns_servers = 10.0.0.53, 10.0.0.54",
         );
     }
     DnsLookupError::new(message)
@@ -1726,13 +1726,12 @@ mod tests {
 
     #[test]
     fn server_entries_accept_addresses_with_and_without_ports() {
-        let parsed =
-            parse_dns_servers("10.3.0.100, 10.3.0.101:5353, fd00::1, [fd00::2]:53").unwrap();
+        let parsed = parse_dns_servers("10.0.0.53, 10.0.0.54:5353, fd00::1, [fd00::2]:53").unwrap();
         assert_eq!(
             parsed,
             vec![
-                "10.3.0.100:53".parse().unwrap(),
-                "10.3.0.101:5353".parse().unwrap(),
+                "10.0.0.53:53".parse().unwrap(),
+                "10.0.0.54:5353".parse().unwrap(),
                 "[fd00::1]:53".parse().unwrap(),
                 "[fd00::2]:53".parse().unwrap(),
             ]
@@ -2010,9 +2009,9 @@ mod tests {
         let config = SystemConfig::parse(
             "# comment\n\
              ; another comment\n\
-             nameserver 10.3.0.100\n\
-             nameserver 10.3.0.101   # trailing comment\n\
-             nameserver 10.3.0.100\n\
+             nameserver 10.0.0.53\n\
+             nameserver 10.0.0.54   # trailing comment\n\
+             nameserver 10.0.0.53\n\
              nameserver fe80::1%eth0\n\
              nameserver 8.8.8.8\n\
              nameserver 1.1.1.1\n\
@@ -2024,7 +2023,7 @@ mod tests {
         // The first three distinct servers, as glibc (MAXNS = 3).
         assert_eq!(
             config.servers,
-            ["10.3.0.100", "10.3.0.101", "8.8.8.8"]
+            ["10.0.0.53", "10.0.0.54", "8.8.8.8"]
                 .map(|ip| ip.parse::<IpAddr>().unwrap())
                 .to_vec()
         );

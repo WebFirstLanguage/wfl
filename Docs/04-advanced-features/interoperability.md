@@ -297,7 +297,7 @@ can still be resolved reliably. If you cannot fix the machine's DNS settings,
 list the servers WFL should use in `.wflcfg`:
 
 ```ini
-dns_servers = 10.3.0.100, 10.3.0.101
+dns_servers = 10.0.0.53, 10.0.0.54
 ```
 
 A failed lookup is a catchable error whose message lists every server asked and
