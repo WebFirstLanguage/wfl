@@ -183,10 +183,7 @@ impl DnsSettings {
                                 file.display()
                             );
                             Setting::Invalid {
-                                reason: format!(
-                                    "it is '{}', but it must be one of: only, before_system, after_system",
-                                    printable(value)
-                                ),
+                                reason: invalid_mode_reason(value),
                                 source: file.to_path_buf(),
                             }
                         }
@@ -209,10 +206,7 @@ impl DnsSettings {
                                 file.display()
                             );
                             Setting::Invalid {
-                                reason: format!(
-                                    "it is '{}', but it must be 'wfl' or 'system'",
-                                    printable(value)
-                                ),
+                                reason: invalid_resolver_reason(value),
                                 source: file.to_path_buf(),
                             }
                         }
@@ -237,6 +231,56 @@ impl DnsSettings {
             _ => return false,
         }
         true
+    }
+}
+
+fn invalid_mode_reason(value: &str) -> String {
+    format!(
+        "it is '{}', but it must be one of: only, before_system, after_system",
+        printable(value)
+    )
+}
+
+fn invalid_resolver_reason(value: &str) -> String {
+    format!(
+        "it is '{}', but it must be 'wfl' or 'system'",
+        printable(value)
+    )
+}
+
+/// Whether this platform supports `mode`. The mixing modes need the system's
+/// own server list, which WFL reads only on Linux for now (FR-11).
+fn mode_supported_here(mode: DnsServersMode) -> bool {
+    mode == DnsServersMode::Only || cfg!(target_os = "linux")
+}
+
+fn unsupported_mode_reason(mode: DnsServersMode) -> String {
+    format!(
+        "'{}' is not supported on this platform yet; only 'only' is \
+         (WFL cannot read this system's own DNS server list)",
+        mode.as_str()
+    )
+}
+
+/// Why a value for one of the four DNS keys is invalid, or `None` when it is
+/// valid, using exactly the loader's parsers and messages. `wfl --configCheck`
+/// calls this, so the checker and the loader cannot drift apart.
+pub fn setting_problem(key: &str, value: &str) -> Option<String> {
+    let value = value.trim();
+    match key {
+        "dns_servers" => parse_dns_servers(value).err(),
+        "dns_timeout_seconds" => parse_timeout_seconds(value).err(),
+        "dns_servers_mode" if value.is_empty() => None,
+        "dns_servers_mode" => match DnsServersMode::parse(value) {
+            None => Some(invalid_mode_reason(value)),
+            Some(mode) if !mode_supported_here(mode) => Some(unsupported_mode_reason(mode)),
+            Some(_) => None,
+        },
+        "dns_resolver" if value.is_empty() => None,
+        "dns_resolver" => DnsResolverChoice::parse(value)
+            .is_none()
+            .then(|| invalid_resolver_reason(value)),
+        _ => None,
     }
 }
 
@@ -445,16 +489,8 @@ pub fn plan(settings: &DnsSettings) -> DnsPlan {
             return misconfigured("dns_servers_mode", reason, source);
         }
         (Setting::Set { value, source }, true) => {
-            if *value != DnsServersMode::Only && !cfg!(target_os = "linux") {
-                return misconfigured(
-                    "dns_servers_mode",
-                    &format!(
-                        "'{}' is not supported on this platform yet; only 'only' is \
-                         (WFL cannot read this system's own DNS server list)",
-                        value.as_str()
-                    ),
-                    source,
-                );
+            if !mode_supported_here(*value) {
+                return misconfigured("dns_servers_mode", &unsupported_mode_reason(*value), source);
             }
             *value
         }
@@ -1956,6 +1992,40 @@ mod tests {
         // A mode without servers is ignored with a warning.
         let lonely = plan(&settings_with(&[("dns_servers_mode", "before_system")]));
         assert!(lonely.warnings()[0].contains("dns_servers_mode is set"));
+    }
+
+    /// `wfl --configCheck` (through `setting_problem`) rejects exactly what
+    /// the loader rejects.
+    #[test]
+    fn checker_rules_match_the_loader() {
+        for (key, value) in [
+            ("dns_servers", "10.0.0.2"),
+            ("dns_servers", "nope"),
+            ("dns_servers", "10.0.0.2,,10.0.0.3"),
+            ("dns_servers_mode", "only"),
+            ("dns_servers_mode", "BEFORE_SYSTEM"),
+            ("dns_servers_mode", "after_system"),
+            ("dns_servers_mode", "sometimes"),
+            ("dns_resolver", "wfl"),
+            ("dns_resolver", "System"),
+            ("dns_resolver", "magic"),
+            ("dns_timeout_seconds", "3"),
+            ("dns_timeout_seconds", "31"),
+        ] {
+            let mut settings = DnsSettings::default();
+            // A server is set first, so a mode or resolver value is not ignored.
+            settings.apply("dns_servers", "10.0.0.1", Path::new("/p/.wflcfg"));
+            settings.apply(key, value, Path::new("/p/.wflcfg"));
+            let loader_rejects = match key {
+                "dns_timeout_seconds" => settings.timeout_seconds.is_none(),
+                _ => matches!(plan(&settings), DnsPlan::Misconfigured { .. }),
+            };
+            assert_eq!(
+                setting_problem(key, value).is_some(),
+                loader_rejects,
+                "{key} = {value}"
+            );
+        }
     }
 
     #[test]

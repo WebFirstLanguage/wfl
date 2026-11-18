@@ -159,14 +159,14 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 - AC4: The order of candidates and servers is checked against a fixed expected sequence in a component test.
 
 **FR-05 — `/etc/hosts` and `localhost`.**
-- AC1: A name in the hosts file is answered from that file, and **no** DNS query is sent. The hosts file is `/etc/hosts` on Linux and macOS, and `%SystemRoot%\System32\drivers\etc\hosts` on Windows, so turning on the WFL resolver with `dns_servers` never silently ignores it. The file is re-read when its modification time changes, so edits are seen by long-running programs (as with musl today). *(Assumption 34)*
+- AC1: A name in the hosts file is answered from that file, and **no** DNS query is sent. The hosts file is `/etc/hosts` on Linux and macOS, and `%SystemRoot%\System32\drivers\etc\hosts` on Windows, so turning on the WFL resolver with `dns_servers` never silently ignores it. The file is re-read when its modification time changes, so edits are seen by long-running programs (as with musl today). *(Assumption 34)* *(as built)* The change check is one `stat` (file metadata) call per lookup, not rate-limited; the file itself is read again only when its modification time or size changed. For comparison, musl opens and reads the whole hosts file on every lookup. `resolv.conf` gets the same check, but only on a cache miss.
 - AC2: `localhost` and any name ending in `.localhost` resolve to the loopback addresses (`127.0.0.1`, `::1`), and are **never** sent to a DNS server, even if `/etc/hosts` is missing (RFC 6761).
 - AC3: All existing web tests that use `http://localhost:<port>` pass unchanged.
 
 **FR-06 — IPv4 and IPv6.**
 - AC1: For each server, WFL asks for A and AAAA records together, and returns IPv4 and IPv6 addresses to reqwest so its "happy eyeballs" connection logic still works.
 - AC2: For one server, the A and AAAA results are combined like this. *(Assumption 29)*
-  1. Either query returns addresses → **final**. Use that server's addresses only (both types if both returned some).
+  1. Either query returns addresses → **final**. Use that server's addresses only (both types if both returned some). Consequence, by design: if a server returns IPv4 addresses while its IPv6 query fails, an IPv6 address that only a later server knows is never seen. The answer stays one server's answer, as with glibc.
   2. Otherwise, either query returns NXDOMAIN → **final**: "name not found".
   3. Otherwise, both queries return an empty NOERROR → **final**: "no addresses for this name".
   4. Otherwise (one query returns an empty NOERROR and the other gets no reply, SERVFAIL, REFUSED, NOTIMP, FORMERR, or an unparseable reply) → **not final**: ask the next server. This keeps an IPv4-only internal host working when a server fails only for A records. It is slightly more forgiving than glibc, which can stop here.

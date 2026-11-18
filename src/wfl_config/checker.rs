@@ -783,7 +783,7 @@ impl ConfigChecker {
                 // DNS keys share the loader's validation exactly, so a value the
                 // loader would reject (and fail closed on) is reported here.
                 if key.starts_with("dns_") {
-                    if let Some(reason) = dns_setting_problem(key, value) {
+                    if let Some(reason) = crate::interpreter::dns::setting_problem(key, value) {
                         issues.push(ConfigIssue {
                             file_path: file_path.to_path_buf(),
                             kind: ConfigIssueKind::InvalidValue,
@@ -1195,31 +1195,6 @@ fn is_valid_ip_address(addr: &str) -> bool {
 /// `outbound_stream_max_seconds` accept `0`
 /// (unlimited/disabled), while every other budget/web ceiling requires `>= 1`
 /// (the loader's `set_positive_usize`).
-/// Why a DNS key's value is invalid, using the same rules as the loader
-/// (`crate::interpreter::dns`), or `None` when it is valid.
-fn dns_setting_problem(key: &str, value: &str) -> Option<String> {
-    use crate::interpreter::dns;
-    let value = value.trim();
-    match key {
-        "dns_servers" => dns::parse_dns_servers(value).err(),
-        "dns_timeout_seconds" => dns::parse_timeout_seconds(value).err(),
-        "dns_servers_mode" => match value.to_ascii_lowercase().as_str() {
-            "" | "only" => None,
-            "before_system" | "after_system" if cfg!(target_os = "linux") => None,
-            "before_system" | "after_system" => Some(format!(
-                "'{value}' is not supported on this platform yet; only 'only' is"
-            )),
-            _ => Some(format!(
-                "'{value}' must be one of: only, before_system, after_system"
-            )),
-        },
-        "dns_resolver" => (!value.is_empty()
-            && !matches!(value.to_ascii_lowercase().as_str(), "wfl" | "system"))
-        .then(|| format!("'{value}' must be 'wfl' or 'system'")),
-        _ => None,
-    }
-}
-
 fn integer_min_for_key(key: &str) -> Option<u64> {
     match key {
         "max_operations"
