@@ -245,6 +245,14 @@ impl FakeDns {
         self.shared.log.lock().unwrap().len()
     }
 
+    /// How many questions arrived for names that `matches` accepts. Tests
+    /// assert "never asked" with this rather than [`FakeDns::query_count`],
+    /// so a stray datagram from another test (whose server had just released
+    /// the same ephemeral port) cannot be mistaken for this test's query.
+    pub fn count_matching(&self, matches: impl Fn(&str) -> bool) -> usize {
+        self.queries().iter().filter(|q| matches(&q.name)).count()
+    }
+
     /// Questions received for one name (lowercase, no trailing dot).
     pub fn queries_for(&self, name: &str) -> Vec<Query> {
         self.queries()

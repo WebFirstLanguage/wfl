@@ -114,18 +114,18 @@ async fn first_listed_server_wins_even_when_a_later_server_answers_first() {
     let cfg = format!("dns_servers = {}\n", server_list(&[&internal, &public]));
 
     for run in 0..100 {
-        let url = format!("http://r{run}.wfl.test:{}/", http.port);
+        let url = format!("http://order{run}.wfl.test:{}/", http.port);
         let body = fetch(&cfg, &url).await;
         assert_eq!(body.as_deref(), Ok("ok"), "run {run}: {body:?}");
     }
 
     assert_eq!(http.request_count(), 100);
     assert_eq!(
-        public.query_count(),
+        public.count_matching(|name| name.starts_with("order")),
         0,
         "the second server must never be asked while the first one gives a final answer"
     );
-    assert!(internal.query_count() >= 100);
+    assert!(internal.count_matching(|name| name.starts_with("order")) >= 100);
 }
 
 /// The same race, end to end through the real `wfl` binary.
@@ -158,7 +158,7 @@ async fn real_binary_uses_first_listed_server() {
         assert!(out.contains("BODY=ok"), "run {run}: exit {code:?}\n{out}");
         assert_eq!(code, Some(0), "run {run}:\n{out}");
     }
-    assert_eq!(public.query_count(), 0);
+    assert_eq!(public.count_matching(|name| name.starts_with("e2e")), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,9 +179,8 @@ async fn no_such_name_from_first_server_is_final() {
         "{message}"
     );
     assert!(message.contains("no such name"), "{message}");
-    assert_eq!(
-        second.query_count(),
-        0,
+    assert!(
+        second.queries_for("nx.wfl.test").is_empty(),
         "a final answer must stop the search"
     );
 }
@@ -197,7 +196,7 @@ async fn empty_answer_for_both_families_is_final() {
         .await
         .expect_err("no addresses must fail the lookup");
     assert!(message.contains("no addresses"), "{message}");
-    assert_eq!(second.query_count(), 0);
+    assert!(second.queries_for("empty.wfl.test").is_empty());
 }
 
 /// FR-02 AC3 + FR-09 AC1: a silent first server is waited for, for exactly the
@@ -300,7 +299,7 @@ async fn truncated_reply_is_retried_over_tcp_on_the_same_server() {
             .any(|q| q.transport == Transport::Tcp),
         "the truncated answer was not retried over TCP"
     );
-    assert_eq!(other.query_count(), 0);
+    assert!(other.queries_for("big.wfl.test").is_empty());
 }
 
 /// FR-02 AC7 + SEC-01: a reply carrying the wrong query ID is ignored; it must
@@ -378,7 +377,7 @@ async fn addresses_for_one_family_are_final() {
 
     let body = fetch(&cfg, &format!("http://mixed.wfl.test:{}/", http.port)).await;
     assert_eq!(body.as_deref(), Ok("ok"), "{body:?}");
-    assert_eq!(second.query_count(), 0);
+    assert!(second.queries_for("mixed.wfl.test").is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +396,10 @@ async fn localhost_names_never_reach_a_dns_server() {
         let body = fetch(&cfg, &format!("http://{host}:{}/", http.port)).await;
         assert_eq!(body.as_deref(), Ok("ok"), "{host}: {body:?}");
     }
-    assert_eq!(hostile.query_count(), 0);
+    assert_eq!(
+        hostile.count_matching(|name| name.ends_with("localhost")),
+        0
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -582,10 +584,39 @@ async fn failed_lookup_lists_servers_in_order_and_hides_the_url_path() {
 // NFR-02: bounded waiting and cancellation
 // ---------------------------------------------------------------------------
 
+/// Every query a fake server received for `name`, as "TYPE/transport at
+/// +N ms" relative to `start`, for failure messages.
+fn timeline(server: &FakeDns, name: &str, start: Instant) -> String {
+    let entries: Vec<String> = server
+        .queries_for(name)
+        .iter()
+        .map(|q| {
+            let kind = match q.qtype {
+                TYPE_A => "A".to_string(),
+                TYPE_AAAA => "AAAA".to_string(),
+                other => format!("type {other}"),
+            };
+            let at = q.at.saturating_duration_since(start).as_millis();
+            format!("{kind}/{:?} at +{at} ms", q.transport)
+        })
+        .collect();
+    if entries.is_empty() {
+        "nothing".to_string()
+    } else {
+        entries.join(", ")
+    }
+}
+
 /// NFR-02 + SEC-09: the program's execution deadline caps the whole lookup,
 /// and once the request is abandoned no further server is asked.
+///
+/// The assertions are scoped to this lookup's name. Tests run in parallel on
+/// ephemeral ports, so counting every datagram that reaches a port could also
+/// count a stray query from another test whose server had just released the
+/// same port.
 #[tokio::test]
 async fn execution_deadline_caps_the_lookup_and_stops_further_queries() {
+    const NAME: &str = "deadline-stuck.wfl.test";
     let first = FakeDns::start(|_| Reply::Silent).await;
     let second = FakeDns::start(|_| Reply::Silent).await;
     let cfg = format!(
@@ -594,22 +625,31 @@ async fn execution_deadline_caps_the_lookup_and_stops_further_queries() {
     );
 
     let started = Instant::now();
-    let result = fetch(&cfg, "http://stuck.wfl.test:9/").await;
+    let result = fetch(&cfg, &format!("http://{NAME}:9/")).await;
     let elapsed = started.elapsed();
     assert!(result.is_err(), "{result:?}");
-    assert!(first.query_count() >= 1, "the first server was never asked");
+    assert!(
+        !first.queries_for(NAME).is_empty(),
+        "the first server was never asked"
+    );
     assert!(
         elapsed < Duration::from_secs(4),
         "the lookup outlived the 2 s deadline: {elapsed:?}"
     );
 
-    // The second server would be asked at t = 5 s if the lookup were still
-    // running after the program gave up on it.
+    // The first server is silent and its timeout is 5 s, so the second server
+    // must not be asked before the 2 s deadline; and once the request is
+    // abandoned it must not be asked at all. (It would be asked at about
+    // t = 5 s if the lookup were still running.)
     tokio::time::sleep(Duration::from_secs(4)).await;
-    assert_eq!(
-        second.query_count(),
-        0,
-        "a query was sent after the request was abandoned"
+    assert!(
+        second.queries_for(NAME).is_empty(),
+        "the second server was asked for {NAME}, but the first server never \
+         answered and the request was abandoned at +{} ms.\n\
+         first server saw: {}\nsecond server saw: {}\nlookup result: {result:?}",
+        elapsed.as_millis(),
+        timeline(&first, NAME, started),
+        timeline(&second, NAME, started),
     );
 }
 

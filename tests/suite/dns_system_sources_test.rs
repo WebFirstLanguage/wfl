@@ -145,14 +145,18 @@ async fn resolv_conf_servers_are_asked_in_order() {
     let resolver = resolver(&explicit_wfl(), files.sources(port));
 
     for run in 0..30 {
-        let name = format!("r{run}.wfl.test");
+        let name = format!("sysorder{run}.wfl.test");
         assert_eq!(
             resolver.lookup(&name).await.map_err(|e| e.to_string()),
             Ok(vec![LOCAL]),
             "run {run}"
         );
     }
-    assert_eq!(servers[1].query_count(), 0, "the second server was asked");
+    assert_eq!(
+        servers[1].count_matching(|name| name.starts_with("sysorder")),
+        0,
+        "the second server was asked"
+    );
 }
 
 /// FR-03 + FR-09: `options timeout:N attempts:N` in resolv.conf are honored.
@@ -268,7 +272,7 @@ async fn only_mode_never_asks_resolv_conf_servers() {
     .lookup("only.wfl.test")
     .await;
     assert_eq!(found.map_err(|e| e.to_string()), Ok(vec![LOCAL]));
-    assert_eq!(system[0].query_count(), 0);
+    assert!(system[0].queries_for("only.wfl.test").is_empty());
 }
 
 /// FR-08 AC3: `before_system` asks the .wflcfg servers, then the system list.
@@ -343,7 +347,7 @@ async fn after_system_cannot_override_a_final_system_answer() {
     .lookup("internal.wfl.test")
     .await;
     assert!(result.is_err(), "{result:?}");
-    assert_eq!(mine.query_count(), 0);
+    assert!(mine.queries_for("internal.wfl.test").is_empty());
 }
 
 /// A26: a server in both lists is asked once, at its first position.
@@ -571,7 +575,7 @@ async fn hosts_file_names_are_answered_without_dns() {
     .lookup("intranet.wfl.test")
     .await;
     assert_eq!(found.map_err(|e| e.to_string()), Ok(vec![LOCAL]));
-    assert_eq!(dns.query_count(), 0);
+    assert!(dns.queries_for("intranet.wfl.test").is_empty());
 }
 
 /// FR-05: aliases, several lines for one name, IPv6, comments, and case.
@@ -599,7 +603,7 @@ async fn hosts_file_aliases_lines_ipv6_and_comments() {
             "fd00::5".parse().unwrap(),
         ])
     );
-    assert_eq!(dns.query_count(), 0);
+    assert!(dns.queries_for("alias.wfl.test").is_empty());
 }
 
 /// FR-05 AC1: edits to the hosts file are seen by a running program.
@@ -844,12 +848,13 @@ async fn abandoning_a_lookup_stops_a_long_search() {
     // way to the fake server's log; let it land before taking the baseline,
     // so only queries sent AFTER the drop can change the count.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let asked = silent.query_count();
+    let ours = |name: &str| name.starts_with("app");
+    let asked = silent.count_matching(ours);
     assert!(asked >= 1);
     // Long enough for several more rounds (1 s each) had the lookup survived.
     tokio::time::sleep(Duration::from_millis(3000)).await;
     assert_eq!(
-        silent.query_count(),
+        silent.count_matching(ours),
         asked,
         "queries were sent after the lookup was abandoned"
     );
