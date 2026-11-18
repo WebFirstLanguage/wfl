@@ -115,6 +115,9 @@ Each got a failing test first (Red 3) and then the fix:
 - At most six search domains are used, so the worst-case wait is bounded.
 - A test now proves that abandoning a lookup (as the request deadline does)
   stops a long search with no further queries.
+- Round 4: a lookup already running when `resolv.conf` changed could still
+  store its old answer after the cache was cleared. The cache now carries a
+  generation number, and such a late answer is not stored.
 
 Raised and left for the Maintainer: on glibc builds the Linux default also
 bypasses glibc's Name Service Switch (mDNS `.local`, `myhostname`, LDAP/SSSD
