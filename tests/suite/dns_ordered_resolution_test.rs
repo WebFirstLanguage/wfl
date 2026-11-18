@@ -653,6 +653,72 @@ async fn execution_deadline_caps_the_lookup_and_stops_further_queries() {
     );
 }
 
+/// SEC-09 on every platform: abandoning a request (dropping its future,
+/// which is what WFL's execution deadline does in `run_http_with_budget`)
+/// also drops the DNS lookup reqwest started for it. If reqwest or hyper ever
+/// moved name resolution onto a detached task, an abandoned WFL lookup could
+/// keep asking servers in the background; this test would then fail.
+///
+/// Deterministic: no network and no fake DNS server. The resolver's future
+/// never finishes and records when it is dropped.
+#[tokio::test]
+async fn abandoning_a_request_drops_its_dns_lookup() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct DropFlag(Arc<AtomicBool>);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct NeverResolves {
+        started: Arc<AtomicBool>,
+        dropped: Arc<AtomicBool>,
+    }
+    impl reqwest::dns::Resolve for NeverResolves {
+        fn resolve(&self, _name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+            self.started.store(true, Ordering::SeqCst);
+            let flag = DropFlag(Arc::clone(&self.dropped));
+            Box::pin(async move {
+                let _flag = flag;
+                std::future::pending::<
+                    Result<reqwest::dns::Addrs, Box<dyn std::error::Error + Send + Sync>>,
+                >()
+                .await
+            })
+        }
+    }
+
+    let started = Arc::new(AtomicBool::new(false));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let client = reqwest::Client::builder()
+        .dns_resolver(Arc::new(NeverResolves {
+            started: Arc::clone(&started),
+            dropped: Arc::clone(&dropped),
+        }))
+        .build()
+        .expect("client");
+
+    let abandoned = tokio::time::timeout(
+        Duration::from_millis(200),
+        client.get("http://abandoned.wfl.test/").send(),
+    )
+    .await;
+    assert!(
+        abandoned.is_err(),
+        "the request should still have been resolving"
+    );
+    assert!(
+        started.load(Ordering::SeqCst),
+        "the resolver was never asked"
+    );
+    assert!(
+        dropped.load(Ordering::SeqCst),
+        "the DNS lookup kept running after its request was abandoned"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // FR-16 / FR-17 / FR-10: visibility through the real binary
 // ---------------------------------------------------------------------------
