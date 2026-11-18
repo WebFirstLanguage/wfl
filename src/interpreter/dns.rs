@@ -1259,6 +1259,11 @@ struct CacheEntry {
 struct AnswerCache {
     entries: HashMap<String, CacheEntry>,
     clock: u64,
+    /// Bumped by every [`AnswerCache::clear`]. A lookup notes it before
+    /// asking any server and stores its answer only if it is unchanged, so a
+    /// lookup that started under the old resolv.conf cannot put an old answer
+    /// back after the cache was cleared.
+    generation: u64,
 }
 
 impl AnswerCache {
@@ -1280,6 +1285,15 @@ impl AnswerCache {
 
     fn clear(&mut self) {
         self.entries.clear();
+        self.generation += 1;
+    }
+
+    /// Store an answer only if the cache has not been cleared since the
+    /// lookup that produced it began (see [`AnswerCache::generation`]).
+    fn insert_if_current(&mut self, generation: u64, key: String, value: Cached, expires: Instant) {
+        if self.generation == generation {
+            self.insert(key, value, expires);
+        }
     }
 
     fn insert(&mut self, key: String, value: Cached, expires: Instant) {
@@ -1488,7 +1502,11 @@ impl Inner {
         } else {
             normalized.clone()
         };
-        if let Some(cached) = lock(&self.cache).get(&cache_key, Instant::now()) {
+        let (cached, generation) = {
+            let mut cache = lock(&self.cache);
+            (cache.get(&cache_key, Instant::now()), cache.generation)
+        };
+        if let Some(cached) = cached {
             return match cached {
                 Cached::Found(addrs) => Ok(addrs),
                 Cached::Failed(error) => Err(error),
@@ -1519,7 +1537,12 @@ impl Inner {
             match &end {
                 CandidateEnd::Found(addrs) => {
                     if let Some(expires) = expiry {
-                        lock(&self.cache).insert(cache_key, Cached::Found(addrs.clone()), expires);
+                        lock(&self.cache).insert_if_current(
+                            generation,
+                            cache_key,
+                            Cached::Found(addrs.clone()),
+                            expires,
+                        );
                     }
                     return Ok(addrs.clone());
                 }
@@ -1545,7 +1568,12 @@ impl Inner {
 
         let error = lookup_failed(&normalized, &effective, &tried);
         if let Some(expires) = negative_expiry {
-            lock(&self.cache).insert(cache_key, Cached::Failed(error.clone()), expires);
+            lock(&self.cache).insert_if_current(
+                generation,
+                cache_key,
+                Cached::Failed(error.clone()),
+                expires,
+            );
         }
         Err(error)
     }
@@ -2299,6 +2327,27 @@ mod tests {
         assert_eq!(cache.entries.len(), CACHE_CAPACITY);
         assert!(cache.entries.contains_key("n0"));
         assert!(!cache.entries.contains_key("n1"));
+        assert!(cache.entries.contains_key("new"));
+    }
+
+    #[test]
+    fn cache_ignores_answers_from_before_a_clear() {
+        let later = Instant::now() + Duration::from_secs(60);
+        let mut cache = AnswerCache::default();
+        let started_under = cache.generation;
+        cache.clear();
+        cache.insert_if_current(
+            started_under,
+            "old".into(),
+            Cached::Found(Vec::new()),
+            later,
+        );
+        assert!(
+            cache.entries.is_empty(),
+            "an answer from before the clear was stored"
+        );
+        let current = cache.generation;
+        cache.insert_if_current(current, "new".into(), Cached::Found(Vec::new()), later);
         assert!(cache.entries.contains_key("new"));
     }
 
