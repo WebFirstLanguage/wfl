@@ -87,8 +87,8 @@ There are no logins, accounts, roles, secrets, or admin interfaces in this featu
 
 1. A WFL program runs `open url "http://knowledge.starnet/api"` (or any HTTP statement).
 2. reqwest asks the WFL resolver for `knowledge.starnet`.
-3. The resolver checks the in-memory cache. On a hit, it returns the cached addresses and stops.
-4. The resolver checks `/etc/hosts`, and handles `localhost` / `*.localhost` itself. On a match, it returns those addresses and stops.
+3. The resolver handles `localhost` / `*.localhost` itself (always loopback), then checks the hosts file (`/etc/hosts`). On a match, it returns those addresses and stops.
+4. The resolver checks the in-memory cache. On a hit, it returns the cached addresses and stops.
 5. The resolver builds the candidate names from the `search` list and `ndots` (glibc rules).
 6. For each candidate name, in order, it asks `10.3.0.100` first.
    - If `10.3.0.100` answers with addresses, or with "no such name", that answer is final for the candidate.
@@ -146,6 +146,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 - AC5: A sends a reply WFL cannot parse → it is treated like "server failure", and B is asked.
 - AC6: A replies with the truncated (TC) flag → WFL retries the same server over TCP before moving on.
 - AC7: A reply with the wrong query ID, wrong question, or from the wrong source address/port is ignored, and does not end the wait.
+- AC8: A component test pins how each hickory error kind (in 0.26: `NetError` and `DnsError` variants) maps to a WFL outcome: final answer, try the next server, or retry over TCP. It covers NXDOMAIN, empty NOERROR, SERVFAIL, REFUSED, NOTIMP, FORMERR, timeout, I/O error, and parse error. A hickory upgrade that changes this mapping (for example, turning SERVFAIL into a final answer) fails the test instead of silently changing behavior.
 
 **FR-03 — Attempts.**
 - AC1: The whole server list is tried `attempts` times (from `options attempts:N` in `/etc/resolv.conf`; default 2; values above 5 are treated as 5, as in glibc).
@@ -158,14 +159,19 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 - AC4: The order of candidates and servers is checked against a fixed expected sequence in a component test.
 
 **FR-05 — `/etc/hosts` and `localhost`.**
-- AC1: A name in `/etc/hosts` is answered from that file, and **no** DNS query is sent.
+- AC1: A name in the hosts file is answered from that file, and **no** DNS query is sent. The hosts file is `/etc/hosts` on Linux and macOS, and `%SystemRoot%\System32\drivers\etc\hosts` on Windows, so turning on the WFL resolver with `dns_servers` never silently ignores it. The file is re-read when its modification time changes, so edits are seen by long-running programs (as with musl today). *(Assumption 34)*
 - AC2: `localhost` and any name ending in `.localhost` resolve to the loopback addresses (`127.0.0.1`, `::1`), and are **never** sent to a DNS server, even if `/etc/hosts` is missing (RFC 6761).
 - AC3: All existing web tests that use `http://localhost:<port>` pass unchanged.
 
 **FR-06 — IPv4 and IPv6.**
 - AC1: For each server, WFL asks for A and AAAA records together, and returns IPv4 and IPv6 addresses to reqwest so its "happy eyeballs" connection logic still works.
-- AC2: A server's answer is final for the lookup when at least one of the two queries returns a final answer (NOERROR or NXDOMAIN). Only that server's addresses are used. *(Assumption 29)*
-- AC3: If that server's final answers contain no addresses at all, the lookup fails with "no addresses for this name". It does not move on to the next server.
+- AC2: For one server, the A and AAAA results are combined like this. *(Assumption 29)*
+  1. Either query returns addresses → **final**. Use that server's addresses only (both types if both returned some).
+  2. Otherwise, either query returns NXDOMAIN → **final**: "name not found".
+  3. Otherwise, both queries return an empty NOERROR → **final**: "no addresses for this name".
+  4. Otherwise (one query returns an empty NOERROR and the other gets no reply, SERVFAIL, REFUSED, NOTIMP, FORMERR, or an unparseable reply) → **not final**: ask the next server. This keeps an IPv4-only internal host working when a server fails only for A records. It is slightly more forgiving than glibc, which can stop here.
+- AC3: Fake-server test for case 4: server A returns an empty NOERROR for AAAA, and SERVFAIL for A (and, in a second test, no reply for A); server B returns an A record. WFL uses B's address.
+- AC4: Fake-server test for case 3: server A returns an empty NOERROR for both types. The lookup fails with "no addresses for this name", and server B receives no query.
 
 ### Configuration
 
@@ -176,6 +182,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 - AC4: It works in both `/etc/wfl/wfl.cfg` (global) and `.wflcfg` (local). Local wins, as for every key.
 - AC5: An empty value (`dns_servers =`) means "not set", which clears an inherited global value.
 - AC6: Setting it turns on the WFL resolver on every platform, unless `dns_resolver = system` is written explicitly (FR-10).
+- AC7: IPv6 link-local addresses with a zone ID (for example `fe80::1%eth0`) are **rejected** in this version, with a message suggesting a global or unique-local address instead. *(Assumption 32)*
 
 **FR-08 — `dns_servers_mode`.**
 - AC1: The values are `only` (the default when the key is missing), `before_system`, and `after_system`. Matching is case-insensitive, and surrounding spaces are ignored.
@@ -199,13 +206,15 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 **FR-11 — Non-Linux platforms.**
 - AC1: On Windows and macOS, `dns_servers` with mode `only` works as on Linux.
 - AC2: `before_system` and `after_system` on Windows or macOS produce a clear "not supported on this platform yet" error in `--configCheck`, and at the first lookup. *(Assumption 20)*
+- AC3: When the WFL resolver is on, Windows and macOS still honor their hosts file (FR-05 AC1).
 
 ### Errors, visibility, and cache
 
 **FR-12 — No servers at all.**
-- AC1: If the WFL resolver is active, `dns_servers` is not set (or the mode needs the system list), and `/etc/resolv.conf` is missing, unreadable, or has no `nameserver` lines, then the lookup fails **immediately**. No query is sent anywhere.
+- AC1: If the WFL resolver is active and the **effective server list is empty**, the lookup fails **immediately**. No query is sent anywhere. The list is empty only when `dns_servers` is not set and `/etc/resolv.conf` is missing, unreadable, or has no `nameserver` lines.
 - AC2: The error says which sources were checked (`/etc/resolv.conf`, `dns_servers`) and shows the one-line fix (`dns_servers = <your DNS server>`). It also mentions that `dns_servers = 127.0.0.1` restores the old musl behavior for a local resolver.
 - AC3: Programs that make no network requests still run normally (the check happens at the first lookup, not at startup).
+- AC4: With `before_system` or `after_system`, a missing, unreadable, or empty system list is **not** an error, because `dns_servers` still gives a non-empty list. WFL uses the `dns_servers` alone, prints one config warning saying the system list was unavailable, and `wfl --dump-env` shows it. No query goes to any server outside `dns_servers`. *(Assumption 33)*
 
 **FR-13 — Invalid configuration fails closed.**
 - AC1: An invalid `dns_servers` entry, or an invalid `dns_servers_mode` / `dns_resolver` value, is reported by `wfl --configCheck` with the file, the line, and the offending value.
@@ -259,7 +268,11 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 
 **NFR-01 — No added latency when the first server is healthy.** A lookup sends exactly one query per address type to the first server, and returns as soon as it answers. No waiting for other servers. A cache hit answers without any network traffic.
 
-**NFR-02 — Bounded waiting.** The worst case for one lookup is `attempts × servers × timeout` (for example 2 × 3 × 5 s = 30 s). It is never longer than the request's existing timeout or the program's execution deadline. When the request is cancelled or times out, all in-flight DNS queries for it are dropped (test: no fake server receives a query after cancellation).
+**NFR-02 — Bounded waiting.** When every server is silent, the worst case for one lookup is `candidates × attempts × servers × timeout`. Here `candidates` is the number of names built from the search list (FR-04). Examples:
+- a fully qualified name with 3 servers: 1 × 2 × 3 × 5 s = 30 s;
+- an unqualified name with `search a b` and `ndots:1` (3 candidates): 3 × 2 × 3 × 5 s = 90 s.
+
+The request's existing timeout and the program's execution deadline cap the **whole** lookup, across all candidates. A lookup is never longer than either of them. Test: with two search domains and every server silent, the lookup ends at the request timeout, not later. When the request is cancelled or times out, all in-flight DNS queries for it are dropped (test: no fake server receives a query after cancellation).
 
 **NFR-03 — Concurrency (`testing.md` §11.3).** The resolver is fully asynchronous on the existing Tokio runtime. Test: while one request waits on a silent DNS server, a second request in the same program (`main loop concurrently:` or a web handler) to a name served by a healthy server completes promptly.
 
@@ -294,7 +307,7 @@ Each requirement points to the threat(s) in [Appendix A](#a6-threats) that it mi
 | **SEC-06** | WFL sends DNS queries only to servers in the effective list. There is no implicit server (no `8.8.8.8`, no `127.0.0.1`). A test with mode `only` proves a resolv.conf server receives zero queries. | T-05 |
 | **SEC-07** | reqwest's `hickory-dns` feature stays **off**. A test (or CI check on `cargo tree -e features`) fails if it is ever enabled. A test with an unreadable resolv.conf proves the lookup fails with the FR-12 error and contacts no server. | T-06 |
 | **SEC-08** | DNS details are logged only at `debug` level, and only the hostname (never the URL path, query, headers, or body). A test asserts this for both the log and the error message. | T-07 |
-| **SEC-09** | Per-try timeout is bounded to 1–30 s and attempts to at most 5. The whole lookup runs inside the request's existing timeout and execution deadline, and cancellation drops in-flight queries (NFR-02). | T-08 |
+| **SEC-09** | Per-try timeout is bounded to 1–30 s and attempts to at most 5. The whole lookup, across every search-list candidate (`candidates × attempts × servers × timeout`), runs inside the request's existing timeout and execution deadline, and cancellation drops in-flight queries (NFR-02). | T-08 |
 | **SEC-10** | The resolver is async and never blocks a runtime thread. The §11.3 concurrency test (NFR-03) proves one stuck lookup does not delay unrelated requests. | T-09 |
 | **SEC-11** | The cache is bounded (1,024 names, least recently used dropped first), and TTLs are capped (1 day positive, 30 s negative). | T-10, T-18 |
 | **SEC-12** | With no servers found, the lookup fails immediately with the FR-12 message (sources checked, one-line fix). The off switch and the `dns_servers = 127.0.0.1` fix are documented. | T-11 |
@@ -313,20 +326,20 @@ Each requirement points to the threat(s) in [Appendix A](#a6-threats) that it mi
 | Config loader | `src/config.rs` (existing) | Parses the four new keys from the global and local files; records the source file of each value |
 | Config checker | `src/wfl_config/checker.rs` (existing) | Knows and validates the new keys |
 | **WFL ordered resolver** (new) | `src/interpreter/dns.rs` (new module) | Builds the effective server list; handles `localhost`, `/etc/hosts`, search/ndots candidates, the ordered loop, failover rules, and the cache; implements `reqwest::dns::Resolve` |
-| Per-server query client | `hickory-resolver` 0.26 (new direct dependency) | One hickory resolver per server, configured for exactly one server: `num_concurrent_reqs = 1`, `attempts = 1`, cache off, hosts file off, no search list, `trust_negative_responses = true`. WFL's loop decides what happens next |
+| Per-server query client | `hickory-resolver` 0.26 (new direct dependency) | One hickory resolver per server, configured for exactly one server: `num_concurrent_reqs = 1`, `attempts = 1`, cache off, hosts file off, no search list, `trust_negative_responses = true`. WFL's loop decides what happens next. The mapping from hickory's error kinds to WFL outcomes is pinned by a component test (FR-02 AC8) |
 | resolv.conf parser | `resolv-conf` crate (the same parser hickory uses) | Reads `nameserver`, `search`/`domain`, and `options timeout/attempts/ndots`, without pulling hickory's Windows/macOS system-config dependencies |
 | HTTP client | `IoClient::http_client_with_redirects` in `src/interpreter/mod.rs` (existing) | Calls `.dns_resolver(...)` when the resolver setting is `wfl`; unchanged when it is `system` |
 
 ### Lookup algorithm (WFL resolver)
 
 1. If the name is `localhost` or ends with `.localhost`, return loopback.
-2. If the cache has a live entry, return it.
-3. If `/etc/hosts` (Linux/macOS) has the name, return those addresses.
-4. Build the effective server list from the mode (FR-08). If it is empty, fail with the FR-12 error.
+2. If the platform's hosts file has the name (FR-05: `/etc/hosts`, or the Windows hosts file), return those addresses.
+3. If the cache has a live entry, return it.
+4. Build the effective server list from the mode (FR-08). If it is empty, fail with the FR-12 error. With `before_system` / `after_system` and no usable system list, use `dns_servers` alone and warn (FR-12 AC4).
 5. Build the candidate names (FR-04).
-6. For each candidate: repeat `attempts` times: for each server in order: ask A + AAAA, and wait up to the timeout.
-   - Final answer (NOERROR or NXDOMAIN) → stop asking servers for this candidate.
-   - No reply, SERVFAIL, REFUSED, NOTIMP, FORMERR, or an unparseable reply → next server.
+6. For each candidate: repeat `attempts` times: for each server in order: ask A + AAAA, and wait up to the timeout. Combine the two results with the FR-06 AC2 rules.
+   - Final (addresses, NXDOMAIN, or empty NOERROR for both types) → stop asking servers for this candidate.
+   - Not final (no reply, SERVFAIL, REFUSED, NOTIMP, FORMERR, an unparseable reply, or one type empty while the other failed) → next server.
    - Truncated → retry this server over TCP.
 7. If a candidate got addresses, cache and return them. If it got NXDOMAIN, try the next candidate. If every candidate ended in NXDOMAIN, cache the negative answer and fail with "name not found" (FR-14).
 8. If no server gave a final answer, fail with the FR-14 message listing every server and outcome.
@@ -413,9 +426,12 @@ There is no deadline.
 26. A server that appears in both lists (`before_system` / `after_system`) is asked once, at its first position. — *default (written)*
 27. Each try waits the same fixed timeout; glibc lengthens the wait in later rounds. This difference is documented. — *default (written)*
 28. `attempts` is capped at 5 and defaults to 2, as in glibc. — *default (written)*
-29. A server's answer is final when at least one of A/AAAA returns a final answer; only that server's addresses are used. — *default (written)*
+29. A and AAAA results from one server are combined by the FR-06 AC2 rules: addresses or NXDOMAIN are final; empty for both types is final; one type empty while the other failed is **not** final, so the next server is asked. Only the final server's addresses are used. — *default (written; revised after PR review)*
 30. `localhost` and `*.localhost` always resolve to loopback without DNS (RFC 6761), matching musl. — *default (written)*
 31. Per-server resolvers are built with hickory's `TokioResolver` (one server each), and resolv.conf is parsed with the `resolv-conf` crate, so Windows and macOS builds do not pull in hickory's system-config dependencies. — *default (written)*
+32. IPv6 link-local DNS servers with a zone ID (`fe80::1%eth0`) are rejected in `dns_servers` in this version, with a clear message. — *default (written after PR review)*
+33. With `before_system` / `after_system`, a missing or empty system list is not an error: WFL uses `dns_servers` alone and warns once. Only an empty effective list is the FR-12 error. — *default (written after PR review)*
+34. The WFL resolver reads the platform's hosts file (`/etc/hosts`, or `%SystemRoot%\System32\drivers\etc\hosts` on Windows) and re-reads it when it changes. — *default (written after PR review)*
 
 ## 16. Open questions
 
@@ -600,6 +616,6 @@ Revisit this threat model when any of the following happens:
 - `before_system` / `after_system` are enabled on Windows or macOS.
 - A WFL language feature lets programs choose DNS servers or resolve names directly (NG3).
 - A new configuration source can set DNS keys (for example environment variables or command-line flags).
-- `hickory-resolver` has a major version change, or reqwest changes its resolver interface.
+- `hickory-resolver` has a major version change, any hickory upgrade fails the FR-02 AC8 error-mapping test, or reqwest changes its resolver interface.
 - The default resolver changes on any platform, or the off switch is removed.
 - A security report involving DNS is received under `SECURITY.md`.
