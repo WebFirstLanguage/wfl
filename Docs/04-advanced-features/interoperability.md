@@ -282,6 +282,31 @@ closed as the handler unwinds. Still prefer an explicit `close upstream` when yo
 stop early or break out of the read loop before EOF, to free the connection the
 moment you are done rather than at handler exit.
 
+#### How WFL finds the server's address (DNS)
+
+Before connecting, WFL turns the URL's hostname into an IP address. On Linux,
+WFL asks the DNS servers **one at a time, in order** (the servers in
+`/etc/resolv.conf`, or the ones you list in `.wflcfg`), the same way glibc does:
+the first server's final answer wins, and the next server is asked only when the
+current one does not answer or reports a failure. `localhost` names and the hosts
+file are answered without asking any server, and answers are remembered for a
+while.
+
+If your machine lists a public DNS server next to internal ones, internal names
+can still be resolved reliably. If you cannot fix the machine's DNS settings,
+list the servers WFL should use in `.wflcfg`:
+
+```ini
+dns_servers = 10.3.0.100, 10.3.0.101
+```
+
+A failed lookup is a catchable error whose message lists every server asked and
+what each one said. All four DNS keys (`dns_servers`, `dns_servers_mode`,
+`dns_timeout_seconds`, `dns_resolver`) are described in
+[Configuration Reference: DNS settings](../reference/configuration-reference.md#dns-settings).
+They apply to `open url` requests only. Database connections still use the
+operating system's resolver.
+
 ### 4. **Web Standards**
 
 WFL web servers work with standard HTTP:

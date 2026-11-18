@@ -41,6 +41,7 @@ mod database_transaction_cli_test;
 mod database_transaction_test;
 mod diagnostics_fixtures_test;
 mod display_multiple_values_stdout_test;
+mod dns_docs_examples_test;
 mod dns_fake_server;
 mod dns_ordered_resolution_test;
 mod dns_system_sources_test;

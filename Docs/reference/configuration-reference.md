@@ -39,6 +39,7 @@ Runtime behavior, lint/style rules, shell security, subprocess limits, and web s
 - **Security** — shell execution allowlists and modes
 - **Subprocesses** — concurrency and buffer limits
 - **Web server** — bind address, TLS cert/key defaults, max request body size, request queue bound
+- **DNS** — which DNS servers outbound HTTP requests ask, in which order (see [DNS settings](#dns-settings))
 
 It is **not** for application secrets or app-specific settings (ports your program chooses, API keys, business config). Put those in data files your program reads (see [Project Organization](../06-best-practices/project-organization.md)).
 
@@ -249,6 +250,15 @@ All keys currently loaded from config files, with defaults.
 | `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
 | `web_socket_max_message_size` | integer ≥ 1 | `1048576` (1 MiB) | Max size of a single WebSocket text message (bytes); larger frames are dropped |
 | `web_socket_max_queued_bytes` | integer ≥ 1 | `16777216` (16 MiB) | Global ceiling on queued WebSocket payload bytes across all connections |
+
+### DNS (name lookups for outbound HTTP)
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `dns_servers` | Comma-separated IP addresses, optional `:port` | *(not set)* | DNS servers WFL asks, one at a time, in this order |
+| `dns_servers_mode` | `only` / `before_system` / `after_system` | `only` | Whether `dns_servers` replace the system's servers or come before/after them |
+| `dns_timeout_seconds` | integer 1–30 | `timeout` in `/etc/resolv.conf`, else `5` | Seconds to wait for one server before asking the next |
+| `dns_resolver` | `wfl` / `system` | `wfl` on Linux, `system` elsewhere | `system` switches back to the operating system's resolver (the off switch) |
 
 ### Execution budget keys (summary)
 
@@ -734,6 +744,207 @@ Global ceiling in bytes on all WebSocket payloads queued across every connection
 - **Default:** `16777216` (16 MiB)
 - **Example:** `web_socket_max_queued_bytes = 8388608`
 
+### DNS settings
+
+These keys control how WFL turns a hostname (like `knowledge.lan`) into an IP
+address when a program makes an **outbound HTTP request** (`open url ...`). They
+do **not** affect database connections (`open database at "postgres://..."`),
+which still use the operating system's resolver.
+
+#### How lookups work
+
+On **Linux**, WFL uses its own resolver by default. It asks DNS servers **one at
+a time, in order**, the same way glibc does:
+
+1. If the name is `localhost` or ends in `.localhost`, the answer is the local
+   machine (`127.0.0.1`, `::1`). No DNS server is asked.
+2. If the name is in the hosts file (`/etc/hosts`), that answer is used. The
+   file is re-read when it changes.
+3. If the same name was looked up recently, the remembered answer is used (see
+   [Answer cache](#answer-cache)).
+4. Otherwise WFL asks the first server. **Its answer is final** if it gives
+   addresses, says "no such name", or says the name has no addresses. A later
+   server can never override it.
+5. WFL asks the **next** server only if the current one does not answer within
+   the timeout, or answers "server failure", "refused", "not implemented",
+   "format error", or something WFL cannot read.
+6. The whole list is tried up to `attempts` times (from `options attempts:N` in
+   `/etc/resolv.conf`, default 2). Within one try, WFL may re-send the same
+   question to the same server over UDP if no reply has arrived yet. That never
+   contacts another server.
+
+WFL asks for IPv4 (A) and IPv6 (AAAA) addresses from each server at the same
+time. If one family fails while the other comes back empty, that server could
+not help, so WFL asks the next one. This keeps an IPv4-only internal host
+working when a server is unreliable for one record type.
+
+**Why this matters:** the Linux release binary is statically linked against
+musl, whose own resolver sends every question to *all* listed servers at once and
+takes the first reply. With `nameserver 10.3.0.100`, `nameserver 10.3.0.101` and
+`nameserver 8.8.8.8`, a public server's "no such name" for an internal host often
+arrived first, so internal names failed at random, and every internal name was
+sent to the public server.
+
+**What WFL reads from `/etc/resolv.conf`** (glibc's rules): the first three
+`nameserver` lines; the last `search` or `domain` line; and `options ndots:N`,
+`timeout:N` and `attempts:N` (capped at 15, 30 and 5). Other options are ignored.
+A name with fewer dots than `ndots` is tried with each search domain first and
+as written last; otherwise it is tried as written first. A name that ends in a
+dot is tried only as written.
+
+**On Windows and macOS** the operating system's resolver stays the default.
+Setting `dns_servers` switches that program to WFL's resolver (with
+`dns_servers_mode = only`; the two mixing modes are Linux-only for now). The
+hosts file is still honored on every platform, including
+`%SystemRoot%\System32\drivers\etc\hosts` on Windows.
+
+#### `dns_servers`
+
+The DNS servers WFL asks, in the order to ask them. Use this when the machine's
+own DNS settings are wrong and you cannot change them, or to make a program use
+specific servers wherever it runs.
+
+- **Type:** Comma-separated IP addresses, each with an optional port
+- **Default:** not set (the system's servers are used)
+- **Examples:** `10.3.0.100`, `10.3.0.100:5353`, `fd00::1`, `[fd00::1]:53`
+
+```ini
+# Ask the internal DNS servers, in this order, and nothing else.
+dns_servers = 10.3.0.100, 10.3.0.101
+```
+
+Rules:
+
+- **IP addresses only.** A hostname is rejected, because looking up a DNS
+  server's own name would itself need DNS.
+- IPv6 link-local addresses with a zone ID (`fe80::1%eth0`) are not supported
+  yet. Use a global or unique-local IPv6 address instead.
+- The default port is 53. A server listed twice is asked once, at its first
+  position. At most 32 servers.
+- An empty value (`dns_servers =`) means "not set". In a local `.wflcfg`, that
+  clears a value inherited from the global configuration file.
+- **An invalid value fails closed.** WFL does not fall back to other DNS
+  servers. Every lookup fails with a message that names the file and the bad
+  entry, and no DNS question is sent anywhere. Programs that never use the
+  network are not affected.
+
+#### `dns_servers_mode`
+
+How `dns_servers` combine with the servers in `/etc/resolv.conf`.
+
+- **Values:** `only` (default), `before_system`, `after_system`
+- **`only`:** ask only `dns_servers`. The system's servers are never contacted.
+- **`before_system`:** ask `dns_servers` first, then the system's servers.
+- **`after_system`:** ask the system's servers first, then `dns_servers`.
+
+```ini
+# Prefer the internal servers, but keep the system's servers as a backup.
+dns_servers = 10.3.0.100, 10.3.0.101
+dns_servers_mode = before_system
+```
+
+> **Warning about `after_system`:** a final answer is final. If a system server
+> answers "no such name" for an internal host, `dns_servers` are never asked.
+> To make internal names work, put your internal servers **first**
+> (`only` or `before_system`).
+
+The mixing modes are Linux-only for now. On Windows and macOS they are reported
+as "not supported on this platform yet". If the system has no usable servers,
+`before_system` and `after_system` use `dns_servers` alone and log a warning.
+Setting this key without `dns_servers` has no effect (`wfl --dump-env` says so).
+
+#### `dns_timeout_seconds`
+
+How long to wait for one DNS server before asking the next one.
+
+- **Type:** Whole seconds, 1 to 30
+- **Default:** `options timeout:N` in `/etc/resolv.conf`, otherwise `5`
+- **Example:** `dns_timeout_seconds = 2`
+
+An invalid value logs a warning and the default is used.
+
+The worst case for one lookup, when every server is silent, is
+`names tried × attempts × servers × timeout`. For example: three servers, two
+attempts and a five-second timeout take 30 seconds for one name. A lookup still
+counts toward the program's overall time limit (`timeout_seconds`), so it can
+never wait longer than that.
+
+#### `dns_resolver`
+
+The off switch.
+
+- **Values:** `wfl`, `system`
+- **Default:** `wfl` on Linux, `system` on Windows and macOS
+- **`system`:** use the operating system's resolver exactly as WFL did before
+  this feature. `dns_servers` is then ignored, and `wfl --dump-env` says so.
+
+```ini
+# Go back to the operating system's resolver on this machine.
+dns_resolver = system
+```
+
+#### Answer cache
+
+WFL remembers answers in memory while the program runs, so a dead first server
+does not slow down every request:
+
+- Addresses are kept for as long as the DNS answer allows (its TTL), at most one
+  day.
+- "No such name" and "no addresses" answers are kept for at most 30 seconds.
+- At most 1,024 names are kept; the least recently used one is dropped first.
+- Failures (no server answered) are never cached. Nothing is written to disk.
+
+#### When a lookup fails
+
+The error names every server WFL asked, in order, where each one came from, and
+what it said, then gives a hint. For example:
+
+```text
+Failed to send HTTP GET request: Could not find the address of "knowledge.lan".
+
+I asked these DNS servers, one at a time, in this order:
+  1. 10.3.0.100:53  (from /etc/resolv.conf)  no reply within 5 seconds
+  2. 10.3.0.101:53  (from /etc/resolv.conf)  answered "server failure"
+  3. 8.8.8.8:53     (from /etc/resolv.conf)  answered "no such name" (final)
+
+Hint: if this is an internal name, list your internal DNS servers first in .wflcfg, for example:
+    dns_servers = 10.3.0.100, 10.3.0.101
+```
+
+The message contains only the hostname, never the URL's path or query string.
+If WFL finds no DNS servers at all (no `dns_servers`, and `/etc/resolv.conf` is
+missing, unreadable, or has no `nameserver` lines), the lookup fails at once and
+says where it looked. It never falls back to a public resolver or to
+`127.0.0.1`. To use a resolver on the same machine, say so:
+`dns_servers = 127.0.0.1`.
+
+#### Checking and troubleshooting DNS
+
+- `wfl --dump-env` has a `=== DNS ===` section. It shows the resolver in use,
+  the mode, every server in the order WFL asks them and which file it came from,
+  the search list, the timeout and the attempts.
+- `wfl --configCheck` validates the four DNS keys with the same rules as the
+  loader. `wfl --configFix` never adds or changes DNS servers.
+- With `logging_enabled = true` and `log_level = debug`, the WFL log records each
+  server asked and its answer. Configuration warnings about DNS keys are written
+  to the same log.
+
+#### Security notes
+
+- **Plain DNS can be forged** by someone on the same network. That is true for
+  every resolver that uses plain DNS, including glibc and musl. WFL uses random
+  query IDs and source ports and ignores replies that do not match, but the real
+  protection is HTTPS: a forged answer then fails the certificate check. **Do not
+  send secrets over plain `http://`.**
+- **DNS rebinding is not blocked.** A DNS server can answer a public name with a
+  private or loopback address. If a WFL program fetches URLs chosen by its users,
+  check the destination yourself.
+- **A project's `.wflcfg` can change DNS servers.** Review the `.wflcfg` of a
+  downloaded project as you would its code (it can also enable shell
+  execution).
+- WFL's resolver never contacts a server that is not in the list shown by
+  `wfl --dump-env`.
+
 ### Execution budget (resource limits)
 
 WFL enforces every resource ceiling through a single shared **execution budget**
@@ -976,6 +1187,8 @@ log_level = debug
 
 Invalid values for known keys are usually **silently ignored**; the previous/default value is kept. Unknown keys log a warning. Enable debug logging to see what was loaded.
 
+**Exception:** invalid `dns_servers`, `dns_servers_mode` or `dns_resolver` values **fail closed**: every outbound HTTP lookup fails with a message naming the file and the bad value, so a typo can never silently send your hostnames to some other DNS server. See [DNS settings](#dns-settings).
+
 ### Checking active configuration
 
 ```bash
@@ -993,6 +1206,19 @@ Set `web_server_bind_address` in the `.wflcfg` that actually applies to that scr
 - The listen form must include `secured`
 - Paths in the `listen` statement override `.wflcfg`
 - Both cert and key must be set (in statement or config) and readable
+
+### Internal hostnames fail at random, or resolve to the wrong address
+
+The machine's DNS list probably mixes internal and public servers. Run
+`wfl --dump-env` and check the `=== DNS ===` section: WFL asks the servers in
+the order shown, and the first final answer wins. Put your internal servers
+first, either in `/etc/resolv.conf` or, if you cannot change it, in `.wflcfg`:
+
+```ini
+dns_servers = 10.3.0.100, 10.3.0.101
+```
+
+See [DNS settings](#dns-settings).
 
 ### Shell commands blocked
 

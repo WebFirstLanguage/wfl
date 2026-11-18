@@ -1,6 +1,6 @@
 # Ordered DNS resolution and `.wflcfg` DNS servers
 
-**Status:** Draft PRD, written 2026-11-18 from a structured requirements interview with the Maintainer. Awaiting the Maintainer's go-ahead to implement.
+**Status:** Approved and dispatched by the Maintainer on 2026-11-18; implemented in PR [WebFirstLanguage/wfl#808](https://github.com/WebFirstLanguage/wfl/pull/808) in two Red→Green cycles. Sections marked *(as built)* record where the implementation refined this plan.
 **Risk:** New feature (not an I1 bug), so it needs a Maintainer dispatch decision. Testing risk class **R3**: it handles untrusted network input (DNS answers) and affects backward compatibility.
 **Threat model:** [Appendix A](#appendix-a-threat-model) (STRIDE).
 
@@ -150,7 +150,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 
 **FR-03 — Attempts.**
 - AC1: The whole server list is tried `attempts` times (from `options attempts:N` in `/etc/resolv.conf`; default 2; values above 5 are treated as 5, as in glibc).
-- AC2: With every server silent and `attempts:2`, each server receives exactly 2 queries per candidate name.
+- AC2 *(as built)*: With every server silent, `timeout:1` and `attempts:2`, the lookup gives up after two rounds (about 2 seconds, not 1 and not 3). Rounds are measured by time, not by counting packets: within one round, hickory re-sends the same UDP question to the **same** server after about 1.2× the measured round-trip time (at least ~333 ms, up to 3 re-sends). This is not configurable through hickory's options, never contacts another server, and helps with lost packets. *(Assumption 37)*
 
 **FR-04 — Search domains and `ndots`, glibc order.**
 - AC1: WFL builds the candidate names itself from `search` / `domain` and `ndots` (default 1). Each candidate is asked across **all** servers, in order, before the next candidate is tried.
@@ -188,13 +188,13 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 - AC1: The values are `only` (the default when the key is missing), `before_system`, and `after_system`. Matching is case-insensitive, and surrounding spaces are ignored.
 - AC2: `only` → the effective list is exactly `dns_servers`. A test proves that a resolv.conf server receives **zero** queries.
 - AC3: `before_system` → `dns_servers`, then the resolv.conf servers. `after_system` → the resolv.conf servers, then `dns_servers`. Duplicates are removed (the first position is kept).
-- AC4: Setting the mode without `dns_servers` gives a config warning, and the mode is ignored.
+- AC4: Setting the mode without `dns_servers` gives a config warning, and the mode is ignored. *(as built)* Config warnings go to the WFL log (as for every other key), and `wfl --dump-env` shows them in its DNS section.
 - AC5: Any other value is a config error (FR-13).
 
 **FR-09 — `dns_timeout_seconds`.**
 - AC1: A whole number of seconds from 1 to 30. It overrides `options timeout:N` from `/etc/resolv.conf`.
 - AC2: Without it, the resolv.conf timeout is used (glibc caps it at 30); without either, the timeout is 5 seconds.
-- AC3: An invalid value (0, negative, above 30, or not a number) gives a config warning naming the key and the accepted range, and the default is used. A wrong timeout cannot cause a leak, so warning (not failing) is safe here.
+- AC3: An invalid value (0, negative, above 30, or not a number) gives a config warning naming the key and the accepted range (in the WFL log; `wfl --configCheck` reports it as an error), and the default is used. A wrong timeout cannot cause a leak, so warning (not failing) is safe here.
 - AC4: Each try waits the same fixed time. *(Assumption 27: glibc lengthens the wait in later rounds; this small difference is documented.)*
 
 **FR-10 — `dns_resolver` (the off switch).**
@@ -214,7 +214,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 - AC1: If the WFL resolver is active and the **effective server list is empty**, the lookup fails **immediately**. No query is sent anywhere. The list is empty only when `dns_servers` is not set and `/etc/resolv.conf` is missing, unreadable, or has no `nameserver` lines.
 - AC2: The error says which sources were checked (`/etc/resolv.conf`, `dns_servers`) and shows the one-line fix (`dns_servers = <your DNS server>`). It also mentions that `dns_servers = 127.0.0.1` restores the old musl behavior for a local resolver.
 - AC3: Programs that make no network requests still run normally (the check happens at the first lookup, not at startup).
-- AC4: With `before_system` or `after_system`, a missing, unreadable, or empty system list is **not** an error, because `dns_servers` still gives a non-empty list. WFL uses the `dns_servers` alone, prints one config warning saying the system list was unavailable, and `wfl --dump-env` shows it. No query goes to any server outside `dns_servers`. *(Assumption 33)*
+- AC4: With `before_system` or `after_system`, a missing, unreadable, or empty system list is **not** an error, because `dns_servers` still gives a non-empty list. WFL uses the `dns_servers` alone, logs one warning saying the system list was unavailable (in the WFL log), and `wfl --dump-env` shows it. No query goes to any server outside `dns_servers`. *(Assumption 33)*
 
 **FR-13 — Invalid configuration fails closed.**
 - AC1: An invalid `dns_servers` entry, or an invalid `dns_servers_mode` / `dns_resolver` value, is reported by `wfl --configCheck` with the file, the line, and the offending value.
@@ -250,7 +250,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 
 **FR-17 — `wfl --configCheck` / `--configFix` know the new keys.**
 - AC1: All four keys are known settings (no "unknown key" warning), and their values are validated as in FR-07 to FR-10.
-- AC2: `--configFix` never invents DNS servers. It may only remove an invalid mode or resolver value.
+- AC2 *(as built)*: `--configFix` never adds or changes DNS settings. The DNS keys have no default written by `--configFix`, so invalid DNS values are reported for the user to fix by hand, and a generated config file never switches resolvers.
 - AC3: The `wfl-config-lint` workflow accepts the new keys.
 
 **FR-18 — Debug logging.**
@@ -327,7 +327,8 @@ Each requirement points to the threat(s) in [Appendix A](#a6-threats) that it mi
 | Config checker | `src/wfl_config/checker.rs` (existing) | Knows and validates the new keys |
 | **WFL ordered resolver** (new) | `src/interpreter/dns.rs` (new module) | Builds the effective server list; handles `localhost`, `/etc/hosts`, search/ndots candidates, the ordered loop, failover rules, and the cache; implements `reqwest::dns::Resolve` |
 | Per-server query client | `hickory-resolver` 0.26 (new direct dependency) | One hickory resolver per server, configured for exactly one server: `num_concurrent_reqs = 1`, `attempts = 1`, cache off, hosts file off, no search list, `trust_negative_responses = true`. WFL's loop decides what happens next. The mapping from hickory's error kinds to WFL outcomes is pinned by a component test (FR-02 AC8) |
-| resolv.conf parser | `resolv-conf` crate (the same parser hickory uses) | Reads `nameserver`, `search`/`domain`, and `options timeout/attempts/ndots`, without pulling hickory's Windows/macOS system-config dependencies |
+| resolv.conf parser *(as built)* | WFL's own parser in `dns.rs` (about 60 lines) | Reads `nameserver` (first three, as glibc's `MAXNS`), the last `search`/`domain` line, and `options ndots/timeout/attempts` (capped at 15/30/5). No extra dependency, and none of hickory's Windows/macOS system-config code |
+| System sources *(as built)* | `SystemSources` in `dns.rs` | Where the resolv.conf and hosts file are read from (the real paths in production). A Rust library parameter so tests can use temporary files; no `.wflcfg` key, environment variable, flag, or WFL program can reach it (SEC-17). `resolv.conf` and the hosts file are re-read when their modification time or size changes |
 | HTTP client | `IoClient::http_client_with_redirects` in `src/interpreter/mod.rs` (existing) | Calls `.dns_resolver(...)` when the resolver setting is `wfl`; unchanged when it is `system` |
 
 ### Lookup algorithm (WFL resolver)
@@ -428,18 +429,22 @@ There is no deadline.
 28. `attempts` is capped at 5 and defaults to 2, as in glibc. — *default (written)*
 29. A and AAAA results from one server are combined by the FR-06 AC2 rules: addresses or NXDOMAIN are final; empty for both types is final; one type empty while the other failed is **not** final, so the next server is asked. Only the final server's addresses are used. — *default (written; revised after PR review)*
 30. `localhost` and `*.localhost` always resolve to loopback without DNS (RFC 6761), matching musl. — *default (written)*
-31. Per-server resolvers are built with hickory's `TokioResolver` (one server each), and resolv.conf is parsed with the `resolv-conf` crate, so Windows and macOS builds do not pull in hickory's system-config dependencies. — *default (written)*
+31. Per-server resolvers are built with hickory's `TokioResolver` (one server each). *(as built)* resolv.conf is parsed by WFL's own small parser instead of the `resolv-conf` crate (one dependency fewer; hickory's system-config feature stays off). — *default (written; revised during implementation)*
 32. IPv6 link-local DNS servers with a zone ID (`fe80::1%eth0`) are rejected in `dns_servers` in this version, with a clear message. — *default (written after PR review)*
 33. With `before_system` / `after_system`, a missing or empty system list is not an error: WFL uses `dns_servers` alone and warns once. Only an empty effective list is the FR-12 error. — *default (written after PR review)*
 34. The WFL resolver reads the platform's hosts file (`/etc/hosts`, or `%SystemRoot%\System32\drivers\etc\hosts` on Windows) and re-reads it when it changes. — *default (written after PR review)*
+35. glibc parity for resolv.conf: only the first three `nameserver` lines are used; the last `search` or `domain` line wins; a search entry of `.` is ignored; `nameserver` entries with an IPv6 zone ID are skipped. — *default (written during implementation)*
+36. `resolv.conf` is re-read when its modification time or size changes, like the hosts file, so long-running programs pick up DHCP or VPN changes. — *default (written during implementation)*
+37. hickory's UDP re-sends within one try (to the same server) are accepted; FR-03 counts rounds, not packets. — *default (written during implementation)*
+38. When every server is silent for one search-list name, the search stops there (glibc stops on a timeout); when servers answered with failures, the next search-list name is tried (glibc continues after SERVFAIL). — *default (written during implementation)*
 
 ## 16. Open questions
 
 These are technical points to settle while building. None of them needs an answer from the Maintainer before work starts.
 
-1. **Search-domain order:** confirm with a component test that WFL's candidate loop matches glibc exactly (Assumption 24), including the "name has at least `ndots` dots → try as-is first" rule.
-2. **`/etc/hosts` edge cases:** confirm that hickory's hosts-file parser matches musl for a name with several addresses, IPv6 entries, aliases, and comments.
-3. **End-to-end test of the system path:** decide how the real binary is tested reading `/etc/resolv.conf` without a production seam (SEC-17). The candidates are a private mount namespace in the Linux CI job (`unshare --mount` with a bind-mounted resolv.conf), or the existing Docker runtime validation with `docker run --dns`. The `dns_servers` path is fully testable end-to-end with temp-dir `.wflcfg` files either way.
+1. ~~**Search-domain order.**~~ *Resolved:* `unqualified_names_try_the_search_list_in_glibc_order` and `ndots_trailing_dot_and_domain_follow_glibc` pin the order against real DNS servers, and a unit test pins the candidate list.
+2. ~~**`/etc/hosts` edge cases.**~~ *Resolved:* WFL parses the hosts file itself; tests cover several addresses, IPv6, aliases, comments, case, invalid lines, and re-reading after an edit.
+3. ~~**End-to-end test of the system path.**~~ *Resolved:* the system path is tested through `OrderedResolver::from_plan_with_sources` with a temporary `resolv.conf` and real DNS servers on `127.0.0.1`–`127.0.0.3` sharing one port (Linux), and the real binary's `--dump-env` shows the Linux default reading `/etc/resolv.conf`. No mount namespace or production seam was needed.
 4. **Later version:** should `sqlx` database connections use the same resolver (NG2)?
 5. **Later version:** should `before_system` / `after_system` work on Windows and macOS (Assumption 20)?
 
