@@ -41,6 +41,8 @@ mod database_transaction_cli_test;
 mod database_transaction_test;
 mod diagnostics_fixtures_test;
 mod display_multiple_values_stdout_test;
+mod dns_fake_server;
+mod dns_ordered_resolution_test;
 mod docs_parser_and_include_fixes_test;
 mod dropped_interpret_cleanup_test;
 mod dropped_interpret_server_cleanup_test;
