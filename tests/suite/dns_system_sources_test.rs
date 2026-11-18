@@ -722,6 +722,78 @@ async fn the_cache_holds_at_most_1024_names() {
     );
 }
 
+/// FR-15 + Assumption 36: when resolv.conf changes (VPN up or down, a DHCP
+/// renewal), answers cached from the old servers are dropped, so the next
+/// lookup asks the new servers instead of reusing a stale answer for up to a
+/// day.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn changing_resolv_conf_clears_cached_answers() {
+    let (port, _servers) = FakeDns::start_group(
+        3600,
+        vec![
+            handler(|_| Reply::v4(10, 0, 0, 1)),
+            handler(|_| Reply::v4(10, 0, 0, 2)),
+        ],
+    )
+    .await;
+    let files = SystemFiles::new("nameserver 127.0.0.1\n", "");
+    let resolver = resolver(&explicit_wfl(), files.sources(port));
+    assert_eq!(
+        resolver
+            .lookup("vpn.wfl.test")
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.1".parse::<IpAddr>().unwrap()])
+    );
+
+    // Filesystem timestamps can be as coarse as one second.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    std::fs::write(files.resolv_conf(), "nameserver 127.0.0.2\n").unwrap();
+    assert_eq!(
+        resolver
+            .lookup("vpn.wfl.test")
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.2".parse::<IpAddr>().unwrap()]),
+        "a cached answer from the old resolv.conf was reused"
+    );
+}
+
+/// NFR-02 + SEC-09: abandoning a lookup (as the request deadline does) stops
+/// it across every search-list name, so a long search list cannot keep
+/// sending queries after the request has given up.
+#[cfg(unix)]
+#[tokio::test]
+async fn abandoning_a_lookup_stops_a_long_search() {
+    let silent = FakeDns::start(|_| Reply::Silent).await;
+    let search = (1..=8)
+        .map(|i| format!("d{i}.wfl.test"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let files = SystemFiles::new(&format!("search {search}\n"), "");
+    let resolver = resolver(
+        &settings(&[
+            ("dns_servers", &silent.addr.to_string()),
+            ("dns_timeout_seconds", "1"),
+        ]),
+        files.sources(53),
+    );
+    let gave_up = tokio::time::timeout(Duration::from_millis(1500), resolver.lookup("app")).await;
+    assert!(
+        gave_up.is_err(),
+        "the lookup should still have been running"
+    );
+    let asked = silent.query_count();
+    assert!(asked >= 1);
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(
+        silent.query_count(),
+        asked,
+        "queries were sent after the lookup was abandoned"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // NFR-03: concurrency
 // ---------------------------------------------------------------------------

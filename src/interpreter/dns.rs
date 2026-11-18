@@ -2090,10 +2090,13 @@ mod tests {
              search lab.test . corp.test.\n\
              options ndots:99 timeout:0 attempts:9 rotate edns0\n",
         );
-        // The first three distinct servers, as glibc (MAXNS = 3).
+        // glibc (MAXNS = 3) counts the first three usable `nameserver`
+        // lines, duplicates included, so the repeated 10.0.0.53 uses up the
+        // third slot and 8.8.8.8 is never asked. The zone-ID line is not
+        // usable, so it does not count.
         assert_eq!(
             config.servers,
-            ["10.0.0.53", "10.0.0.54", "8.8.8.8"]
+            ["10.0.0.53", "10.0.0.54"]
                 .map(|ip| ip.parse::<IpAddr>().unwrap())
                 .to_vec()
         );
@@ -2103,6 +2106,7 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("fe80::1%eth0"))
         );
+        assert!(config.skipped.iter().any(|line| line.contains("8.8.8.8")));
         assert!(config.skipped.iter().any(|line| line.contains("1.1.1.1")));
         // The last search/domain line wins; "." entries are dropped.
         assert_eq!(config.search, ["lab.test", "corp.test"]);
@@ -2142,10 +2146,48 @@ mod tests {
         );
         assert_eq!(candidate_names("app", true, &search, 1), ["app"]);
         assert_eq!(candidate_names("app", false, &[], 1), ["app"]);
+        // At most six search domains are used (glibc's classic MAXDNSRCH), so
+        // a long search list cannot multiply the worst-case wait without bound.
+        let many: Vec<String> = (1..=8).map(|i| format!("d{i}.test")).collect();
+        let tried = candidate_names("app", false, &many, 1);
+        assert_eq!(tried.len(), 7, "{tried:?}");
+        assert_eq!(tried[5], "app.d6.test");
+        assert_eq!(tried[6], "app");
         let long = "x".repeat(250);
         assert_eq!(
             candidate_names(&long, false, &search, 1),
             std::slice::from_ref(&long)
+        );
+    }
+
+    /// A hosts file that is not valid UTF-8 must still be read: one Latin-1
+    /// byte in a comment, or a UTF-16 file saved by a Windows editor, must
+    /// not silently send every pinned name to DNS instead.
+    #[test]
+    fn hosts_file_bytes_are_decoded_leniently() {
+        let read = |bytes: &[u8]| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("hosts");
+            std::fs::write(&path, bytes).unwrap();
+            HostsFile::read(&path)
+        };
+        let latin1 = read(b"# caf\xe9 comment\n10.0.0.7 latin.test\n");
+        assert_eq!(
+            latin1.names.get("latin.test"),
+            Some(&vec!["10.0.0.7".parse::<IpAddr>().unwrap()])
+        );
+        let mut utf16 = vec![0xFF, 0xFE];
+        for unit in "10.0.0.8 wide.test\r\n".encode_utf16() {
+            utf16.extend_from_slice(&unit.to_le_bytes());
+        }
+        assert_eq!(
+            read(&utf16).names.get("wide.test"),
+            Some(&vec!["10.0.0.8".parse::<IpAddr>().unwrap()])
+        );
+        let utf8_bom = read(b"\xef\xbb\xbf10.0.0.9 bom.test\n");
+        assert_eq!(
+            utf8_bom.names.get("bom.test"),
+            Some(&vec!["10.0.0.9".parse::<IpAddr>().unwrap()])
         );
     }
 
