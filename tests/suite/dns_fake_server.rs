@@ -85,7 +85,12 @@ pub struct Query {
     pub at: Instant,
 }
 
-type Handler = dyn Fn(&Query) -> Reply + Send + Sync;
+pub type Handler = dyn Fn(&Query) -> Reply + Send + Sync;
+
+/// Box a handler closure, for [`FakeDns::start_group`].
+pub fn handler(f: impl Fn(&Query) -> Reply + Send + Sync + 'static) -> Box<Handler> {
+    Box::new(f)
+}
 
 struct Shared {
     handler: Box<Handler>,
@@ -135,9 +140,49 @@ impl FakeDns {
             }
             bound.expect("could not bind UDP and TCP on the same port")
         };
+        Self::serve(udp, tcp, Box::new(handler), ttl)
+    }
+
+    /// Start one server per handler on `127.0.0.1`, `127.0.0.2`, ... all on
+    /// the SAME port, and return that port.
+    ///
+    /// `resolv.conf` cannot name a port, so a test `resolv.conf` lists these
+    /// addresses and the resolver is told the shared port. Linux only: there
+    /// the whole `127.0.0.0/8` block is loopback.
+    pub async fn start_group(ttl: u32, handlers: Vec<Box<Handler>>) -> (u16, Vec<FakeDns>) {
+        for _ in 0..50 {
+            let probe = UdpSocket::bind("127.0.0.1:0").await.expect("bind udp");
+            let port = probe.local_addr().unwrap().port();
+            let mut sockets = Vec::new();
+            let mut probe = Some(probe);
+            for index in 0..handlers.len() {
+                let ip = Ipv4Addr::new(127, 0, 0, (index + 1) as u8);
+                let udp = match probe.take() {
+                    Some(first) => Ok(first),
+                    None => UdpSocket::bind((ip, port)).await,
+                };
+                let tcp = TcpListener::bind((ip, port)).await;
+                match (udp, tcp) {
+                    (Ok(udp), Ok(tcp)) => sockets.push((udp, tcp)),
+                    _ => break,
+                }
+            }
+            if sockets.len() == handlers.len() {
+                let servers = sockets
+                    .into_iter()
+                    .zip(handlers)
+                    .map(|((udp, tcp), handler)| Self::serve(udp, tcp, handler, ttl))
+                    .collect();
+                return (port, servers);
+            }
+        }
+        panic!("could not bind a group of DNS servers on one port");
+    }
+
+    fn serve(udp: UdpSocket, tcp: TcpListener, handler: Box<Handler>, ttl: u32) -> Self {
         let addr = udp.local_addr().unwrap();
         let shared = Arc::new(Shared {
-            handler: Box::new(handler),
+            handler,
             log: Mutex::new(Vec::new()),
             ttl,
         });
