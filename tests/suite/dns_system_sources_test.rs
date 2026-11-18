@@ -823,7 +823,13 @@ async fn a_lookup_in_flight_during_a_resolv_conf_change_is_not_cached() {
 /// NFR-02 + SEC-09: abandoning a lookup (as the request deadline does) stops
 /// it across every search-list name, so a long search list cannot keep
 /// sending queries after the request has given up.
-#[cfg(unix)]
+///
+/// This uses WFL's REAL ordered resolver against a silent server, so it also
+/// proves that `dns.rs` keeps all of its per-server work inside the lookup's
+/// own future: a per-server query detached with `tokio::spawn` would keep
+/// sending after the drop and fail this test. Not cfg-gated: the temporary
+/// resolv.conf is read on every platform, so this runs on Windows CI too
+/// (`abandoning_a_request_drops_its_dns_lookup` covers the reqwest side).
 #[tokio::test]
 async fn abandoning_a_lookup_stops_a_long_search() {
     let silent = FakeDns::start(|_| Reply::Silent).await;
