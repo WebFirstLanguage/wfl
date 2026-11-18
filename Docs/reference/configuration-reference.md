@@ -786,11 +786,25 @@ arrived first, so internal names failed at random, and every internal name was
 sent to the public server.
 
 **What WFL reads from `/etc/resolv.conf`** (glibc's rules): the first three
-`nameserver` lines; the last `search` or `domain` line; and `options ndots:N`,
-`timeout:N` and `attempts:N` (capped at 15, 30 and 5). Other options are ignored.
+usable `nameserver` lines (a repeated line still uses up one of the three, as in
+glibc); the last `search` or `domain` line, using at most six domains; and
+`options ndots:N`, `timeout:N` and `attempts:N` (capped at 15, 30 and 5). Other
+options are ignored. When the file changes, WFL reads it again and forgets the
+answers it had remembered, so a VPN or DHCP change takes effect at once.
 A name with fewer dots than `ndots` is tried with each search domain first and
 as written last; otherwise it is tried as written first. A name that ends in a
 dot is tried only as written.
+
+**Linux builds that use glibc** (built from source, or packaged by a
+distribution) used to ask glibc, which can also consult other name sources set
+in `/etc/nsswitch.conf`: mDNS (`.local` names), `myhostname`, LDAP or SSSD
+host lists. WFL's resolver reads only the hosts file and DNS. If you rely on
+those other sources, set `dns_resolver = system`. The released Linux tarball
+is a static musl binary and never used those sources.
+
+The hosts file may be UTF-8 (with or without a byte-order mark) or UTF-16 with
+a byte-order mark, and a stray non-UTF-8 byte (for example in a comment) does
+not stop WFL from reading the other lines.
 
 **On Windows and macOS** the operating system's resolver stays the default.
 Setting `dns_servers` switches that program to WFL's resolver (with
@@ -893,6 +907,7 @@ does not slow down every request:
 - "No such name" and "no addresses" answers are kept for at most 30 seconds.
 - At most 1,024 names are kept; the least recently used one is dropped first.
 - Failures (no server answered) are never cached. Nothing is written to disk.
+- When `/etc/resolv.conf` changes, everything remembered is forgotten.
 
 #### When a lookup fails
 

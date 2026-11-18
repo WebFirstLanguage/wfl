@@ -98,6 +98,28 @@ is never asked.
   `syn 3`. Its new lock entries were pinned to the root lockfile's versions, so
   no existing dependency moved.
 
+## Review round 3
+
+hibiki-Logbie's review of cycle 2 found two real bugs and three parity gaps.
+Each got a failing test first (Red 3) and then the fix:
+
+- **A hosts file with one non-UTF-8 byte was ignored entirely**, so every
+  pinned name went to DNS. Both system files are now decoded leniently (UTF-16
+  with a BOM, UTF-8 with or without a BOM, otherwise invalid bytes replaced),
+  and an unreadable hosts file is logged once.
+- **A `resolv.conf` change left cached answers from the old servers** for up
+  to a day. `resolv.conf` is now checked before the cache, and a change clears
+  the cache.
+- A repeated `nameserver` line now uses up one of glibc's three slots, as in
+  glibc.
+- At most six search domains are used, so the worst-case wait is bounded.
+- A test now proves that abandoning a lookup (as the request deadline does)
+  stops a long search with no further queries.
+
+Raised and left for the Maintainer: on glibc builds the Linux default also
+bypasses glibc's Name Service Switch (mDNS `.local`, `myhostname`, LDAP/SSSD
+hosts). It is documented with `dns_resolver = system` as the escape hatch.
+
 ## Not done (on purpose)
 
 - Database connections (`sqlx`) still use the OS resolver.
