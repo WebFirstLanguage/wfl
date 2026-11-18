@@ -40,8 +40,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use hickory_resolver::TokioResolver;
 use hickory_resolver::config::{
@@ -366,16 +367,24 @@ impl DnsPlan {
     }
 }
 
-/// The settings WFL's resolver runs with.
+/// The `.wflcfg` side of WFL's resolver. The system side (servers, search
+/// list, timeout and attempts from `resolv.conf`) is read at lookup time from
+/// [`SystemSources`], so edits to `/etc/resolv.conf` are picked up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WflResolverSettings {
     pub mode: DnsServersMode,
-    /// Servers in the order they are asked.
+    /// Servers from `dns_servers`, in order (empty when it is not set).
     pub servers: Vec<ServerEntry>,
-    pub timeout: Duration,
-    /// Where the timeout came from (`None` = the built-in default).
-    pub timeout_source: Option<String>,
-    pub attempts: usize,
+    /// `dns_timeout_seconds` and the file that set it.
+    pub timeout_override: Option<(u64, String)>,
+}
+
+impl WflResolverSettings {
+    /// Whether the system's servers take part: always when `dns_servers` is
+    /// not set, and in the two mixing modes.
+    fn uses_system_servers(&self) -> bool {
+        self.servers.is_empty() || self.mode != DnsServersMode::Only
+    }
 }
 
 fn display_path(path: &Path) -> String {
@@ -393,7 +402,14 @@ fn misconfigured(key: &str, reason: &str, source: &Path) -> DnsPlan {
     }
 }
 
-/// Decide which resolver to use and with which servers.
+/// Whether WFL's ordered resolver is the default when no DNS key is set.
+///
+/// Linux only: that is where the static musl artifact races nameservers.
+/// Windows and macOS keep their own resolvers (macOS split DNS and the Windows
+/// DNS client are things this resolver does not read).
+pub const ORDERED_BY_DEFAULT: bool = cfg!(target_os = "linux");
+
+/// Decide which resolver to use and with which `.wflcfg` servers.
 pub fn plan(settings: &DnsSettings) -> DnsPlan {
     let mut warnings = Vec::new();
 
@@ -428,7 +444,20 @@ pub fn plan(settings: &DnsSettings) -> DnsPlan {
         (Setting::Invalid { reason, source }, true) => {
             return misconfigured("dns_servers_mode", reason, source);
         }
-        (Setting::Set { value, .. }, true) => *value,
+        (Setting::Set { value, source }, true) => {
+            if *value != DnsServersMode::Only && !cfg!(target_os = "linux") {
+                return misconfigured(
+                    "dns_servers_mode",
+                    &format!(
+                        "'{}' is not supported on this platform yet; only 'only' is \
+                         (WFL cannot read this system's own DNS server list)",
+                        value.as_str()
+                    ),
+                    source,
+                );
+            }
+            *value
+        }
         (Setting::Unset, _) => DnsServersMode::Only,
         (_, false) => {
             warnings.push(
@@ -446,14 +475,9 @@ pub fn plan(settings: &DnsSettings) -> DnsPlan {
             ..
         }
     );
-    if servers.is_none() && !explicit_wfl {
+    if servers.is_none() && !explicit_wfl && !ORDERED_BY_DEFAULT {
         return DnsPlan::System { warnings };
     }
-
-    let (timeout, timeout_source) = match &settings.timeout_seconds {
-        Some((seconds, source)) => (Duration::from_secs(*seconds), Some(display_path(source))),
-        None => (Duration::from_secs(DEFAULT_TIMEOUT_SECONDS), None),
-    };
 
     let servers = servers
         .map(|(list, source)| {
@@ -470,18 +494,26 @@ pub fn plan(settings: &DnsSettings) -> DnsPlan {
         settings: WflResolverSettings {
             mode,
             servers,
-            timeout,
-            timeout_source,
-            attempts: DEFAULT_ATTEMPTS,
+            timeout_override: settings
+                .timeout_seconds
+                .as_ref()
+                .map(|(seconds, source)| (*seconds, display_path(source))),
         },
         warnings,
     }
 }
 
-/// The `=== DNS ===` section of `wfl --dump-env`.
+/// The `=== DNS ===` section of `wfl --dump-env`, read from the real system
+/// files.
 pub fn describe(settings: &DnsSettings) -> String {
+    describe_with_sources(settings, &SystemSources::platform_default())
+}
+
+/// The `=== DNS ===` section, reading the system's DNS settings from `sources`.
+pub fn describe_with_sources(settings: &DnsSettings, sources: &SystemSources) -> String {
     let mut out = String::from("=== DNS ===\n");
     let plan = plan(settings);
+    let mut warnings: Vec<String> = plan.warnings().to_vec();
     match &plan {
         DnsPlan::System { .. } => {
             out.push_str("Resolver: system (the operating system's resolver)\n");
@@ -495,13 +527,23 @@ pub fn describe(settings: &DnsSettings) -> String {
             }
         }
         DnsPlan::Wfl { settings, .. } => {
+            let system = SystemConfig::read(sources);
+            let effective = Effective::build(settings, &system, sources);
+            warnings.extend(effective.warning.clone());
             out.push_str("Resolver: wfl (asks DNS servers one at a time, in order)\n");
-            out.push_str(&format!("Mode: {}\n", settings.mode.as_str()));
             if settings.servers.is_empty() {
+                out.push_str("Mode: system list (dns_servers is not set)\n");
+            } else {
+                out.push_str(&format!("Mode: {}\n", settings.mode.as_str()));
+            }
+            if effective.servers.is_empty() {
                 out.push_str("Servers: none found, so every lookup will fail\n");
+                for line in effective.no_servers_detail.lines() {
+                    out.push_str(&format!("  {line}\n"));
+                }
             } else {
                 out.push_str("Servers, in the order WFL asks them:\n");
-                for (i, server) in settings.servers.iter().enumerate() {
+                for (i, server) in effective.servers.iter().enumerate() {
                     out.push_str(&format!(
                         "  {}. {}  (from {})\n",
                         i + 1,
@@ -510,27 +552,31 @@ pub fn describe(settings: &DnsSettings) -> String {
                     ));
                 }
             }
-            let seconds = settings.timeout.as_secs();
-            let unit = if seconds == 1 { "second" } else { "seconds" };
-            match &settings.timeout_source {
-                Some(source) => out.push_str(&format!(
-                    "Timeout: {seconds} {unit} per server (from {source})\n"
-                )),
-                None => out.push_str(&format!("Timeout: {seconds} {unit} per server (default)\n")),
+            if !effective.search.is_empty() {
+                out.push_str(&format!(
+                    "Search list: {} (ndots {})\n",
+                    effective.search.join(" "),
+                    effective.ndots
+                ));
             }
             out.push_str(&format!(
-                "Attempts: the whole list is tried up to {} times\n",
-                settings.attempts
+                "Timeout: {} per server (from {})\n",
+                seconds_words(effective.timeout.as_secs()),
+                effective.timeout_source
+            ));
+            out.push_str(&format!(
+                "Attempts: the whole list is tried up to {} times (from {})\n",
+                effective.attempts, effective.attempts_source
             ));
         }
     }
-    if !plan.warnings().is_empty() {
+    if !warnings.is_empty() {
         out.push_str("Warnings:\n");
-        for warning in plan.warnings() {
+        for warning in &warnings {
             out.push_str(&format!("  - {warning}\n"));
         }
     }
-    // Shown even when a setting is ignored, so a value inherited from the
+    // Shown even when the setting is not used, so a value inherited from the
     // global file is visible.
     if let Setting::Set { value, source } = &settings.servers
         && !matches!(plan, DnsPlan::Wfl { .. })
@@ -546,6 +592,361 @@ pub fn describe(settings: &DnsSettings) -> String {
         ));
     }
     out
+}
+
+fn seconds_words(seconds: u64) -> String {
+    if seconds == 1 {
+        "1 second".to_string()
+    } else {
+        format!("{seconds} seconds")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The system's own DNS files
+// ---------------------------------------------------------------------------
+
+/// Where WFL reads the operating system's DNS settings from.
+///
+/// Production always uses [`SystemSources::platform_default`]. The fields are
+/// public so library callers (the test suite) can point a resolver at a
+/// temporary `resolv.conf` and hosts file; nothing a WFL program, `.wflcfg`,
+/// environment variable, or command-line flag controls can change them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemSources {
+    /// The resolver configuration file: `/etc/resolv.conf` on Linux and macOS,
+    /// `None` on Windows (which has no such file).
+    pub resolv_conf: Option<PathBuf>,
+    /// The hosts file: `/etc/hosts`, or the Windows hosts file.
+    pub hosts: Option<PathBuf>,
+    /// The port used for servers read from `resolv.conf`. Always 53 in
+    /// production, because `resolv.conf` cannot name a port.
+    pub port: u16,
+}
+
+impl SystemSources {
+    /// The real system files for this platform.
+    pub fn platform_default() -> Self {
+        if cfg!(windows) {
+            let root = std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+            Self {
+                resolv_conf: None,
+                hosts: Some(
+                    root.join("System32")
+                        .join("drivers")
+                        .join("etc")
+                        .join("hosts"),
+                ),
+                port: 53,
+            }
+        } else {
+            Self {
+                resolv_conf: Some(PathBuf::from("/etc/resolv.conf")),
+                hosts: Some(PathBuf::from("/etc/hosts")),
+                port: 53,
+            }
+        }
+    }
+}
+
+/// glibc uses at most this many `nameserver` lines (`MAXNS`).
+const MAX_SYSTEM_SERVERS: usize = 3;
+/// glibc's cap on `options ndots:N`.
+const MAX_NDOTS: usize = 15;
+/// The largest system file WFL reads (resolv.conf or hosts).
+const MAX_SYSTEM_FILE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// What `resolv.conf` says, as glibc would read it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SystemConfig {
+    servers: Vec<IpAddr>,
+    search: Vec<String>,
+    ndots: usize,
+    timeout: Option<u64>,
+    attempts: Option<usize>,
+    /// Why no servers came from the file (missing, unreadable, empty), for
+    /// the "no DNS servers" error and `--dump-env`.
+    problem: Option<String>,
+    /// Lines WFL skipped, for `--dump-env`.
+    skipped: Vec<String>,
+}
+
+impl SystemConfig {
+    fn read(sources: &SystemSources) -> Self {
+        let Some(path) = &sources.resolv_conf else {
+            return Self {
+                ndots: 1,
+                problem: Some("this platform has no resolv.conf".to_string()),
+                ..Self::default()
+            };
+        };
+        match read_small_file(path) {
+            Ok(text) => {
+                let mut config = Self::parse(&text);
+                if config.servers.is_empty() {
+                    config.problem = Some(format!("{} has no nameserver lines", path.display()));
+                }
+                config
+            }
+            Err(reason) => Self {
+                ndots: 1,
+                problem: Some(format!("{} {reason}", path.display())),
+                ..Self::default()
+            },
+        }
+    }
+
+    /// Parse `resolv.conf` text with glibc's rules: the first three
+    /// `nameserver` lines, the last `search` or `domain` line, and `options
+    /// ndots/timeout/attempts` capped at glibc's maximums. `#` and `;` start
+    /// comments.
+    fn parse(text: &str) -> Self {
+        let mut config = Self {
+            ndots: 1,
+            ..Self::default()
+        };
+        for raw in text.lines() {
+            let line = raw.split(['#', ';']).next().unwrap_or("").trim();
+            let mut words = line.split_whitespace();
+            match words.next() {
+                Some("nameserver") => {
+                    let Some(value) = words.next() else { continue };
+                    match value.parse::<IpAddr>() {
+                        Ok(ip) if config.servers.len() < MAX_SYSTEM_SERVERS => {
+                            if !config.servers.contains(&ip) {
+                                config.servers.push(ip);
+                            }
+                        }
+                        Ok(_) => config.skipped.push(format!(
+                            "nameserver {value} (glibc uses only the first {MAX_SYSTEM_SERVERS})"
+                        )),
+                        Err(_) => config.skipped.push(format!(
+                            "nameserver {} (not an IP address WFL can use)",
+                            printable(value)
+                        )),
+                    }
+                }
+                Some("search") | Some("domain") => {
+                    config.search = words
+                        .map(|domain| domain.trim_matches('.').to_ascii_lowercase())
+                        .filter(|domain| !domain.is_empty())
+                        .collect();
+                }
+                Some("options") => {
+                    for option in words {
+                        if let Some(n) = option.strip_prefix("ndots:") {
+                            if let Ok(n) = n.parse::<usize>() {
+                                config.ndots = n.min(MAX_NDOTS);
+                            }
+                        } else if let Some(n) = option.strip_prefix("timeout:") {
+                            if let Ok(n) = n.parse::<u64>() {
+                                config.timeout = Some(n.clamp(1, MAX_TIMEOUT_SECONDS));
+                            }
+                        } else if let Some(n) = option.strip_prefix("attempts:")
+                            && let Ok(n) = n.parse::<usize>()
+                        {
+                            config.attempts = Some(n.clamp(1, MAX_ATTEMPTS));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        config
+    }
+}
+
+/// Read a system file, refusing absurdly large ones.
+fn read_small_file(path: &Path) -> Result<String, String> {
+    let metadata = std::fs::metadata(path).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => "does not exist".to_string(),
+        _ => format!("could not be read ({error})"),
+    })?;
+    if !metadata.is_file() {
+        return Err("is not a file".to_string());
+    }
+    if metadata.len() > MAX_SYSTEM_FILE_BYTES {
+        return Err(format!(
+            "is larger than {} MiB",
+            MAX_SYSTEM_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|error| format!("could not be read ({error})"))
+}
+
+/// A file's identity for change detection: modification time and size.
+fn file_stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.modified().ok()?, metadata.len()))
+}
+
+/// A parsed file, re-read when its modification time or size changes.
+struct Watched<T> {
+    stamp: Option<(SystemTime, u64)>,
+    value: Arc<T>,
+}
+
+/// The hosts file: lower-cased name → addresses in file order.
+#[derive(Debug, Default)]
+struct HostsFile {
+    names: HashMap<String, Vec<IpAddr>>,
+}
+
+impl HostsFile {
+    fn read(path: &Path) -> Self {
+        match read_small_file(path) {
+            Ok(text) => Self::parse(&text),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// `address name [aliases...]` per line; `#` starts a comment; lines whose
+    /// first field is not an IP address are skipped.
+    fn parse(text: &str) -> Self {
+        let mut hosts = Self::default();
+        for raw in text.lines() {
+            let line = raw.split('#').next().unwrap_or("").trim();
+            let mut fields = line.split_whitespace();
+            let Some(Ok(addr)) = fields.next().map(str::parse::<IpAddr>) else {
+                continue;
+            };
+            for name in fields {
+                let name = name.trim_end_matches('.').to_ascii_lowercase();
+                let entry = hosts.names.entry(name).or_default();
+                if !entry.contains(&addr) {
+                    entry.push(addr);
+                }
+            }
+        }
+        hosts
+    }
+}
+
+/// Everything one lookup needs: the servers in order, the search list, and the
+/// timing, with where each came from.
+#[derive(Debug, Clone)]
+struct Effective {
+    servers: Vec<ServerEntry>,
+    search: Vec<String>,
+    ndots: usize,
+    timeout: Duration,
+    timeout_source: String,
+    attempts: usize,
+    attempts_source: String,
+    /// Shown when the server list is empty.
+    no_servers_detail: String,
+    /// Set when a mixing mode found no system servers (FR-12 AC4).
+    warning: Option<String>,
+}
+
+impl Effective {
+    fn build(
+        settings: &WflResolverSettings,
+        system: &SystemConfig,
+        sources: &SystemSources,
+    ) -> Self {
+        let resolv_name = sources
+            .resolv_conf
+            .as_deref()
+            .map(display_path)
+            .unwrap_or_else(|| "resolv.conf".to_string());
+        let system_servers: Vec<ServerEntry> = if settings.uses_system_servers() {
+            system
+                .servers
+                .iter()
+                .map(|ip| ServerEntry {
+                    addr: SocketAddr::new(*ip, sources.port),
+                    source: resolv_name.clone(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let ordered: Vec<ServerEntry> = match settings.mode {
+            DnsServersMode::AfterSystem => system_servers
+                .iter()
+                .chain(settings.servers.iter())
+                .cloned()
+                .collect(),
+            DnsServersMode::Only | DnsServersMode::BeforeSystem => settings
+                .servers
+                .iter()
+                .chain(system_servers.iter())
+                .cloned()
+                .collect(),
+        };
+        let mut servers: Vec<ServerEntry> = Vec::new();
+        for entry in ordered {
+            if !servers.iter().any(|seen| seen.addr == entry.addr) {
+                servers.push(entry);
+            }
+        }
+
+        let warning = (!settings.servers.is_empty()
+            && settings.mode != DnsServersMode::Only
+            && system.servers.is_empty())
+        .then(|| {
+            format!(
+                "dns_servers_mode = {} found no system DNS servers ({}), so only dns_servers are used.",
+                settings.mode.as_str(),
+                system.problem.as_deref().unwrap_or("none listed")
+            )
+        });
+
+        let mut no_servers_detail = String::from("WFL looked for DNS servers in:\n");
+        no_servers_detail.push_str("  - dns_servers in .wflcfg: not set\n");
+        no_servers_detail.push_str(&format!(
+            "  - {}\n",
+            system
+                .problem
+                .clone()
+                .unwrap_or_else(|| format!("{resolv_name}: no usable servers"))
+        ));
+
+        let (timeout, timeout_source) = match (&settings.timeout_override, system.timeout) {
+            (Some((seconds, source)), _) => (*seconds, source.clone()),
+            (None, Some(seconds)) => (seconds, resolv_name.clone()),
+            (None, None) => (DEFAULT_TIMEOUT_SECONDS, "the default".to_string()),
+        };
+        let (attempts, attempts_source) = match system.attempts {
+            Some(attempts) => (attempts, resolv_name.clone()),
+            None => (DEFAULT_ATTEMPTS, "the default".to_string()),
+        };
+
+        Self {
+            servers,
+            search: system.search.clone(),
+            ndots: system.ndots,
+            timeout: Duration::from_secs(timeout),
+            timeout_source,
+            attempts,
+            attempts_source,
+            no_servers_detail,
+            warning,
+        }
+    }
+}
+
+/// The names to try for `name`, in glibc's order (FR-04): a name with a
+/// trailing dot is absolute; a name with at least `ndots` dots is tried as-is
+/// first and then with each search domain; otherwise the search domains come
+/// first and the bare name last.
+fn candidate_names(name: &str, absolute: bool, search: &[String], ndots: usize) -> Vec<String> {
+    if absolute || search.is_empty() {
+        return vec![name.to_string()];
+    }
+    let searched = search
+        .iter()
+        .map(|domain| format!("{name}.{domain}"))
+        // A DNS name is at most 253 characters.
+        .filter(|candidate| candidate.len() <= 253);
+    if name.matches('.').count() >= ndots {
+        std::iter::once(name.to_string()).chain(searched).collect()
+    } else {
+        searched.chain(std::iter::once(name.to_string())).collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +1150,84 @@ impl ServerAnswer {
 }
 
 // ---------------------------------------------------------------------------
+// The answer cache (FR-15)
+// ---------------------------------------------------------------------------
+
+/// Most names the cache holds; the least recently used one is dropped first.
+pub const CACHE_CAPACITY: usize = 1024;
+/// Longest time a positive answer is reused, whatever its TTL says.
+pub const MAX_POSITIVE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Longest time a "no such name" / "no addresses" answer is reused.
+pub const MAX_NEGATIVE_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone)]
+enum Cached {
+    Found(Vec<IpAddr>),
+    Failed(DnsLookupError),
+}
+
+struct CacheEntry {
+    value: Cached,
+    expires: Instant,
+    last_used: u64,
+}
+
+/// A small in-memory LRU cache of final answers, keyed by the name as asked.
+#[derive(Default)]
+struct AnswerCache {
+    entries: HashMap<String, CacheEntry>,
+    clock: u64,
+}
+
+impl AnswerCache {
+    fn get(&mut self, key: &str, now: Instant) -> Option<Cached> {
+        self.clock += 1;
+        let clock = self.clock;
+        match self.entries.get_mut(key) {
+            Some(entry) if entry.expires > now => {
+                entry.last_used = clock;
+                Some(entry.value.clone())
+            }
+            Some(_) => {
+                self.entries.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn insert(&mut self, key: String, value: Cached, expires: Instant) {
+        self.clock += 1;
+        if !self.entries.contains_key(&key) && self.entries.len() >= CACHE_CAPACITY {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(name, _)| name.clone());
+            if let Some(oldest) = oldest {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(
+            key,
+            CacheEntry {
+                value,
+                expires,
+                last_used: self.clock,
+            },
+        );
+    }
+}
+
+/// The earlier of two optional expiry times.
+fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (one, None) | (None, one) => one,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The resolver
 // ---------------------------------------------------------------------------
 
@@ -768,51 +1247,6 @@ impl fmt::Debug for OrderedResolver {
     }
 }
 
-/// Where WFL reads the operating system's DNS settings from.
-///
-/// Production always uses [`SystemSources::platform_default`]. The fields are
-/// public so library callers (the test suite) can point a resolver at a
-/// temporary `resolv.conf` and hosts file; nothing a WFL program, `.wflcfg`,
-/// environment variable, or command-line flag controls can change them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SystemSources {
-    /// The resolver configuration file: `/etc/resolv.conf` on Linux and macOS,
-    /// `None` on Windows (which has no such file).
-    pub resolv_conf: Option<PathBuf>,
-    /// The hosts file: `/etc/hosts`, or the Windows hosts file.
-    pub hosts: Option<PathBuf>,
-    /// The port used for servers read from `resolv.conf`. Always 53 in
-    /// production, because `resolv.conf` cannot name a port.
-    pub port: u16,
-}
-
-impl SystemSources {
-    /// The real system files for this platform.
-    pub fn platform_default() -> Self {
-        if cfg!(windows) {
-            let root = std::env::var_os("SystemRoot")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-            Self {
-                resolv_conf: None,
-                hosts: Some(
-                    root.join("System32")
-                        .join("drivers")
-                        .join("etc")
-                        .join("hosts"),
-                ),
-                port: 53,
-            }
-        } else {
-            Self {
-                resolv_conf: Some(PathBuf::from("/etc/resolv.conf")),
-                hosts: Some(PathBuf::from("/etc/hosts")),
-                port: 53,
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 enum Setup {
     Ready(WflResolverSettings),
@@ -822,9 +1256,15 @@ enum Setup {
 struct Inner {
     setup: Setup,
     sources: SystemSources,
-    /// One single-server hickory resolver per server, created on first use and
-    /// reused (so TCP connections and hickory's per-server state persist).
-    clients: Mutex<HashMap<SocketAddr, TokioResolver>>,
+    /// One single-server hickory resolver per (server, timeout), created on
+    /// first use and reused, so TCP connections and hickory's per-server state
+    /// persist.
+    clients: Mutex<HashMap<(SocketAddr, Duration), TokioResolver>>,
+    system: Mutex<Option<Watched<SystemConfig>>>,
+    hosts: Mutex<Option<Watched<HostsFile>>>,
+    cache: Mutex<AnswerCache>,
+    /// The "mixing mode found no system servers" warning is logged once.
+    warned_no_system_servers: AtomicBool,
 }
 
 impl OrderedResolver {
@@ -853,6 +1293,10 @@ impl OrderedResolver {
                 setup,
                 sources,
                 clients: Mutex::new(HashMap::new()),
+                system: Mutex::new(None),
+                hosts: Mutex::new(None),
+                cache: Mutex::new(AnswerCache::default()),
+                warned_no_system_servers: AtomicBool::new(false),
             }),
         })
     }
@@ -888,14 +1332,46 @@ const LOOPBACK: [IpAddr; 2] = [
 ];
 
 /// One line of the "servers asked" transcript.
+#[derive(Debug, Clone)]
 struct Asked {
     server: usize,
     answer: ServerAnswer,
 }
 
+/// How the search for one candidate name ended.
+#[derive(Debug, Clone)]
+enum CandidateEnd {
+    Found(Vec<IpAddr>),
+    NoSuchName,
+    NoAddresses,
+    /// No server gave a final answer. `all_silent` means none replied at all.
+    Unresolved {
+        all_silent: bool,
+    },
+}
+
+/// One candidate name and what happened to it, for the error message.
+struct Tried {
+    name: String,
+    asked: Vec<Asked>,
+    end: CandidateEnd,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl Inner {
     async fn lookup(&self, host: &str) -> Result<Vec<IpAddr>, DnsLookupError> {
+        let absolute = host.ends_with('.');
         let normalized = host.trim_end_matches('.').to_ascii_lowercase();
+        if normalized.is_empty() {
+            return Err(DnsLookupError::new(
+                "Cannot look up an empty name.".to_string(),
+            ));
+        }
         if is_localhost(&normalized) {
             return Ok(LOOPBACK.to_vec());
         }
@@ -907,39 +1383,120 @@ impl Inner {
             }
             Setup::Ready(settings) => settings,
         };
-        if settings.servers.is_empty() {
+
+        // The hosts file comes first, and is re-read when it changes.
+        if let Some(addrs) = self.hosts_file().names.get(&normalized) {
+            return Ok(addrs.clone());
+        }
+
+        let cache_key = if absolute {
+            format!("{normalized}.")
+        } else {
+            normalized.clone()
+        };
+        if let Some(cached) = lock(&self.cache).get(&cache_key, Instant::now()) {
+            return match cached {
+                Cached::Found(addrs) => Ok(addrs),
+                Cached::Failed(error) => Err(error),
+            };
+        }
+
+        let system = self.system_config();
+        let effective = Effective::build(settings, &system, &self.sources);
+        if let Some(warning) = &effective.warning
+            && !self.warned_no_system_servers.swap(true, Ordering::Relaxed)
+        {
+            log::warn!("DNS configuration: {warning}");
+        }
+        if effective.servers.is_empty() {
             return Err(DnsLookupError::new(format!(
-                "Could not look up \"{normalized}\": no DNS servers were found.\n\n\
-                 WFL looked for servers in dns_servers (.wflcfg) and found none, \
-                 so no DNS query was sent.\n\n\
-                 Hint: list your DNS servers in .wflcfg, for example:\n    dns_servers = 10.3.0.100, 10.3.0.101"
+                "Could not look up \"{normalized}\": no DNS servers were found, so no DNS query was sent.\n\n\
+                 {}\n\
+                 Hint: list your DNS servers in .wflcfg, for example:\n    dns_servers = 10.3.0.100, 10.3.0.101\n\
+                 If a DNS resolver runs on this machine, use:\n    dns_servers = 127.0.0.1",
+                effective.no_servers_detail
             )));
         }
 
-        let fqdn = format!("{normalized}.");
+        let mut tried: Vec<Tried> = Vec::new();
+        let mut negative_expiry = Some(Instant::now() + MAX_NEGATIVE_TTL);
+        for candidate in candidate_names(&normalized, absolute, &effective.search, effective.ndots)
+        {
+            let (end, asked, expiry) = self.search_one(&candidate, &effective).await;
+            match &end {
+                CandidateEnd::Found(addrs) => {
+                    if let Some(expires) = expiry {
+                        lock(&self.cache).insert(cache_key, Cached::Found(addrs.clone()), expires);
+                    }
+                    return Ok(addrs.clone());
+                }
+                CandidateEnd::NoSuchName | CandidateEnd::NoAddresses => {
+                    negative_expiry = match (negative_expiry, expiry) {
+                        (Some(so_far), Some(this)) => Some(so_far.min(this)),
+                        _ => None,
+                    };
+                }
+                CandidateEnd::Unresolved { .. } => negative_expiry = None,
+            }
+            let stop = matches!(end, CandidateEnd::Unresolved { all_silent: true });
+            tried.push(Tried {
+                name: candidate,
+                asked,
+                end,
+            });
+            // glibc stops searching when every server timed out.
+            if stop {
+                break;
+            }
+        }
+
+        let error = lookup_failed(&normalized, &effective, &tried);
+        if let Some(expires) = negative_expiry {
+            lock(&self.cache).insert(cache_key, Cached::Failed(error.clone()), expires);
+        }
+        Err(error)
+    }
+
+    /// Ask every server, in order, for one candidate name, `attempts` times
+    /// over, until one gives a final answer.
+    async fn search_one(
+        &self,
+        candidate: &str,
+        effective: &Effective,
+    ) -> (CandidateEnd, Vec<Asked>, Option<Instant>) {
+        let fqdn = format!("{candidate}.");
         let mut asked: Vec<Asked> = Vec::new();
-        for _round in 0..settings.attempts {
-            for (index, server) in settings.servers.iter().enumerate() {
-                let answer = self.ask(server, &fqdn, settings).await;
+        for _round in 0..effective.attempts {
+            for (index, server) in effective.servers.iter().enumerate() {
+                let (answer, expiry) = self.ask(server, &fqdn, effective.timeout).await;
                 log::debug!(
-                    "DNS: asked {} for {normalized}: {}",
+                    "DNS: asked {} for {candidate}: {}",
                     server.addr,
-                    answer.describe(settings.timeout)
+                    answer.describe(effective.timeout)
                 );
-                let final_answer = !matches!(answer, ServerAnswer::NotFinal { .. });
                 asked.push(Asked {
                     server: index,
                     answer: answer.clone(),
                 });
-                if final_answer {
-                    return match answer {
-                        ServerAnswer::Addresses(addrs) => Ok(addrs),
-                        _ => Err(lookup_failed(&normalized, settings, &asked)),
-                    };
-                }
+                let end = match answer {
+                    ServerAnswer::Addresses(addrs) => CandidateEnd::Found(addrs),
+                    ServerAnswer::NoSuchName => CandidateEnd::NoSuchName,
+                    ServerAnswer::NoAddresses => CandidateEnd::NoAddresses,
+                    ServerAnswer::NotFinal { .. } => continue,
+                };
+                return (end, asked, expiry);
             }
         }
-        Err(lookup_failed(&normalized, settings, &asked))
+        let all_silent = asked.iter().all(|entry| {
+            matches!(
+                entry.answer,
+                ServerAnswer::NotFinal {
+                    outcome: QueryOutcome::NoReply,
+                    family: None
+                }
+            )
+        });
+        (CandidateEnd::Unresolved { all_silent }, asked, None)
     }
 
     /// Ask one server for A and AAAA records at the same time.
@@ -947,32 +1504,72 @@ impl Inner {
         &self,
         server: &ServerEntry,
         fqdn: &str,
-        settings: &WflResolverSettings,
-    ) -> ServerAnswer {
-        let client = match self.client_for(server.addr, settings.timeout) {
+        timeout: Duration,
+    ) -> (ServerAnswer, Option<Instant>) {
+        let client = match self.client_for(server.addr, timeout) {
             Ok(client) => client,
             Err(error) => {
-                return ServerAnswer::NotFinal {
-                    outcome: QueryOutcome::Unreachable(error),
-                    family: None,
-                };
+                return (
+                    ServerAnswer::NotFinal {
+                        outcome: QueryOutcome::Unreachable(error),
+                        family: None,
+                    },
+                    None,
+                );
             }
         };
-        let (v4, v6) = tokio::join!(
-            query(&client, fqdn, RecordType::A, settings.timeout),
-            query(&client, fqdn, RecordType::AAAA, settings.timeout),
+        let ((v4, v4_expiry), (v6, v6_expiry)) = tokio::join!(
+            query(&client, fqdn, RecordType::A, timeout),
+            query(&client, fqdn, RecordType::AAAA, timeout),
         );
-        combine(&v4, &v6)
+        (combine(&v4, &v6), earliest(v4_expiry, v6_expiry))
     }
 
     fn client_for(&self, addr: SocketAddr, timeout: Duration) -> Result<TokioResolver, String> {
-        let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(client) = clients.get(&addr) {
+        let mut clients = lock(&self.clients);
+        if let Some(client) = clients.get(&(addr, timeout)) {
             return Ok(client.clone());
         }
         let client = single_server_resolver(addr, timeout)?;
-        clients.insert(addr, client.clone());
+        clients.insert((addr, timeout), client.clone());
         Ok(client)
+    }
+
+    /// `resolv.conf`, re-read when it changes.
+    fn system_config(&self) -> Arc<SystemConfig> {
+        let stamp = self.sources.resolv_conf.as_deref().and_then(file_stamp);
+        let mut slot = lock(&self.system);
+        if let Some(watched) = slot.as_ref()
+            && watched.stamp == stamp
+        {
+            return Arc::clone(&watched.value);
+        }
+        let value = Arc::new(SystemConfig::read(&self.sources));
+        *slot = Some(Watched {
+            stamp,
+            value: Arc::clone(&value),
+        });
+        value
+    }
+
+    /// The hosts file, re-read when it changes.
+    fn hosts_file(&self) -> Arc<HostsFile> {
+        let Some(path) = self.sources.hosts.as_deref() else {
+            return Arc::new(HostsFile::default());
+        };
+        let stamp = file_stamp(path);
+        let mut slot = lock(&self.hosts);
+        if let Some(watched) = slot.as_ref()
+            && watched.stamp == stamp
+        {
+            return Arc::clone(&watched.value);
+        }
+        let value = Arc::new(HostsFile::read(path));
+        *slot = Some(Watched {
+            stamp,
+            value: Arc::clone(&value),
+        });
+        value
     }
 }
 
@@ -999,22 +1596,24 @@ fn single_server_resolver(addr: SocketAddr, timeout: Duration) -> Result<TokioRe
     builder.build().map_err(|error| error.to_string())
 }
 
-/// One query for one record type. The outer timeout is a safety net in case
-/// a lower layer ignores the per-request timeout.
+/// One query for one record type, and until when its answer may be cached.
+/// The outer timeout is a safety net in case a lower layer ignores the
+/// per-request timeout.
 async fn query(
     client: &TokioResolver,
     fqdn: &str,
     record_type: RecordType,
     timeout: Duration,
-) -> QueryOutcome {
+) -> (QueryOutcome, Option<Instant>) {
     let lookup = tokio::time::timeout(timeout + Duration::from_millis(250), async {
         client.lookup(fqdn, record_type).await
     })
     .await;
+    let now = Instant::now();
     match lookup {
-        Err(_) => QueryOutcome::NoReply,
+        Err(_) => (QueryOutcome::NoReply, None),
         Ok(Ok(found)) => {
-            let addrs = found
+            let addrs: Vec<IpAddr> = found
                 .answers()
                 .iter()
                 .filter_map(|record| match (&record.data, record_type) {
@@ -1023,16 +1622,28 @@ async fn query(
                     _ => None,
                 })
                 .collect();
-            classify(Ok(addrs))
+            let cap = if addrs.is_empty() {
+                MAX_NEGATIVE_TTL
+            } else {
+                MAX_POSITIVE_TTL
+            };
+            let expiry = found.valid_until().min(now + cap);
+            (classify(Ok(addrs)), Some(expiry))
         }
-        Ok(Err(error)) => classify(Err(&error)),
+        Ok(Err(error)) => {
+            let expiry = match &error {
+                NetError::Dns(DnsError::NoRecordsFound(no_records)) => no_records
+                    .negative_ttl
+                    .map(|ttl| now + Duration::from_secs(u64::from(ttl)).min(MAX_NEGATIVE_TTL)),
+                _ => None,
+            };
+            (classify(Err(&error)), expiry)
+        }
     }
 }
 
-fn lookup_failed(name: &str, settings: &WflResolverSettings, asked: &[Asked]) -> DnsLookupError {
-    let rounds = asked.len().div_ceil(settings.servers.len().max(1));
-    let mut message = format!("Could not find the address of \"{name}\".\n\n");
-    message.push_str("I asked these DNS servers, one at a time, in this order:\n");
+/// Write the "servers asked" lines for one candidate name.
+fn write_asked(message: &mut String, effective: &Effective, asked: &[Asked], indent: &str) {
     // Each server once, with what it said the last time it was asked.
     let mut last: Vec<(usize, &ServerAnswer)> = Vec::new();
     for entry in asked {
@@ -1043,27 +1654,56 @@ fn lookup_failed(name: &str, settings: &WflResolverSettings, asked: &[Asked]) ->
     }
     let width = last
         .iter()
-        .map(|(server, _)| settings.servers[*server].addr.to_string().len())
+        .map(|(server, _)| effective.servers[*server].addr.to_string().len())
         .max()
         .unwrap_or(0);
     for (position, (server, answer)) in last.iter().enumerate() {
-        let entry = &settings.servers[*server];
+        let entry = &effective.servers[*server];
         message.push_str(&format!(
-            "  {}. {:<width$}  (from {})  {}\n",
+            "{indent}{}. {:<width$}  (from {})  {}\n",
             position + 1,
             entry.addr.to_string(),
             entry.source,
-            answer.describe(settings.timeout),
+            answer.describe(effective.timeout),
         ));
     }
-    let ended_with_answer = asked
+    let rounds = asked.len().div_ceil(effective.servers.len().max(1));
+    let unresolved = asked
         .last()
-        .is_some_and(|entry| !matches!(entry.answer, ServerAnswer::NotFinal { .. }));
-    if !ended_with_answer && rounds > 1 {
-        message.push_str(&format!("Each server was asked up to {rounds} times.\n"));
+        .is_none_or(|entry| matches!(entry.answer, ServerAnswer::NotFinal { .. }));
+    if unresolved && rounds > 1 {
+        message.push_str(&format!(
+            "{indent}Each server was asked up to {rounds} times.\n"
+        ));
+    }
+}
+
+fn lookup_failed(name: &str, effective: &Effective, tried: &[Tried]) -> DnsLookupError {
+    let mut message = format!("Could not find the address of \"{name}\".\n\n");
+    match tried {
+        [only] => {
+            message.push_str("I asked these DNS servers, one at a time, in this order:\n");
+            write_asked(&mut message, effective, &only.asked, "  ");
+        }
+        _ => {
+            message.push_str(&format!(
+                "I tried {} names, in this order (the search list comes from resolv.conf):\n",
+                tried.len()
+            ));
+            for candidate in tried {
+                message.push_str(&format!(
+                    "\n  {}\n  I asked these DNS servers, one at a time, in this order:\n",
+                    candidate.name
+                ));
+                write_asked(&mut message, effective, &candidate.asked, "    ");
+            }
+        }
     }
     message.push('\n');
-    if ended_with_answer {
+    let all_answered = tried
+        .iter()
+        .all(|candidate| !matches!(candidate.end, CandidateEnd::Unresolved { .. }));
+    if all_answered {
         message.push_str(
             "Hint: if this is an internal name, list your internal DNS servers first in .wflcfg, for example:\n    dns_servers = 10.3.0.100, 10.3.0.101",
         );
@@ -1270,11 +1910,11 @@ mod tests {
 
     #[test]
     fn plan_follows_the_documented_precedence() {
-        // Nothing set: the system resolver.
-        assert!(matches!(
-            plan(&DnsSettings::default()),
-            DnsPlan::System { .. }
-        ));
+        // Nothing set: WFL's resolver on Linux, the system's elsewhere.
+        assert_eq!(
+            matches!(plan(&DnsSettings::default()), DnsPlan::Wfl { .. }),
+            ORDERED_BY_DEFAULT
+        );
 
         // dns_servers set: WFL's resolver, mode only, servers in order.
         match plan(&settings_with(&[("dns_servers", "10.0.0.2, 10.0.0.1")])) {
@@ -1289,10 +1929,7 @@ mod tests {
                     ["10.0.0.2:53", "10.0.0.1:53"]
                 );
                 assert_eq!(settings.servers[0].source, "/project/.wflcfg");
-                assert_eq!(
-                    settings.timeout,
-                    Duration::from_secs(DEFAULT_TIMEOUT_SECONDS)
-                );
+                assert_eq!(settings.timeout_override, None);
                 assert!(warnings.is_empty());
             }
             other => panic!("{other:?}"),
@@ -1358,9 +1995,7 @@ mod tests {
             settings: WflResolverSettings {
                 mode: DnsServersMode::Only,
                 servers: Vec::new(),
-                timeout: Duration::from_secs(1),
-                timeout_source: None,
-                attempts: 1,
+                timeout_override: None,
             },
             warnings: Vec::new(),
         })
@@ -1368,5 +2003,193 @@ mod tests {
         for name in ["localhost", "LOCALHOST.", "api.localhost"] {
             assert_eq!(resolver.lookup(name).await.unwrap(), LOOPBACK.to_vec());
         }
+    }
+
+    #[test]
+    fn resolv_conf_is_read_with_glibc_rules() {
+        let config = SystemConfig::parse(
+            "# comment\n\
+             ; another comment\n\
+             nameserver 10.3.0.100\n\
+             nameserver 10.3.0.101   # trailing comment\n\
+             nameserver 10.3.0.100\n\
+             nameserver fe80::1%eth0\n\
+             nameserver 8.8.8.8\n\
+             nameserver 1.1.1.1\n\
+             search old.test\n\
+             domain corp.test\n\
+             search lab.test . corp.test.\n\
+             options ndots:99 timeout:0 attempts:9 rotate edns0\n",
+        );
+        // The first three distinct servers, as glibc (MAXNS = 3).
+        assert_eq!(
+            config.servers,
+            ["10.3.0.100", "10.3.0.101", "8.8.8.8"]
+                .map(|ip| ip.parse::<IpAddr>().unwrap())
+                .to_vec()
+        );
+        assert!(
+            config
+                .skipped
+                .iter()
+                .any(|line| line.contains("fe80::1%eth0"))
+        );
+        assert!(config.skipped.iter().any(|line| line.contains("1.1.1.1")));
+        // The last search/domain line wins; "." entries are dropped.
+        assert_eq!(config.search, ["lab.test", "corp.test"]);
+        // Options are capped at glibc's limits.
+        assert_eq!(config.ndots, MAX_NDOTS);
+        assert_eq!(config.timeout, Some(1));
+        assert_eq!(config.attempts, Some(MAX_ATTEMPTS));
+
+        let defaults = SystemConfig::parse("");
+        assert_eq!(defaults.ndots, 1);
+        assert_eq!(defaults.timeout, None);
+        assert_eq!(defaults.attempts, None);
+    }
+
+    #[test]
+    fn candidate_names_follow_glibc_order() {
+        let search = ["corp.test".to_string(), "lab.test".to_string()];
+        assert_eq!(
+            candidate_names("app", false, &search, 1),
+            ["app.corp.test", "app.lab.test", "app"]
+        );
+        assert_eq!(
+            candidate_names("db.internal", false, &search, 1),
+            [
+                "db.internal",
+                "db.internal.corp.test",
+                "db.internal.lab.test"
+            ]
+        );
+        assert_eq!(
+            candidate_names("db.internal", false, &search, 2),
+            [
+                "db.internal.corp.test",
+                "db.internal.lab.test",
+                "db.internal"
+            ]
+        );
+        assert_eq!(candidate_names("app", true, &search, 1), ["app"]);
+        assert_eq!(candidate_names("app", false, &[], 1), ["app"]);
+        let long = "x".repeat(250);
+        assert_eq!(
+            candidate_names(&long, false, &search, 1),
+            std::slice::from_ref(&long)
+        );
+    }
+
+    #[test]
+    fn hosts_file_is_parsed_like_libc() {
+        let hosts = HostsFile::parse(
+            "# comment\n\
+             127.0.0.1 localhost\n\
+             10.0.0.5\tCanonical.Test alias.test.  # trailing\n\
+             10.0.0.6 alias.test\n\
+             10.0.0.5 alias.test\n\
+             fd00::5 alias.test\n\
+             not-an-ip ignored.test\n",
+        );
+        assert_eq!(
+            hosts.names["alias.test"],
+            ["10.0.0.5", "10.0.0.6", "fd00::5"]
+                .map(|ip| ip.parse::<IpAddr>().unwrap())
+                .to_vec()
+        );
+        assert_eq!(hosts.names["canonical.test"].len(), 1);
+        assert!(!hosts.names.contains_key("ignored.test"));
+    }
+
+    #[test]
+    fn cache_expires_entries_and_drops_the_least_recently_used() {
+        let now = Instant::now();
+        let later = now + Duration::from_secs(60);
+        let mut cache = AnswerCache::default();
+        cache.insert("a".into(), Cached::Found(vec![v4([10, 0, 0, 1])]), later);
+        assert!(matches!(cache.get("a", now), Some(Cached::Found(_))));
+        assert!(cache.get("a", later + Duration::from_secs(1)).is_none());
+        assert!(cache.entries.is_empty(), "an expired entry was kept");
+
+        let mut cache = AnswerCache::default();
+        for i in 0..CACHE_CAPACITY {
+            cache.insert(format!("n{i}"), Cached::Found(Vec::new()), later);
+        }
+        // Touch n0, so n1 becomes the least recently used.
+        assert!(cache.get("n0", now).is_some());
+        cache.insert("new".into(), Cached::Found(Vec::new()), later);
+        assert_eq!(cache.entries.len(), CACHE_CAPACITY);
+        assert!(cache.entries.contains_key("n0"));
+        assert!(!cache.entries.contains_key("n1"));
+        assert!(cache.entries.contains_key("new"));
+    }
+
+    #[test]
+    fn effective_servers_follow_the_mode_and_drop_duplicates() {
+        let sources = SystemSources {
+            resolv_conf: Some(PathBuf::from("/etc/resolv.conf")),
+            hosts: None,
+            port: 53,
+        };
+        let system = SystemConfig::parse(
+            "nameserver 10.0.0.9\nnameserver 10.0.0.1\noptions timeout:3 attempts:4\n",
+        );
+        let mine = |mode| WflResolverSettings {
+            mode,
+            servers: vec![ServerEntry {
+                addr: "10.0.0.1:53".parse().unwrap(),
+                source: "/p/.wflcfg".into(),
+            }],
+            timeout_override: None,
+        };
+        let order = |settings: &WflResolverSettings| {
+            Effective::build(settings, &system, &sources)
+                .servers
+                .iter()
+                .map(|s| format!("{} {}", s.addr, s.source))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            order(&mine(DnsServersMode::Only)),
+            ["10.0.0.1:53 /p/.wflcfg"]
+        );
+        assert_eq!(
+            order(&mine(DnsServersMode::BeforeSystem)),
+            ["10.0.0.1:53 /p/.wflcfg", "10.0.0.9:53 /etc/resolv.conf"]
+        );
+        assert_eq!(
+            order(&mine(DnsServersMode::AfterSystem)),
+            [
+                "10.0.0.9:53 /etc/resolv.conf",
+                "10.0.0.1:53 /etc/resolv.conf"
+            ]
+        );
+        let none = WflResolverSettings {
+            mode: DnsServersMode::Only,
+            servers: Vec::new(),
+            timeout_override: None,
+        };
+        assert_eq!(
+            order(&none),
+            [
+                "10.0.0.9:53 /etc/resolv.conf",
+                "10.0.0.1:53 /etc/resolv.conf"
+            ]
+        );
+
+        // Timeout: dns_timeout_seconds, then resolv.conf, then 5 s.
+        let effective = Effective::build(&none, &system, &sources);
+        assert_eq!(effective.timeout, Duration::from_secs(3));
+        assert_eq!(effective.attempts, 4);
+        let overridden = WflResolverSettings {
+            timeout_override: Some((1, "/p/.wflcfg".into())),
+            ..none.clone()
+        };
+        let effective = Effective::build(&overridden, &system, &sources);
+        assert_eq!(effective.timeout, Duration::from_secs(1));
+        assert_eq!(effective.timeout_source, "/p/.wflcfg");
+        let bare = Effective::build(&none, &SystemConfig::parse(""), &sources);
+        assert_eq!(bare.timeout, Duration::from_secs(DEFAULT_TIMEOUT_SECONDS));
+        assert_eq!(bare.attempts, DEFAULT_ATTEMPTS);
     }
 }

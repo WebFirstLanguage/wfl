@@ -1203,12 +1203,16 @@ fn dns_setting_problem(key: &str, value: &str) -> Option<String> {
     match key {
         "dns_servers" => dns::parse_dns_servers(value).err(),
         "dns_timeout_seconds" => dns::parse_timeout_seconds(value).err(),
-        "dns_servers_mode" => (!value.is_empty()
-            && !matches!(
-                value.to_ascii_lowercase().as_str(),
-                "only" | "before_system" | "after_system"
-            ))
-        .then(|| format!("'{value}' must be one of: only, before_system, after_system")),
+        "dns_servers_mode" => match value.to_ascii_lowercase().as_str() {
+            "" | "only" => None,
+            "before_system" | "after_system" if cfg!(target_os = "linux") => None,
+            "before_system" | "after_system" => Some(format!(
+                "'{value}' is not supported on this platform yet; only 'only' is"
+            )),
+            _ => Some(format!(
+                "'{value}' must be one of: only, before_system, after_system"
+            )),
+        },
         "dns_resolver" => (!value.is_empty()
             && !matches!(value.to_ascii_lowercase().as_str(), "wfl" | "system"))
         .then(|| format!("'{value}' must be 'wfl' or 'system'")),

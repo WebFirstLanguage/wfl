@@ -181,14 +181,25 @@ async fn resolv_conf_timeout_and_attempts_are_honored() {
     );
     assert!(servers[0].query_count() >= 1);
 
-    // attempts:2 with one silent server: the list is tried exactly twice.
+    // attempts:2 with one silent server: the list is tried exactly twice, so
+    // the lookup gives up after two one-second rounds. Rounds are measured by
+    // time, not by counting packets: within one round hickory re-sends the
+    // same question to the same server over UDP (after about 1.2x the measured
+    // round-trip time, at least ~333 ms, up to 3 times). Those re-sends are
+    // not extra rounds, and no other server is contacted meanwhile.
     let (port, silent) = FakeDns::start_group(60, vec![handler(|_| Reply::Silent)]).await;
     let files = SystemFiles::new("nameserver 127.0.0.1\noptions timeout:1 attempts:2\n", "");
+    let started = Instant::now();
     let result = resolver(&explicit_wfl(), files.sources(port))
         .lookup("never.wfl.test")
         .await;
+    let elapsed = started.elapsed();
     assert!(result.is_err());
-    assert_eq!(a_count(&silent[0], "never.wfl.test"), 2);
+    assert!(
+        elapsed >= Duration::from_millis(1800) && elapsed < Duration::from_millis(2900),
+        "attempts:2 x timeout:1 should take about 2 s, took {elapsed:?}"
+    );
+    assert!(a_count(&silent[0], "never.wfl.test") >= 2);
 }
 
 /// FR-09 AC1: `dns_timeout_seconds` overrides the resolv.conf timeout.
