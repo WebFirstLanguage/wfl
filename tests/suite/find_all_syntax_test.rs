@@ -427,6 +427,60 @@ fn legacy_find_all_inside_a_container_action_sees_the_property() {
 }
 
 #[test]
+fn top_level_find_all_is_not_rewritten_by_a_later_legacy_binding() {
+    // Top-level code runs in order. A later `store all word` must not make an
+    // earlier `find all word` take the legacy fallback (whose nested parse
+    // would then report `all letters` undefined).
+    let src = "create pattern word:\n    one or more letter\nend pattern\n\
+               create pattern letters:\n    one or more letter\nend pattern\n\
+               store hits as find all word in (\"\" with (find all letters in \"aa\"))\n\
+               store all word as word\n\
+               display \"count: \" with length of hits\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("is not defined"),
+        "a later top-level `all word` must not rewrite the earlier find all: {out}"
+    );
+    assert!(
+        out.contains("count:"),
+        "expected the new find-all reading to produce a list: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn legacy_find_all_of_call_inside_an_action_sees_a_later_alias() {
+    // The legacy fallback of `find all pick of word` is `all pick of word`.
+    // When `all pick` is stored after the action, analysis of the body must
+    // treat that callee as defined rather than reporting it undefined.
+    let src = "create pattern word:\n    one or more letter\nend pattern\n\
+               define action called pick with value:\n\
+               \x20\x20\x20\x20give back value\n\
+               end action\n\
+               define action called search:\n\
+               \x20\x20\x20\x20store hit as find all pick of word in \"aa\"\n\
+               \x20\x20\x20\x20give back hit[\"matched_text\"]\n\
+               end action\n\
+               store all pick as pick\n\
+               store result as call search\n\
+               display \"legacy: \" with result\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("is not defined"),
+        "a later `all pick` alias used through `of` must be visible in the action: {out}"
+    );
+    assert!(
+        !out.contains("List index must be a number"),
+        "typechecker must not treat the action result as a list of matches: {out}"
+    );
+    assert!(
+        out.contains("legacy: aa"),
+        "expected the single legacy match: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
 fn list_named_all_patterns_keeps_its_indexed_single_match_meaning() {
     // Postfix on the merged name: `all patterns[1]` indexed the list binding
     // `all patterns`; with that binding present it still must.
