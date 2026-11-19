@@ -82,6 +82,12 @@ requirement** and run on any x86_64 Linux distribution, including older ones lik
 Debian 12 and Ubuntu 22.04. Every nightly build verifies this by running the
 binaries inside a `debian:12-slim` container before publishing them.
 
+**DNS on Linux:** WFL asks the DNS servers in `/etc/resolv.conf` one at a time,
+in order, like glibc, rather than all at once like musl's own resolver. If the
+machine's DNS list is wrong and you cannot change it, you can list the servers
+WFL should use in `.wflcfg` with `dns_servers`. See
+[DNS settings](../reference/configuration-reference.md#dns-settings).
+
 ### Step 1: Download and Verify
 
 The canonical, CDN-backed download location is
