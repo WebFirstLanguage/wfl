@@ -392,6 +392,41 @@ fn legacy_find_all_inside_an_action_sees_a_later_top_level_binding() {
 }
 
 #[test]
+fn legacy_find_all_inside_a_container_action_sees_the_property() {
+    // Runtime looks up `all needle` in the method environment, including a
+    // container property. Typechecking runs after the analyzer has restored
+    // its container context, so the typechecker must still see that property
+    // when choosing the legacy single-match reading.
+    let src = "create container Finder:\n\
+               \x20\x20\x20\x20property all needle: Pattern\n\
+               \x20\x20\x20\x20action search: Text\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20store hit as find all needle in \"aa\"\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20give back hit[\"matched_text\"]\n\
+               \x20\x20\x20\x20end\n\
+               end\n\
+               create pattern letters:\n    one or more letter\nend pattern\n\
+               create new Finder as finder:\n\
+               \x20\x20\x20\x20all needle is letters\n\
+               end\n\
+               store result as finder.search()\n\
+               display \"legacy: \" with result\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("List index must be a number"),
+        "typechecker must not treat the method result as a list of matches: {out}"
+    );
+    assert!(
+        !out.contains("is not defined"),
+        "the container property `all needle` must be visible in the method: {out}"
+    );
+    assert!(
+        out.contains("legacy: aa"),
+        "expected the single legacy match: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
 fn list_named_all_patterns_keeps_its_indexed_single_match_meaning() {
     // Postfix on the merged name: `all patterns[1]` indexed the list binding
     // `all patterns`; with that binding present it still must.
