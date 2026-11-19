@@ -37,3 +37,7 @@ reproduced; none were false positives.
   are omitted so they cannot hide a later mention of the real builtin.
 
 Red evidence is the test-only commit that precedes this change.
+
+A later follow-up drives the real `wfl` REPL binary across submissions
+(`repl_binary_user_variable_named_random_seed_does_not_block_crypto` and
+`repl_binary_action_parameter_named_random_seed_does_not_hide_the_builtin`).
