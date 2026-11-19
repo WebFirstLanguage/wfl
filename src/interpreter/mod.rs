@@ -4,8 +4,10 @@ pub mod bounded_buffer;
 pub mod command_sanitizer;
 pub mod control_flow;
 pub mod database;
+pub mod dns;
 pub mod environment;
 pub mod error;
+mod file_filter;
 #[cfg(test)]
 mod file_io_tests;
 pub(crate) mod io_capture;
@@ -58,6 +60,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
+use file_filter::FileFilter;
 use once_cell::sync::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1328,6 +1331,57 @@ impl<'a> Drop for ModuleLoadGuard<'a> {
     }
 }
 
+/// The diagnostic for a count-loop step that is not a positive, finite
+/// distance. A negative step almost always means "count the other way", so
+/// its message names the loop that walks from `start` to `end` with the
+/// step's magnitude — the loop the program most likely meant.
+fn count_loop_step_error(start: f64, end: f64, step: f64) -> String {
+    const RULE: &str = "Count loop step must be a positive number";
+    if step == 0.0 {
+        return format!(
+            "{RULE}, got 0. A step of 0 never moves the counter. \
+             Use a positive step such as `by 1`."
+        );
+    }
+    if !step.is_finite() {
+        return format!("{RULE}, got {step}.");
+    }
+    let direction = if start > end { "down to" } else { "to" };
+    let distance = -step;
+    let by = if distance == 1.0 {
+        String::new()
+    } else {
+        format!(" by {distance}")
+    };
+    format!(
+        "{RULE}, got {step}. The step is a distance, not a direction: `to` counts \
+         up and `down to` counts down. Write `count from {start} {direction} {end}{by}`."
+    )
+}
+
+/// The date from which a bad step on an empty count-loop range is an error.
+/// Until then such a loop still runs zero times and only warns, because
+/// programs have long relied on it finishing quietly and GOVERNANCE.md §3.1
+/// keeps a broken behaviour working for a year after it is announced.
+/// Tracked in #801: on or after this date, make the warning an error.
+const COUNT_LOOP_STEP_ERROR_FROM: &str = "2027-12-01";
+
+/// The warning for a bad step on an empty range: the same diagnostic as the
+/// error, plus what happens now and when that changes. `line` is the line of
+/// the loop's `count` keyword; 0 means it is unknown.
+fn count_loop_step_warning(start: f64, end: f64, step: f64, line: usize) -> String {
+    let location = if line > 0 {
+        format!(" (count loop on line {line})")
+    } else {
+        String::new()
+    };
+    format!(
+        "Warning: {} This loop's range is empty, so it runs zero times; from \
+         {COUNT_LOOP_STEP_ERROR_FROM} this will be an error.{location}",
+        count_loop_step_error(start, end, step)
+    )
+}
+
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
@@ -1540,6 +1594,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::Concatenation { .. } => "Concatenation".to_string(),
         Expression::PatternMatch { .. } => "PatternMatch".to_string(),
         Expression::PatternFind { .. } => "PatternFind".to_string(),
+        Expression::PatternFindAll { .. } => "PatternFindAll".to_string(),
         Expression::PatternReplace { .. } => "PatternReplace".to_string(),
         Expression::PatternSplit { .. } => "PatternSplit".to_string(),
         Expression::StringSplit { .. } => "StringSplit".to_string(),
@@ -1601,6 +1656,9 @@ pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
+    /// Count loops (source file, line, column) already warned about an
+    /// empty-range bad step, so a loop reached repeatedly warns once.
+    count_step_warned: RefCell<HashSet<(Option<PathBuf>, usize, usize)>>,
     // Main-loop state (deadline exemption) now lives on the shared budget as a
     // depth counter with an RAII guard (see `ExecutionBudget::enter_main_loop`),
     // so it restores on every exit and nests correctly across `execute file`.
@@ -2215,6 +2273,14 @@ pub struct IoClient {
     /// Separate pool for requests that must expose the original 3xx response.
     /// A request never changes another request's redirect policy.
     http_client_no_redirects: OnceCell<reqwest::Client>,
+    /// WFL's ordered DNS resolver, shared by both HTTP clients, or `None` when
+    /// the configuration selects the operating system's resolver. Built on
+    /// first use, like the clients. See [`dns`].
+    dns_resolver: std::sync::OnceLock<Option<dns::OrderedResolver>>,
+    /// When true, outbound HTTP does not discover `HTTP_PROXY` / `HTTPS_PROXY`.
+    /// Tests talking to loopback fake servers set this so an ambient proxy
+    /// cannot intercept them. Production clients keep system proxy discovery.
+    disable_http_proxy: bool,
     // Registry locks cover only lookup/insertion/removal, never disk I/O.
     file_handles: std::sync::Mutex<HashMap<String, SharedFile>>,
     // Handles remain ordinary Text values for display/type/equality. Their
@@ -2688,15 +2754,35 @@ impl IoClient {
                 // Defence in depth against reusing a socket the peer has
                 // already closed: see HTTP_POOL_IDLE_TIMEOUT_SECONDS.
                 .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECONDS));
+            let builder = if self.disable_http_proxy {
+                builder.no_proxy()
+            } else {
+                builder
+            };
             let builder = if follow_redirects {
                 builder
             } else {
                 builder.redirect(reqwest::redirect::Policy::none())
             };
+            // Ordered DNS: when the configuration selects WFL's resolver, it
+            // replaces reqwest's default (getaddrinfo) for both clients.
+            let builder = match self.ordered_dns_resolver() {
+                Some(resolver) => builder.dns_resolver(resolver.clone()),
+                None => builder,
+            };
             builder.build().map_err(|error| {
                 HttpClientError::Request(format!("Could not create HTTP client: {error}"))
             })
         })
+    }
+
+    /// WFL's ordered DNS resolver for this run, or `None` when the DNS settings
+    /// select the operating system's resolver (`dns_resolver = system`, or no
+    /// DNS settings on a platform where the system resolver is the default).
+    fn ordered_dns_resolver(&self) -> Option<&dns::OrderedResolver> {
+        self.dns_resolver
+            .get_or_init(|| dns::OrderedResolver::from_plan(&dns::plan(&self.config.dns)))
+            .as_ref()
     }
 
     /// Send a request, re-sending it once on a fresh connection if the first
@@ -2780,8 +2866,16 @@ impl IoClient {
                         // connection that is known to be fresh.
                         Some(retry) if Self::connection_was_lost(&error) => attempt = retry,
                         _ => {
+                            // A DNS failure carries its own explanation (which
+                            // servers were asked and what each said). Use it
+                            // instead of reqwest's wrapper, which would also
+                            // repeat the full URL, path and query included.
+                            let detail = match dns::find_lookup_error(&error) {
+                                Some(lookup) => lookup.to_string(),
+                                None => error.to_string(),
+                            };
                             return Err(HttpClientError::Request(format!(
-                                "Failed to send HTTP {method} request: {error}"
+                                "Failed to send HTTP {method} request: {detail}"
                             )));
                         }
                     },
@@ -2843,6 +2937,7 @@ impl IoClient {
         Self {
             http_client: OnceCell::new(),
             http_client_no_redirects: OnceCell::new(),
+            dns_resolver: std::sync::OnceLock::new(),
             file_handles: std::sync::Mutex::new(HashMap::new()),
             file_handle_values: std::sync::Mutex::new(FileHandleValues::default()),
             next_file_id: Mutex::new(1),
@@ -2856,7 +2951,12 @@ impl IoClient {
             #[cfg(test)]
             active_stream_reapers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             config,
+            disable_http_proxy: false,
         }
+    }
+
+    fn disable_system_proxies(&mut self) {
+        self.disable_http_proxy = true;
     }
 
     /// Open a database connection pool and return its WFL handle ("db1", ...).
@@ -5190,6 +5290,17 @@ impl Interpreter {
         Self::with_config_and_budget(config, budget)
     }
 
+    /// Like [`Self::with_config`], but outbound HTTP ignores system proxies.
+    /// Integration tests use this so `HTTP_PROXY` cannot steal traffic meant
+    /// for loopback fake servers. Production interpreters keep proxy discovery.
+    pub fn with_config_ignoring_proxies(config: Arc<WflConfig>) -> Self {
+        let mut interpreter = Self::with_config(config);
+        Rc::get_mut(&mut interpreter.io_client)
+            .expect("a freshly built interpreter uniquely owns its I/O client")
+            .disable_system_proxies();
+        interpreter
+    }
+
     /// Construct an interpreter that shares a caller-supplied
     /// [`ExecutionBudget`], so one budget can govern a whole run — the CLI's
     /// pre-parse source check, lexing/parsing, interpretation, and any nested
@@ -5214,6 +5325,7 @@ impl Interpreter {
             global_env,
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
+            count_step_warned: RefCell::new(HashSet::new()),
             sched_counter: Cell::new(0),
             budget,
             current_block_overload_dups: RefCell::new(None),
@@ -5450,6 +5562,38 @@ impl Interpreter {
         })?;
 
         Ok(canonical)
+    }
+
+    /// `random_seed` is an error in any file that also does crypto or auth
+    /// (`ANALYZE-SECURITY`). The CLI checks the file it was given before it
+    /// runs; a file brought in at runtime (`what`: "module", "included file",
+    /// "executed file") is checked here, so moving the code into a second file
+    /// does not evade the rule. Returns the error message and the offending
+    /// line/column within that file.
+    fn insecure_rng_seeding_in(
+        program: &Program,
+        what: &str,
+        path: &std::path::Path,
+    ) -> Option<(String, usize, usize)> {
+        use crate::analyzer::Analyzer;
+        use crate::analyzer::static_analyzer::StaticAnalyzer;
+
+        let diagnostic = Analyzer::new()
+            .check_insecure_rng_seeding(program, 0)
+            .into_iter()
+            .next()?;
+        let mut message = format!(
+            "Security error in {what} '{}' (line {}, column {}): {}",
+            path.display(),
+            diagnostic.line,
+            diagnostic.column,
+            diagnostic.message
+        );
+        for note in &diagnostic.notes {
+            message.push_str(". ");
+            message.push_str(note);
+        }
+        Some((message, diagnostic.line, diagnostic.column))
     }
 
     fn check_circular_dependency(
@@ -6261,6 +6405,11 @@ impl Interpreter {
                 line,
                 column,
             ));
+        }
+        if let Some((message, _, _)) =
+            Self::insecure_rng_seeding_in(&program, "executed file", &resolved_path)
+        {
+            return Err(RuntimeError::new(message, line, column));
         }
 
         // Run the file in a fresh nested interpreter (own global env and
@@ -7892,22 +8041,36 @@ impl Interpreter {
                 // *toward* its end value (a downward loop subtracts the step), so
                 // the step is a magnitude and must be a positive, finite number.
                 //
-                // Only a loop that actually runs is validated: `count from 5 to 1`
-                // never enters its body, so its step never mattered and a program
-                // that passed a nonsense one has always completed successfully.
-                // Validating unconditionally would break those programs.
-                if should_continue(count, end_num) && (!step_num.is_finite() || step_num <= 0.0) {
-                    *self.current_count.borrow_mut() = previous_count;
-                    *self.in_count_loop.borrow_mut() = was_in_count_loop;
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Count loop step must be a positive number, got {step_num}. \
-                             A count loop always moves toward its end value, so \
-                             `count from 10 down to 1 by 2` steps down by 2."
-                        ),
-                        *line,
-                        *column,
-                    ));
+                // The step is checked even when the range is empty. Checking it
+                // only for a loop that would run let a step pointing the other
+                // way vanish without a word: `count from 5 to 1 by -1` reads like
+                // a countdown, but as an upward range it is empty, so it ran zero
+                // times and exited 0 — as did `count from 1 down to 5 by -1`.
+                //
+                // Programs have relied on such a loop finishing quietly, so for
+                // an empty range it still runs zero times and only warns, once
+                // per loop, until COUNT_LOOP_STEP_ERROR_FROM.
+                if !step_num.is_finite() || step_num <= 0.0 {
+                    if should_continue(count, end_num) {
+                        *self.current_count.borrow_mut() = previous_count;
+                        *self.in_count_loop.borrow_mut() = was_in_count_loop;
+                        return Err(RuntimeError::new(
+                            count_loop_step_error(start_num, end_num, step_num),
+                            *line,
+                            *column,
+                        ));
+                    }
+                    let source = self.current_source_file.borrow().clone();
+                    if self
+                        .count_step_warned
+                        .borrow_mut()
+                        .insert((source, *line, *column))
+                    {
+                        eprintln!(
+                            "{}",
+                            count_loop_step_warning(start_num, end_num, step_num, *line)
+                        );
+                    }
                 }
 
                 *self.in_count_loop.borrow_mut() = true;
@@ -9046,6 +9209,11 @@ impl Interpreter {
                         error_column,
                     ));
                 }
+                if let Some((message, error_line, error_column)) =
+                    Self::insecure_rng_seeding_in(&program, "module", &resolved_path)
+                {
+                    return Err(RuntimeError::new(message, error_line, error_column));
+                }
 
                 // 8. Type check
                 use crate::typechecker::{TypeCheckError, TypeChecker};
@@ -9238,6 +9406,11 @@ impl Interpreter {
                         error_line,
                         error_column,
                     ));
+                }
+                if let Some((message, error_line, error_column)) =
+                    Self::insecure_rng_seeding_in(&program, "included file", &resolved_path)
+                {
+                    return Err(RuntimeError::new(message, error_line, error_column));
                 }
 
                 // 7. Type check. Type errors are reported as non-fatal
@@ -15359,6 +15532,56 @@ impl Interpreter {
                 }
             }
 
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                line,
+                column,
+            } => {
+                // Backward compatibility: before `find all` existed, these tokens
+                // were a single-match `find` over a binding named `all <name>`
+                // (or `all`). While that binding exists, keep that meaning.
+                if let Some(fallback) = legacy_fallback
+                    && legacy_binding
+                        .as_deref()
+                        .is_some_and(|name| env.borrow().get(name).is_some())
+                {
+                    return self.evaluate_expression(fallback, env).await;
+                }
+
+                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
+                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
+                let Value::Text(text_str) = &text_val else {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "find all needs Text after 'in', got {}",
+                            text_val.type_name()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                };
+                let Value::Pattern(compiled_pattern) = &pattern_val else {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "find all needs a Pattern before 'in', got {}",
+                            pattern_val.type_name()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                };
+
+                // Every match under the shared budget; a breach is a catchable
+                // error, never a silently short list.
+                let matches = compiled_pattern
+                    .find_all_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *line, *column))?;
+                Ok(crate::stdlib::pattern::match_list_value(matches))
+            }
+
             Expression::PatternReplace {
                 text,
                 pattern,
@@ -15694,6 +15917,7 @@ impl Interpreter {
             Expression::ListFilesRecursive {
                 path,
                 extensions,
+                filter_kind,
                 line,
                 column,
             } => {
@@ -15749,9 +15973,13 @@ impl Interpreter {
                 } else {
                     None
                 };
+                let filter = ext_filters
+                    .map(|values| FileFilter::new(*filter_kind, values))
+                    .transpose()
+                    .map_err(|message| RuntimeError::new(message, *line, *column))?;
 
                 // Perform recursive directory listing
-                match self.list_files_recursive(&path_str, ext_filters).await {
+                match self.list_files_recursive(&path_str, filter.as_ref()).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
                     Err(e) => Err(RuntimeError::new(
                         format!("Failed to list files recursively: {e}"),
@@ -15763,6 +15991,7 @@ impl Interpreter {
             Expression::ListFilesFiltered {
                 path,
                 extensions,
+                filter_kind,
                 line,
                 column,
             } => {
@@ -15812,8 +16041,11 @@ impl Interpreter {
                     }
                 }
 
+                let filter = FileFilter::new(*filter_kind, ext_filters)
+                    .map_err(|message| RuntimeError::new(message, *line, *column))?;
+
                 // List files with filtering
-                match self.list_files_filtered(&path_str, ext_filters).await {
+                match self.list_files_filtered(&path_str, &filter).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
                     Err(e) => Err(RuntimeError::new(
                         format!("Failed to list files with filter: {e}"),
@@ -16195,10 +16427,12 @@ impl Interpreter {
             .call_function(&method_function, arg_values, line, column)
             .await;
 
-        // Write the frame's property values back to the object, so changes
-        // made inside the action persist.
+        // Write only the frame's own property bindings back to the object.
+        // A same-named global keeps precedence inside the action, but must
+        // not be copied into a property the frame never bound.
         for prop_name in property_names {
-            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
+            let updated = method_env.borrow().get_local(&prop_name);
+            if let Some(updated_value) = updated {
                 instance_rc
                     .borrow_mut()
                     .properties
@@ -17174,7 +17408,7 @@ impl Interpreter {
     async fn list_files_recursive(
         &self,
         path: &str,
-        extensions: Option<Vec<String>>,
+        filter: Option<&FileFilter>,
     ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
 
@@ -17190,22 +17424,8 @@ impl Interpreter {
 
                 if path.is_dir() {
                     dirs_to_process.push(path_str);
-                } else if path.is_file() {
-                    // Check extension filter if provided
-                    if let Some(ref exts) = extensions {
-                        let file_ext = path
-                            .extension()
-                            .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{ext}"));
-
-                        if let Some(ext) = file_ext
-                            && exts.iter().any(|e| e == &ext)
-                        {
-                            files.push(Value::Text(path_str.into()));
-                        }
-                    } else {
-                        files.push(Value::Text(path_str.into()));
-                    }
+                } else if path.is_file() && filter.is_none_or(|filter| filter.matches(&path)) {
+                    files.push(Value::Text(path_str.into()));
                 }
             }
         }
@@ -17216,7 +17436,7 @@ impl Interpreter {
     async fn list_files_filtered(
         &self,
         path: &str,
-        extensions: Vec<String>,
+        filter: &FileFilter,
     ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
 
@@ -17226,20 +17446,8 @@ impl Interpreter {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
 
-            if path.is_file() {
-                let path_str = path.to_string_lossy().to_string();
-
-                // Check extension filter
-                let file_ext = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{ext}"));
-
-                if let Some(ext) = file_ext
-                    && extensions.iter().any(|e| e == &ext)
-                {
-                    files.push(Value::Text(path_str.into()));
-                }
+            if path.is_file() && filter.matches(&path) {
+                files.push(Value::Text(path.to_string_lossy().to_string().into()));
             }
         }
 

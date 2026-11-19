@@ -58,6 +58,14 @@ tokio = { version = "1.52.3", features = ["full"] }
 process-wrap = { version = "10.0.0", default-features = false, features = ["tokio1", "job-object", "process-group", "kill-on-drop"] }
 libc = "0.2.186"
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
+# Ordered DNS resolution (Engineering/designs/2026-11-18-ordered-dns-resolution-design.md):
+# WFL asks nameservers one at a time, in order, with glibc's rules, and hands
+# the result to reqwest through `ClientBuilder::dns_resolver`. Plain DNS over
+# UDP/TCP only (`default-features = false` keeps out DoH/DoT and hickory's
+# system-config code). reqwest's own `hickory-dns` feature must stay OFF: it
+# queries two servers at once, reorders them by speed, and silently falls back
+# to Google DNS when /etc/resolv.conf cannot be read (SEC-07, pinned by a test).
+hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio"] }
 encoding_rs = "0.8.35"
 # sqlx 0.9 split the old `runtime-tokio-rustls` feature into a separate runtime
 # and TLS backend; `tls-rustls` aliases the ring-backed rustls stack we used before.

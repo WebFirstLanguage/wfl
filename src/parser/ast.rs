@@ -837,6 +837,24 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    /// `find all <pattern> in <text>` — every non-overlapping match, as a list
+    /// (the phrase form of `pattern_find_all of <text> and <pattern>`).
+    PatternFindAll {
+        text: Box<Expression>,
+        pattern: Box<Expression>,
+        /// Backward-compat binding for the ambiguous surface form. The lexer
+        /// merges `all` with a following plain word (`find all word in t` lexes
+        /// `all word` as one identifier), and before `find all` existed those
+        /// tokens were a single-match `find` over a binding literally named
+        /// `all word` (or `all`). This is that binding's name; when it is
+        /// defined, `legacy_fallback` is evaluated instead, so an existing
+        /// program is never reinterpreted. `None` when the old parse failed.
+        legacy_binding: Option<String>,
+        /// The pre-`find all` parse of the same tokens (a `PatternFind`).
+        legacy_fallback: Option<Box<Expression>>,
+        line: usize,
+        column: usize,
+    },
     PatternReplace {
         text: Box<Expression>,
         pattern: Box<Expression>,
@@ -937,15 +955,21 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    /// `list files recursively in <path> [with extension(s)/pattern <filter>]`.
+    /// `filter_kind` says how the `extensions` values are matched.
     ListFilesRecursive {
         path: Box<Expression>,
         extensions: Option<Vec<Expression>>,
+        filter_kind: FileFilterKind,
         line: usize,
         column: usize,
     },
+    /// `list files in <path> with extension(s)/pattern <filter>`.
+    /// `filter_kind` says how the `extensions` values are matched.
     ListFilesFiltered {
         path: Box<Expression>,
         extensions: Vec<Expression>,
+        filter_kind: FileFilterKind,
         line: usize,
         column: usize,
     },
@@ -1197,6 +1221,17 @@ pub enum ExitScope {
     Loop,
     /// `exit program`
     Program,
+}
+
+/// How a `list files ... with ...` filter value is compared with each file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FileFilterKind {
+    /// `with extension ".txt"` / `with extensions [...]`: the file's
+    /// extension, including its dot, must equal a filter value.
+    #[default]
+    Extension,
+    /// `with pattern "*.txt"`: a glob matched against the file name.
+    Pattern,
 }
 
 #[derive(Debug, Clone, PartialEq)]

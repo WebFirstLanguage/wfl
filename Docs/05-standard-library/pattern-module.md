@@ -128,7 +128,9 @@ pattern_find_all of <text> and <pattern>
 - `text` (Text): Text to search
 - `pattern` (Pattern): Pattern to find
 
-**Returns:** List - List of match objects
+**Returns:** List - one match object per match, left to right, never
+overlapping. The list is empty (not `nothing`) when there are no matches, so
+you can loop over it or take its `length` without checking for `nothing` first.
 
 **Example:**
 ```wfl
@@ -137,7 +139,7 @@ create pattern word:
 end pattern
 
 store text as "The quick brown fox"
-store word_matches as pattern_find_all of text and word
+store word_matches as find all word in text
 
 // `one or more` is greedy, so each match is a whole word, not a letter.
 display "Found " with length of word_matches with " words:"
@@ -145,6 +147,22 @@ for each match in word_matches:
     display "  - " with match.matched_text
 end for
 ```
+
+**Output:**
+```
+Found 4 words:
+  - The
+  - quick
+  - brown
+  - fox
+```
+
+**Names that start with `all`:** `all` is not a reserved word. If your program
+already has a variable or pattern whose name starts with `all` — for example
+`all digits` — then `find all digits in text` keeps its original meaning: a
+single `find` with `all digits`. To use `find all` with a pattern named
+`digits` in that program, rename the `all digits` variable (for example to
+`every_digit`).
 
 **Use Cases:**
 - Extract all occurrences
@@ -277,7 +295,7 @@ display ""
 
 // Find all matches
 store sentence as "The quick brown fox jumps over the lazy dog"
-store word_matches as pattern_find_all of sentence and word
+store word_matches as find all word in sentence
 
 display "Words found: " with length of word_matches
 for each word_match in word_matches:

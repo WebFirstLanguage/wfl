@@ -34,6 +34,14 @@ exercises**, not by aspiration.
 | **Linux / other Unix** | `aarch64`, others | **Tier 2** | Pure-Rust with a Tokio runtime; expected to build where the toolchain and dependencies do. Unverified. |
 | **32-bit targets** | `i686`, `armv7`, … | **Unsupported** | Not built or tested. The interpreter runs on a large (1 GiB) call stack thread and assumes 64-bit address space. |
 
+**DNS resolution by platform.** Outbound HTTP requests on Linux (both the
+static musl tarball and glibc builds from source) use WFL's ordered resolver by
+default: DNS servers are asked one at a time, in order, with glibc's rules. On
+Windows and macOS the operating system's resolver stays the default, and setting
+`dns_servers` in `.wflcfg` switches to WFL's resolver (`dns_servers_mode = only`
+only; the mixing modes are Linux-only for now). See
+[DNS settings](configuration-reference.md#dns-settings).
+
 **Promotion policy.** A Tier 2 platform is promoted to Tier 1 only when a CI lane
 builds it and runs the integration + `TestPrograms` suites green — a
 before-the-release-gate requirement, not a documentation change.

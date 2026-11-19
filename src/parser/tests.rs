@@ -2865,6 +2865,57 @@ fn test_display_folds_keyword_list_files() {
     );
 }
 
+/// `with pattern` must stay distinguishable from `with extension(s)` so the
+/// interpreter can glob-match it (#578).
+#[test]
+fn list_files_filters_record_which_keyword_was_used() {
+    let cases = [
+        (
+            r#"store x as list files in "." with pattern "*.txt""#,
+            FileFilterKind::Pattern,
+        ),
+        (
+            r#"store x as list files in "." with extension ".txt""#,
+            FileFilterKind::Extension,
+        ),
+        (
+            r#"store x as list files in "." with extensions [".txt" and ".md"]"#,
+            FileFilterKind::Extension,
+        ),
+        (
+            r#"store x as list files recursively in "." with pattern "*.txt""#,
+            FileFilterKind::Pattern,
+        ),
+        (
+            r#"store x as list files in "." recursively with pattern "*.txt""#,
+            FileFilterKind::Pattern,
+        ),
+        (
+            r#"store x as list files recursively in "." with extension ".txt""#,
+            FileFilterKind::Extension,
+        ),
+    ];
+    for (source, expected) in cases {
+        let tokens = lex_wfl_with_positions(source);
+        let statement = Parser::new(&tokens)
+            .parse_statement()
+            .unwrap_or_else(|e| panic!("{source} should parse: {e:?}"));
+        let Statement::VariableDeclaration { value, .. } = statement else {
+            panic!("{source} should be a store statement, got {statement:?}");
+        };
+        let actual = match value {
+            Expression::ListFilesFiltered { filter_kind, .. } => filter_kind,
+            Expression::ListFilesRecursive {
+                extensions: Some(_),
+                filter_kind,
+                ..
+            } => filter_kind,
+            other => panic!("{source} should be a filtered listing, got {other:?}"),
+        };
+        assert_eq!(actual, expected, "{source}");
+    }
+}
+
 #[test]
 fn test_display_folds_keyword_read_content() {
     assert_display_folds(
@@ -3360,4 +3411,54 @@ fn can_start_primary_expression_matches_parse_primary_expression() {
             );
         }
     }
+}
+
+#[test]
+fn nested_find_all_parses_in_polynomial_steps() {
+    // `find all` keeps the pre-`find all` parse of its tokens as a backward-
+    // compatibility fallback, so each level is parsed a second time. That
+    // second parse must not itself recurse into nested `find all` handling, or
+    // nesting depth d would cost about 2^d primary-expression parses on
+    // untrusted input. Nesting through the text operand is the shape where the
+    // old reading parses too, so both readings reach the inner `find`.
+    let depth = 30;
+    let through_text = format!(
+        "store result as {}text_value{}\n",
+        "find all word in (".repeat(depth),
+        ")".repeat(depth)
+    );
+    let through_pattern = format!(
+        "store result as {}word{}\n",
+        "find all (".repeat(depth),
+        ") in text_value".repeat(depth)
+    );
+
+    // The `wfl` binary parses on its large interpreter stack. An unoptimized
+    // build needs more than a default 2 MiB test thread at this depth; the
+    // single-match `find (...)` nesting overflows there from depth 27 too.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || {
+            for input in [through_text, through_pattern] {
+                let tokens = lex_wfl_with_positions(&input);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().expect("nested find all must parse");
+                let Some(Statement::VariableDeclaration { value, .. }) = program.statements.first()
+                else {
+                    panic!("expected a store statement, got {:?}", program.statements);
+                };
+                assert!(
+                    format!("{value:?}").starts_with("PatternFindAll"),
+                    "the outermost expression must be a find-all for {input}, got {value:?}"
+                );
+                assert!(
+                    parser.parse_steps < 50_000,
+                    "nested find all took {} primary-expression parses at depth {depth}: {input}",
+                    parser.parse_steps
+                );
+            }
+        })
+        .expect("spawn parser thread")
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
 }

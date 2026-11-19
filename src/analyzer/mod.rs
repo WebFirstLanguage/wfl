@@ -367,6 +367,22 @@ pub fn program_has_includes(program: &Program) -> bool {
 /// analysis *and* at runtime — so this is used to attach an actionable
 /// "use `include from`" note to the undefined-name diagnostic rather than to
 /// relax it (see issue #584).
+fn top_level_bindings(program: &Program) -> (HashSet<String>, HashMap<String, usize>) {
+    let mut names = HashSet::new();
+    let mut declared_at = HashMap::new();
+    for (index, statement) in program.statements.iter().enumerate() {
+        match statement {
+            Statement::VariableDeclaration { name, .. }
+            | Statement::PatternDefinition { name, .. } => {
+                names.insert(name.clone());
+                declared_at.entry(name.clone()).or_insert(index);
+            }
+            _ => {}
+        }
+    }
+    (names, declared_at)
+}
+
 pub fn program_has_load_module(program: &Program) -> bool {
     program
         .statements
@@ -431,6 +447,21 @@ pub struct Analyzer {
     /// count loops reusing the same variable name are reported as errors,
     /// while shadowing an ordinary outer variable is allowed.
     active_loop_variables: Vec<String>,
+    /// Top-level `store` / `create pattern` names in the program being
+    /// analyzed. Used to decide the legacy `find all` reading the way the
+    /// runtime does at invocation: a later top-level `all <name>` binding is
+    /// visible to an action that is only called after that binding exists.
+    top_level_bindings: HashSet<String>,
+    /// First top-level statement index at which each of those names is stored.
+    /// Immediate top-level expressions must not treat a later index as live.
+    top_level_binding_index: HashMap<String, usize>,
+    /// Nesting depth of action / container-method bodies. Later top-level
+    /// `all <name>` bindings are only assumed live while this is positive.
+    deferred_body_depth: usize,
+    /// Names treated as defined for the duration of one expression walk, so a
+    /// later top-level `all <name>` is not reported undefined while analyzing
+    /// the legacy `find all` fallback inside an earlier action.
+    assumed_defined: HashSet<String>,
     /// The shared-budget breach hit mid-traversal, if any. Its presence latches
     /// the recursive `analyze_statement` checkpoint (record once, then
     /// short-circuit every remaining node instead of pushing a duplicate error
@@ -719,6 +750,10 @@ impl Analyzer {
             action_alias_dependencies: HashMap::new(),
             action_alias_name_stack: Vec::new(),
             action_alias_effect_stack: Vec::new(),
+            top_level_bindings: HashSet::new(),
+            top_level_binding_index: HashMap::new(),
+            deferred_body_depth: 0,
+            assumed_defined: HashSet::new(),
         }
     }
 
@@ -871,6 +906,11 @@ impl Analyzer {
         // reused analyzer instance does not carry a stale flag from a previous
         // program.
         self.has_includes = program_has_includes(program);
+        let (names, declared_at) = top_level_bindings(program);
+        self.top_level_bindings = names;
+        self.top_level_binding_index = declared_at;
+        self.deferred_body_depth = 0;
+        self.assumed_defined.clear();
 
         // Stored-action alias state is per-program.
         self.action_aliases.clear();
@@ -2425,9 +2465,11 @@ impl Analyzer {
                         // body has not executed at definition time.
                         let alias_entry = self.action_aliases.clone();
                         let overloads_entry = self.defined_overloads.clone();
+                        self.deferred_body_depth += 1;
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        self.deferred_body_depth -= 1;
                         self.action_aliases = alias_entry;
                         self.defined_overloads = overloads_entry;
 
@@ -2500,9 +2542,11 @@ impl Analyzer {
                         // body has not executed at definition time.
                         let alias_entry = self.action_aliases.clone();
                         let overloads_entry = self.defined_overloads.clone();
+                        self.deferred_body_depth += 1;
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        self.deferred_body_depth -= 1;
                         self.action_aliases = alias_entry;
                         self.defined_overloads = overloads_entry;
 
@@ -3506,9 +3550,11 @@ impl Analyzer {
             let overloads_entry = self.defined_overloads.clone();
             self.action_alias_name_stack.push(name.clone());
             self.action_alias_effect_stack.push(HashSet::new());
+            self.deferred_body_depth += 1;
             for stmt in body {
                 self.analyze_statement(stmt);
             }
+            self.deferred_body_depth -= 1;
             let action_effects = self.action_alias_effect_stack.pop().unwrap_or_default();
             let popped_name = self.action_alias_name_stack.pop();
             debug_assert_eq!(popped_name.as_deref(), Some(name.as_str()));
@@ -5003,6 +5049,19 @@ impl Analyzer {
         self.name_is_defined_for_write(name)
     }
 
+    /// Runtime `find all` uses the legacy single-match reading when `all <name>`
+    /// exists at invocation. Later top-level bindings are only assumed live
+    /// inside deferred action/method bodies: top-level code runs in order.
+    pub fn legacy_find_all_binding_is_live(&self, name: &str) -> bool {
+        self.name_is_defined_for_write(name)
+            || (self.deferred_body_depth > 0 && self.top_level_bindings.contains(name))
+    }
+
+    /// First top-level statement that stores `name`, if it is a tracked binding.
+    pub fn top_level_binding_declared_at(&self, name: &str) -> Option<usize> {
+        self.top_level_binding_index.get(name).copied()
+    }
+
     /// Public for the typechecker so write-branch definedness matches analysis
     /// (container properties, inherited bindings, etc.).
     pub fn name_is_defined_for_write(&self, name: &str) -> bool {
@@ -5011,6 +5070,7 @@ impl Analyzer {
             || name == "loopcounter"
             || Self::is_builtin_function(name)
             || self.current_scope.resolve(name).is_some()
+            || self.assumed_defined.contains(name)
         {
             return true;
         }
@@ -5185,7 +5245,9 @@ impl Analyzer {
                     }
                 }
 
-                if self.current_scope.resolve(name).is_none() {
+                if self.current_scope.resolve(name).is_none()
+                    && !self.assumed_defined.contains(name)
+                {
                     // Check if it's a container property (including inherited),
                     // or `this` inside an instance action (#701)
                     let is_container_property =
@@ -5362,10 +5424,13 @@ impl Analyzer {
                         || self.action_parameters.contains(name)
                         || name == "count"
                         || Self::is_request_object_property_access(name, arguments)
+                        || self.assumed_defined.contains(name)
                     {
-                        // A known builtin, an action parameter, or the count
-                        // loop variable isn't present as a scope symbol but is
-                        // still callable (its arguments are still analyzed).
+                        // A known builtin, an action parameter, the count
+                        // loop variable, or a later `all <name>` assumed live
+                        // for a legacy `find all` fallback isn't present as a
+                        // scope symbol but is still callable (arguments are
+                        // still analyzed; the callable signature is runtime).
                         for arg in arguments {
                             self.analyze_expression(&arg.value);
                         }
@@ -5446,6 +5511,31 @@ impl Analyzer {
             Expression::PatternFind { text, pattern, .. } => {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
+            }
+            Expression::PatternFindAll {
+                text,
+                pattern,
+                legacy_binding,
+                legacy_fallback,
+                ..
+            } => {
+                // Analyze the reading the runtime will take: the legacy
+                // single-match `find` while `all <name>` is defined at the
+                // call. Later top-level bindings are visible only inside
+                // deferred action/method bodies; top-level code runs in order.
+                if let Some(fallback) = legacy_fallback
+                    && let Some(name) = legacy_binding.as_deref()
+                    && self.legacy_find_all_binding_is_live(name)
+                {
+                    let inserted = self.assumed_defined.insert(name.to_string());
+                    self.analyze_expression(fallback);
+                    if inserted {
+                        self.assumed_defined.remove(name);
+                    }
+                } else {
+                    self.analyze_expression(text);
+                    self.analyze_expression(pattern);
+                }
             }
             Expression::PatternReplace {
                 text,
@@ -5549,6 +5639,10 @@ impl Analyzer {
                             }
                         }
                     }
+                } else if self.assumed_defined.contains(name) {
+                    // A later top-level alias assumed live for a legacy
+                    // `find all` fallback: keep argument analysis and defer
+                    // the callable signature to runtime.
                 } else if !self.warn_undefined_callee_if_includes(name, *line, *column) {
                     // Action not found in scope and not a builtin, and the program
                     // does not use `include from`, so it cannot be include-exposed

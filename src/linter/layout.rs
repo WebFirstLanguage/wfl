@@ -431,6 +431,15 @@ fn expression_children<'a>(expression: &'a Expression, pending: &mut Vec<&'a Exp
         | Expression::PatternSplit { text, pattern, .. } => {
             pending.extend([text.as_ref(), pattern.as_ref()])
         }
+        Expression::PatternFindAll {
+            text,
+            pattern,
+            legacy_fallback,
+            ..
+        } => {
+            pending.extend([text.as_ref(), pattern.as_ref()]);
+            pending.extend(legacy_fallback.as_deref());
+        }
         Expression::PatternReplace {
             text,
             pattern,

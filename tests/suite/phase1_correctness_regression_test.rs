@@ -41,7 +41,7 @@
 //! | #588 | Medium (fixed) | ✅ | `github_issues_batch_test.rs` (`store x as <call>` Unknown) |
 //! | #590 | Medium (fixed) | ✅ | `recursive_action_return_type_test.rs` (in-process type-checker guard) **+** this file: `issue_590_*` (CLI-level end-to-end guard) |
 //! | #592 | High (**fixed**) | ✅ | this file: `issue_592_*` (top-level + action-body, plus a no-include fatal guardrail) — analyzer routes a bare unresolved name through the `of`/`call` forms' include-aware relaxation |
-//! | #578 | **High (open, umbrella)** | ⏳ | this file: `issue_578_*` (`#[ignore]`) — see note below |
+//! | #578 | **High (open, umbrella)** | ⏳ | this file: `issue_578_*` — fixed items run as guards (`list files … with pattern`, `one or more`), open items are `#[ignore]` — see note below |
 //! | #573 | Medium (**fixed**) | ✅ | Binary read (`read binary from …`), binary write, lossless byte round-trip, and MIME helpers shipped in #574; guarded by `web_server_binary_test.rs`, `binary_io_test.rs`, and `binary_file_and_mime_test.wfl`. The issue's own latest verification recommends closing; it is open only pending the close click. |
 //! | #555 | Medium (open) | ⏳ | `TestPrograms/` `CI-SKIP` corpus (docs-in-CI gate) |
 //! | #600 | Post-prod (SNI) | — | Native TLS SNI / multi-cert enhancement. Dependabot alert #49 (`rustls-webpki` DoS) is *present* in the dep graph but **not reachable** — WFL uses `warp …tls().cert_path().key_path()` with client auth off and no CRL/`RevocationOptions` (GHSA-82j2-j2ch-gfr8 needs opt-in revocation + attacker CRL). Disposition "vulnerable code not used"; not a reachable High WFL defect. |
@@ -379,10 +379,10 @@ fn issue_592_bare_undefined_without_include_stays_fatal() {
 // --- #578 (reproducible confirmed functional bugs from the umbrella issue) --
 // https://github.com/WebFirstLanguage/wfl/issues/578
 
-// `list files in <dir> with pattern <glob>` drops every match and returns 0.
-// CURRENT (26.7.37): COUNT=0 even when matching files exist.
+// `list files in <dir> with pattern <glob>` used to drop every match and return
+// 0. Fixed: `with pattern` is now a glob over file names; the full behaviour is
+// covered by `list_files_pattern_test.rs`.
 #[test]
-#[ignore = "open defect #578: `list files … with pattern` glob path returns 0"]
 fn issue_578_list_files_with_pattern_matches() {
     let (out, code) = run_files(
         &[

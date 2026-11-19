@@ -189,7 +189,9 @@ end route
 
 `route` is a reserved keyword and cannot be used as a variable name. `when` is also
 reserved (it is shared with `try`/`catch` error handling). If you were using `route`
-as an identifier, rename it (for example, `route` → `current_route`).
+as an identifier, rename it (for example, `route` → `current_route`). For why WFL
+reserves words, and other everyday words that are reserved, see
+[Words That Commonly Bite](../reference/reserved-keywords.md#words-that-commonly-bite).
 
 ## See also
 

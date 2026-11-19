@@ -1,0 +1,99 @@
+// Count-loop steps are always checked
+//
+// A count loop's step is a distance: `to` counts up, `down to` counts down,
+// and the step says how far each trip moves. The step used to be checked only
+// when the loop would run, so `count from 5 to 1 by -1` — which reads like a
+// countdown — silently ran zero times, and so did the mirror
+// `count from 1 down to 5 by -1`.
+//
+// A step of zero or less is now always reported:
+//   - if the loop would run, it is an error naming the loop the program meant;
+//   - if the range is empty, the loop still runs zero times and the program
+//     carries on (GOVERNANCE.md §3.1 keeps existing programs working for a
+//     year), but a warning is printed on stderr. The Rust tests in
+//     tests/suite/count_loop_step_test.rs check that warning's text.
+
+describe "Count loop steps":
+
+    test "a negative step on a loop that would run is an error naming the loop":
+        store ran as 0
+        store reported as ""
+        try:
+            count from 5 down to 1 by -1:
+                change ran to ran plus 1
+            end count
+        when error:
+            change reported to error_message
+        end try
+        expect ran to equal 0
+        expect reported to contain "`count from 5 down to 1`"
+    end test
+
+    test "any numbers are reported, not just 5 and 1":
+        store reported as ""
+        try:
+            count from 2 to 12 by -2:
+                display "never"
+            end count
+        when error:
+            change reported to error_message
+        end try
+        expect reported to contain "`count from 2 to 12 by 2`"
+    end test
+
+    test "a zero step on a loop that would run is an error":
+        store reported as ""
+        try:
+            count from 1 to 5 by 0:
+                display "never"
+            end count
+        when error:
+            change reported to error_message
+        end try
+        expect reported to contain "A step of 0 never moves the counter"
+    end test
+
+    test "a bad step on an empty range still runs zero times and is not an error":
+        store ran as 0
+        store reported as ""
+        try:
+            count from 5 to 1 by -1:
+                change ran to ran plus 1
+            end count
+            count from 1 down to 5 by -1:
+                change ran to ran plus 1
+            end count
+            count from 5 to 1 by 0:
+                change ran to ran plus 1
+            end count
+        when error:
+            change reported to error_message
+        end try
+        expect ran to equal 0
+        expect reported to equal ""
+    end test
+
+    test "an empty range with a positive step still runs zero times":
+        store items as []
+        store ran as 0
+        count from 1 to length of items:
+            change ran to ran plus 1
+        end count
+        count from 5 to 1:
+            change ran to ran plus 1
+        end count
+        count from 1 down to 5 by 2:
+            change ran to ran plus 1
+        end count
+        expect ran to equal 0
+    end test
+
+    test "down to still counts down by a positive step":
+        store total as 0
+        count from 5 down to 1 by 2:
+            change total to total plus count
+        end count
+        expect total to equal 9
+    end test
+
+end describe

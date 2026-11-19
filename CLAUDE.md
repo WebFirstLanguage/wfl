@@ -30,8 +30,9 @@ Binding community and contribution policy lives at the **repo root** (not only u
 - **Docs ship with the feature** — same change; validate examples; Dev Diary entry under `History/dev-diary/<year>/` for non-trivial work.
 - **Hygiene is enforced** — every file has one canonical home (`REPOSITORY_HYGIENE.md`); tests and tools write only under `target/` or temp dirs; never track dumps, logs, caches, local settings, or personal paths. The `repo-hygiene` CI job blocks violations — fix placement, don't widen allowlists.
 - **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
-- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own releases and non-delegated merges. The narrow I1 agent merge delegation is in `Docs/contributing/issue-policy.md`. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
-- **Classify issues before agent dispatch** — project-run agents may fix, merge, and close well-defined I1 bugs after required CI, review-bot, and testing gates pass. New features and unclear behavior need a Maintainer's dispatch decision. Follow `Docs/contributing/issue-policy.md` and escalate sensitive work.
+- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own releases and non-delegated merges. The narrow I1 agent merge delegation and the Dependabot merge delegation (`GOVERNANCE.md` §3.10) are in `Docs/contributing/issue-policy.md`. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
+- **Dependabot updates** — project-run agents may review, approve, and merge (or turn on GitHub auto-merge for) an *eligible* Dependabot PR, including into `main`: Dependabot-only commits, Cargo/npm manifests and lockfiles only, semver-compatible (no major or `0.x` minor), no new direct dependency/feature/install script/licence change, release at least 72 hours old unless it fixes an open alert, `R3` security-sensitive packages patch-only, and every required check and LOG-16 rule green on the exact head. Never push to a Dependabot branch; anything else waits for a Maintainer. See `Docs/contributing/issue-policy.md#dependabot-pull-requests`.
+- **Classify issues before agent dispatch** — project-run agents may fix well-defined I1 bugs; a different eligible agent or an authorized Maintainer must merge the PR after required CI, review-bot, and testing gates pass. Authors, including agent authors, must not merge their own PRs. After the merge, the author agent may close the linked issue with evidence. New features and unclear behavior need a Maintainer's dispatch decision. Follow `Docs/contributing/issue-policy.md` and escalate sensitive work.
 - Community tone: follow `CODE_OF_CONDUCT.md`; technical disagreement is fine; harassment and AI-shaming are not.
 
 When changing contribution workflow, community rules, or project authority, update the root governance suite **and** keep this section accurate.
@@ -163,6 +164,32 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Testing Framework**: Built-in testing with `describe`, `test`, and natural language assertions.
 - **Security**: WFLHASH custom crypto, secure subprocess spawning.
 
+## Reserved Words — Check Before You Name Anything
+WFL uses English words where other languages use symbols, so it reserves many
+everyday words. A reserved word can never be a variable, loop variable, action
+parameter, or action name, and it breaks spaced multi-word names
+(`store start time as 9` fails). **Before** writing or editing any WFL
+(`TestPrograms/`, docs examples, fixtures, `examples/`, test strings in Rust),
+check your names against the docs instead of discovering the rule from a
+parse error:
+
+- **What reserved words are and why WFL has them:**
+  `Docs/reference/reserved-keywords.md#what-is-a-reserved-word-start-here`
+- **Everyday words that bite:** `start`, `output`, `route`, `captured`, `by`,
+  `find` (plus `is`, `file`, `add`, `current`, `data`, `time`, `status`, `when`,
+  ...) — `Docs/reference/reserved-keywords.md#words-that-commonly-bite`;
+  quick table in `Docs/reference/keyword-reference.md`.
+- **Fix:** join a describing word with an underscore — `start_time`,
+  `command_output`, `current_route`, `captured_text`, `step_size`,
+  `search_term`.
+- **Recognize the error:** it names the token, not the word —
+  `Expected identifier for variable name, found KeywordStart` or
+  `Cannot use reserved keyword 'KeywordRoute' as a variable name` (drop
+  `Keyword`, lowercase the rest).
+- `tests/suite/reserved_common_words_test.rs` pins this behavior. A change that
+  reserves or frees a common English word must update both keyword references,
+  this list, and that test together.
+
 ## Coding Style & Naming
 - **Format**: `cargo fmt --all` (see `.rustfmt.toml`).
 - **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`.
@@ -264,7 +291,7 @@ agent MUST follow:
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords
-  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 181 keywords)
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 198 keywords)
   - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
   - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
@@ -273,22 +300,24 @@ agent MUST follow:
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals: flat `otherwise check if` chains share one `end check`; nested `otherwise:` / `check if` needs an `end check` per nested check
-  - Reserved keywords: **181 keywords total** (54 structural, 29 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
-    - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
+  - Reserved keywords: **198 keywords total** (63 structural, 32 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`). `tests/suite/keyword_reference_drift_test.rs` fails when a lexer `#[token]` word, its classification, or these counts drift from the two keyword references, so a new keyword must be documented in both in the same change
+    - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc. — and the everyday words `start`, `output`, `route`, `captured`, `by`, `find` (see **Reserved Words — Check Before You Name Anything**)
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
     - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`
     - See `Docs/reference/keyword-reference.md` (quick) and `Docs/reference/reserved-keywords.md` (complete)
   - List push syntax: `push with <list> and <value>`, NOT `push to`
   - Loop variable: `count` in count loops, NOT `the current count`
+  - Count down: `count from 5 down to 1:`, NOT `count downward` (`down` is not a keyword; a variable start needs parentheses: `count from (top) down to 1:`)
   - Typeof syntax: `typeof of value`, NOT `typeof(value)`
   - Action syntax: `define action called name with parameters x:`, NOT `action name with x:`
 - **Working Examples**:
   - Core syntax: `TestPrograms/basic_syntax_comprehensive.wfl`, `file_io_comprehensive.wfl`, `comprehensive_web_server_demo.wfl`, `containers_comprehensive.wfl`, `patterns_comprehensive.wfl`
-  - Keyword examples: `TestPrograms/docs_examples/keyword_reference/` (11 example files with validation manifest)
+  - Keyword examples: `TestPrograms/docs_examples/keyword_reference/` (12 example files with validation manifest)
 
 ## Agent‑Specific Policies (Critical Rules)
 - **Governance**: Follow root `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `AI_POLICY.md`, `CONTRIBUTING.md` (see **Project Governance** above). Do not re-litigate AI use; do not skip quality gates because AI produced the draft.
 - **Backward Compatibility**: Sacred. Never break existing WFL programs without the documented deprecation path (`GOVERNANCE.md`). Run all `TestPrograms/`.
+- **Reserved Words**: Check names against `Docs/reference/reserved-keywords.md` *before* writing WFL — `start`, `output`, `route`, `captured`, `by`, and `find` are reserved. See **Reserved Words — Check Before You Name Anything**.
 - **Integration Tests**: Require `cargo build --release` and provided scripts.
 - **Documentation**: MANDATORY — any added or changed feature MUST ship its docs in the same change (see "Documentation Development"). Keep `Docs/` current, validate ALL code examples with MCP before adding, and add a Dev Diary note in `History/dev-diary/<year>/` for non-trivial changes.
 - **Repository Hygiene**: Binding (`REPOSITORY_HYGIENE.md`). One canonical home per file; write test/tool output only under `target/` or temp dirs; archive additions require an `Archive/manifest.json` entry; run `python3 scripts/check_repo_hygiene.py --mode static` before pushing structural changes.

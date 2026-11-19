@@ -1306,15 +1306,10 @@ async fn run() -> io::Result<()> {
 
                                     // Filter out "Symbol already defined" errors at line 0, column 0
                                     // These are likely from imported files or standard library definitions
-                                    if e.message.starts_with("Symbol '")
+                                    !(e.message.starts_with("Symbol '")
                                         && e.message.contains("' is already defined in this scope")
                                         && e.line == 0
-                                        && e.column == 0
-                                    {
-                                        return false;
-                                    }
-
-                                    true
+                                        && e.column == 0)
                                 })
                                 .collect();
 

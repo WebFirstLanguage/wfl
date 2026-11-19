@@ -67,7 +67,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   which an action now reads and changes like any other property (the runtime
   used to bind the object over it).
 
+### Fixed
+- **Invalid `dns_servers_mode` fails closed even when `dns_servers` is unset.**
+  A typo such as `dns_servers_mode = sometimes` no longer falls through to the
+  system resolvers on Linux. An explicit `dns_resolver = system` still wins.
+- **DNS lookups return as soon as A or AAAA yields addresses.** A server that
+  answers IPv4 and stays silent on IPv6 no longer holds the lookup for the
+  full per-server timeout.
+- **`find all` name protection and legacy reading.** The fixer keeps both
+  spellings of a merged `find all` token, so a local `all patterns` cannot
+  rewrite a top-level `find all patterns`. The analyzer and typechecker use
+  the same invocation-time legacy reading as the runtime when `all <name>` is
+  a later top-level binding (action and method bodies) or a container
+  property. Top-level code still reads those bindings in order.
+- **An action parameter named `random_seed` no longer hides a file-level
+  alias of the builtin** from the insecure-seeding lint.
+
 ### Changed
+- **Dependabot eligibility checks every lockfile version**, including
+  transitive packages, against the same-major / `0.x` same-minor semver limit
+  in GOVERNANCE §3.10.
+- **Count-loop step errors name the program's own loop.** A count loop's step
+  is a positive distance (`to` counts up, `down to` counts down). When a loop
+  that would run has a step of zero or less, the error now suggests the loop
+  the program most likely meant, e.g. "Write `count from 5 down to 1`",
+  instead of a fixed unrelated example.
 - **Nightly versions are numbered from `vYY.M.N` tags at publish time.** The
   next build for the current UTC month is max N + 1, or 1 if none exist, and
   the committed `.build_meta.json` is a same-month floor only. It is no longer
@@ -77,7 +101,101 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   time and pushes the `vX.Y.Z` tag at the built commit; a same-commit rerun
   reuses that tag instead of burning a new number.
 
+### Deprecated
+- **An empty count loop with a step of zero or less** (#800, removal tracked in
+  #801). Examples are `count from 5 to 1 by -1`, the mirror
+  `count from 1 down to 5 by -1`, and a `by 0` on either.
+  - **Before:** such a loop ran zero times without a word, so a line that
+    reads like a countdown silently did nothing.
+  - **Now:** it still runs zero times and the program carries on, but WFL
+    prints a warning on stderr, once per loop. The warning names the loop the
+    program most likely meant ("Write `count from 5 down to 1`") and the date
+    it becomes an error.
+  - **From 2027-12-01 it will be a runtime error**, after the one-year window
+    GOVERNANCE.md §3.1 requires.
+  - **Migration:** rewrite the line with `down to` and a positive step. Review
+    the loop body first: it never ran before, and the rewritten loop runs it.
+    Delete the loop instead if it was never meant to run.
+  - **Not affected:** an empty range with a valid step
+    (`count from 1 to length of items` over an empty list) does not warn.
+
 ### Fixed
+- **DNS search-list cache and mixed failures, and REPL `random_seed`.** Four
+  bugs in ordered DNS resolution and the REPL security gate:
+  - A search-expanded address was cached for the successful candidate's TTL
+    even when an earlier search name had returned NXDOMAIN with a shorter
+    negative TTL, so the preferred name stayed hidden after it became
+    resolvable. The cached positive answer is now bounded by those earlier
+    negative expiries, and is not cached when an earlier failure has no TTL.
+  - A lookup could read an old `resolv.conf` and then observe the cache
+    generation created by a concurrent reload, so the old nameserver's answer
+    was stored as current. The configuration snapshot and generation are now
+    taken together.
+  - When A timed out but AAAA returned SERVFAIL, the combined result looked
+    like complete silence, so search expansion stopped and a later resolvable
+    candidate (including the bare name) was never asked. A family that
+    actually replied is now preferred, and only a timeout on both families
+    stops the search.
+  - In the REPL, a user variable named `random_seed` from an earlier
+    submission was treated as the builtin when a later line mentioned it,
+    marking the session seeded and blocking crypto. Top-level `store` and
+    action names from earlier submissions are now visible to that scan;
+    nested names such as action parameters are not, so they cannot hide a
+    later mention of the real builtin.
+- **Count and for-each loop errors point at the loop's first line.** An error
+  raised by a `count` or `for each` loop itself was reported at the token after
+  `end count` or `end for`, so the location and source excerpt showed the end
+  of the loop. This affected the count-loop step errors, `Count loop requires
+  numeric start and end values`, `Cannot iterate over ...`, the type checker's
+  loop type errors, the nested count-loop name error, the linter's nesting
+  warning, `--step` output and the language server's squiggles. A loop at the
+  very end of a file with no trailing newline was reported at line 0, which
+  showed as the start of the file. These now point at the loop's `count` or
+  `for` keyword, as `check`, `repeat` and `main loop` already did. The new
+  empty-range step warning (see **Deprecated** above) names the same line, as
+  `(count loop on line N)`. Exit codes and the wording of existing messages
+  are unchanged. **Compatibility:** some messages quote the
+  position in their text, and those numbers change too. They now name the
+  loop's first line instead of a point past its end:
+  - `Variable 'i' has already been defined at line N` for a count loop's
+    variable.
+  - The `Semantic error at line N, column M` text in the error that
+    `load module`, `include from` or `execute file` raises for a file with a
+    bad loop, and the `Type error at line N, column M` text in the error
+    `load module` raises.
+  - The `(line N)` in `Error in executed file '...' (line N): ...` when a loop
+    in a file run by `execute file` fails.
+
+  A program that catches one of these errors and displays `error_message`
+  prints the new numbers.
+- **`find all <pattern> in <text>` works as documented.** The pattern docs and
+  the builtin reference promised this spelling, but the lexer merges `all word`
+  into one name, so the documented program failed with "Variable 'all word' is
+  not defined" (exit 3). It now returns a list of every non-overlapping match,
+  the same as `pattern_find_all of <text> and <pattern>`, and an empty list
+  when nothing matches. **Compatibility:** `all` is not reserved. A program
+  that already has a variable named `all <name>` (or `all`) keeps the old
+  single-match meaning of `find all <name> in ...` while that variable exists.
+  `wfl --lint --fix` keeps the spelling of a variable used as a `find all`
+  operand, because its merged `all <name>` use cannot be renamed with it.
+- **`random_seed` is an error in any file that also does crypto or auth, as
+  documented.** The `ANALYZE-SECURITY` check missed a crypto or auth call (or
+  the seed) inside most constructs, including container creation, method-call
+  arguments, `create map`/`create list`, file writes, `wait for`, outbound HTTP,
+  `expect`, and the expression form of a database query. It also missed a
+  builtin called through a variable (`store reseed as random_seed`), and it
+  never ran on files brought in with `include from`, `load module from`, or
+  `execute file at`. All of these are now reported. A loaded file that breaks
+  the rule fails to load, before any of it runs. The language server and the
+  MCP `analyze_wfl` tool now show the error too. Programs that relied on these
+  gaps now stop with an error naming the file and line. That is intended: they
+  are the programs the rule exists to stop. `sha256` and WFLHASH still do not
+  count as crypto for this rule. The check remains per file.
+- **Instance actions preserve properties hidden by globals** (#789 review).
+  A bare name inside an action still resolves to a same-named global, but
+  returning from the action no longer copies that global into the object's
+  untouched property. Property write-back reads only the action frame's own
+  bindings.
 - **Container construction binds the instance name only after success**
   (#789 review, #786). `create new K with … as k:` evaluated constructor
   arguments and ran `initialize` after the name was already in the

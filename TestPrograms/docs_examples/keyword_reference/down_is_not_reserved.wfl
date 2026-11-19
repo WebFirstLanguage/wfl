@@ -1,0 +1,13 @@
+// `down` is not a keyword: a count loop recognizes it only right before `to`
+count from 3 down to 1:
+    display count
+end count
+
+// So `down` is still an ordinary name everywhere else,
+// and so are `downward` and `upward`, which WFL never used
+store down as "the floor below"
+store downward as "toward the floor"
+store upward as "toward the sky"
+display down
+display downward
+display upward

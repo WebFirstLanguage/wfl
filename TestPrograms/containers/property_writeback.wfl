@@ -1,0 +1,23 @@
+// Reading a same-named global must not copy it into an instance property.
+store shared_value as 7
+
+create container Counter:
+    property shared_value: Number
+    action read_global: Number
+        return shared_value
+    end
+end
+
+create new Counter as counter:
+    shared_value is 1
+end
+
+store observed as counter.read_global()
+
+describe "instance property write-back":
+    test "a global keeps precedence without changing the property":
+        expect observed to equal 7
+        expect shared_value to equal 7
+        expect counter.shared_value to equal 1
+    end test
+end describe

@@ -1001,6 +1001,12 @@ impl CodeFixer {
                 output.push_str(" in ");
                 self.pretty_print_expression(text, output, indent_level, summary);
             }
+            Expression::PatternFindAll { text, pattern, .. } => {
+                output.push_str("find all ");
+                self.pretty_print_expression(pattern, output, indent_level, summary);
+                output.push_str(" in ");
+                self.pretty_print_expression(text, output, indent_level, summary);
+            }
             Expression::PatternReplace {
                 text,
                 pattern,

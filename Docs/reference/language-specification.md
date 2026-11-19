@@ -19,11 +19,11 @@ WFL’s design follows the [19 guiding principles](../wfl-foundation.md) and the
 
 ### Keywords
 
-**181** keywords and literals, organized by purpose and type.
+**198** keywords and literals, organized by purpose and type.
 
 **Keyword types:**
-- 54 Structural Keywords (core language constructs)
-- 29 Contextual Keywords (context-dependent usage)
+- 63 Structural Keywords (core language constructs)
+- 32 Contextual Keywords (context-dependent usage)
 - 96 Other Reserved Keywords (feature-specific)
 - 7 Boolean & Null Literals
 
@@ -121,10 +121,15 @@ end check
 
 **Count Loop:**
 ```
-count from <start> to <end> [by <step>]:
+count from <start> [down] to <end> [by <step>] [as <identifier>]:
     <statements>
 end count
 ```
+
+`to` counts up and `down to` counts down. `<step>` is a distance and must be a
+positive, finite number; it is checked before the loop starts. A step of zero
+or less is a runtime error when the loop would run. On an empty range the loop
+runs zero times with a warning on stderr; from 2027-12-01 that is an error too.
 
 **For Each Loop:**
 ```

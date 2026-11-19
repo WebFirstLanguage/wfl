@@ -492,6 +492,45 @@ impl ConfigChecker {
             },
         );
 
+        // DNS settings (ordered DNS resolution for outbound HTTP requests).
+        // No defaults are written for these: `--configFix` must never invent
+        // DNS servers, and a generated file must not switch resolvers.
+        for (name, config_type, description) in [
+            (
+                "dns_servers",
+                ConfigType::StringList,
+                "DNS servers WFL asks, one at a time, in order (IP addresses, optional :port)",
+            ),
+            (
+                "dns_servers_mode",
+                ConfigType::String,
+                "How dns_servers combine with the system's servers: only, before_system, after_system",
+            ),
+            (
+                "dns_timeout_seconds",
+                ConfigType::Integer,
+                "Seconds to wait for each DNS server before asking the next one (1-30)",
+            ),
+            (
+                "dns_resolver",
+                ConfigType::String,
+                "Which resolver outbound HTTP requests use: wfl (ordered) or system",
+            ),
+        ] {
+            expected_settings.insert(
+                name.to_string(),
+                ExpectedSetting {
+                    name: name.to_string(),
+                    config_type,
+                    required: false,
+                    default_value: None,
+                    description: description.to_string(),
+                    valid_values: None,
+                    category: "DNS".to_string(),
+                },
+            );
+        }
+
         expected_settings.insert(
             "web_server_tls_key_file".to_string(),
             ExpectedSetting {
@@ -740,6 +779,23 @@ impl ConfigChecker {
                 }
 
                 let setting = &self.expected_settings[key];
+
+                // DNS keys share the loader's validation exactly, so a value the
+                // loader would reject (and fail closed on) is reported here.
+                if key.starts_with("dns_") {
+                    if let Some(reason) = crate::interpreter::dns::setting_problem(key, value) {
+                        issues.push(ConfigIssue {
+                            file_path: file_path.to_path_buf(),
+                            kind: ConfigIssueKind::InvalidValue,
+                            issue_type: ConfigIssueType::Error,
+                            message: format!("Invalid value for {key}: {reason}"),
+                            setting_name: Some(key.to_string()),
+                            line_number: Some(line_number + 1),
+                            fix_message: None,
+                        });
+                    }
+                    continue;
+                }
 
                 match setting.config_type {
                     ConfigType::Integer => {
