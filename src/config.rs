@@ -957,6 +957,39 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
     }
 }
 
+/// Load `.wflcfg` walking up from `dir`, without reading the machine-wide
+/// global file. Tests that pin DNS and other keys use this so an operator's
+/// `/etc/wfl/wfl.cfg` (or `WFL_GLOBAL_CONFIG_PATH`) cannot change the fixture.
+pub fn load_local_config(dir: &Path) -> WflConfig {
+    let mut config = WflConfig::default();
+    apply_nearest_local_config(&mut config, dir);
+    config
+}
+
+fn apply_nearest_local_config(config: &mut WflConfig, dir: &Path) {
+    let mut current_dir = Some(std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()));
+    let mut found_local_config = None;
+
+    while let Some(dir_path) = current_dir {
+        let config_path = dir_path.join(".wflcfg");
+        if config_path.exists() {
+            found_local_config = Some(config_path);
+            break;
+        }
+        current_dir = dir_path.parent().map(Path::to_path_buf);
+    }
+
+    if let Some(local_config) = found_local_config
+        && let Ok(text) = std::fs::read_to_string(&local_config)
+    {
+        log::debug!(
+            "Loading local configuration from {}",
+            local_config.display()
+        );
+        parse_config_text(config, &text, &local_config);
+    }
+}
+
 pub fn load_config(dir: &Path) -> WflConfig {
     // Start with default configuration
     let mut config = WflConfig::default();
@@ -989,29 +1022,7 @@ pub fn load_config(dir: &Path) -> WflConfig {
         }
     }
 
-    // Walk up directory tree looking for .wflcfg (closest wins)
-    // Canonicalize the starting directory to resolve relative paths
-    let mut current_dir = Some(std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()));
-    let mut found_local_config = None;
-
-    while let Some(dir_path) = current_dir {
-        let config_path = dir_path.join(".wflcfg");
-        if config_path.exists() {
-            found_local_config = Some(config_path);
-            break; // Stop at first .wflcfg found
-        }
-        current_dir = dir_path.parent().map(Path::to_path_buf);
-    }
-
-    if let Some(local_config) = found_local_config
-        && let Ok(text) = std::fs::read_to_string(&local_config)
-    {
-        log::debug!(
-            "Loading local configuration from {}",
-            local_config.display()
-        );
-        parse_config_text(&mut config, &text, &local_config);
-    }
+    apply_nearest_local_config(&mut config, dir);
 
     config
 }
@@ -1048,30 +1059,7 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
         }
     }
 
-    // Walk up directory tree looking for .wflcfg (closest wins)
-    // Canonicalize the starting directory to resolve relative paths
-    let mut current_dir =
-        Some(std::fs::canonicalize(script_dir).unwrap_or_else(|_| script_dir.to_path_buf()));
-    let mut found_local_config = None;
-
-    while let Some(dir_path) = current_dir {
-        let config_path = dir_path.join(".wflcfg");
-        if config_path.exists() {
-            found_local_config = Some(config_path);
-            break; // Stop at first .wflcfg found
-        }
-        current_dir = dir_path.parent().map(Path::to_path_buf);
-    }
-
-    if let Some(local_config) = found_local_config
-        && let Ok(text) = std::fs::read_to_string(&local_config)
-    {
-        log::debug!(
-            "Loading local configuration from {}",
-            local_config.display()
-        );
-        parse_config_text(&mut config, &text, &local_config);
-    }
+    apply_nearest_local_config(&mut config, script_dir);
 
     config
 }
@@ -1384,6 +1372,52 @@ mod tests {
         assert_eq!(config.max_line_length, 120); // From global
         assert_eq!(config.log_level, LogLevel::Debug); // Local override
         assert!(!config.snake_case_variables); // Local override
+    }
+
+    #[test]
+    fn load_local_config_ignores_a_machine_wide_dns_resolver() {
+        use crate::interpreter::dns::{DnsResolverChoice, Setting};
+
+        let global_dir = tempdir().unwrap();
+        let global_config_path = global_dir.path().join("wfl.cfg");
+        fs::write(&global_config_path, "dns_resolver = system\n").unwrap();
+
+        let script_dir = tempdir().unwrap();
+        fs::write(
+            script_dir.path().join(".wflcfg"),
+            "dns_servers = 127.0.0.1:5353\n",
+        )
+        .unwrap();
+
+        let (inherited, isolated) = with_test_global_path(|| {
+            set_test_env_var(Some(global_config_path.to_str().unwrap()));
+            (
+                load_config(script_dir.path()),
+                load_local_config(script_dir.path()),
+            )
+        });
+
+        assert!(
+            matches!(
+                inherited.dns.resolver,
+                Setting::Set {
+                    value: DnsResolverChoice::System,
+                    ..
+                }
+            ),
+            "load_config must still inherit the machine-wide resolver: {:?}",
+            inherited.dns.resolver
+        );
+        assert!(
+            matches!(isolated.dns.resolver, Setting::Unset),
+            "load_local_config must not inherit dns_resolver = system: {:?}",
+            isolated.dns.resolver
+        );
+        assert!(
+            matches!(isolated.dns.servers, Setting::Set { .. }),
+            "the fixture's dns_servers must still apply: {:?}",
+            isolated.dns.servers
+        );
     }
 
     #[test]

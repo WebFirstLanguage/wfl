@@ -363,6 +363,24 @@ fn a_bound_name_from_outside_the_program_is_not_the_builtin() {
 }
 
 #[test]
+fn an_action_parameter_named_random_seed_does_not_hide_a_file_level_alias() {
+    // A parameter exists only inside that action. Storing the builtin under an
+    // alias elsewhere in the same file is still seeding, and must be reported
+    // when the file also does crypto.
+    assert_flagged(
+        "action parameter named random_seed, then store alias as random_seed",
+        r#"
+define action called echo with random_seed:
+    give back random_seed
+end action
+store seeded_rng as random_seed
+store seeded as seeded_rng of 123
+store digest as hash_password of "hunter2"
+"#,
+    );
+}
+
+#[test]
 fn session_level_bindings_skip_action_parameters() {
     let program = parse(
         r#"

@@ -249,6 +249,44 @@ fn parser_lowers_merged_all_to_a_find_all_over_the_split_off_name() {
 }
 
 #[test]
+fn fixer_protects_the_merged_find_all_spelling_as_well_as_the_operand() {
+    // `find all patterns` is one identifier token (`all patterns`). A local
+    // variable of that same spelling is a snake_case candidate; renaming it
+    // name-wide would rewrite the top-level phrase to `find all_patterns`.
+    let src = "define action called helper:\n\
+               \x20\x20\x20\x20store all patterns as 1\n\
+               \x20\x20\x20\x20give back all patterns\n\
+               end action\n\
+               create pattern patterns:\n    one or more letter\nend pattern\n\
+               store hits as find all patterns in \"alpha beta\"\n\
+               display \"count: \" with length of hits\n";
+    let program = Parser::new(&lex_wfl_with_positions(src))
+        .parse()
+        .expect("parse");
+    let (fixed, _) = CodeFixer::new()
+        .fix_checked(&program, src)
+        .expect("formatting valid source must succeed");
+    assert!(
+        fixed.contains("store all patterns as 1"),
+        "the local merged spelling must stay unrenamed:\n{fixed}"
+    );
+    assert!(
+        fixed.contains("find all patterns"),
+        "the top-level find-all phrase must keep `all patterns`:\n{fixed}"
+    );
+    assert!(
+        !fixed.contains("all_patterns"),
+        "snake_casing the merged token would break the top-level find-all:\n{fixed}"
+    );
+    let (out, code) = run_src(&fixed);
+    assert!(
+        out.contains("count: 2"),
+        "the fixed program must still find both words:\n{fixed}\n{out}"
+    );
+    assert_eq!(code, Some(0), "fixed program should exit 0: {out}");
+}
+
+#[test]
 fn fixer_keeps_a_find_all_operand_in_step_with_its_declaration() {
     // The lexer merges `all Word Finder` into one token, so the fixer's
     // whole-token snake_case rename cannot update that use. It must leave the
@@ -321,6 +359,124 @@ fn pattern_named_all_keeps_its_single_match_meaning() {
                display \"legacy: \" with hit[\"matched_text\"]\n";
     let (out, code) = run_src(src);
     assert!(out.contains("legacy: 12"), "expected the first run: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn legacy_find_all_inside_an_action_sees_a_later_top_level_binding() {
+    // Runtime chooses the legacy single-match reading when `all needle` exists
+    // at the call. The typechecker must not treat the body's result as a list
+    // of maps and reject `hit["matched_text"]` just because the binding is
+    // declared after the action.
+    let src = "define action called search:\n\
+               \x20\x20\x20\x20store hit as find all needle in \"aa\"\n\
+               \x20\x20\x20\x20give back hit[\"matched_text\"]\n\
+               end action\n\
+               create pattern all needle:\n    one or more letter\nend pattern\n\
+               store result as call search\n\
+               display \"legacy: \" with result\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("List index must be a number"),
+        "typechecker must not treat the action result as a list of matches: {out}"
+    );
+    assert!(
+        !out.contains("is not defined"),
+        "the later top-level `all needle` binding must be visible to the action body: {out}"
+    );
+    assert!(
+        out.contains("legacy: aa"),
+        "expected the single legacy match: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn legacy_find_all_inside_a_container_action_sees_the_property() {
+    // Runtime looks up `all needle` in the method environment, including a
+    // container property. Typechecking runs after the analyzer has restored
+    // its container context, so the typechecker must still see that property
+    // when choosing the legacy single-match reading.
+    let src = "create container Finder:\n\
+               \x20\x20\x20\x20property all needle: Pattern\n\
+               \x20\x20\x20\x20action search: Text\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20store hit as find all needle in \"aa\"\n\
+               \x20\x20\x20\x20\x20\x20\x20\x20give back hit[\"matched_text\"]\n\
+               \x20\x20\x20\x20end\n\
+               end\n\
+               create pattern letters:\n    one or more letter\nend pattern\n\
+               create new Finder as finder:\n\
+               \x20\x20\x20\x20all needle is letters\n\
+               end\n\
+               store result as finder.search()\n\
+               display \"legacy: \" with result\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("List index must be a number"),
+        "typechecker must not treat the method result as a list of matches: {out}"
+    );
+    assert!(
+        !out.contains("is not defined"),
+        "the container property `all needle` must be visible in the method: {out}"
+    );
+    assert!(
+        out.contains("legacy: aa"),
+        "expected the single legacy match: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn top_level_find_all_is_not_rewritten_by_a_later_legacy_binding() {
+    // Top-level code runs in order. A later `store all word` must not make an
+    // earlier `find all word` take the legacy fallback (whose nested parse
+    // would then report `all letters` undefined).
+    let src = "create pattern word:\n    one or more letter\nend pattern\n\
+               create pattern letters:\n    one or more letter\nend pattern\n\
+               store hits as find all word in (\"\" with (find all letters in \"aa\"))\n\
+               store all word as word\n\
+               display \"count: \" with length of hits\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("is not defined"),
+        "a later top-level `all word` must not rewrite the earlier find all: {out}"
+    );
+    assert!(
+        out.contains("count:"),
+        "expected the new find-all reading to produce a list: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn legacy_find_all_of_call_inside_an_action_sees_a_later_alias() {
+    // The legacy fallback of `find all pick of word` is `all pick of word`.
+    // When `all pick` is stored after the action, analysis of the body must
+    // treat that callee as defined rather than reporting it undefined.
+    let src = "create pattern word:\n    one or more letter\nend pattern\n\
+               define action called pick with value:\n\
+               \x20\x20\x20\x20give back value\n\
+               end action\n\
+               define action called search:\n\
+               \x20\x20\x20\x20store hit as find all pick of word in \"aa\"\n\
+               \x20\x20\x20\x20give back hit[\"matched_text\"]\n\
+               end action\n\
+               store all pick as pick\n\
+               store result as call search\n\
+               display \"legacy: \" with result\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("is not defined"),
+        "a later `all pick` alias used through `of` must be visible in the action: {out}"
+    );
+    assert!(
+        !out.contains("List index must be a number"),
+        "typechecker must not treat the action result as a list of matches: {out}"
+    );
+    assert!(
+        out.contains("legacy: aa"),
+        "expected the single legacy match: {out}"
+    );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
 

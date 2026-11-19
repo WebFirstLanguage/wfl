@@ -448,12 +448,17 @@ fn rename_locals(
         {
             protected.insert(operand);
         }
-        // `find all <name> in ...` merges the same way (`all <name>`).
+        // `find all <name> in ...` merges the same way (`all <name>`). Protect
+        // both the split-off operand and the full merged spelling: a local
+        // `all patterns` is otherwise a rename candidate, and a name-wide
+        // rewrite would turn a top-level `find all patterns` into
+        // `find all_patterns`.
         if matches!(pair[0].token, Token::KeywordFind)
             && let Token::Identifier(name) = &pair[1].token
             && let Some(operand) = name.strip_prefix("all ")
         {
             protected.insert(operand);
+            protected.insert(name.as_str());
         }
         if matches!(pair[0].token, Token::Dot | Token::Colon)
             && let Token::Identifier(name) = &pair[1].token

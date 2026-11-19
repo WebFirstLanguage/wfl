@@ -293,6 +293,10 @@ pub struct TypeChecker {
     /// least one element. This small cardinality fact lets a for-each over a
     /// non-empty literal retain its guaranteed first-iteration effects.
     definitely_nonempty_lists: HashSet<SymbolBindingKey>,
+    /// Index of the top-level statement currently being checked, if any.
+    /// Immediate top-level `find all` must not treat a later `all <name>` store
+    /// as live; action and method bodies still may.
+    current_top_level_statement_index: Option<usize>,
 }
 
 impl Default for TypeChecker {
@@ -336,6 +340,7 @@ impl TypeChecker {
             optional_refinement_origins: HashMap::new(),
             has_websocket_handlers: false,
             definitely_nonempty_lists: HashSet::new(),
+            current_top_level_statement_index: None,
         }
     }
 
@@ -369,6 +374,7 @@ impl TypeChecker {
             optional_refinement_origins: HashMap::new(),
             has_websocket_handlers: false,
             definitely_nonempty_lists: HashSet::new(),
+            current_top_level_statement_index: None,
         }
     }
 
@@ -3659,6 +3665,7 @@ impl TypeChecker {
         self.optional_refinement_origins.clear();
         self.has_websocket_handlers = false;
         self.definitely_nonempty_lists.clear();
+        self.current_top_level_statement_index = None;
         // A supplied, already-run analyzer is valid only for this first call.
         // Reuse must create and run a fresh analyzer for the next Program.
         let analyzer_was_pre_run = std::mem::take(&mut self.analyzer_already_run);
@@ -3706,7 +3713,7 @@ impl TypeChecker {
             return Err(TypeCheckError::Types(self.errors.clone()));
         }
 
-        for statement in &program.statements {
+        for (index, statement) in program.statements.iter().enumerate() {
             // The budget is polled inside `check_statement_types` (below), which
             // runs for every top-level statement and recurses into nested bodies.
             // Stop iterating the moment a breach is recorded there — including one
@@ -3714,8 +3721,10 @@ impl TypeChecker {
             if self.budget_error.is_some() {
                 break;
             }
+            self.current_top_level_statement_index = Some(index);
             self.check_statement_types(statement);
         }
+        self.current_top_level_statement_index = None;
 
         // A budget breach is fatal and takes precedence over any diagnostics
         // accumulated alongside it.
@@ -8630,12 +8639,12 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                // The legacy single-match `find` while `all <name>` is defined,
-                // as the analyzer and the runtime choose it.
+                // The legacy single-match `find` while `all <name>` is defined
+                // at invocation, as the analyzer and the runtime choose it.
                 if let Some(fallback) = legacy_fallback
                     && legacy_binding
                         .as_deref()
-                        .is_some_and(|name| self.name_is_defined_for_write(name))
+                        .is_some_and(|name| self.legacy_find_all_binding_is_live(name))
                 {
                     return self.infer_expression_type(fallback);
                 }
@@ -10627,6 +10636,25 @@ impl TypeChecker {
         self.current_container_property_type(name).is_some()
     }
 
+    /// Runtime `find all` uses the legacy single-match reading when `all <name>`
+    /// exists at invocation. The analyzer's check is not enough on its own:
+    /// typechecking walks method bodies after the analyzer has restored its
+    /// container context, so a property named `all <name>` is only visible
+    /// through this typechecker's live container lookup. Top-level code still
+    /// runs in order, so a later `store`/`create pattern` is not live there.
+    fn legacy_find_all_binding_is_live(&self, name: &str) -> bool {
+        let in_deferred_body =
+            !self.deferred_action_key_stack.is_empty() || self.current_container.is_some();
+        if !in_deferred_body
+            && let Some(declared_at) = self.analyzer.top_level_binding_declared_at(name)
+            && let Some(current) = self.current_top_level_statement_index
+            && declared_at > current
+        {
+            return false;
+        }
+        self.name_is_defined_for_write(name) || self.analyzer.legacy_find_all_binding_is_live(name)
+    }
+
     /// Resolve a direct or inherited property against the typechecker's live
     /// container context. The analyzer has restored its own container context
     /// by the time method bodies are typechecked, so both definedness and type
@@ -10940,7 +10968,7 @@ impl TypeChecker {
                 if let Some(fallback) = legacy_fallback
                     && legacy_binding
                         .as_deref()
-                        .is_some_and(|name| self.name_is_defined_for_write(name))
+                        .is_some_and(|name| self.legacy_find_all_binding_is_live(name))
                 {
                     self.check_expression_names_defined(fallback);
                 } else {

@@ -13,6 +13,7 @@
 //! (`dns_fake_server`). Nothing here reaches the public internet once the
 //! feature exists: with `dns_servers` set, WFL asks only those servers.
 
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use wfl::interpreter::Interpreter;
+use wfl::interpreter::dns::{DnsSettings, OrderedResolver, SystemSources, plan};
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
@@ -53,8 +55,8 @@ fn parse(code: &str) -> wfl::parser::ast::Program {
 async fn run_with_config(cfg: &str, program: &str) -> Result<String, String> {
     let dir = TempDir::new().expect("tempdir");
     std::fs::write(dir.path().join(".wflcfg"), cfg).expect("write .wflcfg");
-    let config = wfl::config::load_config(dir.path());
-    let mut interpreter = Interpreter::with_config(Arc::new(config));
+    let config = wfl::config::load_local_config(dir.path());
+    let mut interpreter = Interpreter::with_config_ignoring_proxies(Arc::new(config));
     match interpreter.interpret(&parse(program)).await {
         Ok(_) => match interpreter.global_env().borrow().get("body") {
             Some(wfl::interpreter::value::Value::Text(t)) => Ok(t.to_string()),
@@ -89,6 +91,14 @@ fn run_binary(dir: &Path, args: &[&str], global: Option<&Path>) -> (String, Opti
         .args(args)
         .current_dir(dir)
         .env("WFL_GLOBAL_CONFIG_PATH", global.unwrap_or(&missing_global))
+        .env("NO_PROXY", "*")
+        .env("no_proxy", "*")
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("ALL_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("all_proxy")
         .output()
         .expect("run wfl");
     let combined = format!(
@@ -378,6 +388,48 @@ async fn addresses_for_one_family_are_final() {
     let body = fetch(&cfg, &format!("http://mixed.wfl.test:{}/", http.port)).await;
     assert_eq!(body.as_deref(), Ok("ok"), "{body:?}");
     assert!(second.queries_for("mixed.wfl.test").is_empty());
+}
+
+/// FR-06 AC2 item 1 + NFR-01: once the first server returns addresses for
+/// either family, the lookup is final. A silent AAAA query must not hold the
+/// result for the full per-server timeout.
+#[tokio::test]
+async fn lookup_returns_without_waiting_for_a_silent_aaaa_query() {
+    let server = FakeDns::start(|q| {
+        if q.qtype == TYPE_AAAA {
+            Reply::Silent
+        } else {
+            Reply::loopback()
+        }
+    })
+    .await;
+    let mut settings = DnsSettings::default();
+    assert!(settings.apply(
+        "dns_servers",
+        &server.addr.to_string(),
+        Path::new("/project/.wflcfg")
+    ));
+    assert!(settings.apply("dns_timeout_seconds", "2", Path::new("/project/.wflcfg")));
+    let resolver = OrderedResolver::from_plan_with_sources(
+        &plan(&settings),
+        SystemSources {
+            resolv_conf: None,
+            hosts: None,
+            port: 53,
+        },
+    )
+    .expect("WFL resolver");
+    let started = Instant::now();
+    let found = resolver.lookup("v4only.wfl.test").await;
+    let elapsed = started.elapsed();
+    assert_eq!(
+        found.map_err(|e| e.to_string()),
+        Ok(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
+    );
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "a silent AAAA query must not delay a usable A answer; elapsed {elapsed:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +749,7 @@ async fn abandoning_a_request_drops_its_dns_lookup() {
             started: Arc::clone(&started),
             dropped: Arc::clone(&dropped),
         }))
+        .no_proxy()
         .build()
         .expect("client");
 

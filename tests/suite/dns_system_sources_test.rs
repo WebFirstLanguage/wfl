@@ -379,7 +379,7 @@ async fn a_server_in_both_lists_is_asked_once() {
 }
 
 /// FR-12 AC4: a mixing mode with no usable system list uses dns_servers alone.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn mixing_mode_without_a_system_list_uses_dns_servers_alone() {
     let mine = FakeDns::start(|_| Reply::loopback()).await;

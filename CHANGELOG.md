@@ -67,7 +67,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   which an action now reads and changes like any other property (the runtime
   used to bind the object over it).
 
+### Fixed
+- **Invalid `dns_servers_mode` fails closed even when `dns_servers` is unset.**
+  A typo such as `dns_servers_mode = sometimes` no longer falls through to the
+  system resolvers on Linux. An explicit `dns_resolver = system` still wins.
+- **DNS lookups return as soon as A or AAAA yields addresses.** A server that
+  answers IPv4 and stays silent on IPv6 no longer holds the lookup for the
+  full per-server timeout.
+- **`find all` name protection and legacy reading.** The fixer keeps both
+  spellings of a merged `find all` token, so a local `all patterns` cannot
+  rewrite a top-level `find all patterns`. The analyzer and typechecker use
+  the same invocation-time legacy reading as the runtime when `all <name>` is
+  a later top-level binding (action and method bodies) or a container
+  property. Top-level code still reads those bindings in order.
+- **An action parameter named `random_seed` no longer hides a file-level
+  alias of the builtin** from the insecure-seeding lint.
+
 ### Changed
+- **Dependabot eligibility checks every lockfile version**, including
+  transitive packages, against the same-major / `0.x` same-minor semver limit
+  in GOVERNANCE §3.10.
 - **Count-loop step errors name the program's own loop.** A count loop's step
   is a positive distance (`to` counts up, `down to` counts down). When a loop
   that would run has a step of zero or less, the error now suggests the loop

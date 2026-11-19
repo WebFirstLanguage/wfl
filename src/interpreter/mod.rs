@@ -2277,6 +2277,10 @@ pub struct IoClient {
     /// the configuration selects the operating system's resolver. Built on
     /// first use, like the clients. See [`dns`].
     dns_resolver: std::sync::OnceLock<Option<dns::OrderedResolver>>,
+    /// When true, outbound HTTP does not discover `HTTP_PROXY` / `HTTPS_PROXY`.
+    /// Tests talking to loopback fake servers set this so an ambient proxy
+    /// cannot intercept them. Production clients keep system proxy discovery.
+    disable_http_proxy: bool,
     // Registry locks cover only lookup/insertion/removal, never disk I/O.
     file_handles: std::sync::Mutex<HashMap<String, SharedFile>>,
     // Handles remain ordinary Text values for display/type/equality. Their
@@ -2750,6 +2754,11 @@ impl IoClient {
                 // Defence in depth against reusing a socket the peer has
                 // already closed: see HTTP_POOL_IDLE_TIMEOUT_SECONDS.
                 .pool_idle_timeout(Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECONDS));
+            let builder = if self.disable_http_proxy {
+                builder.no_proxy()
+            } else {
+                builder
+            };
             let builder = if follow_redirects {
                 builder
             } else {
@@ -2942,7 +2951,12 @@ impl IoClient {
             #[cfg(test)]
             active_stream_reapers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             config,
+            disable_http_proxy: false,
         }
+    }
+
+    fn disable_system_proxies(&mut self) {
+        self.disable_http_proxy = true;
     }
 
     /// Open a database connection pool and return its WFL handle ("db1", ...).
@@ -5274,6 +5288,17 @@ impl Interpreter {
     pub fn with_config(config: Arc<WflConfig>) -> Self {
         let budget = Arc::new(ExecutionBudget::from_config(&config));
         Self::with_config_and_budget(config, budget)
+    }
+
+    /// Like [`Self::with_config`], but outbound HTTP ignores system proxies.
+    /// Integration tests use this so `HTTP_PROXY` cannot steal traffic meant
+    /// for loopback fake servers. Production interpreters keep proxy discovery.
+    pub fn with_config_ignoring_proxies(config: Arc<WflConfig>) -> Self {
+        let mut interpreter = Self::with_config(config);
+        Rc::get_mut(&mut interpreter.io_client)
+            .expect("a freshly built interpreter uniquely owns its I/O client")
+            .disable_system_proxies();
+        interpreter
     }
 
     /// Construct an interpreter that shares a caller-supplied
