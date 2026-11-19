@@ -1244,6 +1244,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_action_parameter_named_random_seed_does_not_hide_the_builtin() {
+        // A parameter named random_seed exists only inside the action. It must
+        // not make a later `store reseed as random_seed` look like the user's
+        // variable, or crypto after that alias would skip ANALYZE-SECURITY.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called echo with random_seed:",
+            "give back random_seed",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert_eq!(
+            repl.process_line("store reseed as random_seed")
+                .await
+                .unwrap(),
+            None
+        );
+        let out = repl
+            .process_line("store token as secure_random_bytes of 16")
+            .await
+            .unwrap()
+            .expect("aliasing the builtin must still mark the session seeded");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("token"));
+    }
+
+    #[tokio::test]
     async fn fallback_does_not_block_reference_to_a_live_earlier_session_binding() {
         // In the isolated fallback we can't see earlier submissions, so a
         // reference to an earlier-session variable looks "undefined". But the name
