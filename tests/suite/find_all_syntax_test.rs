@@ -249,6 +249,44 @@ fn parser_lowers_merged_all_to_a_find_all_over_the_split_off_name() {
 }
 
 #[test]
+fn fixer_protects_the_merged_find_all_spelling_as_well_as_the_operand() {
+    // `find all patterns` is one identifier token (`all patterns`). A local
+    // variable of that same spelling is a snake_case candidate; renaming it
+    // name-wide would rewrite the top-level phrase to `find all_patterns`.
+    let src = "define action called helper:\n\
+               \x20\x20\x20\x20store all patterns as 1\n\
+               \x20\x20\x20\x20give back all patterns\n\
+               end action\n\
+               create pattern patterns:\n    one or more letter\nend pattern\n\
+               store hits as find all patterns in \"alpha beta\"\n\
+               display \"count: \" with length of hits\n";
+    let program = Parser::new(&lex_wfl_with_positions(src))
+        .parse()
+        .expect("parse");
+    let (fixed, _) = CodeFixer::new()
+        .fix_checked(&program, src)
+        .expect("formatting valid source must succeed");
+    assert!(
+        fixed.contains("store all patterns as 1"),
+        "the local merged spelling must stay unrenamed:\n{fixed}"
+    );
+    assert!(
+        fixed.contains("find all patterns"),
+        "the top-level find-all phrase must keep `all patterns`:\n{fixed}"
+    );
+    assert!(
+        !fixed.contains("all_patterns"),
+        "snake_casing the merged token would break the top-level find-all:\n{fixed}"
+    );
+    let (out, code) = run_src(&fixed);
+    assert!(
+        out.contains("count: 2"),
+        "the fixed program must still find both words:\n{fixed}\n{out}"
+    );
+    assert_eq!(code, Some(0), "fixed program should exit 0: {out}");
+}
+
+#[test]
 fn fixer_keeps_a_find_all_operand_in_step_with_its_declaration() {
     // The lexer merges `all Word Finder` into one token, so the fixer's
     // whole-token snake_case rename cannot update that use. It must leave the
@@ -321,6 +359,31 @@ fn pattern_named_all_keeps_its_single_match_meaning() {
                display \"legacy: \" with hit[\"matched_text\"]\n";
     let (out, code) = run_src(src);
     assert!(out.contains("legacy: 12"), "expected the first run: {out}");
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn legacy_find_all_inside_an_action_sees_a_later_top_level_binding() {
+    // Runtime chooses the legacy single-match reading when `all needle` exists
+    // at the call. The typechecker must not treat the body's result as a list
+    // of maps and reject `hit["matched_text"]` just because the binding is
+    // declared after the action.
+    let src = "define action called search:\n\
+               \x20\x20\x20\x20store hit as find all needle in \"aa\"\n\
+               \x20\x20\x20\x20give back hit[\"matched_text\"]\n\
+               end action\n\
+               create pattern all needle:\n    one or more letter\nend pattern\n\
+               store result as call search\n\
+               display \"legacy: \" with result\n";
+    let (out, code) = run_src(src);
+    assert!(
+        !out.contains("Type error") && !out.contains("index"),
+        "static typing must match the runtime legacy reading: {out}"
+    );
+    assert!(
+        out.contains("legacy: aa"),
+        "expected the single legacy match: {out}"
+    );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
 

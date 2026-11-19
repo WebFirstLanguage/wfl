@@ -2211,6 +2211,27 @@ mod tests {
         // A mode without servers is ignored with a warning.
         let lonely = plan(&settings_with(&[("dns_servers_mode", "before_system")]));
         assert!(lonely.warnings()[0].contains("dns_servers_mode is set"));
+
+        // An *invalid* mode fails closed even when dns_servers is unset, so a
+        // typo cannot send lookups to the system resolvers (FR-13).
+        match plan(&settings_with(&[("dns_servers_mode", "sometimes")])) {
+            DnsPlan::Misconfigured { message } => {
+                assert!(
+                    message.contains("dns_servers_mode") && message.contains("sometimes"),
+                    "{message}"
+                );
+            }
+            other => panic!("invalid mode without servers must fail closed, got {other:?}"),
+        }
+
+        // An explicit dns_resolver = system override still wins.
+        assert!(matches!(
+            plan(&settings_with(&[
+                ("dns_servers_mode", "sometimes"),
+                ("dns_resolver", "system"),
+            ])),
+            DnsPlan::System { .. }
+        ));
     }
 
     /// `wfl --configCheck` (through `setting_problem`) rejects exactly what
