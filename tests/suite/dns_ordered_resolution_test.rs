@@ -55,8 +55,8 @@ fn parse(code: &str) -> wfl::parser::ast::Program {
 async fn run_with_config(cfg: &str, program: &str) -> Result<String, String> {
     let dir = TempDir::new().expect("tempdir");
     std::fs::write(dir.path().join(".wflcfg"), cfg).expect("write .wflcfg");
-    let config = wfl::config::load_config(dir.path());
-    let mut interpreter = Interpreter::with_config(Arc::new(config));
+    let config = wfl::config::load_local_config(dir.path());
+    let mut interpreter = Interpreter::with_config_ignoring_proxies(Arc::new(config));
     match interpreter.interpret(&parse(program)).await {
         Ok(_) => match interpreter.global_env().borrow().get("body") {
             Some(wfl::interpreter::value::Value::Text(t)) => Ok(t.to_string()),
@@ -91,6 +91,14 @@ fn run_binary(dir: &Path, args: &[&str], global: Option<&Path>) -> (String, Opti
         .args(args)
         .current_dir(dir)
         .env("WFL_GLOBAL_CONFIG_PATH", global.unwrap_or(&missing_global))
+        .env("NO_PROXY", "*")
+        .env("no_proxy", "*")
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("ALL_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("all_proxy")
         .output()
         .expect("run wfl");
     let combined = format!(
@@ -401,11 +409,7 @@ async fn lookup_returns_without_waiting_for_a_silent_aaaa_query() {
         &server.addr.to_string(),
         Path::new("/project/.wflcfg")
     ));
-    assert!(settings.apply(
-        "dns_timeout_seconds",
-        "2",
-        Path::new("/project/.wflcfg")
-    ));
+    assert!(settings.apply("dns_timeout_seconds", "2", Path::new("/project/.wflcfg")));
     let resolver = OrderedResolver::from_plan_with_sources(
         &plan(&settings),
         SystemSources {
@@ -745,6 +749,7 @@ async fn abandoning_a_request_drops_its_dns_lookup() {
             started: Arc::clone(&started),
             dropped: Arc::clone(&dropped),
         }))
+        .no_proxy()
         .build()
         .expect("client");
 

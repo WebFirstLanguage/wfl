@@ -367,6 +367,20 @@ pub fn program_has_includes(program: &Program) -> bool {
 /// analysis *and* at runtime — so this is used to attach an actionable
 /// "use `include from`" note to the undefined-name diagnostic rather than to
 /// relax it (see issue #584).
+fn top_level_binding_names(program: &Program) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for statement in &program.statements {
+        match statement {
+            Statement::VariableDeclaration { name, .. }
+            | Statement::PatternDefinition { name, .. } => {
+                names.insert(name.clone());
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
 pub fn program_has_load_module(program: &Program) -> bool {
     program
         .statements
@@ -431,6 +445,15 @@ pub struct Analyzer {
     /// count loops reusing the same variable name are reported as errors,
     /// while shadowing an ordinary outer variable is allowed.
     active_loop_variables: Vec<String>,
+    /// Top-level `store` / `create pattern` names in the program being
+    /// analyzed. Used to decide the legacy `find all` reading the way the
+    /// runtime does at invocation: a later top-level `all <name>` binding is
+    /// visible to an action that is only called after that binding exists.
+    top_level_bindings: HashSet<String>,
+    /// Names treated as defined for the duration of one expression walk, so a
+    /// later top-level `all <name>` is not reported undefined while analyzing
+    /// the legacy `find all` fallback inside an earlier action.
+    assumed_defined: HashSet<String>,
     /// The shared-budget breach hit mid-traversal, if any. Its presence latches
     /// the recursive `analyze_statement` checkpoint (record once, then
     /// short-circuit every remaining node instead of pushing a duplicate error
@@ -719,6 +742,8 @@ impl Analyzer {
             action_alias_dependencies: HashMap::new(),
             action_alias_name_stack: Vec::new(),
             action_alias_effect_stack: Vec::new(),
+            top_level_bindings: HashSet::new(),
+            assumed_defined: HashSet::new(),
         }
     }
 
@@ -871,6 +896,8 @@ impl Analyzer {
         // reused analyzer instance does not carry a stale flag from a previous
         // program.
         self.has_includes = program_has_includes(program);
+        self.top_level_bindings = top_level_binding_names(program);
+        self.assumed_defined.clear();
 
         // Stored-action alias state is per-program.
         self.action_aliases.clear();
@@ -5003,6 +5030,13 @@ impl Analyzer {
         self.name_is_defined_for_write(name)
     }
 
+    /// Runtime `find all` uses the legacy single-match reading when `all <name>`
+    /// exists at invocation. Top-level bindings declared later in the file are
+    /// in that environment for any call that runs after they are stored.
+    pub fn legacy_find_all_binding_is_live(&self, name: &str) -> bool {
+        self.name_is_defined_for_write(name) || self.top_level_bindings.contains(name)
+    }
+
     /// Public for the typechecker so write-branch definedness matches analysis
     /// (container properties, inherited bindings, etc.).
     pub fn name_is_defined_for_write(&self, name: &str) -> bool {
@@ -5011,6 +5045,7 @@ impl Analyzer {
             || name == "loopcounter"
             || Self::is_builtin_function(name)
             || self.current_scope.resolve(name).is_some()
+            || self.assumed_defined.contains(name)
         {
             return true;
         }
@@ -5185,7 +5220,9 @@ impl Analyzer {
                     }
                 }
 
-                if self.current_scope.resolve(name).is_none() {
+                if self.current_scope.resolve(name).is_none()
+                    && !self.assumed_defined.contains(name)
+                {
                     // Check if it's a container property (including inherited),
                     // or `this` inside an instance action (#701)
                     let is_container_property =
@@ -5455,13 +5492,19 @@ impl Analyzer {
                 ..
             } => {
                 // Analyze the reading the runtime will take: the legacy
-                // single-match `find` while `all <name>` is defined.
+                // single-match `find` while `all <name>` is defined at the
+                // call. A later top-level binding is visible to an action
+                // that runs after that statement, matching invocation-time
+                // lookup.
                 if let Some(fallback) = legacy_fallback
-                    && legacy_binding
-                        .as_deref()
-                        .is_some_and(|name| self.name_is_defined(name))
+                    && let Some(name) = legacy_binding.as_deref()
+                    && self.legacy_find_all_binding_is_live(name)
                 {
+                    let inserted = self.assumed_defined.insert(name.to_string());
                     self.analyze_expression(fallback);
+                    if inserted {
+                        self.assumed_defined.remove(name);
+                    }
                 } else {
                     self.analyze_expression(text);
                     self.analyze_expression(pattern);

@@ -377,8 +377,12 @@ fn legacy_find_all_inside_an_action_sees_a_later_top_level_binding() {
                display \"legacy: \" with result\n";
     let (out, code) = run_src(src);
     assert!(
-        !out.contains("Type error") && !out.contains("index"),
-        "static typing must match the runtime legacy reading: {out}"
+        !out.contains("List index must be a number"),
+        "typechecker must not treat the action result as a list of matches: {out}"
+    );
+    assert!(
+        !out.contains("is not defined"),
+        "the later top-level `all needle` binding must be visible to the action body: {out}"
     );
     assert!(
         out.contains("legacy: aa"),

@@ -130,18 +130,33 @@ impl FakeDns {
         // UDP and TCP must share one port, because a DNS server is addressed
         // by a single `ip:port` and the client falls back from UDP to TCP on
         // that same port. Bind UDP on an ephemeral port, then claim the same
-        // TCP port; retry in the rare case another process holds it.
+        // TCP port. On failure, keep the UDP socket bound so the next `:0`
+        // cannot reissue the same port (Windows often does), and retry.
         let (udp, tcp) = {
+            let mut held_udp = Vec::new();
+            let mut last_error = None;
             let mut bound = None;
             for _ in 0..50 {
                 let udp = UdpSocket::bind("127.0.0.1:0").await.expect("bind udp");
                 let port = udp.local_addr().unwrap().port();
-                if let Ok(tcp) = TcpListener::bind(("127.0.0.1", port)).await {
-                    bound = Some((udp, tcp));
-                    break;
+                match TcpListener::bind(("127.0.0.1", port)).await {
+                    Ok(tcp) => {
+                        bound = Some((udp, tcp));
+                        break;
+                    }
+                    Err(error) => {
+                        last_error = Some((port, error));
+                        held_udp.push(udp);
+                    }
                 }
             }
-            bound.expect("could not bind UDP and TCP on the same port")
+            drop(held_udp);
+            bound.unwrap_or_else(|| {
+                let detail = last_error
+                    .map(|(port, error)| format!("last error on port {port}: {error}"))
+                    .unwrap_or_else(|| "no UDP bind succeeded".to_string());
+                panic!("could not bind UDP and TCP on the same port ({detail})")
+            })
         };
         Self::serve(udp, tcp, Box::new(handler), ttl)
     }
@@ -153,6 +168,8 @@ impl FakeDns {
     /// addresses and the resolver is told the shared port. Linux only: there
     /// the whole `127.0.0.0/8` block is loopback.
     pub async fn start_group(ttl: u32, handlers: Vec<Box<Handler>>) -> (u16, Vec<FakeDns>) {
+        let mut held_udp = Vec::new();
+        let mut held_tcp = Vec::new();
         for _ in 0..50 {
             let probe = UdpSocket::bind("127.0.0.1:0").await.expect("bind udp");
             let port = probe.local_addr().unwrap().port();
@@ -167,7 +184,15 @@ impl FakeDns {
                 let tcp = TcpListener::bind((ip, port)).await;
                 match (udp, tcp) {
                     (Ok(udp), Ok(tcp)) => sockets.push((udp, tcp)),
-                    _ => break,
+                    (udp, tcp) => {
+                        if let Ok(udp) = udp {
+                            held_udp.push(udp);
+                        }
+                        if let Ok(tcp) = tcp {
+                            held_tcp.push(tcp);
+                        }
+                        break;
+                    }
                 }
             }
             if sockets.len() == handlers.len() {
@@ -178,7 +203,12 @@ impl FakeDns {
                     .collect();
                 return (port, servers);
             }
+            for (udp, tcp) in sockets {
+                held_udp.push(udp);
+                held_tcp.push(tcp);
+            }
         }
+        drop((held_udp, held_tcp));
         panic!("could not bind a group of DNS servers on one port");
     }
 

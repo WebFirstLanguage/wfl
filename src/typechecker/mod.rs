@@ -8630,12 +8630,12 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                // The legacy single-match `find` while `all <name>` is defined,
-                // as the analyzer and the runtime choose it.
+                // The legacy single-match `find` while `all <name>` is defined
+                // at invocation, as the analyzer and the runtime choose it.
                 if let Some(fallback) = legacy_fallback
                     && legacy_binding
                         .as_deref()
-                        .is_some_and(|name| self.name_is_defined_for_write(name))
+                        .is_some_and(|name| self.analyzer.legacy_find_all_binding_is_live(name))
                 {
                     return self.infer_expression_type(fallback);
                 }
@@ -10940,7 +10940,7 @@ impl TypeChecker {
                 if let Some(fallback) = legacy_fallback
                     && legacy_binding
                         .as_deref()
-                        .is_some_and(|name| self.name_is_defined_for_write(name))
+                        .is_some_and(|name| self.analyzer.legacy_find_all_binding_is_live(name))
                 {
                     self.check_expression_names_defined(fallback);
                 } else {

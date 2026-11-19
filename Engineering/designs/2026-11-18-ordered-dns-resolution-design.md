@@ -166,7 +166,7 @@ Each requirement has testable acceptance criteria. "Fake DNS server" means a rea
 **FR-06 — IPv4 and IPv6.**
 - AC1: For each server, WFL asks for A and AAAA records together, and returns IPv4 and IPv6 addresses to reqwest so its "happy eyeballs" connection logic still works.
 - AC2: For one server, the A and AAAA results are combined like this. *(Assumption 29)*
-  1. Either query returns addresses → **final**. Use that server's addresses only (both types if both returned some). Consequence, by design: if a server returns IPv4 addresses while its IPv6 query fails, an IPv6 address that only a later server knows is never seen. The answer stays one server's answer, as with glibc.
+  1. Either query returns addresses → **final**. Use that server's addresses only (both types if both returned some). Consequence, by design: if a server returns IPv4 addresses while its IPv6 query fails, an IPv6 address that only a later server knows is never seen. The answer stays one server's answer, as with glibc. *(as built)* If one family has already returned addresses, WFL does not wait for a silent query of the other family. A sibling answer that is already ready is still included so Happy Eyeballs can use both types when both arrived.
   2. Otherwise, either query returns NXDOMAIN → **final**: "name not found".
   3. Otherwise, both queries return an empty NOERROR → **final**: "no addresses for this name".
   4. Otherwise (one query returns an empty NOERROR and the other gets no reply, SERVFAIL, REFUSED, NOTIMP, FORMERR, or an unparseable reply) → **not final**: ask the next server. This keeps an IPv4-only internal host working when a server fails only for A records. It is slightly more forgiving than glibc, which can stop here.

@@ -115,10 +115,12 @@ A Dependabot pull request is eligible only when **all** of these hold:
    `fuzz/`) or npm (`package.json`, `package-lock.json`, including
    `vscode-extension/`). The manifest change is limited to the version
    requirement of the dependency being updated.
-3. **The update is compatible.** Each directly updated package moves to a
-   semver-compatible version: the same major version, and for a `0.x` version
-   the same minor version, because `0.y` steps are breaking changes under Cargo
-   and npm rules. A major update, or a `0.x` minor update, is never eligible,
+3. **The update is compatible.** Every package version that changes — the
+   directly updated package and every transitive package recorded in the
+   lockfile — must move to a semver-compatible version: the same major version,
+   and for a `0.x` version the same minor version, because `0.y` steps are
+   breaking changes under Cargo and npm rules. A major update, or a `0.x`
+   minor update, on any changed package makes the pull request ineligible,
    even when it fixes a security advisory.
 4. **No new trust is added.** The update adds no new direct dependency,
    removes none, changes no Cargo feature or npm script, and adds no npm

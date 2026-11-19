@@ -38,10 +38,12 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant, SystemTime};
 
 use hickory_resolver::TokioResolver;
@@ -485,7 +487,7 @@ pub fn plan(settings: &DnsSettings) -> DnsPlan {
     };
 
     let mode = match (&settings.mode, servers.is_some()) {
-        (Setting::Invalid { reason, source }, true) => {
+        (Setting::Invalid { reason, source }, _) => {
             return misconfigured("dns_servers_mode", reason, source);
         }
         (Setting::Set { value, source }, true) => {
@@ -1699,10 +1701,34 @@ impl Inner {
                 );
             }
         };
-        let ((v4, v4_expiry), (v6, v6_expiry)) = tokio::join!(
-            query(&client, fqdn, RecordType::A, timeout),
-            query(&client, fqdn, RecordType::AAAA, timeout),
-        );
+        // Send A and AAAA together (FR-06 AC1, NFR-01: one query per type).
+        // Once either family returns addresses the answer is final (FR-06 AC2
+        // item 1); do not wait out a silent sibling query, or the surrounding
+        // request deadline can expire even though a usable address exists.
+        // A sibling that has already completed is still merged so Happy
+        // Eyeballs can use both families when both arrived.
+        let v4_fut = query(&client, fqdn, RecordType::A, timeout);
+        let v6_fut = query(&client, fqdn, RecordType::AAAA, timeout);
+        tokio::pin!(v4_fut, v6_fut);
+        let mut v4 = None;
+        let mut v6 = None;
+        while v4.is_none() || v6.is_none() {
+            tokio::select! {
+                result = &mut v4_fut, if v4.is_none() => v4 = Some(result),
+                result = &mut v6_fut, if v6.is_none() => v6 = Some(result),
+            }
+            if has_addresses(&v4) || has_addresses(&v6) {
+                if v4.is_none() {
+                    v4 = poll_if_ready(&mut v4_fut);
+                }
+                if v6.is_none() {
+                    v6 = poll_if_ready(&mut v6_fut);
+                }
+                break;
+            }
+        }
+        let (v4, v4_expiry) = v4.unwrap_or((QueryOutcome::NoReply, None));
+        let (v6, v6_expiry) = v6.unwrap_or((QueryOutcome::NoReply, None));
         (combine(&v4, &v6), earliest(v4_expiry, v6_expiry))
     }
 
@@ -1796,6 +1822,21 @@ fn single_server_resolver(addr: SocketAddr, timeout: Duration) -> Result<TokioRe
     options.num_concurrent_reqs = 1;
     options.try_tcp_on_error = false;
     builder.build().map_err(|error| error.to_string())
+}
+
+fn has_addresses(side: &Option<(QueryOutcome, Option<Instant>)>) -> bool {
+    matches!(side, Some((QueryOutcome::Addresses(_), _)))
+}
+
+fn poll_if_ready<F>(future: &mut std::pin::Pin<&mut F>) -> Option<F::Output>
+where
+    F: Future,
+{
+    let mut context = Context::from_waker(Waker::noop());
+    match future.as_mut().poll(&mut context) {
+        Poll::Ready(output) => Some(output),
+        Poll::Pending => None,
+    }
 }
 
 /// One query for one record type, and until when its answer may be cached.

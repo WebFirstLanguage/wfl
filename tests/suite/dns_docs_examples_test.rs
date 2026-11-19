@@ -56,7 +56,7 @@ fn every_dns_snippet_in_the_docs_is_a_valid_configuration() {
             checked += 1;
             let dir = TempDir::new().unwrap();
             std::fs::write(dir.path().join(".wflcfg"), &block).unwrap();
-            let config = wfl::config::load_config(dir.path());
+            let config = wfl::config::load_local_config(dir.path());
             let mixing = block.contains("before_system") || block.contains("after_system");
             match plan(&config.dns) {
                 DnsPlan::Misconfigured { message } if mixing && !cfg!(target_os = "linux") => {
@@ -104,7 +104,7 @@ async fn documented_error_message_matches_the_resolver() {
         ),
     )
     .unwrap();
-    let config = wfl::config::load_config(dir.path());
+    let config = wfl::config::load_local_config(dir.path());
     let resolver = wfl::interpreter::dns::OrderedResolver::from_plan_with_sources(
         &plan(&config.dns),
         wfl::interpreter::dns::SystemSources {

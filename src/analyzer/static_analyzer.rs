@@ -433,6 +433,10 @@ struct CallSite {
     /// variable and call it through that name, so a mention is a use too —
     /// unless the program binds the name itself.
     is_mention: bool,
+    /// The mention was in the scope of a binding of this name (for example an
+    /// action parameter). Recorded at the site because `bound` is restored
+    /// after walking nested bodies.
+    shadowed: bool,
 }
 
 impl CallSite {
@@ -451,9 +455,10 @@ impl CallSite {
 /// creation, file writes, `expect`, and more escape the security lint.
 struct BuiltinUses {
     sites: Vec<CallSite>,
-    /// Names the program binds (variables, parameters, properties, handler
-    /// bindings, ...). A bare mention of one of these is the program's own
-    /// value, not the builtin of the same name.
+    /// Names currently in scope. A bare mention of one of these is the
+    /// program's own value, not the builtin of the same name. Action
+    /// parameters and other nested locals are pushed only while walking that
+    /// body, so they cannot hide a mention in the rest of the file.
     bound: HashSet<String>,
 }
 
@@ -474,7 +479,8 @@ impl BuiltinUses {
         is_builtin: impl Fn(&str) -> bool + 'a,
     ) -> impl Iterator<Item = &'a CallSite> + 'a {
         self.sites.iter().filter(move |site| {
-            is_builtin(&site.name) && !(site.is_mention && self.bound.contains(&site.name))
+            is_builtin(&site.name)
+                && !(site.is_mention && (site.shadowed || self.bound.contains(&site.name)))
         })
     }
 
@@ -492,6 +498,7 @@ impl BuiltinUses {
             line,
             column,
             is_mention,
+            shadowed: is_mention && self.bound.contains(name),
         });
     }
 
@@ -536,8 +543,10 @@ impl BuiltinUses {
     }
 
     fn action_body(&mut self, parameters: &[Parameter], body: &[Statement]) {
+        let outer = self.bound.clone();
         self.parameters(parameters);
         self.statements(body);
+        self.bound = outer;
     }
 
     /// Container properties are read by bare name inside methods, and may
