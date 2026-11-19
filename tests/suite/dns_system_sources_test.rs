@@ -900,6 +900,17 @@ async fn a_lookup_in_flight_during_a_resolv_conf_change_is_not_cached() {
     );
 }
 
+fn wait_barrier(barrier: &Arc<std::sync::Barrier>, what: &str) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let barrier = Arc::clone(barrier);
+    std::thread::spawn(move || {
+        barrier.wait();
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(Duration::from_secs(5))
+        .unwrap_or_else(|_| panic!("{what}"));
+}
+
 /// A lookup that reads the old resolv.conf, then observes the generation
 /// created by a concurrent reload, must not cache the old server's answer
 /// as if it belonged to the new configuration.
@@ -936,7 +947,10 @@ async fn a_stale_config_is_not_paired_with_a_new_cache_generation() {
         let resolver = resolver.clone();
         tokio::spawn(async move { resolver.lookup("stale.wfl.test").await })
     };
-    entered.wait();
+    wait_barrier(
+        &entered,
+        "lookup did not reach the config/generation window",
+    );
     // Size change is enough for the stamp; no mtime wait.
     std::fs::write(
         files.resolv_conf(),
@@ -950,7 +964,7 @@ async fn a_stale_config_is_not_paired_with_a_new_cache_generation() {
             .map_err(|e| e.to_string()),
         Ok(vec!["10.0.0.2".parse::<IpAddr>().unwrap()])
     );
-    go.wait();
+    wait_barrier(&go, "stale lookup did not resume after the reload");
     let old = old_lookup.await.unwrap();
     assert_eq!(
         old.map_err(|e| e.to_string()),

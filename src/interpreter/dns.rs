@@ -1445,6 +1445,7 @@ impl OrderedResolver {
     /// Install a callback invoked after a resolv.conf snapshot and its cache
     /// generation have been taken. The DNS test suite uses it to force a
     /// reload in that window. Production lookups never install a hook.
+    #[doc(hidden)]
     pub fn set_after_system_config_hook(&self, hook: impl Fn() + Send + Sync + 'static) {
         *lock(&self.inner.after_system_config) = Some(Arc::new(hook));
     }

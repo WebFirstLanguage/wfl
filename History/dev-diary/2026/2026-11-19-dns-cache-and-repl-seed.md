@@ -32,6 +32,8 @@ reproduced; none were false positives.
   configuration lock is still held.
 - Prefer a family that actually replied when combining A and AAAA, so
   timeout+SERVFAIL is not stored as complete silence.
-- Fold names bound in earlier REPL submissions into the security scan.
+- Fold top-level `store` and action names from earlier REPL submissions
+  into the security scan. Nested names (action parameters, loop variables)
+  are omitted so they cannot hide a later mention of the real builtin.
 
 Red evidence is the test-only commit that precedes this change.

@@ -119,8 +119,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     stops the search.
   - In the REPL, a user variable named `random_seed` from an earlier
     submission was treated as the builtin when a later line mentioned it,
-    marking the session seeded and blocking crypto. Names bound in earlier
-    submissions are now visible to that scan.
+    marking the session seeded and blocking crypto. Top-level `store` and
+    action names from earlier submissions are now visible to that scan;
+    nested names such as action parameters are not, so they cannot hide a
+    later mention of the real builtin.
 - **Count and for-each loop errors point at the loop's first line.** An error
   raised by a `count` or `for each` loop itself was reported at the token after
   `end count` or `end for`, so the location and source excerpt showed the end

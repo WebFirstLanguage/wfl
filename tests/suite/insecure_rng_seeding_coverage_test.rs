@@ -19,6 +19,7 @@ use tempfile::TempDir;
 use wfl::analyzer::Analyzer;
 use wfl::analyzer::static_analyzer::{
     StaticAnalyzer, rng_security_ingredients, rng_security_ingredients_with_bound,
+    session_level_bindings,
 };
 use wfl::diagnostics::Severity;
 use wfl::lexer::lex_wfl_with_positions;
@@ -355,6 +356,25 @@ fn a_bound_name_from_outside_the_program_is_not_the_builtin() {
     assert!(
         !rng_security_ingredients_with_bound(&program, &extra).seeds_rng(),
         "a mention of a name bound earlier is not a seed call"
+    );
+}
+
+#[test]
+fn session_level_bindings_skip_action_parameters() {
+    let program = parse(
+        r#"
+define action called echo with random_seed:
+    give back random_seed
+end action
+store keep as 1
+"#,
+    );
+    let names = session_level_bindings(&program);
+    assert!(names.contains("echo"), "{names:?}");
+    assert!(names.contains("keep"), "{names:?}");
+    assert!(
+        !names.contains("random_seed"),
+        "an action parameter must not join the session binding set: {names:?}"
     );
 }
 

@@ -1,7 +1,7 @@
 use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::{
-    RngSecurityIngredients, StaticAnalyzer, program_bound_names,
-    rng_security_ingredients_with_bound,
+    RngSecurityIngredients, StaticAnalyzer, rng_security_ingredients_with_bound,
+    session_level_bindings,
 };
 use crate::diagnostics::{DiagnosticReporter, Severity, Span, WflDiagnostic};
 use crate::exec::budget::ExecutionBudget;
@@ -56,10 +56,11 @@ pub struct ReplState {
     /// `random_seed` in security-sensitive code, not its execution.
     rng_insecurely_seeded: bool,
     security_builtin_used: bool,
-    /// Names bound by submissions that joined the session. The security scan
-    /// of the current submission cannot see earlier `store` lines, so without
-    /// this a later mention of a user variable named `random_seed` would be
-    /// treated as the builtin.
+    /// Top-level `store` and action names from submissions that joined the
+    /// session. The security scan of the current submission cannot see earlier
+    /// `store` lines, so without this a later mention of a user variable named
+    /// `random_seed` would be treated as the builtin. Action parameters and
+    /// other nested locals are omitted: they do not shadow builtins later.
     session_bound_names: HashSet<String>,
     /// Byte cap on the accumulated source that session-aware analysis will build
     /// before falling back to analysing this submission alone. A field (not a
@@ -465,7 +466,7 @@ impl ReplState {
         self.security_builtin_used |= security_ingredients.uses_security_builtin();
         self.session_inputs.push(input.to_string());
         self.session_bound_names
-            .extend(program_bound_names(&program));
+            .extend(session_level_bindings(&program));
 
         if messages.is_empty() {
             Ok(None)
