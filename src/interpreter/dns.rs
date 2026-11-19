@@ -1366,6 +1366,9 @@ struct Inner {
     warned_no_system_servers: AtomicBool,
     /// An unreadable hosts file is warned about once.
     warned_hosts_file: AtomicBool,
+    /// Test seam: run after `resolv.conf` is read and before this lookup notes
+    /// the cache generation. Production never installs a hook.
+    after_system_config: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl OrderedResolver {
@@ -1399,6 +1402,7 @@ impl OrderedResolver {
                 cache: Mutex::new(AnswerCache::default()),
                 warned_no_system_servers: AtomicBool::new(false),
                 warned_hosts_file: AtomicBool::new(false),
+                after_system_config: Mutex::new(None),
             }),
         })
     }
@@ -1406,6 +1410,13 @@ impl OrderedResolver {
     /// Look up `host`, returning its addresses in the order to try them.
     pub async fn lookup(&self, host: &str) -> Result<Vec<IpAddr>, DnsLookupError> {
         self.inner.lookup(host).await
+    }
+
+    /// Install a callback invoked after `resolv.conf` is read and before this
+    /// lookup notes the cache generation. The DNS test suite uses it to force a
+    /// reload in that window. Production lookups never install a hook.
+    pub fn set_after_system_config_hook(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.inner.after_system_config) = Some(Arc::new(hook));
     }
 }
 
@@ -1495,6 +1506,7 @@ impl Inner {
         // VPN came up, DHCP renewed), reading it clears the cache, so no
         // answer from the old servers or search list is reused.
         let system = self.system_config();
+        self.run_after_system_config_hook();
 
         let cache_key = if absolute {
             format!("{normalized}.")
@@ -1653,6 +1665,13 @@ impl Inner {
         let client = single_server_resolver(addr, timeout)?;
         clients.insert((addr, timeout), client.clone());
         Ok(client)
+    }
+
+    fn run_after_system_config_hook(&self) {
+        let hook = lock(&self.after_system_config).clone();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 
     /// `resolv.conf`, re-read when it changes. A change also clears the
@@ -2026,6 +2045,32 @@ mod tests {
                 outcome: QueryOutcome::NoReply,
                 family: None,
             }
+        );
+    }
+
+    /// A timeout on A plus SERVFAIL on AAAA is not complete silence: the
+    /// server did answer for one family, so search expansion must continue.
+    #[test]
+    fn timeout_plus_servfail_is_not_complete_silence() {
+        let servfail = QueryOutcome::Failed(ResponseCode::ServFail);
+        let combined = combine(&QueryOutcome::NoReply, &servfail);
+        assert!(
+            !matches!(
+                combined,
+                ServerAnswer::NotFinal {
+                    outcome: QueryOutcome::NoReply,
+                    family: None
+                }
+            ),
+            "A timeout plus AAAA SERVFAIL must not look like complete silence: {combined:?}"
+        );
+        assert_eq!(
+            combine(&QueryOutcome::NoReply, &QueryOutcome::NoReply),
+            ServerAnswer::NotFinal {
+                outcome: QueryOutcome::NoReply,
+                family: None,
+            },
+            "both families timing out is still complete silence"
         );
     }
 

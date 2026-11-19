@@ -20,12 +20,16 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use wfl::interpreter::dns::{DnsPlan, DnsSettings, OrderedResolver, SystemSources, plan};
 
-use crate::dns_fake_server::{FakeDns, Query, RCODE_SERVFAIL, Reply, TYPE_A, handler};
+use crate::dns_fake_server::{
+    FakeDns, Query, RCODE_SERVFAIL, Reply, TYPE_A, TYPE_AAAA, handler,
+};
 
 const LOCAL: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
@@ -705,6 +709,84 @@ async fn no_such_name_is_cached() {
     assert_eq!(a_count(&dns, "nx.wfl.test"), 1);
 }
 
+/// A search-expanded positive answer must not outlive an earlier candidate's
+/// negative TTL. Otherwise `app.corp.test` staying NXDOMAIN for one second,
+/// then `app.` resolving for an hour, hides `app.corp.test` after it starts
+/// existing.
+#[tokio::test]
+async fn search_expanded_cache_expires_with_earlier_negative_ttl() {
+    let preferred_exists = Arc::new(AtomicBool::new(false));
+    let dns = FakeDns::start_with_ttl(3600, {
+        let preferred_exists = Arc::clone(&preferred_exists);
+        move |q| {
+            if q.name == "app.corp.test" {
+                if preferred_exists.load(Ordering::SeqCst) {
+                    Reply::v4(10, 0, 0, 2)
+                } else {
+                    Reply::WithTtl(1, Box::new(Reply::NxDomain))
+                }
+            } else if q.name == "app" {
+                Reply::v4(10, 0, 0, 1)
+            } else {
+                Reply::NxDomain
+            }
+        }
+    })
+    .await;
+    let files = SystemFiles::new("search corp.test\noptions ndots:1 attempts:1\n", "");
+    let resolver = resolver(
+        &settings(&[("dns_servers", &dns.addr.to_string())]),
+        files.sources(53),
+    );
+
+    assert_eq!(
+        resolver.lookup("app").await.map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.1".parse::<IpAddr>().unwrap()])
+    );
+    preferred_exists.store(true, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(1600)).await;
+    assert_eq!(
+        resolver.lookup("app").await.map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.2".parse::<IpAddr>().unwrap()]),
+        "the preferred search name stayed hidden after its negative TTL expired"
+    );
+}
+
+/// A timed-out A query plus SERVFAIL on AAAA is not "every server silent".
+/// Search must continue to the next candidate, including the bare name.
+#[tokio::test]
+async fn mixed_timeout_and_servfail_does_not_stop_search() {
+    let dns = FakeDns::start(|q| {
+        if q.name == "app.corp.test" {
+            if q.qtype == TYPE_A {
+                Reply::Silent
+            } else if q.qtype == TYPE_AAAA {
+                Reply::Rcode(RCODE_SERVFAIL)
+            } else {
+                Reply::NxDomain
+            }
+        } else if q.name == "app" {
+            Reply::loopback()
+        } else {
+            Reply::NxDomain
+        }
+    })
+    .await;
+    let files = SystemFiles::new("search corp.test\noptions ndots:1 attempts:1\n", "");
+    let resolver = resolver(
+        &settings(&[
+            ("dns_servers", &dns.addr.to_string()),
+            ("dns_timeout_seconds", "1"),
+        ]),
+        files.sources(53),
+    );
+    assert_eq!(
+        resolver.lookup("app").await.map_err(|e| e.to_string()),
+        Ok(vec![LOCAL]),
+        "search stopped at the mixed timeout/SERVFAIL candidate and never asked the bare name"
+    );
+}
+
 /// FR-15 AC3 + SEC-11: the cache holds at most 1,024 names; the least recently
 /// used one is dropped first.
 #[tokio::test]
@@ -817,6 +899,72 @@ async fn a_lookup_in_flight_during_a_resolv_conf_change_is_not_cached() {
             .map_err(|e| e.to_string()),
         Ok(new_server),
         "an answer from the old resolv.conf was cached after the change"
+    );
+}
+
+/// A lookup that reads the old resolv.conf, then observes the generation
+/// created by a concurrent reload, must not cache the old server's answer
+/// as if it belonged to the new configuration.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_config_is_not_paired_with_a_new_cache_generation() {
+    let (port, _servers) = FakeDns::start_group(
+        3600,
+        vec![
+            handler(|_| Reply::v4(10, 0, 0, 1)),
+            handler(|_| Reply::v4(10, 0, 0, 2)),
+        ],
+    )
+    .await;
+    let files = SystemFiles::new("nameserver 127.0.0.1\noptions timeout:5\n", "");
+    let resolver = resolver(&explicit_wfl(), files.sources(port));
+
+    let entered = Arc::new(std::sync::Barrier::new(2));
+    let go = Arc::new(std::sync::Barrier::new(2));
+    let first = Arc::new(AtomicBool::new(true));
+    resolver.set_after_system_config_hook({
+        let entered = Arc::clone(&entered);
+        let go = Arc::clone(&go);
+        let first = Arc::clone(&first);
+        move || {
+            if first.swap(false, Ordering::SeqCst) {
+                entered.wait();
+                go.wait();
+            }
+        }
+    });
+
+    let old_lookup = {
+        let resolver = resolver.clone();
+        tokio::spawn(async move { resolver.lookup("stale.wfl.test").await })
+    };
+    entered.wait();
+    // Size change is enough for the stamp; no mtime wait.
+    std::fs::write(
+        files.resolv_conf(),
+        "nameserver 127.0.0.2\noptions timeout:5\n# reload\n",
+    )
+    .unwrap();
+    assert_eq!(
+        resolver
+            .lookup("other.wfl.test")
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.2".parse::<IpAddr>().unwrap()])
+    );
+    go.wait();
+    let old = old_lookup.await.unwrap();
+    assert_eq!(
+        old.map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.1".parse::<IpAddr>().unwrap()])
+    );
+    assert_eq!(
+        resolver
+            .lookup("stale.wfl.test")
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(vec!["10.0.0.2".parse::<IpAddr>().unwrap()]),
+        "an answer from the old nameserver was cached under the new generation"
     );
 }
 

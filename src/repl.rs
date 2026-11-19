@@ -1209,6 +1209,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_user_variable_named_random_seed_is_not_session_seeding() {
+        // WFL allows `store random_seed as 5`. A later mention of that variable
+        // is the user's number, not the builtin, so it must not mark the
+        // session seeded or block crypto.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store random_seed as 5").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            repl.process_line("random_seed").await.unwrap().as_deref(),
+            Some("5")
+        );
+        assert_eq!(
+            repl.process_line("store token as secure_random_bytes of 16")
+                .await
+                .unwrap(),
+            None,
+            "mentioning a user variable named random_seed must not block crypto"
+        );
+        assert!(repl.interpreter.global_env().borrow().has("token"));
+    }
+
+    #[tokio::test]
     async fn fallback_does_not_block_reference_to_a_live_earlier_session_binding() {
         // In the isolated fallback we can't see earlier submissions, so a
         // reference to an earlier-session variable looks "undefined". But the name
