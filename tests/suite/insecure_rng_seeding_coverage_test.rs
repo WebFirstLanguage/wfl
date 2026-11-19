@@ -17,7 +17,9 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 use wfl::analyzer::Analyzer;
-use wfl::analyzer::static_analyzer::{StaticAnalyzer, rng_security_ingredients};
+use wfl::analyzer::static_analyzer::{
+    StaticAnalyzer, rng_security_ingredients, rng_security_ingredients_with_bound,
+};
 use wfl::diagnostics::Severity;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -337,6 +339,22 @@ store digest as hash_password of "hunter2"
     assert!(
         diagnostics.is_empty(),
         "the program's own variable is not a seed call: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn a_bound_name_from_outside_the_program_is_not_the_builtin() {
+    // The REPL scans one submission at a time. A later mention of a variable
+    // bound on an earlier line must not count as the builtin.
+    let program = parse("display random_seed\n");
+    assert!(
+        rng_security_ingredients(&program).seeds_rng(),
+        "without the earlier binding, a mention is the builtin"
+    );
+    let extra = std::collections::HashSet::from(["random_seed".to_string()]);
+    assert!(
+        !rng_security_ingredients_with_bound(&program, &extra).seeds_rng(),
+        "a mention of a name bound earlier is not a seed call"
     );
 }
 

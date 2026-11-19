@@ -27,9 +27,7 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use wfl::interpreter::dns::{DnsPlan, DnsSettings, OrderedResolver, SystemSources, plan};
 
-use crate::dns_fake_server::{
-    FakeDns, Query, RCODE_SERVFAIL, Reply, TYPE_A, TYPE_AAAA, handler,
-};
+use crate::dns_fake_server::{FakeDns, Query, RCODE_SERVFAIL, Reply, TYPE_A, TYPE_AAAA, handler};
 
 const LOCAL: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 

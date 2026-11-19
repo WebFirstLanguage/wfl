@@ -1183,8 +1183,19 @@ pub fn combine(v4: &QueryOutcome, v6: &QueryOutcome) -> ServerAnswer {
     if *v4 == QueryOutcome::NoData && *v6 == QueryOutcome::NoData {
         return ServerAnswer::NoAddresses;
     }
-    // Report the failure that made this server unusable: IPv4 first.
-    let failed = if v4.is_final() { v6 } else { v4 };
+    // Report the failure that made this server unusable. Prefer a family that
+    // actually replied, so a timeout on A plus SERVFAIL on AAAA is not stored
+    // as "no reply" with `family: None` — that representation is complete
+    // silence, and search expansion would stop.
+    let failed = if v4.is_final() {
+        v6
+    } else if v6.is_final() {
+        v4
+    } else if matches!(v4, QueryOutcome::NoReply) && !matches!(v6, QueryOutcome::NoReply) {
+        v6
+    } else {
+        v4
+    };
     let family = if v4.is_final() || v6.is_final() {
         if std::ptr::eq(failed, v4) {
             Some("IPv4")
@@ -1258,10 +1269,10 @@ struct CacheEntry {
 struct AnswerCache {
     entries: HashMap<String, CacheEntry>,
     clock: u64,
-    /// Bumped by every [`AnswerCache::clear`]. A lookup notes it before
-    /// asking any server and stores its answer only if it is unchanged, so a
-    /// lookup that started under the old resolv.conf cannot put an old answer
-    /// back after the cache was cleared.
+    /// Bumped by every [`AnswerCache::clear`]. A lookup notes it together
+    /// with the resolv.conf snapshot and stores its answer only if it is
+    /// unchanged, so a lookup that started under the old resolv.conf cannot
+    /// put an old answer back after the cache was cleared.
     generation: u64,
 }
 
@@ -1324,6 +1335,25 @@ fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
         (Some(a), Some(b)) => Some(a.min(b)),
         (one, None) | (None, one) => one,
     }
+}
+
+/// How long a search-expanded positive answer may stay cached. Bound it by
+/// every preceding negative expiry, and do not cache it when a preceding
+/// candidate failed without a cacheable TTL, or when the successful answer
+/// itself has no TTL.
+fn positive_cache_expiry(
+    answer_expiry: Option<Instant>,
+    preceding_negative_expiry: Option<Instant>,
+    preceding_uncacheable: bool,
+) -> Option<Instant> {
+    if preceding_uncacheable {
+        return None;
+    }
+    let answer = answer_expiry?;
+    Some(match preceding_negative_expiry {
+        Some(preceding) => answer.min(preceding),
+        None => answer,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1412,8 +1442,8 @@ impl OrderedResolver {
         self.inner.lookup(host).await
     }
 
-    /// Install a callback invoked after `resolv.conf` is read and before this
-    /// lookup notes the cache generation. The DNS test suite uses it to force a
+    /// Install a callback invoked after a resolv.conf snapshot and its cache
+    /// generation have been taken. The DNS test suite uses it to force a
     /// reload in that window. Production lookups never install a hook.
     pub fn set_after_system_config_hook(&self, hook: impl Fn() + Send + Sync + 'static) {
         *lock(&self.inner.after_system_config) = Some(Arc::new(hook));
@@ -1504,18 +1534,19 @@ impl Inner {
 
         // resolv.conf is checked BEFORE the cache: when it has changed (a
         // VPN came up, DHCP renewed), reading it clears the cache, so no
-        // answer from the old servers or search list is reused.
-        let system = self.system_config();
-        self.run_after_system_config_hook();
+        // answer from the old servers or search list is reused. The snapshot
+        // and cache generation are taken together so a concurrent reload
+        // cannot pair this lookup's old servers with the new generation.
+        let (system, generation) = self.system_snapshot();
 
         let cache_key = if absolute {
             format!("{normalized}.")
         } else {
             normalized.clone()
         };
-        let (cached, generation) = {
+        let cached = {
             let mut cache = lock(&self.cache);
-            (cache.get(&cache_key, Instant::now()), cache.generation)
+            cache.get(&cache_key, Instant::now())
         };
         if let Some(cached) = cached {
             return match cached {
@@ -1542,12 +1573,16 @@ impl Inner {
 
         let mut tried: Vec<Tried> = Vec::new();
         let mut negative_expiry = Some(Instant::now() + MAX_NEGATIVE_TTL);
+        let mut preceding_negative: Option<Instant> = None;
+        let mut preceding_uncacheable = false;
         for candidate in candidate_names(&normalized, absolute, &effective.search, effective.ndots)
         {
             let (end, asked, expiry) = self.search_one(&candidate, &effective).await;
             match &end {
                 CandidateEnd::Found(addrs) => {
-                    if let Some(expires) = expiry {
+                    if let Some(expires) =
+                        positive_cache_expiry(expiry, preceding_negative, preceding_uncacheable)
+                    {
                         lock(&self.cache).insert_if_current(
                             generation,
                             cache_key,
@@ -1562,8 +1597,21 @@ impl Inner {
                         (Some(so_far), Some(this)) => Some(so_far.min(this)),
                         _ => None,
                     };
+                    match expiry {
+                        Some(this) => {
+                            preceding_negative = Some(
+                                preceding_negative
+                                    .map(|so_far| so_far.min(this))
+                                    .unwrap_or(this),
+                            );
+                        }
+                        None => preceding_uncacheable = true,
+                    }
                 }
-                CandidateEnd::Unresolved { .. } => negative_expiry = None,
+                CandidateEnd::Unresolved { .. } => {
+                    negative_expiry = None;
+                    preceding_uncacheable = true;
+                }
             }
             let stop = matches!(end, CandidateEnd::Unresolved { all_silent: true });
             tried.push(Tried {
@@ -1674,26 +1722,30 @@ impl Inner {
         }
     }
 
-    /// `resolv.conf`, re-read when it changes. A change also clears the
-    /// answer cache, because the cached answers came from the old servers and
-    /// search list.
-    fn system_config(&self) -> Arc<SystemConfig> {
+    /// `resolv.conf` plus the cache generation that belongs to it. The
+    /// generation is read while the configuration lock is still held, so a
+    /// concurrent reload cannot bump the generation under an old snapshot.
+    fn system_snapshot(&self) -> (Arc<SystemConfig>, u64) {
         let stamp = self.sources.resolv_conf.as_deref().and_then(file_stamp);
         let mut slot = lock(&self.system);
-        if let Some(watched) = slot.as_ref()
+        let (value, generation) = if let Some(watched) = slot.as_ref()
             && watched.stamp == stamp
         {
-            return Arc::clone(&watched.value);
-        }
-        if slot.is_some() {
-            lock(&self.cache).clear();
-        }
-        let value = Arc::new(SystemConfig::read(&self.sources));
-        *slot = Some(Watched {
-            stamp,
-            value: Arc::clone(&value),
-        });
-        value
+            (Arc::clone(&watched.value), lock(&self.cache).generation)
+        } else {
+            if slot.is_some() {
+                lock(&self.cache).clear();
+            }
+            let value = Arc::new(SystemConfig::read(&self.sources));
+            *slot = Some(Watched {
+                stamp,
+                value: Arc::clone(&value),
+            });
+            (value, lock(&self.cache).generation)
+        };
+        drop(slot);
+        self.run_after_system_config_hook();
+        (value, generation)
     }
 
     /// The hosts file, re-read when it changes.
@@ -2042,7 +2094,7 @@ mod tests {
         assert_eq!(
             combine(&QueryOutcome::NoReply, &servfail),
             ServerAnswer::NotFinal {
-                outcome: QueryOutcome::NoReply,
+                outcome: servfail.clone(),
                 family: None,
             }
         );
@@ -2065,6 +2117,13 @@ mod tests {
             "A timeout plus AAAA SERVFAIL must not look like complete silence: {combined:?}"
         );
         assert_eq!(
+            combined,
+            ServerAnswer::NotFinal {
+                outcome: servfail,
+                family: None,
+            }
+        );
+        assert_eq!(
             combine(&QueryOutcome::NoReply, &QueryOutcome::NoReply),
             ServerAnswer::NotFinal {
                 outcome: QueryOutcome::NoReply,
@@ -2072,6 +2131,26 @@ mod tests {
             },
             "both families timing out is still complete silence"
         );
+    }
+
+    #[test]
+    fn search_expanded_positive_expiry_is_bounded_by_earlier_negatives() {
+        let now = Instant::now();
+        let positive = now + Duration::from_secs(3600);
+        let negative = now + Duration::from_secs(1);
+        assert_eq!(
+            positive_cache_expiry(Some(positive), Some(negative), false),
+            Some(negative)
+        );
+        assert_eq!(
+            positive_cache_expiry(Some(positive), None, false),
+            Some(positive)
+        );
+        assert_eq!(
+            positive_cache_expiry(Some(positive), Some(negative), true),
+            None
+        );
+        assert_eq!(positive_cache_expiry(None, Some(negative), false), None);
     }
 
     fn settings_with(lines: &[(&str, &str)]) -> DnsSettings {

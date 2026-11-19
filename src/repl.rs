@@ -1,6 +1,7 @@
 use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::{
-    RngSecurityIngredients, StaticAnalyzer, rng_security_ingredients,
+    RngSecurityIngredients, StaticAnalyzer, program_bound_names,
+    rng_security_ingredients_with_bound,
 };
 use crate::diagnostics::{DiagnosticReporter, Severity, Span, WflDiagnostic};
 use crate::exec::budget::ExecutionBudget;
@@ -16,6 +17,7 @@ use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor, Result as RustylineResult};
+use std::collections::HashSet;
 use std::io::{self, Write};
 
 #[derive(Debug, PartialEq)]
@@ -54,6 +56,11 @@ pub struct ReplState {
     /// `random_seed` in security-sensitive code, not its execution.
     rng_insecurely_seeded: bool,
     security_builtin_used: bool,
+    /// Names bound by submissions that joined the session. The security scan
+    /// of the current submission cannot see earlier `store` lines, so without
+    /// this a later mention of a user variable named `random_seed` would be
+    /// treated as the builtin.
+    session_bound_names: HashSet<String>,
     /// Byte cap on the accumulated source that session-aware analysis will build
     /// before falling back to analysing this submission alone. A field (not a
     /// hard-coded constant) so tests can force the fallback without constructing
@@ -99,6 +106,7 @@ impl ReplState {
             session_inputs: Vec::new(),
             rng_insecurely_seeded: false,
             security_builtin_used: false,
+            session_bound_names: HashSet::new(),
             max_session_analysis_bytes: DEFAULT_MAX_SESSION_ANALYSIS_BYTES,
         }
     }
@@ -383,7 +391,8 @@ impl ReplState {
         // fatal and, like any fatal, does not record the submission — so the
         // session never accumulates both ingredients, and a later innocent
         // command is not blocked.
-        let security_ingredients = rng_security_ingredients(&program);
+        let security_ingredients =
+            rng_security_ingredients_with_bound(&program, &self.session_bound_names);
         if let Some(rendered) =
             self.insecure_seed_block(&security_ingredients, &mut reporter, file_id)
         {
@@ -455,6 +464,8 @@ impl ReplState {
         self.rng_insecurely_seeded |= security_ingredients.seeds_rng();
         self.security_builtin_used |= security_ingredients.uses_security_builtin();
         self.session_inputs.push(input.to_string());
+        self.session_bound_names
+            .extend(program_bound_names(&program));
 
         if messages.is_empty() {
             Ok(None)
