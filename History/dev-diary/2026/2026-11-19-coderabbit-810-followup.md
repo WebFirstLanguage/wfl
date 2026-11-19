@@ -36,6 +36,13 @@ not touch #810's branch.
 8–10. **Test isolation.** Docs/DNS tests inherited machine-wide `.wflcfg` and
    ambient HTTP proxies; the missing-system-list mixing test was gated
    `cfg(unix)` so it would fail on macOS.
+11. **Later top-level `all <name>` rewrote an earlier top-level `find all`.**
+    Treating every later binding as live at analysis time made a valid
+    nested `find all` take the legacy fallback and report `all letters`
+    undefined. Runtime reads top-level bindings in order.
+12. **Later alias used as `find all pick of word`.** The fallback is
+    `all pick of word`. FunctionCall ignored `assumed_defined`, so a valid
+    action-body program failed with `Variable 'all pick' is not defined`.
 
 The Windows flake `could not bind UDP and TCP on the same port` was a related
 test-harness issue: a failed TCP bind dropped the UDP socket, and Windows
@@ -51,9 +58,12 @@ often reissued the same ephemeral port on the next `:0`.
   a mention was shadowed at the site so in-body parameter mentions are not
   treated as builtin uses after that restore.
 - Analyzer treats later top-level `store` / `create pattern` names as live
-  for the legacy `find all` choice. The typechecker also consults its live
-  container-property lookup, because it typechecks method bodies after the
-  analyzer has restored `current_container`.
+  for the legacy `find all` choice only inside action/method bodies.
+  Immediate top-level code still reads bindings in order. A later alias
+  used as `of` inside a body is assumed callable (signature at runtime).
+  The typechecker also consults its live container-property lookup, because
+  it typechecks method bodies after the analyzer has restored
+  `current_container`.
 - Tests load local config only, disable proxies, and gate the mixing test to
   Linux. The fake DNS server holds failed UDP binds so retries get a fresh port.
 

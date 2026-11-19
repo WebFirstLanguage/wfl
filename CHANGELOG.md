@@ -78,7 +78,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   spellings of a merged `find all` token, so a local `all patterns` cannot
   rewrite a top-level `find all patterns`. The analyzer and typechecker use
   the same invocation-time legacy reading as the runtime when `all <name>` is
-  a later top-level binding or a container property.
+  a later top-level binding (action and method bodies) or a container
+  property. Top-level code still reads those bindings in order.
 - **An action parameter named `random_seed` no longer hides a file-level
   alias of the builtin** from the insecure-seeding lint.
 
