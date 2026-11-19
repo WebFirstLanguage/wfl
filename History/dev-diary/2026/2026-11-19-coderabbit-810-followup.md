@@ -51,7 +51,9 @@ often reissued the same ephemeral port on the next `:0`.
   a mention was shadowed at the site so in-body parameter mentions are not
   treated as builtin uses after that restore.
 - Analyzer treats later top-level `store` / `create pattern` names as live
-  for the legacy `find all` choice.
+  for the legacy `find all` choice. The typechecker also consults its live
+  container-property lookup, because it typechecks method bodies after the
+  analyzer has restored `current_container`.
 - Tests load local config only, disable proxies, and gate the mixing test to
   Linux. The fake DNS server holds failed UDP binds so retries get a fresh port.
 

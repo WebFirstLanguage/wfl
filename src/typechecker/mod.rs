@@ -8635,7 +8635,7 @@ impl TypeChecker {
                 if let Some(fallback) = legacy_fallback
                     && legacy_binding
                         .as_deref()
-                        .is_some_and(|name| self.analyzer.legacy_find_all_binding_is_live(name))
+                        .is_some_and(|name| self.legacy_find_all_binding_is_live(name))
                 {
                     return self.infer_expression_type(fallback);
                 }
@@ -10627,6 +10627,15 @@ impl TypeChecker {
         self.current_container_property_type(name).is_some()
     }
 
+    /// Runtime `find all` uses the legacy single-match reading when `all <name>`
+    /// exists at invocation. The analyzer's check is not enough on its own:
+    /// typechecking walks method bodies after the analyzer has restored its
+    /// container context, so a property named `all <name>` is only visible
+    /// through this typechecker's live container lookup.
+    fn legacy_find_all_binding_is_live(&self, name: &str) -> bool {
+        self.name_is_defined_for_write(name) || self.analyzer.legacy_find_all_binding_is_live(name)
+    }
+
     /// Resolve a direct or inherited property against the typechecker's live
     /// container context. The analyzer has restored its own container context
     /// by the time method bodies are typechecked, so both definedness and type
@@ -10940,7 +10949,7 @@ impl TypeChecker {
                 if let Some(fallback) = legacy_fallback
                     && legacy_binding
                         .as_deref()
-                        .is_some_and(|name| self.analyzer.legacy_find_all_binding_is_live(name))
+                        .is_some_and(|name| self.legacy_find_all_binding_is_live(name))
                 {
                     self.check_expression_names_defined(fallback);
                 } else {
