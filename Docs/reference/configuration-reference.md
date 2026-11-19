@@ -903,11 +903,14 @@ WFL remembers answers in memory while the program runs, so a dead first server
 does not slow down every request:
 
 - Addresses are kept for as long as the DNS answer allows (its TTL), at most one
-  day.
+  day. When an unqualified name is expanded through the search list, a later
+  candidate's addresses are kept only until the earliest earlier "no such name"
+  TTL, so a preferred name is asked again once it can exist.
 - "No such name" and "no addresses" answers are kept for at most 30 seconds.
 - At most 1,024 names are kept; the least recently used one is dropped first.
 - Failures (no server answered) are never cached. Nothing is written to disk.
-- When `/etc/resolv.conf` changes, everything remembered is forgotten.
+- When `/etc/resolv.conf` changes, everything remembered is forgotten. A lookup
+  that was already reading the old file cannot put that old answer back.
 
 #### When a lookup fails
 

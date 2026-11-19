@@ -383,11 +383,44 @@ impl RngSecurityIngredients {
 /// [`Analyzer::check_insecure_rng_seeding`] does, since both use
 /// [`BuiltinUses`].
 pub fn rng_security_ingredients(program: &Program) -> RngSecurityIngredients {
-    let uses = BuiltinUses::of(program);
+    rng_security_ingredients_with_bound(program, &HashSet::new())
+}
+
+/// Like [`rng_security_ingredients`], but names in `extra_bound` are treated
+/// as already bound by the program (for example by earlier REPL submissions).
+/// A later mention of a user variable named `random_seed` is then not the
+/// builtin.
+pub fn rng_security_ingredients_with_bound(
+    program: &Program,
+    extra_bound: &HashSet<String>,
+) -> RngSecurityIngredients {
+    let mut uses = BuiltinUses::of(program);
+    for name in extra_bound {
+        uses.bind(name);
+    }
     RngSecurityIngredients {
         seed_site: uses.of_random_seed().next().map(CallSite::position),
         security_site: uses.of_security_builtins().next().map(CallSite::position),
     }
+}
+
+/// Top-level names this program binds into the persistent environment:
+/// `store`/`const` declarations and action definitions. The REPL folds these
+/// into later submissions so a user variable named `random_seed` is not
+/// mistaken for the builtin. Action parameters, loop variables, and nested
+/// locals are not included — they do not shadow builtins for later lines.
+pub fn session_level_bindings(program: &Program) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for statement in &program.statements {
+        match statement {
+            Statement::VariableDeclaration { name, .. }
+            | Statement::ActionDefinition { name, .. } => {
+                names.insert(name.clone());
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 /// A place where a program names a function: a call (`f of x`,

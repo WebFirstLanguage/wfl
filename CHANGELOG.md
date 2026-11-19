@@ -101,6 +101,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     (`count from 1 to length of items` over an empty list) does not warn.
 
 ### Fixed
+- **DNS search-list cache and mixed failures, and REPL `random_seed`.** Four
+  bugs in ordered DNS resolution and the REPL security gate:
+  - A search-expanded address was cached for the successful candidate's TTL
+    even when an earlier search name had returned NXDOMAIN with a shorter
+    negative TTL, so the preferred name stayed hidden after it became
+    resolvable. The cached positive answer is now bounded by those earlier
+    negative expiries, and is not cached when an earlier failure has no TTL.
+  - A lookup could read an old `resolv.conf` and then observe the cache
+    generation created by a concurrent reload, so the old nameserver's answer
+    was stored as current. The configuration snapshot and generation are now
+    taken together.
+  - When A timed out but AAAA returned SERVFAIL, the combined result looked
+    like complete silence, so search expansion stopped and a later resolvable
+    candidate (including the bare name) was never asked. A family that
+    actually replied is now preferred, and only a timeout on both families
+    stops the search.
+  - In the REPL, a user variable named `random_seed` from an earlier
+    submission was treated as the builtin when a later line mentioned it,
+    marking the session seeded and blocking crypto. Top-level `store` and
+    action names from earlier submissions are now visible to that scan;
+    nested names such as action parameters are not, so they cannot hide a
+    later mention of the real builtin.
 - **Count and for-each loop errors point at the loop's first line.** An error
   raised by a `count` or `for each` loop itself was reported at the token after
   `end count` or `end for`, so the location and source excerpt showed the end

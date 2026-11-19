@@ -1,6 +1,7 @@
 use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::{
-    RngSecurityIngredients, StaticAnalyzer, rng_security_ingredients,
+    RngSecurityIngredients, StaticAnalyzer, rng_security_ingredients_with_bound,
+    session_level_bindings,
 };
 use crate::diagnostics::{DiagnosticReporter, Severity, Span, WflDiagnostic};
 use crate::exec::budget::ExecutionBudget;
@@ -16,6 +17,7 @@ use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor, Result as RustylineResult};
+use std::collections::HashSet;
 use std::io::{self, Write};
 
 #[derive(Debug, PartialEq)]
@@ -54,6 +56,12 @@ pub struct ReplState {
     /// `random_seed` in security-sensitive code, not its execution.
     rng_insecurely_seeded: bool,
     security_builtin_used: bool,
+    /// Top-level `store` and action names from submissions that joined the
+    /// session. The security scan of the current submission cannot see earlier
+    /// `store` lines, so without this a later mention of a user variable named
+    /// `random_seed` would be treated as the builtin. Action parameters and
+    /// other nested locals are omitted: they do not shadow builtins later.
+    session_bound_names: HashSet<String>,
     /// Byte cap on the accumulated source that session-aware analysis will build
     /// before falling back to analysing this submission alone. A field (not a
     /// hard-coded constant) so tests can force the fallback without constructing
@@ -99,6 +107,7 @@ impl ReplState {
             session_inputs: Vec::new(),
             rng_insecurely_seeded: false,
             security_builtin_used: false,
+            session_bound_names: HashSet::new(),
             max_session_analysis_bytes: DEFAULT_MAX_SESSION_ANALYSIS_BYTES,
         }
     }
@@ -383,7 +392,8 @@ impl ReplState {
         // fatal and, like any fatal, does not record the submission — so the
         // session never accumulates both ingredients, and a later innocent
         // command is not blocked.
-        let security_ingredients = rng_security_ingredients(&program);
+        let security_ingredients =
+            rng_security_ingredients_with_bound(&program, &self.session_bound_names);
         if let Some(rendered) =
             self.insecure_seed_block(&security_ingredients, &mut reporter, file_id)
         {
@@ -455,6 +465,8 @@ impl ReplState {
         self.rng_insecurely_seeded |= security_ingredients.seeds_rng();
         self.security_builtin_used |= security_ingredients.uses_security_builtin();
         self.session_inputs.push(input.to_string());
+        self.session_bound_names
+            .extend(session_level_bindings(&program));
 
         if messages.is_empty() {
             Ok(None)
@@ -1206,6 +1218,61 @@ mod tests {
             "expected the insecure-RNG error on the fallback path, got: {out}"
         );
         assert!(!repl.interpreter.global_env().borrow().has("tok"));
+    }
+
+    #[tokio::test]
+    async fn a_user_variable_named_random_seed_is_not_session_seeding() {
+        // WFL allows `store random_seed as 5`. A later mention of that variable
+        // is the user's number, not the builtin, so it must not mark the
+        // session seeded or block crypto.
+        let mut repl = ReplState::new();
+        assert_eq!(
+            repl.process_line("store random_seed as 5").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            repl.process_line("random_seed").await.unwrap().as_deref(),
+            Some("5")
+        );
+        assert_eq!(
+            repl.process_line("store token as secure_random_bytes of 16")
+                .await
+                .unwrap(),
+            None,
+            "mentioning a user variable named random_seed must not block crypto"
+        );
+        assert!(repl.interpreter.global_env().borrow().has("token"));
+    }
+
+    #[tokio::test]
+    async fn an_action_parameter_named_random_seed_does_not_hide_the_builtin() {
+        // A parameter named random_seed exists only inside the action. It must
+        // not make a later `store reseed as random_seed` look like the user's
+        // variable, or crypto after that alias would skip ANALYZE-SECURITY.
+        let mut repl = ReplState::new();
+        for line in [
+            "define action called echo with random_seed:",
+            "give back random_seed",
+            "end action",
+        ] {
+            assert_eq!(repl.process_line(line).await.unwrap(), None);
+        }
+        assert_eq!(
+            repl.process_line("store reseed as random_seed")
+                .await
+                .unwrap(),
+            None
+        );
+        let out = repl
+            .process_line("store token as secure_random_bytes of 16")
+            .await
+            .unwrap()
+            .expect("aliasing the builtin must still mark the session seeded");
+        assert!(
+            out.contains("random_seed must not be used"),
+            "expected the insecure-RNG security error, got: {out}"
+        );
+        assert!(!repl.interpreter.global_env().borrow().has("token"));
     }
 
     #[tokio::test]

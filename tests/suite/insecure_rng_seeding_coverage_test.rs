@@ -14,10 +14,16 @@
 //!    file does not evade it. These tests spawn the real `wfl` binary.
 
 use std::fs;
-use std::process::Command;
-use tempfile::TempDir;
+use std::io::{Read, Write};
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+use tempfile::{NamedTempFile, TempDir};
 use wfl::analyzer::Analyzer;
-use wfl::analyzer::static_analyzer::{StaticAnalyzer, rng_security_ingredients};
+use wfl::analyzer::static_analyzer::{
+    StaticAnalyzer, rng_security_ingredients, rng_security_ingredients_with_bound,
+    session_level_bindings,
+};
 use wfl::diagnostics::Severity;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -341,6 +347,41 @@ store digest as hash_password of "hunter2"
 }
 
 #[test]
+fn a_bound_name_from_outside_the_program_is_not_the_builtin() {
+    // The REPL scans one submission at a time. A later mention of a variable
+    // bound on an earlier line must not count as the builtin.
+    let program = parse("display random_seed\n");
+    assert!(
+        rng_security_ingredients(&program).seeds_rng(),
+        "without the earlier binding, a mention is the builtin"
+    );
+    let extra = std::collections::HashSet::from(["random_seed".to_string()]);
+    assert!(
+        !rng_security_ingredients_with_bound(&program, &extra).seeds_rng(),
+        "a mention of a name bound earlier is not a seed call"
+    );
+}
+
+#[test]
+fn session_level_bindings_skip_action_parameters() {
+    let program = parse(
+        r#"
+define action called echo with random_seed:
+    give back random_seed
+end action
+store keep as 1
+"#,
+    );
+    let names = session_level_bindings(&program);
+    assert!(names.contains("echo"), "{names:?}");
+    assert!(names.contains("keep"), "{names:?}");
+    assert!(
+        !names.contains("random_seed"),
+        "an action parameter must not join the session binding set: {names:?}"
+    );
+}
+
+#[test]
 fn a_program_action_that_replaces_a_builtin_is_not_the_builtin() {
     // Negative control: WFL lets a program define its own action under some
     // builtin names (EXPLICIT_CALL_BUILTIN_FUNCTIONS, e.g. `session_cookie`).
@@ -514,4 +555,97 @@ fn a_seed_only_helper_still_runs_through_every_loader() {
         assert!(out.contains("SEED-ONLY FILE RAN"), "{how}\n{out}");
         assert!(out.contains("MAIN CONTINUED"), "{how}\n{out}");
     }
+}
+
+/// Drive the real `wfl` REPL over piped stdin (one submission per line).
+/// `TERM=dumb` selects rustyline's line-oriented mode so prompts are stable
+/// on Linux and Windows when stdin is not a terminal.
+fn run_repl_session(lines: &[&str]) -> (String, Option<i32>) {
+    let dir = TempDir::new().expect("tempdir");
+    let global_cfg = NamedTempFile::new().expect("empty global-config tempfile");
+    let mut input = lines.join("\n");
+    input.push('\n');
+    let mut child = Command::new(wfl_exe())
+        .current_dir(dir.path())
+        .env("WFL_GLOBAL_CONFIG_PATH", global_cfg.path())
+        .env("TERM", "dumb")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn wfl REPL");
+    let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+    let out = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
+    let err = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(input.as_bytes()).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("wfl REPL did not exit within 20 seconds\ninput:\n{input}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.join().unwrap()),
+        String::from_utf8_lossy(&err.join().unwrap())
+    );
+    (combined, status.code())
+}
+
+#[test]
+fn repl_binary_user_variable_named_random_seed_does_not_block_crypto() {
+    let (out, code) = run_repl_session(&[
+        "store random_seed as 5",
+        "store token as secure_random_bytes of 16",
+        "display \"CRYPTO_OK\"",
+        ".exit",
+    ]);
+    assert_eq!(code, Some(0), "REPL must exit cleanly\n{out}");
+    assert!(
+        !out.contains("random_seed must not be used"),
+        "a user variable named random_seed must not seed the session:\n{out}"
+    );
+    assert!(
+        out.contains("CRYPTO_OK"),
+        "crypto after a user random_seed binding must run:\n{out}"
+    );
+}
+
+#[test]
+fn repl_binary_action_parameter_named_random_seed_does_not_hide_the_builtin() {
+    let (out, code) = run_repl_session(&[
+        "define action called echo with random_seed:",
+        "give back random_seed",
+        "end action",
+        "store g as random_seed",
+        "store token as secure_random_bytes of 16",
+        ".exit",
+    ]);
+    assert_eq!(
+        code,
+        Some(0),
+        "the REPL process itself must still exit cleanly\n{out}"
+    );
+    assert!(
+        out.contains("random_seed must not be used"),
+        "aliasing the builtin after an action parameter must still seed the session:\n{out}"
+    );
 }

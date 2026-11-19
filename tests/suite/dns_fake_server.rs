@@ -53,6 +53,9 @@ pub enum Reply {
     WrongIdThen { decoy: IpAddr, then: Box<Reply> },
     /// Wait, then send the inner reply.
     Delayed(Duration, Box<Reply>),
+    /// Send the inner reply with this TTL (and SOA negative TTL) instead of
+    /// the server's default.
+    WithTtl(u32, Box<Reply>),
 }
 
 impl Reply {
@@ -364,6 +367,9 @@ async fn respond(
         Reply::Delayed(delay, inner) => {
             tokio::time::sleep(*delay).await;
             Box::pin(respond(query, inner, transport, ttl)).await
+        }
+        Reply::WithTtl(inner_ttl, inner) => {
+            Box::pin(respond(query, inner, transport, *inner_ttl)).await
         }
         Reply::WrongIdThen { decoy, then } => {
             let wrong = build(
