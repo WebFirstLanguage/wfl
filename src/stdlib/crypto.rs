@@ -161,18 +161,13 @@ impl WflHashState {
             }
 
             // Row step - apply G function to each row
-            for row in 0..4 {
-                let (mut a, mut b, mut c, mut d) = (
-                    self.state[row][0],
-                    self.state[row][1],
-                    self.state[row][2],
-                    self.state[row][3],
-                );
+            for row in self.state.iter_mut() {
+                let (mut a, mut b, mut c, mut d) = (row[0], row[1], row[2], row[3]);
                 Self::g_function(&mut a, &mut b, &mut c, &mut d);
-                self.state[row][0] = a;
-                self.state[row][1] = b;
-                self.state[row][2] = c;
-                self.state[row][3] = d;
+                row[0] = a;
+                row[1] = b;
+                row[2] = c;
+                row[3] = d;
             }
         }
     }

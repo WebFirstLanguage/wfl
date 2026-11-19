@@ -856,8 +856,9 @@ impl PatternVM {
         end_pc: usize,
     ) -> Result<bool, PatternError> {
         let mut sub = Program::new();
-        for i in (begin_pc + 1)..end_pc {
-            sub.push(program.instructions[i].clone());
+        // `matching_end_pc` guarantees `begin_pc + 1 <= end_pc < len`.
+        for instruction in &program.instructions[begin_pc + 1..end_pc] {
+            sub.push(instruction.clone());
         }
         sub.push(Instruction::Match);
         let mut nested = PatternVM::with_meter(Arc::clone(&self.meter));
@@ -1116,8 +1117,9 @@ impl PatternVM {
 
                     // Create a sub-program for the lookahead pattern
                     let mut lookahead_program = Program::new();
-                    for i in (state.pc + 1)..end_pc {
-                        lookahead_program.push(program.instructions[i].clone());
+                    // The scan above keeps `state.pc + 1 <= end_pc <= len`.
+                    for instruction in &program.instructions[state.pc + 1..end_pc] {
+                        lookahead_program.push(instruction.clone());
                     }
                     lookahead_program.push(Instruction::Match);
 
