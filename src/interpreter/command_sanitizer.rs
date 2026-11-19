@@ -157,11 +157,7 @@ impl CommandSanitizer {
         }
 
         // Check for command substitution patterns
-        if command.contains("$(") || command.contains("${") {
-            return true;
-        }
-
-        false
+        command.contains("$(") || command.contains("${")
     }
 
     /// Authorize any subprocess launch (shell path or direct-exec).
