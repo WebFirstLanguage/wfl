@@ -208,6 +208,25 @@ class FrontMatterTests(CheckerTestCase):
         self.assert_problem(run_checker(self.root), "PRD-0001-example.md",
                             "'created' must be a date YYYY-MM-DD")
 
+    def test_empty_created_date(self):
+        self.write("PRD-0001-example.md", prd(created=""))
+        self.assert_problem(run_checker(self.root), "PRD-0001-example.md",
+                            "'created' must be a date YYYY-MM-DD")
+
+
+class DuplicateNumberTests(CheckerTestCase):
+    def test_two_files_with_one_number_are_both_reported(self):
+        self.write("PRD-0001-greeting.md", prd(title="Greeting"))
+        self.write("PRD-0001-farewell.md", prd(title="Farewell"))
+        result = run_checker(self.root)
+        for name in ("PRD-0001-greeting.md", "PRD-0001-farewell.md"):
+            self.assert_problem(result, name, "PRD-0001 is used by more than one file")
+
+    def test_distinct_numbers_pass(self):
+        self.write("PRD-0001-greeting.md", prd(title="Greeting"))
+        self.write("PRD-0002-farewell.md", prd(number="0002", title="Farewell"))
+        self.assert_clean(run_checker(self.root))
+
 
 class SectionTests(CheckerTestCase):
     ORDER = ["Problem", "Goals", "Non-goals", "Requirements", "Acceptance criteria",
@@ -276,6 +295,38 @@ class RequirementTests(CheckerTestCase):
         self.write("PRD-0001-example.md", prd(criteria=acs))
         self.assert_problem(run_checker(self.root), "PRD-0001-example.md",
                             "AC-03 must name at least one requirement")
+
+    def test_unbolded_requirement_after_a_valid_one_is_reported(self):
+        reqs = ["- **REQ-01** — WFL MUST print the greeting.",
+                "- REQ-02 — WFL MUST greet guests."]
+        acs = ["- **AC-01** (REQ-01) — Given x, when y, then z."]
+        self.write("PRD-0001-example.md", prd(requirements=reqs, criteria=acs))
+        self.assert_problem(run_checker(self.root), "PRD-0001-example.md",
+                            "malformed requirement entry")
+
+    def test_short_requirement_number_is_reported(self):
+        reqs = ["- **REQ-01** — WFL MUST print the greeting.",
+                "- **REQ-2** — WFL SHOULD exit with status 0."]
+        acs = ["- **AC-01** (REQ-01) — Given x, when y, then z."]
+        self.write("PRD-0001-example.md", prd(requirements=reqs, criteria=acs))
+        self.assert_problem(run_checker(self.root), "PRD-0001-example.md",
+                            "malformed requirement entry")
+
+    def test_unbolded_criterion_after_valid_ones_is_reported(self):
+        acs = ["- **AC-01** (REQ-01) — Given x, when y, then z.",
+               "- **AC-02** (REQ-02) — Given x, when y, then z.",
+               "- AC-03 (REQ-01) — Given x, when y, then z."]
+        self.write("PRD-0001-example.md", prd(criteria=acs))
+        self.assert_problem(run_checker(self.root), "PRD-0001-example.md",
+                            "malformed acceptance criterion entry")
+
+    def test_prose_mentioning_a_requirement_is_not_an_entry(self):
+        reqs = ["- **REQ-01** — WFL MUST print the greeting.",
+                "- **REQ-02** — WFL SHOULD exit with status 0.",
+                "",
+                "REQ-02 only applies when REQ-01 succeeded."]
+        self.write("PRD-0001-example.md", prd(requirements=reqs))
+        self.assert_clean(run_checker(self.root))
 
     def test_criterion_numbers_have_no_gaps(self):
         acs = ["- **AC-01** (REQ-01) — Given x, when y, then z.",
