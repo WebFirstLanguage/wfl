@@ -51,6 +51,21 @@ jobs:
         run: python -m unittest discover -s tests/tooling -v
       - name: Static hygiene check (tracked tree)
         run: python scripts/check_repo_hygiene.py --mode static
+      # Enforces the PRD format and status moves in Docs/contributing/prd-process.md.
+      # On a pull request it also compares with the target branch, so a PRD
+      # cannot be deleted or moved to a status the process forbids.
+      - name: PRD format check
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            python scripts/check_prd_docs.py --base FETCH_HEAD
+          else
+            python scripts/check_prd_docs.py
+          fi
 
   fmt:
     name: Check formatting
