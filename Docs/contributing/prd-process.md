@@ -209,8 +209,9 @@ python scripts/check_prd_docs.py --base origin/dev
 ```
 
 It prints one `path:line: message` line per problem and exits with status 1 if
-there is any. It checks file names and IDs, the front matter keys and
-statuses, dates, the section order, `REQ`/`AC` numbering and coverage, the
+there is any. It checks file names and IDs, that each PRD number is used by
+one file only, the front matter keys and statuses, dates, the section order,
+`REQ`/`AC` numbering and coverage, malformed `REQ`/`AC` list items, the
 approval fields, `supersedes` links, allowed status moves, deleted PRDs, and
 the revision line for changed approved requirements. CI runs it in the
 **Repository Hygiene** job on Linux and Windows.

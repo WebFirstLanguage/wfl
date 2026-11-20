@@ -17,7 +17,8 @@ operating systems.
 
 ## Acceptance criteria → tests
 
-All in `tests/tooling/test_check_prd_docs.py` (38 tests).
+All in `tests/tooling/test_check_prd_docs.py` (38 tests in the first cycle;
+45 after the second cycle below).
 
 | Criterion | Tests |
 |---|---|
@@ -57,6 +58,27 @@ All in `tests/tooling/test_check_prd_docs.py` (38 tests).
 
 Local environment: Linux, Python 3.13. Windows was not run locally; the
 Repository Hygiene job runs the same tests on Windows in CI.
+
+## Second cycle: Devin review findings on #815
+
+Devin review on head `4a4feaf` raised three findings. Each was reproduced
+against that head before any change:
+
+| Finding | Reproduction on `4a4feaf` | Disposition |
+|---|---|---|
+| An unbolded `- REQ-02 — ...` next to valid entries escapes every check | exit 0, no output | Confirmed; fixed |
+| Two files sharing one PRD number pass | exit 0, no output | Confirmed; fixed |
+| An empty `created:` passes | exit 1: `PRD-0001-example.md:6: 'created' must be a date YYYY-MM-DD` | Not reproduced; regression test added |
+
+- Red: `dded73c` (test-only). `python3 -m unittest tests.tooling.test_check_prd_docs`
+  → `Ran 45 tests ... FAILED (failures=4)`, all `AssertionError: 0 != 1`. The
+  failing tests were the unbolded requirement, the short `REQ-2` number, the
+  unbolded criterion, and the duplicate number. The empty-`created`
+  regression test, the prose-mention guard and the distinct-numbers guard pass.
+- Green: the next commit. `python3 -m unittest tests.tooling.test_check_prd_docs`
+  → `Ran 45 tests ... OK`. The three reproduction fixtures now exit 1 with
+  `malformed requirement entry`, `PRD-0001 is used by more than one file`
+  (reported on both files), and the unchanged date message.
 
 ## Not applicable, with reason
 

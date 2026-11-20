@@ -4,7 +4,8 @@
 Checks every Product Requirements Document (PRD) under `Engineering/prds/`:
 
   1. File name `PRD-NNNN-short-name.md`; `id` matches the file name and the
-     first heading (`# PRD-NNNN: <title>`). `PRD-0000` is the template only.
+     first heading (`# PRD-NNNN: <title>`). `PRD-0000` is the template only,
+     and each PRD number is used by exactly one file.
   2. Front matter has exactly the template's keys; `status` is allowed;
      dates are `YYYY-MM-DD` (the template may keep the `YYYY-MM-DD` text).
   3. The level-2 sections are exactly the template's, in its order.
@@ -12,7 +13,8 @@ Checks every Product Requirements Document (PRD) under `Engineering/prds/`:
      and each uses MUST, SHOULD or MAY. Acceptance criteria are
      `- **AC-NN** (REQ-NN, ...) — ...`, numbered from 01 without gaps; each
      names at least one existing requirement, and every requirement is named
-     by at least one criterion.
+     by at least one criterion. A list item that starts like a REQ or AC
+     entry but is not in that exact form is reported as malformed.
   5. Approved / Implemented / Superseded PRDs carry `approved_by` (a PRD
      approver) and `approved_on`; Approved and Implemented PRDs have exactly
      `None.` under "Open questions". Draft / In review / Rejected PRDs have
@@ -86,6 +88,11 @@ NEW_FILE_FORBIDDEN = {"Implemented", "Superseded"}
 
 REQ_LINE_RE = re.compile(r"^\s*[-*]\s+\*\*(REQ-\d{2})\*\*")
 AC_LINE_RE = re.compile(r"^\s*[-*]\s+\*\*(AC-\d{2})\*\*(.*)$")
+# A list item that starts with something like a REQ or AC ID. An item that
+# matches this but not REQ_LINE_RE / AC_LINE_RE is malformed and is reported,
+# so it cannot slip past the numbering, keyword and coverage checks.
+REQ_LIKE_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*)?\s*REQ[\s_-]*\d", re.IGNORECASE)
+AC_LIKE_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*)?\s*AC[\s_-]*\d", re.IGNORECASE)
 AC_REFS_RE = re.compile(r"^\s*\(([^)]*)\)")
 REQ_REF_RE = re.compile(r"REQ-\d{2}")
 KEYWORD_RE = re.compile(r"\b(MUST|SHOULD|MAY)\b")
@@ -293,6 +300,9 @@ class Checker:
             for lineno, text in req_entry[2]:
                 match = REQ_LINE_RE.match(text)
                 if not match:
+                    if REQ_LIKE_RE.match(text):
+                        self.report(prd.rel_path, lineno, "malformed requirement entry; "
+                                    "write it as '- **REQ-NN** — <text>' with a two-digit number")
                     continue
                 rid = match.group(1)
                 requirements.append((rid, lineno))
@@ -310,6 +320,9 @@ class Checker:
             for lineno, text in ac_entry[2]:
                 match = AC_LINE_RE.match(text)
                 if not match:
+                    if AC_LIKE_RE.match(text):
+                        self.report(prd.rel_path, lineno, "malformed acceptance criterion entry; "
+                                    "write it as '- **AC-NN** (REQ-NN) — <text>' with two-digit numbers")
                     continue
                 aid = match.group(1)
                 criteria.append((aid, lineno))
@@ -370,6 +383,22 @@ class Checker:
             self.report(prd.rel_path, line, f"approval fields must be empty when status is {status}")
 
     # --- whole-tree checks -----------------------------------------------
+
+    def check_unique_numbers(self, prds):
+        """A PRD number names exactly one file (PROC-03)."""
+        owners = {}
+        for prd in prds:
+            match = FILE_RE.match(Path(prd.rel_path).name)
+            pid = f"PRD-{match.group(1)}" if match else prd.front.get("id")
+            if pid:
+                owners.setdefault(pid, []).append(prd)
+        for pid, files in owners.items():
+            if len(files) > 1:
+                names = ", ".join(sorted(Path(p.rel_path).name for p in files))
+                for prd in files:
+                    self.report(prd.rel_path, prd.front_lines.get("id", 1),
+                                f"{pid} is used by more than one file ({names}); "
+                                "each PRD needs its own number")
 
     def check_supersedes(self, prds):
         by_id = {}
@@ -438,6 +467,7 @@ class Checker:
             for path in sorted(directory.iterdir()):
                 if path.is_file() and path.suffix == ".md" and path.name != "README.md":
                     prds.append(self.check_file(path))
+        self.check_unique_numbers(prds)
         self.check_supersedes(prds)
         if base is not None:
             self.check_against_base(base, prds)
