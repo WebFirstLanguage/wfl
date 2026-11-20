@@ -233,6 +233,7 @@ Guidelines for quality, security, performance, and collaboration — aligned wit
 - **[Building from Source](contributing/building-from-source.md)** - Compile WFL
 - **[Contributing Guide](contributing/contributing-guide.md)** - Day-to-day contribution workflow
 - **[Issue Policy](contributing/issue-policy.md)** - Ranked issue types and agent dispatch, merge, and closure rules
+- **[PRD Process](contributing/prd-process.md)** - How a feature idea becomes an Approved PRD that agents may build
 - **[Architecture Overview](contributing/architecture-overview.md)** - How WFL works
 - **[LSP Integration](contributing/lsp-integration.md)** - Language Server details
 - **[MCP Integration](contributing/mcp-integration.md)** - AI assistant integration

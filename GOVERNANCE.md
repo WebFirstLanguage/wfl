@@ -10,6 +10,7 @@ repository so contributors have a single source of truth.
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community behavior and enforcement |
 | [AI_POLICY.md](AI_POLICY.md) | AI-assisted work is welcome; anti-discrimination |
 | [Docs/contributing/issue-policy.md](Docs/contributing/issue-policy.md) | Ranked issue types and agent dispatch, merge, and closure rules |
+| [Docs/contributing/prd-process.md](Docs/contributing/prd-process.md) | How a feature goes from idea to an Approved PRD, and how agents build it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute and apply for Contributor status |
 | [SECURITY.md](SECURITY.md) | Vulnerability reporting and supported versions |
 | [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Binding repository hygiene and layout policy (§3.8) |
@@ -34,14 +35,16 @@ conflicts on the owning issue instead of silently relaxing a rule.
   open its PR into `dev`. Never push directly to `dev`, `main` or a release
   branch, or force-push shared branches. Promotion is `dev → main` by PR,
   except that an eligible Dependabot pull request may merge into the branch
-  Dependabot targeted, including `main` (§3.10).
-- Maintainers merge. There are two standing exceptions: an eligible I1 fix by
-  a project-run agent under §3.9, and an eligible Dependabot pull request
-  merged by a project-run agent under §3.10, both as defined in
+  Dependabot targeted, including `main` (§3.10). Project-run agents may open
+  and merge the promotion PR under §3.12.
+- Maintainers merge. There are four standing exceptions for project-run
+  agents: an eligible I1 fix (§3.9), an eligible Dependabot pull request
+  (§3.10), a feature pull request that implements an Approved PRD (§3.11),
+  and the `dev → main` promotion pull request (§3.12), as defined in
   [the issue policy](Docs/contributing/issue-policy.md). Authors, including
   agent authors, do not merge their own pull requests. This needs no separate
   per-PR Brad approval once the ruleset, reviews, and CI below are satisfied.
-  For an agent-authored I1 PR, a different eligible agent or an authorized
+  For an agent-authored PR, a different eligible agent or an authorized
   Maintainer must perform the merge.
 - GitHub ruleset **LOG-16 reviewed changes** is enforced on `main` and `dev`
   with no bypass. It requires one approving review from someone other than the
@@ -85,19 +88,25 @@ individual result links, then recheck immediately before acting. A different
 SHA or aggregate green is insufficient; a flaky rerun is not a waiver.
 Anything short of fully green stops for Brad's explicit authorization.
 Current-revision independent review and handled bot feedback remain required.
-The one exception is the §3.10 Dependabot delegation, which lets a project-run
+There are two exceptions. The §3.10 Dependabot delegation lets a project-run
 agent merge an eligible Dependabot pull request into `main` under the same
-exact-commit, fully-green rule. It grants no build, release, tag, promotion or
-deployment authority.
+exact-commit, fully-green rule. The §3.12 promotion delegation lets
+project-run agents open and merge the `dev → main` promotion pull request
+under the same rule; because the scheduled nightly workflow builds from
+`main`, the next nightly build then publishes that code, as it already does
+today. Neither exception grants tag, non-nightly release, release-promotion or
+WFL deployment authority, which stays with Azusa's gate above.
 
 Always Brad's decisions regardless of CI: spending money; deleting data,
-agents or repositories; anything touching secrets; VM configuration changes;
-and removing or weakening required checks. Release/deploy workflow changes,
+agents or repositories; anything touching secrets; VM configuration changes
+(the routine website-host maintenance in §3.13 is the only exception); and
+removing or weakening required checks. Release/deploy workflow changes,
 organization settings/membership and deletion of branches, rulesets or
 workflows also require Brad's explicit approval through the owning issue.
 
 Production hosts are read-only for agents: authorized config/log inspection
 only, without exposing secrets. No edits, restarts, installs or migrations.
+The one exception is the project website host, within the limits of §3.13.
 The conditional CEO production-deployment authority above is limited to the
 authorized deployment; it grants no general production administration.
 Other production changes go to Brad through Azusa.
@@ -160,8 +169,12 @@ may care about.
 
 | Decision type | Who decides | Notes |
 |---|---|---|
-| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes under §3.9 and eligible Dependabot updates under §3.10 | Current-revision CI, independent review, handled bot feedback, and the LOG-16 ruleset |
-| Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules |
+| Day-to-day PR merge | Maintainer(s); project-run agents for eligible I1 fixes (§3.9), eligible Dependabot updates (§3.10), features under an Approved PRD (§3.11) and the `dev → main` promotion (§3.12) | Current-revision CI, independent review, handled bot feedback, and the LOG-16 ruleset |
+| Which features WFL gets (PRD approval) | Brad only | The vision decision; §3.11 and [the PRD process](Docs/contributing/prd-process.md) |
+| Language design / breaking change | Maintainer(s) | Must satisfy backward-compatibility rules. New, non-breaking syntax may be built by agents under an Approved PRD (§3.11); a breaking change is always merged by Brad |
+| Issue triage, planning, duplicate closure | Project-run agents within §3.12; Brad for "not planned" | §3.12 |
+| Website content, deploys, routine host maintenance | Project-run agents within §3.13; Brad for everything else on the host | §3.13 |
+| Moving the code host (for example to GitLab) | Brad | §3.14 |
 | Security advisories and embargo | Maintainer(s) | Per [SECURITY.md](SECURITY.md) |
 | Appointing Contributors / Maintainers | Maintainer(s) | See [CONTRIBUTING.md](CONTRIBUTING.md) application process |
 | Governance, CoC, AI Policy amendments | Maintainer(s) | Prefer public PR + discussion; Maintainer may act urgently |
@@ -285,10 +298,10 @@ itself a policy violation.
 [The issue policy](Docs/contributing/issue-policy.md) delegates dispatch,
 merge, and linked-issue closure for well-defined I1 bug fixes and routine
 corrections to project-run AI agents after required CI and review-bot gates
-pass. New features and unclear behavior need a Maintainer's dispatch decision
-and human merge approval. This delegation does not extend to releases,
-security response, or general issue triage. Human contributors may use AI under
-`AI_POLICY.md` regardless of issue type.
+pass. New features need an Approved PRD (§3.11); unclear behavior needs a
+Maintainer's dispatch decision. This delegation does not extend to releases or
+security response; issue triage is delegated separately under §3.12. Human
+contributors may use AI under `AI_POLICY.md` regardless of issue type.
 
 ### 3.10 Agent merges of Dependabot updates
 
@@ -315,6 +328,177 @@ targeted; changes reaching `main` return to `dev` by the normal sync pull
 request. Anything not eligible waits for a Maintainer. This delegation grants
 no build, release, tag, deployment or production authority, and the Maintainers
 remain accountable for it and may revoke it.
+
+### Rules with IDs (§3.11–§3.14 and §10)
+
+The rules below carry IDs (`GOV-NN`) so pull requests, reviews, checks and the
+agent rule block in `CLAUDE.md` can cite them. MUST, MUST NOT, SHOULD and MAY
+in these rules have their RFC 2119 meaning. IDs are never reused; a retired
+rule's ID is not given to a new rule. Each rule's *Enforced by* line says what
+enforces it **today**; "not set up yet" points to the setup checklist in §13.
+
+### 3.11 Autonomous development under approved PRDs
+
+Brad is the **vision driver**: he decides which features WFL gets. Project-run
+agents do the engineering within the bounds of a PRD he approved. The process
+and the PRD format are in [the PRD process](Docs/contributing/prd-process.md).
+
+**GOV-01** — Only Brad approves, rejects or supersedes a PRD. A project-run
+agent MUST NOT set a PRD to `Approved` or `Rejected`, or fill its approval
+fields. Agents MAY draft and propose PRDs, including for ideas of their own.
+*Why:* agents may suggest features but must never decide them.
+*Enforced by:* `.github/CODEOWNERS` with code-owner review — not set up yet
+(setup checklist #1–#3); `scripts/check_prd_docs.py` checks the approver name
+(Repository Hygiene job, exists).
+
+**GOV-02** — A project-run agent MAY start a feature only when the feature's
+PRD is `Approved`; the approval is the dispatch decision, and no further
+per-feature approval is needed. An agent MUST NOT start building a feature
+that has no Approved PRD.
+*Why:* this removes Brad from every step except the vision decision.
+*Enforced by:* PR review checklist (`.github/pull_request_template.md`) and
+independent review.
+
+**GOV-03** — An Approved PRD authorizes only the behavior it states in its
+requirements and acceptance criteria. Work that needs more MUST stop and go
+back to Brad as a PRD change.
+*Why:* this is the fence that keeps agents from making up features.
+*Enforced by:* independent review against the PRD (issue policy, feature
+completion gates).
+
+**GOV-04** — A different eligible agent MAY merge a feature PR that implements
+an Approved PRD, at any testing risk class, when every completion gate in
+[the issue policy](Docs/contributing/issue-policy.md#feature-pull-requests-under-an-approved-prd)
+passes; an R3 PR also needs a completed security-focused independent review.
+The author agent MUST NOT merge its own PR.
+*Why:* full autonomy for approved work, with the same gates as I1 bug fixes.
+*Enforced by:* LOG-16 ruleset (exists: independent approval, required checks,
+resolved threads); separate agent identities — not set up yet (setup
+checklist #1).
+
+**GOV-05** — Even with an Approved PRD, these stay Brad's decisions: merging a
+breaking change or a compatibility exception (§3.1); security vulnerabilities
+and secrets (SECURITY.md); tags and releases (Azusa's gate in the common
+policy); legal and licensing; access and permissions; spending money; changes
+to the policy files (§10); and moving the code host (§3.14).
+*Why:* these are the decisions where a mistake cannot be undone by a revert.
+*Enforced by:* the issue policy's I3 type and independent review;
+code-owner review for policy files — not set up yet (setup checklist #3).
+
+**GOV-06** — Autonomous work MUST meet the same test rules as any other work:
+Red → Green evidence and end-to-end tests through the real shipped artifact
+([testing.md](testing.md), WFL profile, "End-to-end evidence for every
+behavioral change").
+*Why:* all code stays test-driven and end-to-end tested, whoever writes it.
+*Enforced by:* required CI checks and independent review (exist).
+
+### 3.12 Agent project execution
+
+Project-run agents run day-to-day project execution. These delegations grant no
+tag, release or deployment authority.
+
+**GOV-07** — A project-run agent MAY split an Approved PRD into issues and one
+milestone, label them, assign agents and track progress. Each issue MUST name
+the PRD and the `REQ`/`AC` IDs it covers and MUST NOT add scope.
+*Why:* planning is engineering work; scope is Brad's.
+*Enforced by:* honour system and independent review of the resulting PRs.
+
+**GOV-08** — A project-run agent MAY triage incoming issues: classify them as
+I1, I2 or I3, add labels and the testing risk class, ask the reporter for
+missing reproduction details, and dispatch I1 bugs. A possible vulnerability or
+exposed secret MUST go to the private process in SECURITY.md and MUST NOT be
+discussed in the public issue.
+*Why:* triage keeps the backlog ready for agents without waiting for Brad.
+*Enforced by:* honour system.
+
+**GOV-09** — A project-run agent MAY close an issue as a duplicate only with a
+link to the original issue. Closing as "not planned", "won't fix" or "invalid"
+MUST stay with Brad or a delegated Contributor.
+*Why:* a duplicate loses nothing; "not planned" is a product decision.
+*Enforced by:* honour system.
+
+**GOV-10** — A project-run agent MAY open the `dev → main` promotion PR, and a
+different eligible agent MAY merge it, only when every required check passed on
+the exact head commit (none skipped, missing, pending, flaky or failing), the
+LOG-16 rules pass without a bypass, and the PR records the head SHA and the
+individual required-check results. Because the nightly build runs from
+`main`, a promotion is published by the next nightly; tags and non-nightly
+releases stay with Azusa's gate.
+*Why:* keeps `main` current without a human step, under the same exact-commit
+rule Azusa uses.
+*Enforced by:* LOG-16 ruleset on `main` (exists); separate agent identities —
+not set up yet (setup checklist #1).
+
+### 3.13 Website operations
+
+The project website is **wfl.fyi**, built from
+[`WebFirstLanguage/wfl-web`](https://github.com/WebFirstLanguage/wfl-web) and
+served from the website host; `webfirstlanguage.com` redirects to it. These
+rules are the only exception to "production hosts are read-only for agents".
+
+**GOV-11** — Website code, theme and content change through PRs in `wfl-web`.
+A different eligible agent MAY merge a `wfl-web` PR after its required CI and
+an independent review pass; a new website feature needs an Approved PRD
+(GOV-02). Agents MUST NOT merge `wfl-web` PRs while `wfl-web` has no required
+CI and branch protection.
+*Why:* the website is code and follows the same rules as WFL itself.
+*Enforced by:* `wfl-web` branch protection and CI — not set up yet (setup
+checklist #6); until then this rule fails closed.
+
+**GOV-12** — A project-run agent MAY deploy the exact merged `wfl-web` commit to
+the website host. Before each deploy it MUST have a rollback point (a host
+snapshot, or the previous release kept on disk). After the deploy it MUST run
+the smoke test. If the smoke test fails it MUST roll back automatically and
+open an issue. Without a rollback point, the agent MUST NOT deploy.
+*Why:* a broken site is the project's public face; recovery must be automatic.
+*Enforced by:* the website deploy procedure — not set up yet (setup checklist
+#7); until then this rule fails closed.
+
+**GOV-13** — A project-run agent MAY publish news posts and release notes on
+the website about work that has shipped (merged and published in a nightly or
+a release). A post MUST describe only shipped behavior and MUST label any
+future work as planned.
+*Why:* the honest-docs rule applies to the website too.
+*Enforced by:* honour system and the documentation honesty policy (`CLAUDE.md`).
+
+**GOV-14** — A project-run agent MAY do routine maintenance on the website host:
+apply operating-system security updates, and upgrade the WFL runtime to a
+**published** WFL release (never an unreleased build). The same rollback point,
+smoke test and automatic rollback as GOV-12 apply. Everything else on the host
+stays Brad's: firewall, SSH, user accounts, TLS certificates, DNS, Cloudflare,
+disk or plan changes, and anything that costs money.
+*Why:* keeps the site patched without giving agents general administration.
+*Enforced by:* the website maintenance procedure — not set up yet (setup
+checklist #7); honour system for the excluded areas.
+
+**GOV-15** — Credentials for website deploys, maintenance and CMS publishing
+MUST be injected from approved storage. Agents MUST NOT print, copy, create or
+rotate them; rotation is Brad's.
+*Why:* the common policy's credential rules apply to website automation.
+*Enforced by:* honour system; credential injection — not set up yet (setup
+checklist #8).
+
+### 3.14 Code-host portability
+
+**GOV-16** — Policy rules describe the control, not the product: "code host",
+"PR/MR", "required checks". GitHub is the code host today. Moving to another
+code host, for example a self-hosted GitLab instance used only for WFL, is
+Brad's decision. Before a move, every control in the table below MUST be
+enforced on the new host, or replaced by a CI check that Brad approved; until
+then, the old host stays authoritative.
+*Why:* the agent delegations are only safe while the controls behind them work.
+*Enforced by:* Maintainer review of the move (no move is planned).
+
+| Control the policy relies on | GitHub (today) | GitLab equivalent | Note for a move |
+|---|---|---|---|
+| No direct pushes to `dev`/`main` | LOG-16 ruleset | Protected branches | Available in GitLab Free |
+| Required checks pass on the exact head | Ruleset required status checks | "Pipelines must succeed" | Free; Windows jobs need a Windows runner |
+| One independent approval, dismissed on a new push | Ruleset | Approval rules, "Prevent approval by author", "Remove approvals when commits are added" | **Premium or Ultimate only**; GitLab Free has optional approvals |
+| Brad's review on PRDs and policy files | `.github/CODEOWNERS` + code-owner review | `CODEOWNERS` + code-owner approval on protected branches | **Premium or Ultimate only** |
+| All review threads resolved | Ruleset | "All threads must be resolved" | Free |
+| CI | GitHub Actions | GitLab CI/CD | Workflows must be rewritten |
+| Dependency updates | Dependabot (§3.10) | Renovate | §3.10 must be re-approved for Renovate |
+| Private vulnerability reports | Private vulnerability reporting | Confidential issues | SECURITY.md must be updated |
 
 ---
 
@@ -348,10 +532,11 @@ is no automatic promotion timeline; appointments are explicit and public
 5. Address review feedback. AI-assisted work is welcome; accountability
    follows [AI_POLICY.md](AI_POLICY.md).
 6. A Maintainer merges when checks and policies are satisfied, except that a
-   project-run agent may merge an eligible I1 fix under §3.9, or an eligible
-   Dependabot pull request under §3.10, after its required CI, review, and
-   evidence gates pass. Other main/release actions follow the common policy's
-   conditional CEO gate.
+   project-run agent may merge an eligible I1 fix under §3.9, an eligible
+   Dependabot pull request under §3.10, a feature pull request under an
+   Approved PRD under §3.11, or the `dev → main` promotion under §3.12, after
+   its required CI, review, and evidence gates pass. Other main/release actions
+   follow the common policy's conditional CEO gate.
 
 Maintainers may reject or request changes for any reason grounded in these
 policies, including style that violates WFL’s natural-language design goals,
@@ -425,6 +610,16 @@ not transfer authority away from Maintainers unless this document is amended.
 
 Editorial fixes (typos, link updates) may land without extended discussion.
 
+**GOV-17** — A project-run agent MAY propose a change to a policy file in a
+PR, but MUST NOT approve or merge it. Only Brad approves and merges changes to
+`GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `AI_POLICY.md`, `CONTRIBUTING.md`,
+`SECURITY.md`, `testing.md`, `REPOSITORY_HYGIENE.md`, `.repo-hygiene.toml`,
+`Docs/contributing/issue-policy.md`, `Docs/contributing/prd-process.md`,
+`.github/CODEOWNERS`, `AGENTS.md` and `CLAUDE.md`.
+*Why:* agents work inside the rules; they do not set them.
+*Enforced by:* `.github/CODEOWNERS` with code-owner review — not set up yet
+(setup checklist #1–#3).
+
 ---
 
 ## 11. Current maintainers
@@ -438,6 +633,46 @@ To request Contributor status, follow
 
 ---
 
+## 12. Open items
+
+None.
+
+---
+
+## 13. Setup checklist
+
+Rules marked "not set up yet" depend on these steps. Until a step is done, the
+rule that depends on it is a promise, not a control.
+
+1. **Give each project-run agent its own code-host identity** (a GitHub App or
+   a machine user), and use the `logbie` account only for Brad. Today Claude
+   Code sessions connect to GitHub as `logbie`, including the session that
+   wrote this policy change. While agents share Brad's account, an approval
+   from `logbie` cannot prove that Brad approved (GOV-01, GOV-04, GOV-10,
+   GOV-17).
+2. **Merge `.github/CODEOWNERS`** into `dev` and `main`. It names `@logbie`
+   as the required reviewer for `Engineering/prds/` and the policy files.
+3. **Turn on "Require review from Code Owners"** in the LOG-16 ruleset for
+   `main` and `dev`, **after** step 1. If it is turned on first, a PR that an
+   agent opened as `logbie` and that touches a PRD or policy file cannot get the
+   required code-owner approval, because an author cannot approve their own PR.
+4. **Confirm that both Repository Hygiene checks are required** in LOG-16. The
+   PRD format check is a step inside that job, so it blocks a merge only while
+   the job is a required check.
+5. **Create the label `agent-proposed`** in the repository (PROC-04).
+6. **`wfl-web`: add CI and branch protection.** CI checks the site's WFL code
+   and runs tests against a running instance of the site; branch protection on
+   its default branch requires that CI and one independent approval (GOV-11).
+7. **`wfl-web`: write the deploy and maintenance procedure**, as a runbook or a
+   deploy workflow: rollback point, smoke-test routes, automatic rollback, and
+   an issue on failure (GOV-12, GOV-14). A deploy workflow is a release/deploy
+   workflow change, so it needs Brad's explicit approval.
+8. **Store the website deploy and CMS credentials in approved storage** and
+   inject them into the agent environment; Brad owns rotation (GOV-15).
+
+---
+
 **Effective:** 2026-07-10  
+**Last reviewed:** 2026-11-20  
 **Copyright:** © Logbie LLC. Licensed documentation under the same terms as the
 project repository where applicable.

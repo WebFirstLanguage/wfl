@@ -98,6 +98,28 @@ validated statically (layers 1–4) via the docs-examples manifest instead.
    block a fast sibling; failures are contained (`tests/concurrent_main_loop_test.rs`).
 6. **File I/O**, **outbound HTTP**, **REPL**, **crypto/hashing**.
 
+### End-to-end evidence for every behavioral change
+
+**TEST-01** — Every behavioral change, whoever or whatever writes it (a person,
+an AI agent, or a project-run agent working autonomously), MUST have Red →
+Green evidence (§6) **and** at least one end-to-end test that runs the real
+shipped artifact and fails before the change and passes after it. For a
+feature, each acceptance criterion of its PRD needs such a test; for a bug fix,
+the reproduced bug does. "The real shipped artifact" means the release `wfl`
+binary (a `TestPrograms/` program, or a Rust test that starts the binary), the
+`wfl-lsp` server process, the VS Code extension host, or a running instance of
+the website for `wfl-web`. This applies at every risk class, including R1.
+*Why:* WFL's users only ever meet the shipped artifact; a unit test alone can
+pass while the program a user runs is broken.
+*Enforced by:* required CI (the integration, WFL-programs and web jobs run
+these tests) and independent review of the §15 evidence.
+
+Only these changes need no new end-to-end test, and each says why in its §15
+evidence: R0 documentation-only changes; behavior-preserving refactors, which
+instead run the existing end-to-end suites before and after (§6.3); and changes
+to repository automation under `scripts/` or CI, which are tested by running
+the real script or workflow logic against fixtures (as `tests/tooling/` does).
+
 ### Risk triggers (§11)
 
 - **Concurrency / streaming / lifecycle (§11.3):** any change to

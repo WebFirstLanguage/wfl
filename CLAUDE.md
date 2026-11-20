@@ -19,6 +19,7 @@ Binding community and contribution policy lives at the **repo root** (not only u
 | `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
 | `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
 | `Docs/contributing/issue-policy.md` | Ranked issue types and agent dispatch, merge, and closure rules |
+| `Docs/contributing/prd-process.md` | How a feature goes from idea to an **Approved PRD** (Brad approves) and how agents build it; PRDs live in `Engineering/prds/`, checked by `scripts/check_prd_docs.py` |
 | `testing.md` | **Binding Logbie Testing Policy + WFL testing profile** — Red→Green TDD evidence, required test layers, risk classes, and merge/release gates (see **Testing Policy** below) |
 | `REPOSITORY_HYGIENE.md` | **Binding Repository Hygiene and Layout Policy** — canonical home for every class of content, tracked-vs-ephemeral rules, approved output roots, archive manifest, exceptions; profile in `.repo-hygiene.toml`, enforced by `scripts/check_repo_hygiene.py` in CI |
 
@@ -30,10 +31,60 @@ Binding community and contribution policy lives at the **repo root** (not only u
 - **Docs ship with the feature** — same change; validate examples; Dev Diary entry under `History/dev-diary/<year>/` for non-trivial work.
 - **Hygiene is enforced** — every file has one canonical home (`REPOSITORY_HYGIENE.md`); tests and tools write only under `target/` or temp dirs; never track dumps, logs, caches, local settings, or personal paths. The `repo-hygiene` CI job blocks violations — fix placement, don't widen allowlists.
 - **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
-- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own releases and non-delegated merges. The narrow I1 agent merge delegation and the Dependabot merge delegation (`GOVERNANCE.md` §3.10) are in `Docs/contributing/issue-policy.md`. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
+- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own releases and non-delegated merges. The agent delegations (I1 fixes §3.9, Dependabot §3.10, features under an Approved PRD §3.11, project execution and `dev → main` promotion §3.12, website operations §3.13) are in `GOVERNANCE.md` and `Docs/contributing/issue-policy.md`. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
 - **Dependabot updates** — project-run agents may review, approve, and merge (or turn on GitHub auto-merge for) an *eligible* Dependabot PR, including into `main`: Dependabot-only commits, Cargo/npm manifests and lockfiles only, semver-compatible (no major or `0.x` minor), no new direct dependency/feature/install script/licence change, release at least 72 hours old unless it fixes an open alert, `R3` security-sensitive packages patch-only, and every required check and LOG-16 rule green on the exact head. Never push to a Dependabot branch; anything else waits for a Maintainer. See `Docs/contributing/issue-policy.md#dependabot-pull-requests`.
-- **Classify issues before agent dispatch** — project-run agents may fix well-defined I1 bugs; a different eligible agent or an authorized Maintainer must merge the PR after required CI, review-bot, and testing gates pass. Authors, including agent authors, must not merge their own PRs. After the merge, the author agent may close the linked issue with evidence. New features and unclear behavior need a Maintainer's dispatch decision. Follow `Docs/contributing/issue-policy.md` and escalate sensitive work.
+- **Classify issues before agent dispatch** — project-run agents may fix well-defined I1 bugs; a different eligible agent or an authorized Maintainer must merge the PR after required CI, review-bot, and testing gates pass. Authors, including agent authors, must not merge their own PRs. After the merge, the author agent may close the linked issue with evidence. New features need an Approved PRD (then agents build and merge them under the same gates); unclear behavior needs a Maintainer's dispatch decision. Follow `Docs/contributing/issue-policy.md` and `Docs/contributing/prd-process.md`, and escalate sensitive work.
 - Community tone: follow `CODE_OF_CONDUCT.md`; technical disagreement is fine; harassment and AI-shaming are not.
+
+<!-- BEGIN project-policy (generated; edit GOVERNANCE.md §3.11–§3.14 and §10, Docs/contributing/prd-process.md, Docs/contributing/issue-policy.md and testing.md instead) -->
+### Autonomous development rules for agents
+
+Brad is the vision driver: he approves PRDs; agents build them. These lines
+summarize rules in `GOVERNANCE.md` §3.11–§3.14 and §10,
+`Docs/contributing/prd-process.md`, `Docs/contributing/issue-policy.md` and
+`testing.md`; each ends with its rule ID. The policy files win if they differ.
+
+**Always**
+- Before starting a feature, check that its PRD in `Engineering/prds/` has `status: Approved`; that approval is your dispatch decision. [GOV-02, PROC-12]
+- Build only what the PRD's requirements and acceptance criteria state. [GOV-03]
+- Name the PRD and its `REQ`/`AC` IDs in every feature PR; write `PRD: not needed — <reason>` in a PR that needs none. [PROC-13, PROC-02]
+- Prove every acceptance criterion and every bug fix with Red → Green evidence and an end-to-end test on the real shipped artifact. [TEST-01, GOV-06, PROC-15]
+- Give a bug-fix PR `Fixes #N` and a regression test that fails without the fix. [PROC-17]
+- Write a new PRD as `Engineering/prds/PRD-NNNN-short-name.md` from the template, with the next free number. [PROC-03]
+- Fill "Compatibility" in every PRD and say whether it reserves a new word; describe threats or link a threat model in an R3 PRD. [PROC-05, PROC-06]
+- Resolve every open question and name every requirement in an acceptance criterion before asking Brad to approve. [PROC-07]
+- Label a PRD you propose yourself `agent-proposed`, and keep at most 3 of them waiting for Brad. [PROC-04]
+- Run `python scripts/check_prd_docs.py --base origin/dev` before opening a PR that touches `Engineering/prds/`. [PROC-03, PROC-09]
+- File a bug report with the template for a bug outside your task, then continue the task. [PROC-18]
+- Keep one file per record: Dev Diary `History/dev-diary/<year>/YYYY-MM-DD-topic.md`, evidence `Engineering/evidence/YYYY-MM-DD-topic.md`. [PROC-19]
+- Website: make a rollback point before every deploy or upgrade, run the smoke test after it, and on failure roll back and open an issue. [GOV-12, GOV-14]
+- Website posts describe only shipped behavior and label future work as planned. [GOV-13]
+- Send a possible vulnerability or exposed secret to the private process in `SECURITY.md`. [GOV-08, PROC-16]
+
+**Ask first (stop and ask Brad)**
+- When you are not sure whether a change needs a PRD; treat it as needing one. [PROC-01]
+- When a requirement needs behavior the PRD does not state, or is wrong: propose a PRD change instead of building it. [GOV-03, PROC-14]
+- When a change could alter an existing program, configuration file, CLI invocation or documented output: it is breaking, and Brad merges it. [GOV-05, PROC-05]
+- Before closing an issue as "not planned", "won't fix" or "invalid". [GOV-09]
+- For any website-host change other than OS security updates and upgrades to a published WFL release. [GOV-14]
+
+**Never**
+- Never set a PRD to `Approved` or `Rejected`, and never fill `approved_by` or `approved_on`. [GOV-01, PROC-08]
+- Never start a feature that has no Approved PRD. [GOV-02]
+- Never merge your own PR, including a promotion PR. [GOV-04, GOV-10]
+- Never edit the PRD file in a feature PR; mark it `Implemented` in a separate status PR. [PROC-11]
+- Never delete or rename a PRD file, and never reuse a PRD number. [PROC-09, PROC-03]
+- Never change the meaning of an Approved PRD in place; write a new PRD that supersedes it. [PROC-10]
+- Never add scope when you split a PRD into issues. [GOV-07, PROC-12]
+- Never merge a breaking change, and never decide on vulnerabilities, secrets, legal or licensing matters, access, spending, or a code-host move; tags and releases follow only Azusa's exact-commit gate in `GOVERNANCE.md`. [GOV-05, GOV-16]
+- Never merge the `dev → main` promotion unless every required check passed on the exact head commit. [GOV-10]
+- Never merge or deploy `wfl-web` while it lacks required CI, branch protection and a deploy procedure. [GOV-11, GOV-12]
+- Never deploy without a rollback point, and never upgrade the website's WFL to an unreleased build. [GOV-12, GOV-14]
+- Never print, copy, create or rotate website credentials. [GOV-15]
+- Never approve or merge a change to a policy file (for example `GOVERNANCE.md`, `testing.md`, this file, the issue and PRD process docs, `.github/CODEOWNERS`); you may propose one. [GOV-17]
+- Never discuss a possible vulnerability in a public issue. [GOV-08]
+- Never close an issue as a duplicate without linking the original. [GOV-09]
+<!-- END project-policy -->
 
 When changing contribution workflow, community rules, or project authority, update the root governance suite **and** keep this section accurate.
 

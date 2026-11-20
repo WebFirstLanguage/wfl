@@ -12,10 +12,11 @@ Development work still follows the [WFL foundation](../wfl-foundation.md): clear
 1. **[Building from Source](building-from-source.md)** — Install Rust, clone, build, test, run
 2. **[Contributing Guide](contributing-guide.md)** — How to propose and land changes
 3. **[Issue Policy](issue-policy.md)** — Ranked issue types and agent dispatch, merge, and closure rules
-4. **[Architecture Overview](architecture-overview.md)** — Compiler pipeline and major components
-5. **[LSP Integration](lsp-integration.md)** — Language Server for editors
-6. **[MCP Integration](mcp-integration.md)** — AI assistant tools (parse, analyze, typecheck, lint)
-7. **[Compiler Internals](compiler-internals.md)** — Deeper implementation notes
+4. **[PRD Process](prd-process.md)** — How a feature idea becomes an Approved PRD that agents may build
+5. **[Architecture Overview](architecture-overview.md)** — Compiler pipeline and major components
+6. **[LSP Integration](lsp-integration.md)** — Language Server for editors
+7. **[MCP Integration](mcp-integration.md)** — AI assistant tools (parse, analyze, typecheck, lint)
+8. **[Compiler Internals](compiler-internals.md)** — Deeper implementation notes
 
 ## Design notes
 

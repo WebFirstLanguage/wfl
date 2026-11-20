@@ -12,6 +12,7 @@ code, documentation, tests, and examples.
 | [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) | Community standards |
 | [AI_POLICY.md](../../AI_POLICY.md) | AI-assisted contributions are welcome |
 | [Issue policy](issue-policy.md) | Agent dispatch, merge, and closure rules by issue type |
+| [PRD process](prd-process.md) | Feature ideas → Approved PRDs (Brad approves) → agent-built features |
 | [SECURITY.md](../../SECURITY.md) | Private security reporting |
 
 ## Getting Started

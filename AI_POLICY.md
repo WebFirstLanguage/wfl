@@ -64,10 +64,14 @@ If an AI-generated contribution introduces bugs, license problems, or policy
 violations, the **human author** (and any reviewing Maintainer who merges it)
 bears responsibility the same as for hand-written work.
 
-For project-run agents acting under the standing I1 delegation or the
-Dependabot merge delegation in
-[the issue policy](Docs/contributing/issue-policy.md), Maintainers remain
-accountable for that automation and may revoke either delegation.
+For project-run agents acting under a standing delegation — I1 fixes,
+Dependabot merges, features under an Approved PRD, project execution and
+`dev → main` promotion, or website operations
+([GOVERNANCE.md](GOVERNANCE.md) §3.9–§3.13 and
+[the issue policy](Docs/contributing/issue-policy.md)) — Maintainers remain
+accountable for that automation and may revoke any delegation. Agents may
+propose features as PRDs; only Brad approves them
+([the PRD process](Docs/contributing/prd-process.md)).
 
 ---
 
@@ -121,8 +125,8 @@ security research assistance, and automation, subject to:
 - No pasting private vulnerability details into untrusted third-party tools
   when that would violate [SECURITY.md](SECURITY.md) handling  
 - No committing secrets  
-- Human sign-off on releases and on merges outside the I1 and Dependabot
-  delegations in [the issue policy](Docs/contributing/issue-policy.md)
+- Human sign-off on releases, on PRD approval, and on merges outside the
+  delegations in [GOVERNANCE.md](GOVERNANCE.md) §3.9–§3.13
 - Independent review of the current revision, following
   [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27)
 

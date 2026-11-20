@@ -1,0 +1,25 @@
+# Required reviewers — GOVERNANCE.md §3.11 (GOV-01) and §10 (GOV-17).
+#
+# Brad (the primary Maintainer, GitHub account @logbie) approves every PRD and
+# every change to a binding policy file. This file only takes effect as a
+# merge control when the LOG-16 ruleset has "Require review from Code Owners"
+# turned on (GOVERNANCE.md §13, setup checklist #3). Change it only through a
+# PR that Brad approves.
+
+# Product requirement documents: only Brad approves which features WFL gets.
+/Engineering/prds/                      @logbie
+
+# Binding policy files and the agent instructions that carry the policy.
+/GOVERNANCE.md                          @logbie
+/CODE_OF_CONDUCT.md                     @logbie
+/AI_POLICY.md                           @logbie
+/CONTRIBUTING.md                        @logbie
+/SECURITY.md                            @logbie
+/testing.md                             @logbie
+/REPOSITORY_HYGIENE.md                  @logbie
+/.repo-hygiene.toml                     @logbie
+/AGENTS.md                              @logbie
+/CLAUDE.md                              @logbie
+/Docs/contributing/issue-policy.md      @logbie
+/Docs/contributing/prd-process.md       @logbie
+/.github/CODEOWNERS                     @logbie

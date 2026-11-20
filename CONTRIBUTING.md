@@ -15,6 +15,7 @@ governance suite below.
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 | [AI_POLICY.md](AI_POLICY.md) | AI-assisted work is welcome |
 | [Docs/contributing/issue-policy.md](Docs/contributing/issue-policy.md) | Which issue types agents may fix, merge, and close autonomously |
+| [Docs/contributing/prd-process.md](Docs/contributing/prd-process.md) | How a feature idea becomes an Approved PRD that agents may build |
 | [SECURITY.md](SECURITY.md) | Private vulnerability reporting |
 | [REPOSITORY_HYGIENE.md](REPOSITORY_HYGIENE.md) | Where content belongs; what may be tracked; approved output roots |
 | [Docs/contributing/contributing-guide.md](Docs/contributing/contributing-guide.md) | Fork, TDD, fmt/clippy/test, docs validation |
