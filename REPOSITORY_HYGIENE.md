@@ -17,7 +17,7 @@ history is never rewritten for hygiene reasons.
 | Directory | Contents | Normative? |
 |---|---|---|
 | `Docs/` | Maintained, published user and contributor documentation — what ships **now** | Yes |
-| `Engineering/` | Active designs (`designs/`), execution plans (`plans/`), test/release evidence (`evidence/`), component records (`components/`) | Yes, while active |
+| `Engineering/` | Active designs (`designs/`), product requirement documents (`prds/`), execution plans (`plans/`), test/release evidence (`evidence/`), component records (`components/`) | Yes, while active |
 | `History/` | Chronological project history, including the Dev Diary (`History/dev-diary/<year>/`) | No |
 | `Archive/` | Retained but inactive material, indexed by `Archive/manifest.json` | No |
 
@@ -47,6 +47,7 @@ updating it (and passing review of why the content belongs at the root).
 | Component-local usage documentation | Beside the component as `README.md` |
 | Maintained user/contributor docs | `Docs/` (contributor material: `Docs/contributing/`) |
 | Active designs and architecture records | `Engineering/designs/` |
+| Product requirement documents (PRDs), one per feature | `Engineering/prds/PRD-NNNN-short-name.md` ([process](Docs/contributing/prd-process.md)) |
 | Active execution plans and roadmaps | `Engineering/plans/` |
 | Test/release evidence | `Engineering/evidence/` |
 | Dev Diary entries | `History/dev-diary/<year>/` |

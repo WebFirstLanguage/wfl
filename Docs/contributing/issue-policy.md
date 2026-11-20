@@ -14,11 +14,16 @@ human approval when the review bots and branch rules satisfy every I1 completion
 gate below. Authors, including agent authors, must not merge their own PRs.
 After the merge, the author agent may close the linked issue with evidence.
 This is a narrow, standing delegation from the Maintainers under
-[GOVERNANCE.md](../../GOVERNANCE.md); it grants no release or general triage
-authority. Closing an issue without a merged fix (for example, as duplicate or
-not planned) still requires a Maintainer or delegated Contributor decision.
-A second, separate delegation lets agents merge eligible pull requests opened
-by Dependabot; see [Dependabot pull requests](#dependabot-pull-requests).
+[GOVERNANCE.md](../../GOVERNANCE.md); it grants no release authority. Closing
+an issue without a merged fix still requires a Maintainer or delegated
+Contributor decision, except that an agent may close a duplicate with a link to
+the original (GOVERNANCE.md §3.12, GOV-09).
+Three further delegations exist. Agents may build and merge a feature that has
+an Approved PRD; see
+[Feature pull requests under an approved PRD](#feature-pull-requests-under-an-approved-prd).
+Agents may merge eligible pull requests opened by Dependabot; see
+[Dependabot pull requests](#dependabot-pull-requests). Agents may triage
+issues, plan approved work, and promote `dev → main` under GOVERNANCE.md §3.12.
 
 ## Ranked issue types
 
@@ -30,8 +35,8 @@ human decision required below.
 | Rank | Issue type | Typical issues | Agent authority before a fix |
 |---|---|---|---|
 | **I1** | Well-defined bug or routine correction, autonomous | A reproducible internal or user-visible bug whose expected behavior is already established; a prose typo or broken link with an unambiguous correction; a test or fixture correction that preserves intended behavior without weakening a required gate | May investigate, self-dispatch and open a PR. A different eligible agent may merge after the I1 completion gates pass; the author may then close the linked issue with evidence. |
-| **I2** | Human review before dispatch | Any new feature or enhancement; a bug that needs a product or design decision; speculative performance work; dependency, CI, packaging, installer, or configuration changes (a pull request opened by Dependabot follows [Dependabot pull requests](#dependabot-pull-requests) instead); unclear acceptance criteria or disputed expected behavior | May triage and propose a fix. A Maintainer must confirm the scope and authorize dispatch in the issue or linked discussion before implementation starts. |
-| **I3** | Maintainer-led, restricted | Potential vulnerabilities or secrets; changes to security boundaries or protected data; new or breaking language syntax or semantics; compatibility exceptions, destructive migrations, release controls, registry trust, governance, legal/licensing, Code of Conduct, or access and permission decisions | Do not self-dispatch. A Maintainer chooses the handling channel, decision, scope, and whether to assign any implementation to an agent. Security reports follow [SECURITY.md](../../SECURITY.md) privately. |
+| **I2** | Human review before dispatch | Any new feature or enhancement that has no Approved PRD (a feature with an Approved PRD follows [Feature pull requests under an approved PRD](#feature-pull-requests-under-an-approved-prd) instead); a bug that needs a product or design decision; speculative performance work; dependency, CI, packaging, installer, or configuration changes (a pull request opened by Dependabot follows [Dependabot pull requests](#dependabot-pull-requests) instead); unclear acceptance criteria or disputed expected behavior | May triage and propose a fix. A Maintainer must confirm the scope and authorize dispatch in the issue or linked discussion before implementation starts. |
+| **I3** | Maintainer-led, restricted | Potential vulnerabilities or secrets; changes to security boundaries or protected data that no Approved PRD covers; breaking language syntax or semantics, and new syntax or semantics that no Approved PRD covers; compatibility exceptions, destructive migrations, release controls, registry trust, governance, legal/licensing, Code of Conduct, or access and permission decisions | Do not self-dispatch. A Maintainer chooses the handling channel, decision, scope, and whether to assign any implementation to an agent. Security reports follow [SECURITY.md](../../SECURITY.md) privately. |
 
 I1 applies to bugs when the agent can reproduce the failure, explain the
 observed and expected behavior using an existing contract, and state a bounded
@@ -81,6 +86,60 @@ After the merge succeeds, the agent may close the linked issue with the merged
 PR and verification evidence. A merge keyword that closes the issue on merge
 also satisfies this step. If any gate fails or the change expands beyond I1,
 pause and seek a Maintainer decision.
+
+## Feature pull requests under an approved PRD
+
+A feature is new or changed behavior that a WFL user, a WFL program, or another
+system can observe ([the PRD process](prd-process.md), PROC-01). Brad decides
+which features WFL gets by approving a PRD. Once a PRD is `Approved`, the
+approval is the dispatch decision: a project-run agent may plan the work, build
+it, and open pull requests without asking again. This is a standing delegation
+under GOVERNANCE.md §3.11. It grants no release, tag or deployment authority.
+
+### What an Approved PRD covers
+
+- An Approved PRD covers the behavior in its requirements and acceptance
+  criteria, and nothing else (GOV-03). It lifts the I2 "new feature" rule and,
+  for exactly what it states, two I3 rules: new non-breaking syntax or
+  semantics, and changes to security boundaries or protected data. Such work is
+  `R3` and needs the security-focused independent review before merge.
+- It does not cover breaking changes or compatibility exceptions, security
+  vulnerabilities or secrets, releases and tags, legal or licensing matters,
+  access and permission decisions, spending money, policy files, or moving the
+  code host (GOV-05). Those keep their I3 handling.
+- Bug fixes inside a feature that is still being built are part of that PRD's
+  work. Bugs found after the feature shipped are ordinary I1 issues.
+
+### Feature completion gates
+
+An eligible agent other than the PR author may merge a feature PR when **all**
+of these conditions hold. The author agent never merges its own PR.
+
+1. **The PRD is Approved on the target branch.** The PRD file on `dev` has
+   `status: Approved` when the merge happens; a `Superseded` or `Rejected` PRD
+   authorizes nothing. The PR names the PRD and the `REQ`/`AC` IDs it builds
+   (PROC-13), and does not edit the PRD file (PROC-11).
+2. **The diff stays inside the PRD.** The reviewer compares the diff with the
+   named requirements and finds no behavior that the PRD does not state
+   (GOV-03, PROC-14). Anything more is split out and goes back to Brad.
+3. **Every named acceptance criterion is proven.** Each has Red → Green
+   evidence and an end-to-end test through the real shipped artifact, recorded
+   in the PR's `testing.md` §15 evidence section (GOV-06, PROC-15).
+4. **Docs ship with the feature.** The guides, both keyword references when a
+   keyword is added or reclassified, a validated example, and a Dev Diary entry
+   are in the same PR (GOVERNANCE.md §3.4).
+5. **The change is not breaking.** The PRD's "Compatibility" section and the
+   reviewer both confirm that no existing program, configuration file, CLI
+   invocation or documented output changes, including through a newly reserved
+   word. A breaking change is not eligible: Brad merges it (GOV-05).
+6. **The I1 merge gates 2–4 pass** on the final head: required CI, independent
+   review (including the security-focused review for `R3`), handled bot
+   findings, and branch rules without a bypass.
+
+After the merge, the agent updates the PRD's issues and milestone. When every
+requirement is merged into `dev`, it opens the small status PR that sets the
+PRD to `Implemented` (PROC-11). If any gate fails, the agent fixes the PR or
+stops and asks Brad; it does not split or relabel work to get around a gate.
 
 ## Dependabot pull requests
 
@@ -202,7 +261,10 @@ privately, as an I3 matter.
    `SECURITY.md`. Treat it as I3 even if the proposed patch looks small.
 2. Record the issue type, short rationale, expected outcome, and testing risk
    class in the issue or linked PR. For I2, link the Maintainer's dispatch
-   decision. For I3, use the channel selected by the Maintainer.
+   decision, or for a feature the Approved PRD. For I3, use the channel
+   selected by the Maintainer. Project-run agents may do this triage, ask the
+   reporter for missing details, and close a duplicate with a link to the
+   original (GOVERNANCE.md §3.12).
 3. If the issue fits more than one type, choose the higher rank. If facts are
    missing, default to I2; if a sensitive or I3 trigger is plausible, use I3.
    An agent may continue read-only investigation but must pause implementation
@@ -217,8 +279,9 @@ privately, as an I3 matter.
 
 **Examples:** A broken prose link is I1 if its target is obvious. A compiler
 diagnostic that contradicts an existing documented rule is I1 when it has a
-reproduction and a clear expected message. A request for a new diagnostic is
-I2. A parser bug with a documented expected result can be I1 even when its
+reproduction and a clear expected message. A request for a new diagnostic is a
+feature: it is I2 until Brad approves a PRD for it, and then agents may build
+it. A parser bug with a documented expected result can be I1 even when its
 testing risk is `R3`; an independent review and all `R3` evidence still apply.
 A public issue that appears to expose a credential is I3 and moves to private
 handling.
