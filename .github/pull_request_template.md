@@ -1,3 +1,9 @@
+> [!IMPORTANT]
+> **This repository has moved** to [gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl).
+> Please open a merge request into `dev` there instead of a pull request here.
+> You need a gitlab.wfl.fyi account; self-service sign-up is currently off, so
+> email **info@logbie.com** to request one.
+
 # Summary
 
 Describe the final change and owning issue.
