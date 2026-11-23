@@ -105,7 +105,7 @@ application.
 ### How to apply
 
 1. **Open an issue** in the
-   [wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl/-/issues) repository  
+   [wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) repository  
    (title: `WFL Contributor Application`), **or** email **info@logbie.com** with
    subject: `WFL Contributor Application`.  
 2. Use the template below.  
@@ -180,7 +180,7 @@ Anything you explicitly do *not* want responsibility for?
 
 ## Questions
 
-- GitLab issues: https://gitlab.wfl.fyi/wfl/wfl/-/issues  
+- GitLab issues: https://gitlab.wfl.fyi/wfl/wfl/-/work_items  
 - Email: info@logbie.com  
 - Draft merge requests are welcome when you want early design feedback  
 

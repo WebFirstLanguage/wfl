@@ -1,5 +1,13 @@
 # WFL Project Governance
 
+> [!IMPORTANT]
+> **This repository has moved** to [https://gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl).
+> The current binding copy of this policy is the one on GitLab (`dev`). New
+> merge requests and policy changes should go there. The GitHub ruleset and
+> Actions gates below still describe *this* GitHub repository and remain in
+> effect here until it is archived; they are not a description of GitLab's
+> merge gates.
+
 This document describes how the WebFirst Language (WFL) project is governed:
 who makes decisions, how contributions are accepted, and which project
 policies are binding. It codifies practices already documented across the
@@ -125,7 +133,7 @@ identity enforcement does not authorize bypass or replace independent review.
 | Item | Value |
 |---|---|
 | **Project name** | WebFirst Language (WFL) |
-| **Primary repository** | https://github.com/WebFirstLanguage/wfl |
+| **Primary repository** | https://gitlab.wfl.fyi/wfl/wfl |
 | **License** | Apache License 2.0 |
 | **Copyright holder** | Logbie LLC |
 | **Contact** | info@logbie.com |
@@ -174,8 +182,8 @@ has the final vote.
 
 Community input is valued and routinely sought through:
 
-- GitHub Issues and Discussions  
-- Pull request review comments  
+- [GitLab issues](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) on gitlab.wfl.fyi  
+- Merge request review comments  
 - Design notes and Dev Diary entries under `History/dev-diary/<year>/`  
 
 Input is advisory unless a Maintainer adopts it. Silence is not consent for

@@ -186,8 +186,8 @@ As alpha software, WFL has the following known limitations:
 
 ### Community Resources
 
-- [GitLab issues](https://gitlab.wfl.fyi/wfl/wfl/-/issues) - Security questions and best practices (not vulnerability reports)
-- [Issue Tracker](https://gitlab.wfl.fyi/wfl/wfl/-/issues) - Non-security bugs and feature requests
+- [GitLab issues](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) - Security questions and best practices (not vulnerability reports)
+- [Issue Tracker](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) - Non-security bugs and feature requests
 - [GOVERNANCE.md](GOVERNANCE.md) - Project authority and contribution policies
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community standards
 - [AI_POLICY.md](AI_POLICY.md) - AI-assisted work is welcome

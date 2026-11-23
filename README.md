@@ -4,7 +4,7 @@
 > **This repository has moved.** Development now happens at
 > [https://gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl).
 >
-> - **Issues:** file them on [GitLab Issues](https://gitlab.wfl.fyi/wfl/wfl/-/issues).
+> - **Issues:** file them on [GitLab Issues](https://gitlab.wfl.fyi/wfl/wfl/-/work_items).
 > - **Contributing:** open merge requests into `dev` on GitLab. You need an
 >   account on that instance; self-service sign-up is currently turned off, so
 >   email **info@logbie.com** to request one. See [CONTRIBUTING.md](CONTRIBUTING.md).
