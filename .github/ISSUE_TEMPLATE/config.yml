@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitLab issues
+    url: https://gitlab.wfl.fyi/wfl/wfl/-/work_items
+    about: File bugs and feature requests in the new GitLab repository. This GitHub repository is no longer the development home.
+  - name: Report a security vulnerability
+    url: https://gitlab.wfl.fyi/wfl/wfl/-/issues/new?issue[confidential]=true
+    about: Use a confidential GitLab issue, or email info@logbie.com with subject "WFL Security Vulnerability". Do not file a public issue.

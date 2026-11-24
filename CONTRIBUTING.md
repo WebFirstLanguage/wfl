@@ -1,5 +1,11 @@
 # Contributing to WFL
 
+> [!IMPORTANT]
+> **This repository has moved.** Open issues and merge requests at
+> [https://gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl), not on GitHub.
+> You need an account on that instance; self-service sign-up is currently
+> turned off, so email **info@logbie.com** to request one.
+
 Contribution authority, feature → `dev` PRs, exact-commit CI, independent review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
@@ -38,11 +44,16 @@ You do **not** need to be a formal Contributor to help. From a fork you can:
 
 ### Quick start
 
-1. Fork https://github.com/WebFirstLanguage/wfl  
+WFL is hosted on a self-hosted GitLab at [gitlab.wfl.fyi](https://gitlab.wfl.fyi/wfl/wfl). Opening
+issues, forks and merge requests there needs an account on that instance;
+self-service sign-up is currently turned off, so email **info@logbie.com** to
+request one.
+
+1. Fork https://gitlab.wfl.fyi/wfl/wfl  
 2. Create a branch from current dev: `git checkout -b feature/my-change origin/dev`
 3. Follow TDD and quality gates in the
    [contributing guide](Docs/contributing/contributing-guide.md)  
-4. Open a pull request into `dev` with a clear description
+4. Open a merge request (MR) into `dev` with a clear description
 
 ### Non-negotiable project rules (summary)
 
@@ -93,9 +104,9 @@ application.
 
 ### How to apply
 
-1. **Open a GitHub Discussion** in the
-   [WebFirstLanguage/wfl](https://github.com/WebFirstLanguage/wfl) repository  
-   (category: *Ideas* or *General*), **or** email **info@logbie.com** with
+1. **Open an issue** in the
+   [wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) repository  
+   (title: `WFL Contributor Application`), **or** email **info@logbie.com** with
    subject: `WFL Contributor Application`.  
 2. Use the template below.  
 3. Wait for Maintainer review. We aim to respond within **14 days**; complex
@@ -105,9 +116,9 @@ application.
 5. If not approved yet, Maintainers will say what would help (e.g. more review
    cycles, a specific area of ownership). You may re-apply later.
 
-**Privacy:** GitHub Discussions are **public**. Do **not** put a private email
-address, phone number, or other non-public contact details in a Discussion
-application. Use your public GitHub identity there. If Maintainers need a
+**Privacy:** issues on gitlab.wfl.fyi are **public**. Do **not** put a private email
+address, phone number, or other non-public contact details in an issue
+application. Use your public GitLab identity there. If Maintainers need a
 private contact path, apply (or follow up) by email to **info@logbie.com**
 instead.
 
@@ -118,9 +129,9 @@ instead.
 
 ## Identity
 - Name (or preferred handle):
-- GitHub username:
+- GitLab username (gitlab.wfl.fyi), if you have one:
 - Time zone (optional):
-- Preferred private contact: (EMAIL APPLICATIONS ONLY — leave blank on public Discussions)
+- Preferred private contact: (EMAIL APPLICATIONS ONLY — leave blank on public issues)
 
 ## Motivation
 Why do you want Contributor status on WFL?
@@ -169,8 +180,8 @@ Anything you explicitly do *not* want responsibility for?
 
 ## Questions
 
-- GitHub Discussions: https://github.com/WebFirstLanguage/wfl/discussions  
+- GitLab issues: https://gitlab.wfl.fyi/wfl/wfl/-/work_items  
 - Email: info@logbie.com  
-- Draft PRs are welcome when you want early design feedback  
+- Draft merge requests are welcome when you want early design feedback  
 
 **Thank you for helping build a language that reads like English.**

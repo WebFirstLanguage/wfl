@@ -16,12 +16,16 @@ code, documentation, tests, and examples.
 
 ## Getting Started
 
-1. **Fork** the repository
+You need an account on [gitlab.wfl.fyi](https://gitlab.wfl.fyi/wfl/wfl) to fork and open merge
+requests. Self-service sign-up is currently off; email info@logbie.com to
+request one.
+
+1. **Fork** the repository on [gitlab.wfl.fyi](https://gitlab.wfl.fyi/wfl/wfl)
 2. **Clone** your fork
 3. **Create branch:** `git checkout -b feature/my-feature origin/dev`
 4. **Make changes** (TDD — tests first)
 5. **Test thoroughly**
-6. **Submit PR into `dev`**; follow the current-revision CI, independent review and
+6. **Open a merge request (MR) into `dev`**; follow the current-revision CI, independent review and
    authority gates in [GOVERNANCE.md](../../GOVERNANCE.md).
 
 Want trusted collaborator access? See
@@ -77,12 +81,14 @@ cargo build --release
 python scripts/validate_docs_examples.py --file path/to/example.wfl
 ```
 
-### 4. Create PR
+### 4. Open a merge request
 
 Use the canonical template at
-[`.github/pull_request_template.md`](../../.github/pull_request_template.md).
+[`.github/pull_request_template.md`](../../.github/pull_request_template.md):
+copy it into the merge request description, because GitLab does not apply it
+automatically.
 
-**PR should include:**
+**The MR should include:**
 - Clear description of changes
 - Tests for new features/fixes
 - Documentation updates
@@ -163,7 +169,7 @@ Before making changes:
 2. If yes: Can it be additive instead?
 3. If must break: Deprecation period (1+ year)
 
-## PR Checklist
+## MR Checklist
 
 Before submitting:
 
@@ -188,9 +194,9 @@ feedback. See [AI_POLICY.md](../../AI_POLICY.md).
 ## Getting Help
 
 **Questions?**
-- GitHub Discussions
+- [GitLab issues labelled `question`](https://gitlab.wfl.fyi/wfl/wfl/-/work_items?label_name[]=question)
 - Email: info@logbie.com
-- Open draft PR for feedback
+- Open a draft MR for feedback
 - Contributor applications: [CONTRIBUTING.md](../../CONTRIBUTING.md#becoming-a-contributor)
 
 **Thank you for contributing to WFL!** 🎉

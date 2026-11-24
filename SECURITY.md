@@ -1,5 +1,11 @@
 # Security Policy
 
+> [!IMPORTANT]
+> **This repository has moved** to [https://gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl).
+> Report vulnerabilities there (or by email), not through public GitHub issues.
+> Preferred and email contacts are unchanged except that private reporting now
+> uses a confidential GitLab issue instead of a GitHub Security Advisory.
+
 Contribution authority, feature → `dev` PRs, exact-commit CI, independent review,
 bot feedback, secrets and production boundaries follow
 [GOVERNANCE.md](GOVERNANCE.md#common-contribution-policy--version-10-2026-09-27).
@@ -28,11 +34,11 @@ We take security vulnerabilities seriously and appreciate responsible disclosure
 
 ### How to Report
 
-**Please DO NOT report security vulnerabilities through public GitHub issues.**
+**Please DO NOT report security vulnerabilities through public GitHub or GitLab issues.**
 
 Instead, please use one of these methods:
 
-1. **Preferred**: [GitHub Security Advisories](https://github.com/WebFirstLanguage/wfl/security/advisories/new) (private reporting)
+1. **Preferred**: a [confidential GitLab issue](https://gitlab.wfl.fyi/wfl/wfl/-/issues/new?issue[confidential]=true) (private reporting: tick *This issue is confidential*; only you and project members can see it). This needs an account on gitlab.wfl.fyi; self-service sign-up is currently off, so use email if you do not have one.
 2. **Email**: Send details to `info@logbie.com` with subject line "WFL Security Vulnerability"
 3. **Alternative**: Direct message to repository maintainers
 
@@ -76,7 +82,7 @@ All security fixes follow our Test-Driven Development (TDD) methodology:
 
 ### Notification Channels
 
-- GitHub Security Advisories
+- Confidential GitLab issues (closed and made public after coordinated disclosure)
 - Release notes with security section
 - Email notification to registered users (when available)
 
@@ -180,8 +186,8 @@ As alpha software, WFL has the following known limitations:
 
 ### Community Resources
 
-- [GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions) - Security questions and best practices
-- [Issue Tracker](https://github.com/WebFirstLanguage/wfl/issues) - Non-security bugs and feature requests
+- [GitLab issues](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) - Security questions and best practices (not vulnerability reports)
+- [Issue Tracker](https://gitlab.wfl.fyi/wfl/wfl/-/work_items) - Non-security bugs and feature requests
 - [GOVERNANCE.md](GOVERNANCE.md) - Project authority and contribution policies
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community standards
 - [AI_POLICY.md](AI_POLICY.md) - AI-assisted work is welcome
@@ -197,8 +203,8 @@ We appreciate the security research community and will acknowledge responsible d
 ## 📞 Contact Information
 
 - **General Security**: info@logbie.com
-- **Emergency Security Issues**: Use GitHub Security Advisories for fastest response
-- **Project Repository**: https://github.com/WebFirstLanguage/wfl
+- **Emergency Security Issues**: Use a confidential GitLab issue (or email) for fastest response
+- **Project Repository**: https://gitlab.wfl.fyi/wfl/wfl
 
 ---
 

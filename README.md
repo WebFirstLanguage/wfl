@@ -1,5 +1,15 @@
 # WFL — the WebFirst Language
 
+> [!IMPORTANT]
+> **This repository has moved.** Development now happens at
+> [https://gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl).
+>
+> - **Issues:** file them on [GitLab Issues](https://gitlab.wfl.fyi/wfl/wfl/-/work_items).
+> - **Contributing:** open merge requests into `dev` on GitLab. You need an
+>   account on that instance; self-service sign-up is currently turned off, so
+>   email **info@logbie.com** to request one. See [CONTRIBUTING.md](CONTRIBUTING.md).
+> - **Security reports:** do not file public issues. See [SECURITY.md](SECURITY.md).
+
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/WebFirstLanguage/wfl)
 
 **Programming that reads like plain English.**
@@ -163,5 +173,6 @@ Licensed under the [Apache License 2.0](LICENSE).
 ## Contribution policy
 
 Read [GOVERNANCE.md](GOVERNANCE.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-Work on feature branches and open PRs into `dev`; current-revision CI and
+Work on feature branches and open merge requests into `dev` on
+[gitlab.wfl.fyi/wfl/wfl](https://gitlab.wfl.fyi/wfl/wfl); current-revision CI and
 independent review are required.
